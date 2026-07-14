@@ -232,6 +232,89 @@ bb_err_t bb_settings_timezone_set(const char *tz)
     return bb_config_set_str(&s_timezone_field, t);
 }
 
+// Byte-compat with bb_nv: matches platform/espidf/bb_nv/bb_nv.c's (removed)
+// BB_NV_KEY_DISPLAY_EN/BB_NV_KEY_MDNS_EN/BB_NV_KEY_UPDATE_CHECK_EN under the
+// SAME BB_SETTINGS_WIFI_NS ("bb_cfg") -- do not change without a migration
+// plan, this strands provisioned-board flag values otherwise (B1-750).
+#define BB_SETTINGS_DISPLAY_EN_KEY       "display_en"
+#define BB_SETTINGS_MDNS_EN_KEY          "mdns_en"
+#define BB_SETTINGS_UPDATE_CHECK_EN_KEY  "update_check_en"
+
+// Default-on (true) when unset -- preserves bb_nv_config_init's prior
+// "no config in NVS" / nvs_get_u8-failure default-on behavior exactly
+// (was platform/espidf/bb_nv/bb_nv.c, B1-750).
+static const bb_config_field_t s_display_enabled_field = {
+    .id          = "display.enabled",
+    .type        = BB_CONFIG_BOOL,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_SETTINGS_WIFI_NS, .key = BB_SETTINGS_DISPLAY_EN_KEY },
+    .def         = { .b = true },
+    .has_default = true,
+    .label       = "Display enabled",
+    .group       = "system",
+};
+
+static const bb_config_field_t s_mdns_enabled_field = {
+    .id          = "mdns.enabled",
+    .type        = BB_CONFIG_BOOL,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_SETTINGS_WIFI_NS, .key = BB_SETTINGS_MDNS_EN_KEY },
+    .def         = { .b = true },
+    .has_default = true,
+    .label       = "mDNS enabled",
+    .group       = "network",
+};
+
+static const bb_config_field_t s_update_check_enabled_field = {
+    .id          = "update_check.enabled",
+    .type        = BB_CONFIG_BOOL,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_SETTINGS_WIFI_NS, .key = BB_SETTINGS_UPDATE_CHECK_EN_KEY },
+    .def         = { .b = true },
+    .has_default = true,
+    .label       = "Update check enabled",
+    .group       = "system",
+};
+
+// Fail-open to the default (true) on a real backend error too, not just
+// not-found -- mirrors bb_nv_config_init's own "nvs_get_u8(...) != ESP_OK ->
+// default 1" fallback exactly (a storage error was treated the same as
+// unset, never surfaced to the caller as false).
+bool bb_settings_display_enabled_get(void)
+{
+    bool en = true;
+    bb_err_t err = bb_config_get_bool(&s_display_enabled_field, &en);
+    return err == BB_OK ? en : true;
+}
+
+bb_err_t bb_settings_display_enabled_set(bool en)
+{
+    return bb_config_set_bool(&s_display_enabled_field, en);
+}
+
+// Same fail-open-to-default rationale as bb_settings_display_enabled_get.
+bool bb_settings_mdns_enabled_get(void)
+{
+    bool en = true;
+    bb_err_t err = bb_config_get_bool(&s_mdns_enabled_field, &en);
+    return err == BB_OK ? en : true;
+}
+
+bb_err_t bb_settings_mdns_enabled_set(bool en)
+{
+    return bb_config_set_bool(&s_mdns_enabled_field, en);
+}
+
+// Same fail-open-to-default rationale as bb_settings_display_enabled_get.
+bool bb_settings_update_check_enabled_get(void)
+{
+    bool en = true;
+    bb_err_t err = bb_config_get_bool(&s_update_check_enabled_field, &en);
+    return err == BB_OK ? en : true;
+}
+
+bb_err_t bb_settings_update_check_enabled_set(bool en)
+{
+    return bb_config_set_bool(&s_update_check_enabled_field, en);
+}
+
 // ---------------------------------------------------------------------------
 // RTC warm-reboot mirror (B1-763: crash-atomic since bb_storage_rtc gained
 // the optional bb_storage txn vtable group). Shared by both live writers

@@ -35,16 +35,8 @@ bb_err_t bb_nv_flash_init(void);
 
 const char *bb_nv_config_wifi_ssid(void);
 const char *bb_nv_config_wifi_pass(void);
-bool     bb_nv_config_display_enabled(void);
-bb_err_t bb_nv_config_set_display_enabled(bool en);
-bool     bb_nv_config_mdns_enabled(void);
-bool bb_nv_config_update_check_enabled(void);
 
 #ifndef ESP_PLATFORM
-// Test hook: force the next bb_nv_config_set_update_check_enabled call to fail.
-// Reset to false after the test.
-void bb_nv_config_host_force_set_update_check_fail(bool fail);
-
 // Test hook: clear the in-memory string store used by host bb_nv_get_str /
 // bb_nv_set_str.  Call from setUp() to prevent cross-test leakage.
 void bb_nv_host_str_store_reset(void);
@@ -68,7 +60,6 @@ bool      bb_nv_config_ota_skip_check(void);
 bb_err_t bb_nv_config_set_ota_skip_check(bool skip);
 
 bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass);
-bb_err_t bb_nv_config_set_mdns_enabled(bool en);
 
 /// Stage pending wifi credentials (wifi_ssid_p / wifi_pass_p / wifi_try=1).
 /// Validates via bb_wifi_pending_validate. Does NOT touch live creds or mirror.
@@ -102,9 +93,6 @@ static inline const char *bb_nv_config_wifi_pending_pass(void) { return ""; }
 static inline bb_err_t bb_nv_config_commit_wifi_pending(void) { return BB_ERR_UNSUPPORTED; }
 static inline bb_err_t bb_nv_config_clear_wifi_pending(void) { return BB_ERR_UNSUPPORTED; }
 #endif
-
-// Available on all platforms: in-memory on host, NVS-persisted on ESP-IDF.
-bb_err_t bb_nv_config_set_update_check_enabled(bool en);
 
 /// Encode and persist a reboot record (src, detail, epoch_s, uptime_s) under
 /// BB_REBOOT_NVS_NS/BB_REBOOT_KEY_LAST via bb_reboot_record_encode +

@@ -19,6 +19,10 @@
 // firing) -- bb_core.h has no dedicated "storage I/O" error code, so this
 // stands in for a generic non-NOT_FOUND backend failure, for exercising
 // promote()'s fail-closed backend-error branches.
+//
+// fake_nvs_backend_fail_set_key(key) is the set()-side counterpart -- same
+// one-shot BB_ERR_TIMEOUT injection, for exercising a consumer's
+// write-failure branch (e.g. an HTTP handler's 500-on-NV-write-failed path).
 
 #include "bb_storage.h"
 
@@ -41,10 +45,15 @@ static fake_nvs_entry_t s_fake_nvs[FAKE_NVS_MAX_ENTRIES];
 // BB_ERR_TIMEOUT instead of touching the store, then clears itself.
 static char s_fake_nvs_fail_key[FAKE_NVS_KEY_MAX];
 
+// One-shot set() failure injection -- same one-shot contract as
+// s_fake_nvs_fail_key above, applied to set() instead of get().
+static char s_fake_nvs_fail_set_key[FAKE_NVS_KEY_MAX];
+
 static inline void fake_nvs_reset(void)
 {
     memset(s_fake_nvs, 0, sizeof(s_fake_nvs));
     s_fake_nvs_fail_key[0] = '\0';
+    s_fake_nvs_fail_set_key[0] = '\0';
 }
 
 // Arms one-shot get() failure injection for the given key. Pass NULL/""
@@ -57,6 +66,18 @@ static inline void fake_nvs_backend_fail_key(const char *key)
     }
     strncpy(s_fake_nvs_fail_key, key, sizeof(s_fake_nvs_fail_key) - 1);
     s_fake_nvs_fail_key[sizeof(s_fake_nvs_fail_key) - 1] = '\0';
+}
+
+// Arms one-shot set() failure injection for the given key. Pass NULL/""
+// to disarm without waiting for it to fire.
+static inline void fake_nvs_backend_fail_set_key(const char *key)
+{
+    if (key == NULL) {
+        s_fake_nvs_fail_set_key[0] = '\0';
+        return;
+    }
+    strncpy(s_fake_nvs_fail_set_key, key, sizeof(s_fake_nvs_fail_set_key) - 1);
+    s_fake_nvs_fail_set_key[sizeof(s_fake_nvs_fail_set_key) - 1] = '\0';
 }
 
 static inline fake_nvs_entry_t *fake_nvs_find(const char *key)
@@ -91,6 +112,11 @@ static inline bb_err_t fake_nvs_get(void *impl, const bb_storage_addr_t *addr, v
 static inline bb_err_t fake_nvs_set(void *impl, const bb_storage_addr_t *addr, const void *buf, size_t len)
 {
     (void)impl;
+    if (s_fake_nvs_fail_set_key[0] != '\0' && addr->key != NULL &&
+        strcmp(s_fake_nvs_fail_set_key, addr->key) == 0) {
+        s_fake_nvs_fail_set_key[0] = '\0';  // one-shot
+        return BB_ERR_TIMEOUT;
+    }
     if (len > FAKE_NVS_MAX_VALUE) return BB_ERR_NO_SPACE;
 
     fake_nvs_entry_t *e = fake_nvs_find(addr->key);

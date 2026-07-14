@@ -7,12 +7,14 @@
 //   2. Route handler: 400 for missing confirm, 400 for wrong confirm, 202 for correct confirm.
 //
 // On host, the RTC mirror does not exist; we verify mirror-invalidation by
-// checking that config fields return to defaults (clears ssid/display_en).
-// Hostname moved to bb_settings (B1-754) and is no longer part of bb_nv's
-// factory-reset scope. The
-// mirror-invalidation logic path for the RTC region is covered by the ESP-IDF
-// impl at compile time; on host the #if CONFIG_BB_NV_CREDS_RTC_BACKUP path does
-// not execute, but the surrounding code is exercised.
+// checking that config fields return to defaults (clears ssid). Hostname,
+// timezone, and display/mdns/update-check-enabled all moved to bb_settings
+// (B1-754/B1-750) and are no longer part of bb_nv's own factory-reset scope
+// (bb_nv's host stub only zeroes its own legacy s_config -- see
+// bb_nv_config_factory_reset's comment in platform/espidf/bb_nv/bb_nv.c).
+// The mirror-invalidation logic path for the RTC region is covered by the
+// ESP-IDF impl at compile time; on host the #if CONFIG_BB_NV_CREDS_RTC_BACKUP
+// path does not execute, but the surrounding code is exercised.
 
 #include "unity.h"
 #include "bb_nv.h"
@@ -28,24 +30,6 @@
 // ---------------------------------------------------------------------------
 // Core function tests
 // ---------------------------------------------------------------------------
-
-void test_nv_factory_reset_clears_config(void)
-{
-    // Seed some config state.
-    bb_nv_config_init();
-    bb_nv_config_set_display_enabled(false);
-
-    bb_err_t err = bb_nv_config_factory_reset();
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-
-    // After reset: ssid empty, display back to default (1).
-    const char *ssid = bb_nv_config_wifi_ssid();
-    TEST_ASSERT_NOT_NULL(ssid);
-    TEST_ASSERT_EQUAL_STRING("", ssid);
-
-    // display_en defaults to true after reset.
-    TEST_ASSERT_TRUE(bb_nv_config_display_enabled());
-}
 
 void test_nv_factory_reset_clears_wifi_ssid(void)
 {
@@ -65,19 +49,6 @@ void test_nv_factory_reset_returns_ok_after_reinit(void)
     bb_nv_config_init();
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_nv_config_factory_reset());
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_nv_config_factory_reset());
-}
-
-void test_nv_factory_reset_restores_defaults(void)
-{
-    // After reset, mdns/update-check flags must be their compile-time defaults.
-    bb_nv_config_init();
-    bb_nv_config_set_update_check_enabled(false);
-    bb_nv_config_factory_reset();
-
-    // update_check_en should be 1 (default) after reset.
-    TEST_ASSERT_TRUE(bb_nv_config_update_check_enabled());
-    // mdns_en should be 1 (default) after reset.
-    TEST_ASSERT_TRUE(bb_nv_config_mdns_enabled());
 }
 
 // ---------------------------------------------------------------------------
@@ -170,21 +141,6 @@ void test_nv_factory_reset_route_valid_confirm_returns_202(void)
 
     cJSON_Delete(j);
     bb_http_host_capture_free(&cap);
-}
-
-void test_nv_factory_reset_route_valid_confirm_clears_config(void)
-{
-    // Verify the handler calls bb_nv_config_factory_reset() which clears state.
-    bb_nv_config_init();
-    bb_nv_config_set_display_enabled(false);
-    TEST_ASSERT_FALSE(bb_nv_config_display_enabled());
-
-    bb_http_host_capture_t cap = run_factory_reset("{\"confirm\":\"factory-reset\"}");
-    TEST_ASSERT_EQUAL_INT(202, cap.status);
-    bb_http_host_capture_free(&cap);
-
-    // Config must now be cleared (display_en back to default true).
-    TEST_ASSERT_TRUE(bb_nv_config_display_enabled());
 }
 
 void test_nv_factory_reset_route_oversized_body_returns_400(void)

@@ -72,6 +72,29 @@ bb_err_t bb_settings_timezone_get(char *buf, size_t cap, size_t *out_len);
 // BB_OK on success.
 bb_err_t bb_settings_timezone_set(const char *tz);
 
+// Read the display-enabled flag. Fail-open to true (display enabled) on
+// both an unset key AND a real backend I/O error -- mirrors bb_nv's prior
+// "nvs_get_u8(...) != ESP_OK -> default 1" behavior exactly (B1-750): a
+// storage error was never distinguishable from "unset" there either.
+bool bb_settings_display_enabled_get(void);
+
+// Persist the display-enabled flag.
+bb_err_t bb_settings_display_enabled_set(bool en);
+
+// Read the mDNS-enabled flag. Same fail-open-to-true contract as
+// bb_settings_display_enabled_get (B1-750).
+bool bb_settings_mdns_enabled_get(void);
+
+// Persist the mDNS-enabled flag.
+bb_err_t bb_settings_mdns_enabled_set(bool en);
+
+// Read the update-check-enabled flag. Same fail-open-to-true contract as
+// bb_settings_display_enabled_get (B1-750).
+bool bb_settings_update_check_enabled_get(void);
+
+// Persist the update-check-enabled flag.
+bb_err_t bb_settings_update_check_enabled_set(bool en);
+
 // ---------------------------------------------------------------------------
 // WiFi live-creds writer (B1: bb_nv creds-cluster PR4).
 //

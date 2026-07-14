@@ -16,9 +16,6 @@
 
 #define BB_NV_KEY_WIFI_SSID         "wifi_ssid"
 #define BB_NV_KEY_WIFI_PASS         "wifi_pass"
-#define BB_NV_KEY_MDNS_EN           "mdns_en"
-#define BB_NV_KEY_UPDATE_CHECK_EN   "update_check_en"
-#define BB_NV_KEY_DISPLAY_EN        "display_en"
 #define BB_NV_KEY_PROVISIONED       "provisioned"
 #define BB_NV_KEY_WIFI_SSID_P       "wifi_ssid_p"
 #define BB_NV_KEY_WIFI_PASS_P       "wifi_pass_p"
@@ -58,33 +55,6 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
         .provisioning_only = true,
     },
     {
-        .key              = BB_NV_KEY_MDNS_EN,
-        .type             = "bool",
-        .default_         = "true",
-        .max_len          = 0,
-        .desc             = "Enable mDNS service advertisement",
-        .reboot_required  = true,
-        .provisioning_only = false,
-    },
-    {
-        .key              = BB_NV_KEY_UPDATE_CHECK_EN,
-        .type             = "bool",
-        .default_         = "true",
-        .max_len          = 0,
-        .desc             = "Enable periodic firmware update check",
-        .reboot_required  = false,
-        .provisioning_only = false,
-    },
-    {
-        .key              = BB_NV_KEY_DISPLAY_EN,
-        .type             = "bool",
-        .default_         = "true",
-        .max_len          = 0,
-        .desc             = "Enable display backend",
-        .reboot_required  = true,
-        .provisioning_only = false,
-    },
-    {
         .key              = BB_NV_KEY_PROVISIONED,
         .type             = "bool",
         .default_         = "false",
@@ -100,9 +70,6 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
 static struct {
     char wifi_ssid[32];
     char wifi_pass[64];
-    uint8_t display_en;
-    uint8_t mdns_en;
-    uint8_t update_check_en;
 } s_config;
 
 /* Pending wifi creds — staged separately from live creds.
@@ -125,17 +92,6 @@ static void load_str(nvs_handle_t handle, const char *key, char *buf, size_t buf
     if (nvs_get_str(handle, key, buf, &len) != ESP_OK) {
         bb_strlcpy(buf, fallback, buf_size);
     }
-}
-
-static bb_err_t nv_config_set_u8(const char *key, uint8_t val)
-{
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &handle);
-    if (err != BB_OK) return err;
-    err = nvs_set_u8(handle, key, val);
-    if (err == BB_OK) err = nvs_commit(handle);
-    nvs_close(handle);
-    return err;
 }
 
 static bb_err_t nv_config_set_str(const char *key, const char *val)
@@ -161,9 +117,6 @@ bb_err_t bb_nv_config_init(void)
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         bb_log_i(TAG, "no config in NVS");
         memset(&s_config, 0, sizeof(s_config));
-        s_config.display_en = 1;  // default: display on
-        s_config.mdns_en = 1;  // default: mdns on
-        s_config.update_check_en = 1;  // default: update check on
         return BB_OK;
     }
 
@@ -206,38 +159,14 @@ bb_err_t bb_nv_config_init(void)
             s_creds_restored = true;
             bb_log_w(TAG, "creds restored from RTC backup");
         }
-        /* Load remaining booleans only if handle is still open. */
+        /* Close the handle if the restore-heal branch above left it open
+         * (display/mdns/update-check booleans moved to bb_settings, B1-750 --
+         * nothing left to load here). */
         if (handle_open) {
-            if (nvs_get_u8(handle, BB_NV_KEY_DISPLAY_EN, &s_config.display_en) != ESP_OK) {
-                s_config.display_en = 1;
-            }
-            if (nvs_get_u8(handle, BB_NV_KEY_MDNS_EN, &s_config.mdns_en) != ESP_OK) {
-                s_config.mdns_en = 1;
-            }
-            if (nvs_get_u8(handle, BB_NV_KEY_UPDATE_CHECK_EN, &s_config.update_check_en) != ESP_OK) {
-                s_config.update_check_en = 1;
-            }
             nvs_close(handle);
-        } else {
-            s_config.display_en = 1;
-            s_config.mdns_en = 1;
-            s_config.update_check_en = 1;
         }
     }
 #else
-
-    if (nvs_get_u8(handle, BB_NV_KEY_DISPLAY_EN, &s_config.display_en) != ESP_OK) {
-        s_config.display_en = 1;  // default: display on
-    }
-
-    if (nvs_get_u8(handle, BB_NV_KEY_MDNS_EN, &s_config.mdns_en) != ESP_OK) {
-        s_config.mdns_en = 1;  // default: mdns on
-    }
-
-    if (nvs_get_u8(handle, BB_NV_KEY_UPDATE_CHECK_EN, &s_config.update_check_en) != ESP_OK) {
-        s_config.update_check_en = 1;  // default: update check on
-    }
-
     nvs_close(handle);
 #endif
 
@@ -258,9 +187,6 @@ bb_err_t bb_nv_config_init(void)
 #else
     // Native build: no NVS, all fields empty/zero
     memset(&s_config, 0, sizeof(s_config));
-    s_config.display_en = 1;
-    s_config.mdns_en = 1;
-    s_config.update_check_en = 1;
 #endif
     return BB_OK;
 }
@@ -451,27 +377,6 @@ bb_err_t bb_nv_config_clear_wifi_pending(void)
     if (err == BB_OK) {
         memset(&s_pending, 0, sizeof(s_pending));
     }
-    return err;
-}
-
-bb_err_t bb_nv_config_set_display_enabled(bool en)
-{
-    bb_err_t err = nv_config_set_u8(BB_NV_KEY_DISPLAY_EN, en ? 1 : 0);
-    if (err == BB_OK) s_config.display_en = en ? 1 : 0;
-    return err;
-}
-
-bb_err_t bb_nv_config_set_mdns_enabled(bool en)
-{
-    bb_err_t err = nv_config_set_u8(BB_NV_KEY_MDNS_EN, en ? 1 : 0);
-    if (err == BB_OK) s_config.mdns_en = en ? 1 : 0;
-    return err;
-}
-
-bb_err_t bb_nv_config_set_update_check_enabled(bool en)
-{
-    bb_err_t err = nv_config_set_u8(BB_NV_KEY_UPDATE_CHECK_EN, en ? 1 : 0);
-    if (err == BB_OK) s_config.update_check_en = en ? 1 : 0;
     return err;
 }
 
@@ -691,9 +596,6 @@ bb_err_t bb_nv_config_factory_reset(void)
 #endif
     /* Clear in-RAM cache so callers see the wiped state immediately. */
     memset(&s_config, 0, sizeof(s_config));
-    s_config.display_en = 1;
-    s_config.mdns_en = 1;
-    s_config.update_check_en = 1;
     memset(&s_pending, 0, sizeof(s_pending));
     bb_log_i(TAG, "factory reset: done");
     return BB_OK;
@@ -932,50 +834,25 @@ bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch)
 
 // Host implementations of ESP-only setters (non-ESP)
 #ifndef ESP_PLATFORM
-static bool s_force_set_update_check_fail = false;
-void bb_nv_config_host_force_set_update_check_fail(bool fail)
-{
-    s_force_set_update_check_fail = fail;
-}
-
-bb_err_t bb_nv_config_set_display_enabled(bool en)
-{
-    s_config.display_en = en ? 1 : 0;
-    return BB_OK;
-}
-
-bb_err_t bb_nv_config_set_update_check_enabled(bool en)
-{
-    if (s_force_set_update_check_fail) return BB_ERR_INVALID_STATE;
-    s_config.update_check_en = en ? 1 : 0;
-    return BB_OK;
-}
-
 bb_err_t bb_nv_config_factory_reset(void)
 {
     /* Host implementation: clear in-memory config to defaults. No NVS or RTC
      * mirror exists on host, so we just zero the cache. This lets host tests
-     * assert that factory reset clears credentials and resets flag state.
+     * assert that factory reset clears credentials.
      *
-     * hostname (and, longer-term, the wifi creds still read below) now live
-     * in bb_settings' storage layer, not s_config. On real hardware,
-     * bb_nv_config_factory_reset() (ESP_PLATFORM branch) erases the WHOLE
-     * "bb_cfg" NVS partition via nvs_flash_erase(), which correctly wipes
-     * bb_settings' hostname/wifi-cred keys too since they share that
-     * namespace -- device behavior is correct there. This host stub only
-     * zeroes bb_nv's own legacy s_config, so it does NOT clear a
-     * host-seeded bb_settings hostname; factory-reset ownership for
-     * bb_settings-owned fields is pending migration out of bb_nv. */
+     * hostname/timezone/wifi creds AND display_en/mdns_en/update_check_en
+     * (B1-750) now live in bb_settings' storage layer, not s_config. On real
+     * hardware, bb_nv_config_factory_reset() (ESP_PLATFORM branch) erases the
+     * WHOLE "bb_cfg" NVS partition via nvs_flash_erase(), which correctly
+     * wipes bb_settings' keys too since they share that namespace -- device
+     * behavior is correct there. This host stub only zeroes bb_nv's own
+     * legacy s_config, so it does NOT clear host-seeded bb_settings state;
+     * factory-reset ownership for bb_settings-owned fields is pending
+     * migration out of bb_nv. */
     memset(&s_config, 0, sizeof(s_config));
-    s_config.display_en = 1;
-    s_config.mdns_en = 1;
-    s_config.update_check_en = 1;
     return BB_OK;
 }
 #endif
 
 const char *bb_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }
 const char *bb_nv_config_wifi_pass(void) { return s_config.wifi_pass; }
-bool bb_nv_config_display_enabled(void) { return s_config.display_en != 0; }
-bool bb_nv_config_mdns_enabled(void) { return s_config.mdns_en != 0; }
-bool bb_nv_config_update_check_enabled(void) { return s_config.update_check_en != 0; }
