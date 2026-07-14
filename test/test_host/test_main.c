@@ -1321,8 +1321,6 @@ void test_nv_exists_null_ns_returns_false(void);
 void test_nv_exists_null_key_returns_false(void);
 void test_nv_ssot_namespace_values_are_byte_identical(void);
 void test_nv_ssot_key_values_are_byte_identical(void);
-void test_nv_reboot_record_save_round_trips_via_get_str(void);
-void test_nv_reboot_record_save_null_detail(void);
 
 // Forward declarations from test_bb_json.c
 void test_bb_json_obj_string_roundtrip(void);
@@ -1914,6 +1912,8 @@ void test_bb_system_reboot_parse_body_empty_ua_stays_empty(void);
 void test_bb_system_reboot_parse_body_guard_out_detail_len_zero_is_safe_noop(void);
 void test_bb_system_reboot_parse_body_guard_out_detail_null_is_safe_noop(void);
 void test_bb_system_reboot_parse_body_guard_out_ts_null_is_safe_noop(void);
+void test_bb_system_reboot_record_save_round_trips_via_get_str(void);
+void test_bb_system_reboot_record_save_null_detail(void);
 void test_bb_reboot_history_push_null_args(void);
 void test_bb_reboot_history_push_appends_below_capacity(void);
 void test_bb_reboot_history_push_evicts_oldest_at_capacity(void);
@@ -5668,8 +5668,6 @@ int main(void) {
     RUN_TEST(test_nv_exists_null_key_returns_false);
     RUN_TEST(test_nv_ssot_namespace_values_are_byte_identical);
     RUN_TEST(test_nv_ssot_key_values_are_byte_identical);
-    RUN_TEST(test_nv_reboot_record_save_round_trips_via_get_str);
-    RUN_TEST(test_nv_reboot_record_save_null_detail);
 
     // Route registry tests
     RUN_TEST(test_route_registry_count_starts_at_zero);
@@ -6254,6 +6252,8 @@ int main(void) {
     RUN_TEST(test_bb_system_reboot_parse_body_guard_out_detail_len_zero_is_safe_noop);
     RUN_TEST(test_bb_system_reboot_parse_body_guard_out_detail_null_is_safe_noop);
     RUN_TEST(test_bb_system_reboot_parse_body_guard_out_ts_null_is_safe_noop);
+    RUN_TEST(test_bb_system_reboot_record_save_round_trips_via_get_str);
+    RUN_TEST(test_bb_system_reboot_record_save_null_detail);
     RUN_TEST(test_bb_reboot_history_push_null_args);
     RUN_TEST(test_bb_reboot_history_push_appends_below_capacity);
     RUN_TEST(test_bb_reboot_history_push_evicts_oldest_at_capacity);

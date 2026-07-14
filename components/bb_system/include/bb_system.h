@@ -126,6 +126,19 @@ void bb_system_restart_reason(bb_reset_source_t src, const char *detail);
 /// bb_system_restart_reason is exactly this call with caller_epoch_s=0.
 void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint32_t caller_epoch_s);
 
+/// Encode and persist a reboot record (src, detail, epoch_s, uptime_s) under
+/// BB_REBOOT_NVS_NS/BB_REBOOT_KEY_LAST via bb_reboot_record_encode +
+/// bb_nv_set_str. detail may be NULL; non-NULL values are bounded and
+/// truncated per bb_reboot_record_encode. Returns the encode/persist rc
+/// (BB_ERR_INVALID_ARG on encode failure; the bb_nv_set_str rc otherwise).
+/// Save-only — does not restart; bb_system_restart_reason(_at) call this and
+/// then restart. Relocated from bb_nv (B1-750, bb_nv dissolution epic
+/// B1-708) — bb_nv's factory-reset path still calls this directly (it defers
+/// its own esp_restart(), so it cannot use bb_system_restart_reason_at's
+/// combined save+restart).
+bb_err_t bb_system_reboot_record_save(bb_reset_source_t src, const char *detail,
+                                       uint32_t epoch_s, uint32_t uptime_s);
+
 // ---------------------------------------------------------------------------
 // Boot-health counter (B1-753, part of the bb_nv dissolution epic B1-708) —
 // bookkeeping for a device that never reaches a healthy WiFi connection
