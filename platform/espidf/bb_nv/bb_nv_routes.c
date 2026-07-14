@@ -11,6 +11,7 @@
 
 #ifdef ESP_PLATFORM
 #include "bb_timer.h"
+#include "bb_system.h"
 #include "esp_system.h"
 
 static const char *TAG = "bb_nv_routes";
@@ -21,8 +22,10 @@ static void factory_reset_reboot_work_fn(void *arg)
     uint32_t uptime_s = (uint32_t)(bb_clock_now_ms64() / 1000ULL);
     /* epoch_s=0: bb_nv has no bb_ntp dependency (would create an unwanted
      * edge); the boot-side reader treats epoch_s=0 as "unknown/unsynced"
-     * per the record contract. */
-    bb_err_t rc = bb_nv_reboot_record_save(BB_RESET_SRC_FACTORY_RESET, NULL, 0, uptime_s);
+     * per the record contract. bb_system_reboot_record_save (relocated from
+     * bb_nv, B1-750) is a save-only helper — it does not restart, so this
+     * still calls esp_restart() itself below. */
+    bb_err_t rc = bb_system_reboot_record_save(BB_RESET_SRC_FACTORY_RESET, NULL, 0, uptime_s);
     if (rc == BB_ERR_INVALID_ARG) {
         bb_log_w(TAG, "factory_reset: record encode failed, rebooting without reason");
     } else if (rc != BB_OK) {

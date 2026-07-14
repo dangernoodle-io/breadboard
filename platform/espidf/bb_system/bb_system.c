@@ -138,7 +138,7 @@ void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint
     uint32_t device_epoch_s = ntp_synced ? (uint32_t)time(NULL) : 0U;
     uint32_t epoch_s = bb_reboot_pick_epoch(ntp_synced, device_epoch_s, caller_epoch_s, BB_REBOOT_EPOCH_FLOOR_S);
 
-    bb_err_t err = bb_nv_reboot_record_save(src, detail, epoch_s, uptime_s);
+    bb_err_t err = bb_system_reboot_record_save(src, detail, epoch_s, uptime_s);
     if (err == BB_ERR_INVALID_ARG) {
         bb_log_w(TAG, "restart_reason: record encode failed, rebooting without reason");
     } else if (err != BB_OK) {

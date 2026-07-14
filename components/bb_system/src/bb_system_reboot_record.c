@@ -1,8 +1,13 @@
-// Reboot-record persist helper (B1-532 PR1). Portable — bb_nv_set_str and
-// bb_reboot_record_encode are both already implemented identically on host
-// and ESP-IDF, so this file compiles unchanged on every platform (mirrors
-// bb_storage_rtc_region.c's placement: a portable helper living directly in
-// components/bb_storage_rtc/, not split under platform/{espidf,host}/).
+// Reboot-record persist helper (B1-532 PR1; relocated from bb_nv to
+// bb_system, B1-750, bb_nv dissolution epic B1-708 — bb_system already owns
+// the NVS namespace/keys (BB_REBOOT_NVS_NS/BB_REBOOT_KEY_LAST) and the
+// reboot-reason SSOT). Portable — bb_nv_set_str and bb_reboot_record_encode
+// are both already implemented identically on host and ESP-IDF, so this file
+// compiles unchanged on every platform (mirrors bb_system_reboot_parse.c's
+// and bb_system_boot_banner_format.c's placement: a portable helper living
+// directly in components/bb_system/src/, not split under platform/{espidf,host}/).
+#include "bb_system.h"
+
 #include "bb_nv.h"
 #include "bb_nv_namespaces.h"
 #include "bb_nv_keys.h"
@@ -10,8 +15,8 @@
 
 #include <string.h>
 
-bb_err_t bb_nv_reboot_record_save(bb_reset_source_t src, const char *detail,
-                                   uint32_t epoch_s, uint32_t uptime_s)
+bb_err_t bb_system_reboot_record_save(bb_reset_source_t src, const char *detail,
+                                       uint32_t epoch_s, uint32_t uptime_s)
 {
     bb_reboot_record_t rec;
     memset(&rec, 0, sizeof(rec));

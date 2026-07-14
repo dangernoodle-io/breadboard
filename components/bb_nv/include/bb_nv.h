@@ -6,7 +6,6 @@
 
 #include "bb_core.h"
 #include "bb_nv_namespaces.h"
-#include "bb_reboot_reason.h"  // bb_reset_source_t, for bb_nv_reboot_record_save
 
 #ifdef __cplusplus
 extern "C" {
@@ -93,14 +92,6 @@ static inline const char *bb_nv_config_wifi_pending_pass(void) { return ""; }
 static inline bb_err_t bb_nv_config_commit_wifi_pending(void) { return BB_ERR_UNSUPPORTED; }
 static inline bb_err_t bb_nv_config_clear_wifi_pending(void) { return BB_ERR_UNSUPPORTED; }
 #endif
-
-/// Encode and persist a reboot record (src, detail, epoch_s, uptime_s) under
-/// BB_REBOOT_NVS_NS/BB_REBOOT_KEY_LAST via bb_reboot_record_encode +
-/// bb_nv_set_str. detail may be NULL; non-NULL values are bounded and
-/// truncated per bb_reboot_record_encode. Returns the encode/persist rc
-/// (BB_ERR_INVALID_ARG on encode failure; the bb_nv_set_str rc otherwise).
-bb_err_t bb_nv_reboot_record_save(bb_reset_source_t src, const char *detail,
-                                   uint32_t epoch_s, uint32_t uptime_s);
 
 // All bb_nv_set_u* variants erase-on-type-mismatch: if an existing NVS entry
 // under the same key has a different integer width, the entry is erased and
