@@ -233,6 +233,52 @@ class TestDeriveComponent(unittest.TestCase):
             entry = derive_component(str(root), "bb_bare", "host")
             self.assertEqual(entry["depends"], [])
 
+    def test_platform_only_component_depends_are_read_from_platform_cmakelists(self):
+        # B1-903: a platform-only component (no components/<name>/ dir at
+        # all -- e.g. bb_event_routes_espidf) declares its own
+        # idf_component_register(...) directly under
+        # platform/<platform>/<name>/CMakeLists.txt. Ignoring that file
+        # dropped its REQUIRES/PRIV_REQUIRES from the derived closure
+        # entirely, making anything depended on ONLY via that layer (e.g.
+        # bb_sse_writer) look dead to the resolver.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write(
+                root / "platform" / "espidf" / "bb_routes_espidf" / "CMakeLists.txt",
+                "idf_component_register(\n"
+                "    SRCS \"bb_routes_espidf.c\"\n"
+                "    REQUIRES bb_core\n"
+                "    PRIV_REQUIRES bb_sse_writer bb_log)\n",
+            )
+            entry = derive_component(str(root), "bb_routes_espidf", "espidf")
+            self.assertEqual(entry["depends"], ["bb_core", "bb_log", "bb_sse_writer"])
+
+    def test_component_and_platform_layer_depends_are_unioned(self):
+        # A component that ALSO has a components/<name>/ CMakeLists.txt
+        # (declaring its own REQUIRES) must union both layers' depends,
+        # not just one.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(
+                root, "bb_foo",
+                cmake_body="idf_component_register(REQUIRES bb_core PRIV_REQUIRES bb_log)\n",
+            )
+            _write(
+                root / "platform" / "espidf" / "bb_foo" / "CMakeLists.txt",
+                "idf_component_register(PRIV_REQUIRES bb_task)\n",
+            )
+            entry = derive_component(str(root), "bb_foo", "espidf")
+            self.assertEqual(entry["depends"], ["bb_core", "bb_log", "bb_task"])
+
+    def test_platform_layer_with_no_cmakelists_still_has_empty_depends(self):
+        # No CMakeLists.txt at either layer -> empty depends, same as
+        # before this fix (regression guard for the no-op case).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_platform(root, "host", "bb_bare_platform", files=["x.c"])
+            entry = derive_component(str(root), "bb_bare_platform", "host")
+            self.assertEqual(entry["depends"], [])
+
 
 class TestResolveTransitive(unittest.TestCase):
     def test_dependency_before_dependent_order(self):

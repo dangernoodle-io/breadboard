@@ -484,6 +484,23 @@ class TestFenceCliSatSub(unittest.TestCase):
             self.assertEqual(rc2, 1)
             self.assertIn("remaining_of", err2)
 
+    def test_second_instance_reusing_baselined_function_name_fails(self):
+        # B1-917 repro: a NEW file, same component dir, reusing the exact
+        # same enclosing symbol + guarded var text ("bb_fake:used:total")
+        # -> collapses onto the already-baselined identity. Must now FAIL,
+        # not silently PASS.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write(root, "platform/host/bb_fake/bb_fake.c", self._sat_sub_src())
+            _run_fence_cli(str(root), seed="sat_sub")
+
+            _write(root, "platform/host/bb_fake/bb_fake_other.c", self._sat_sub_src())
+
+            rc, out, err = _run_fence_cli(str(root), family=["sat_sub"])
+            self.assertEqual(rc, 1, "a second occurrence reusing a baselined identity must fail")
+            self.assertIn("new marker added", err)
+            self.assertIn("bb_fake_other.c", err)
+
     def test_migrated_site_prunes_cleanly(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

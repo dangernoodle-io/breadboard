@@ -152,6 +152,11 @@
     },
     {
       "id": "BB_MQTT_CLIENT_AUTOREGISTER",
+      "path": "components/bb_mqtt_client/include/bb_mqtt_client.h",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_MQTT_CLIENT_AUTOREGISTER",
       "path": "platform/espidf/bb_mqtt_client/bb_mqtt_client_espidf.c",
       "type": "autoregister_usage"
     },

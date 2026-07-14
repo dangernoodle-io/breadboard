@@ -436,6 +436,25 @@ class TestFenceCliCallbackSlot(unittest.TestCase):
             self.assertEqual(rc2, 1)
             self.assertIn("s_on_other", err2)
 
+    def test_second_instance_in_new_dir_with_matching_stem_fails(self):
+        # B1-917 repro: id = component:file-stem:name. A NEW directory
+        # (different platform layer) whose component name AND filename
+        # stem both match an already-baselined site, reusing the same
+        # slot var name, collapses onto the identical identity
+        # ("bb_fake:bb_fake:s_on_ready"). Must now FAIL, not silently
+        # PASS as "0 new".
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write(root, "platform/host/bb_fake/bb_fake.c", self._slot_src())
+            _run_fence_cli(str(root), seed="callback_slot")
+
+            _write(root, "platform/espidf/bb_fake/bb_fake.c", self._slot_src())
+
+            rc, out, err = _run_fence_cli(str(root), family=["callback_slot"])
+            self.assertEqual(rc, 1, "a second occurrence reusing a baselined identity must fail")
+            self.assertIn("new marker added", err)
+            self.assertIn("platform/espidf/bb_fake/bb_fake.c", err)
+
     def test_migrated_site_prunes_cleanly(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

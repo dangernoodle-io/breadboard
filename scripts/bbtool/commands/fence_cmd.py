@@ -182,8 +182,12 @@ def _update_baseline(root: str, family: str) -> int:
         )
         return 1
     new, removed = fence_pkg.diff(current, baseline, identity_fn)
-    removed_ids = {identity_fn(m) for m in removed}
-    surviving = {m for m in baseline if identity_fn(m) not in removed_ids}
+    # `removed` names exact baseline entries (not whole identity groups) —
+    # diff() ratchets on occurrence count per identity, so a partial
+    # shrink (e.g. 2 baselined occurrences -> 1) must prune only the
+    # specific excess entry, never every entry sharing that identity.
+    removed_set = set(removed)
+    surviving = {m for m in baseline if m not in removed_set}
     written = fence_pkg.write_baseline(root, family, surviving)
     print(
         f"bbtool fence[{family}]: baseline pruned ({len(removed)} removed,"

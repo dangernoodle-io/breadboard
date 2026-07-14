@@ -12,6 +12,7 @@ nothing about any specific family's marker types or regexes; see
 from __future__ import annotations
 import inspect
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, NamedTuple, Set
 
@@ -138,6 +139,10 @@ def default_identity(m: Marker):
     return (m.type, m.id)
 
 
+def _sort_key(m: Marker):
+    return (m.type, m.path, m.id)
+
+
 def identity_fn_for(module) -> Callable[[Marker], tuple]:
     return getattr(module, "identity", default_identity)
 
@@ -180,19 +185,62 @@ def diff(current: Set[Marker], baseline: Set[Marker], identity_fn: Callable[[Mar
 
     Comparison is by identity_fn(), not the full (type, path, id) tuple, so
     a pure file rename of an existing marker is never reported as a
-    remove+add."""
-    cur_by_identity: Dict = {}
+    remove+add.
+
+    Ratchets on the OCCURRENCE COUNT per identity, not just the identity's
+    presence/absence (B1-917): identity is deliberately path-insensitive
+    (that's what makes the fence rename-stable), but that means a SECOND
+    occurrence reusing an already-baselined identity (e.g. a new file whose
+    enclosing-symbol/var text happens to match a baselined one) used to
+    collapse invisibly onto the existing entry — `set(cur) - set(base)` on
+    identities alone is blind to a 1->2 count bump. Comparing occurrence
+    counts per identity closes that hole while still treating a pure
+    1-for-1 rename (count unchanged) as a no-op."""
+    cur_by_identity: Dict[tuple, List[Marker]] = {}
     for m in current:
-        cur_by_identity.setdefault(identity_fn(m), m)
-    base_by_identity: Dict = {}
+        cur_by_identity.setdefault(identity_fn(m), []).append(m)
+    base_by_identity: Dict[tuple, List[Marker]] = {}
     for m in baseline:
-        base_by_identity.setdefault(identity_fn(m), m)
+        base_by_identity.setdefault(identity_fn(m), []).append(m)
 
-    new_ids = set(cur_by_identity) - set(base_by_identity)
-    removed_ids = set(base_by_identity) - set(cur_by_identity)
+    new: List[Marker] = []
+    removed: List[Marker] = []
+    for ident in set(cur_by_identity) | set(base_by_identity):
+        cur_list = cur_by_identity.get(ident, [])
+        base_list = base_by_identity.get(ident, [])
 
-    new = sorted((cur_by_identity[i] for i in new_ids), key=lambda m: (m.type, m.path, m.id))
-    removed = sorted((base_by_identity[i] for i in removed_ids), key=lambda m: (m.type, m.path, m.id))
+        # Pair markers by EXACT PATH first — a path present on both sides
+        # is the same occurrence (unchanged), whether or not a rename
+        # elsewhere in this identity group coincides with a genuine
+        # add/remove. Only the leftovers below are new/removed candidates
+        # (fixes the path-misattribution bug where a rename+add/remove
+        # coincidence under one identity named the wrong file).
+        base_path_counts = Counter(m.path for m in base_list)
+        cur_leftover: List[Marker] = []
+        for m in cur_list:
+            if base_path_counts.get(m.path, 0) > 0:
+                base_path_counts[m.path] -= 1
+            else:
+                cur_leftover.append(m)
+        cur_path_counts = Counter(m.path for m in cur_list)
+        base_leftover: List[Marker] = []
+        for m in base_list:
+            if cur_path_counts.get(m.path, 0) > 0:
+                cur_path_counts[m.path] -= 1
+            else:
+                base_leftover.append(m)
+
+        # Any leftovers remaining on BOTH sides are ambiguous renames
+        # (path changed, but the count surplus/deficit doesn't require
+        # them to be new/removed) — pair them off deterministically
+        # (alphabetically) as unreported no-ops. Only the surplus beyond
+        # that pairing is genuinely new/removed.
+        paired = min(len(cur_leftover), len(base_leftover))
+        new.extend(sorted(cur_leftover, key=_sort_key)[paired:])
+        removed.extend(sorted(base_leftover, key=_sort_key)[paired:])
+
+    new.sort(key=_sort_key)
+    removed.sort(key=_sort_key)
     return new, removed
 
 
