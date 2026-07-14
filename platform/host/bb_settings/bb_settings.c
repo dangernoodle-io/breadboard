@@ -177,6 +177,14 @@ bool bb_settings_wifi_has_creds(void)
     return err == BB_OK && len > 0;
 }
 
+// B1-757: the one place BB_SETTINGS_WIFI_NS is compared against an
+// external string -- generic consumers ask this predicate instead of
+// copying the "bb_cfg" literal themselves.
+bool bb_settings_ns_is_wifi_creds(const char *ns)
+{
+    return ns != NULL && strcmp(ns, BB_SETTINGS_WIFI_NS) == 0;
+}
+
 // Same NULL-safe out_len guarantee as bb_settings_wifi_ssid_get. Returns
 // BB_OK with an empty string (out_len=0) when unset -- no MAC-derived
 // default, matching bb_nv's prior behavior exactly.

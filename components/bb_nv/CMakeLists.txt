@@ -1,7 +1,6 @@
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_nv/bb_nv.c"
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_nv/bb_nv_routes.c"
-         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_nv/bb_nv_delete_routes.c"
          "${CMAKE_CURRENT_LIST_DIR}/bb_nv_wifi_pending.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
@@ -19,5 +18,4 @@ idf_component_register(
 # only; the host build needs them (and the private headers colocated there).
 # bbtool-scaffold-hint: source=platform/espidf/bb_nv/bb_nv.c
 # bbtool-scaffold-hint: source=platform/espidf/bb_nv/bb_nv_routes.c
-# bbtool-scaffold-hint: source=platform/espidf/bb_nv/bb_nv_delete_routes.c
 # bbtool-scaffold-hint: include=platform/espidf/bb_nv
