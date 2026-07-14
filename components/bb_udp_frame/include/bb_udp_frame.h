@@ -1,8 +1,8 @@
 #pragma once
 
 // bb_udp_frame — pure wire encode/decode for breadboard's UDP telemetry
-// transport (ouroboros KB#554). Shared by bb_sink_udp (encode) and
-// bb_sub_udp (decode) — one codec, no mirrored logic per side.
+// transport (ouroboros KB#554). Used by bb_sink_udp (encode); a future
+// ingress-side decode consumer shares the same codec, no mirrored logic.
 //
 // Wire layout (one self-contained datagram, little-endian):
 //

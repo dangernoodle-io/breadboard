@@ -2,7 +2,6 @@
 #include "bb_mem.h"
 #include "bb_openapi.h"
 #include "bb_pub.h"
-#include "bb_sink_event.h"
 #include "bb_sink_ws.h"
 #include "../../components/bb_log/src/bb_log_internal.h"
 #include "bb_nv.h"
@@ -2729,19 +2728,6 @@ void test_bb_pub_subscription_match_null_entry_in_source_tags_skipped(void);
 void test_bb_pub_subscription_match_null_tags_ptr_with_nonzero_ntags_skipped(void);
 void test_bb_pub_tags_cleared_after_test_reset(void);
 
-// Forward declarations from test_bb_sink_event.c
-void test_bb_sink_event_null_out_returns_invalid_arg(void);
-void test_bb_sink_event_fills_sink(void);
-void test_bb_sink_event_register_topic_null_returns_invalid_arg(void);
-void test_bb_sink_event_register_topic_empty_returns_invalid_arg(void);
-void test_bb_sink_event_register_topic_ok(void);
-void test_bb_sink_event_tick_delivers_to_event_topic(void);
-void test_bb_sink_event_unregistered_subtopic_skipped(void);
-void test_bb_sink_event_sample_skip_not_delivered(void);
-void test_bb_sink_event_seed_all_posts_snapshot(void);
-void test_bb_sink_event_seed_all_no_source_skips(void);
-void test_bb_sink_event_max_topics_returns_no_space(void);
-
 // Forward declarations from test_bb_sink_ws.c
 void test_bb_sink_ws_init_null_out_returns_invalid_arg(void);
 void test_bb_sink_ws_init_fills_sink(void);
@@ -4678,21 +4664,6 @@ void test_bb_pub_info_does_not_emit_chip_model(void);
 void test_bb_pub_info_does_not_emit_mac(void);
 void test_bb_pub_info_does_not_emit_version(void);
 
-// Forward declarations from test_bb_pub_health.c
-void test_bb_pub_health_always_publishes(void);
-void test_bb_pub_health_topic_is_correct(void);
-void test_bb_pub_health_has_ok_field(void);
-void test_bb_pub_health_ok_is_false_on_host(void);
-void test_bb_pub_health_has_mqtt_enabled_field(void);
-void test_bb_pub_health_mqtt_enabled_false_when_no_handle(void);
-void test_bb_pub_health_has_mqtt_connected_field(void);
-void test_bb_pub_health_mqtt_connected_false_when_no_handle(void);
-void test_bb_pub_health_mqtt_enabled_true_when_handle_set(void);
-void test_bb_pub_health_has_mqtt_reconnect_count_when_enabled(void);
-void test_bb_pub_health_mqtt_connected_reflects_state(void);
-void test_bb_pub_health_payload_has_uptime_ms_field(void);
-void test_bb_pub_health_has_heap_state(void);
-
 // Forward declarations from test_bb_pub_rtos.c
 void test_bb_pub_rtos_always_publishes(void);
 void test_bb_pub_rtos_topic_is_correct(void);
@@ -4999,7 +4970,6 @@ void setUp(void) {
     bb_health_reset_for_test();
     bb_wdt_test_reset();
     bb_pub_test_reset();
-    bb_sink_event_reset_for_test();
     bb_openapi_schema_registry_clear();
     bb_mem_reset_stats();
 }
@@ -5254,30 +5224,6 @@ void test_bb_cache_reactive_fire_on_change_malformed_envelope_no_fire(void);
 void test_bb_cache_reactive_off_observe_returns_unsupported(void);
 void test_bb_cache_reactive_off_update_matches_bb_cache_update(void);
 void test_bb_cache_reactive_off_update_null_req_returns_invalid_arg(void);
-
-// Forward declarations from test_bb_sub.c
-void test_bb_sub_route_registers_and_cache_reflects_payload(void);
-void test_bb_sub_route_second_call_updates_same_topic(void);
-void test_bb_sub_route_multiple_distinct_topics(void);
-void test_bb_sub_route_overflow_drops_and_counts(void);
-void test_bb_sub_route_oversized_payload_returns_no_space(void);
-void test_bb_sub_route_bb_cache_registry_full_returns_error(void);
-void test_bb_sub_route_oversized_topic_returns_invalid_arg(void);
-void test_bb_sub_route_zero_length_payload_stored_as_empty(void);
-void test_bb_sub_route_snap_alloc_failure_returns_no_mem(void);
-void test_bb_sub_route_aggregate_topic_register_failure_still_routes(void);
-void test_bb_sub_route_malformed_json_payload_serializes_empty(void);
-void test_bb_sub_route_non_object_json_payload_serializes_empty(void);
-void test_bb_sub_subscribe_aggregate_topic_register_failure_returns_invalid_state(void);
-void test_bb_sub_route_sse_matches_cache_get_serialized(void);
-void test_bb_sub_route_null_topic_returns_invalid_arg(void);
-void test_bb_sub_route_empty_topic_returns_invalid_arg(void);
-void test_bb_sub_route_null_payload_returns_invalid_arg(void);
-void test_bb_sub_route_emits_aggregate_event(void);
-void test_bb_sub_subscribe_before_any_route_call(void);
-void test_bb_sub_route_dropped_message_does_not_emit_aggregate_event(void);
-void test_bb_sub_subscribe_null_cb_returns_invalid_arg(void);
-void test_bb_sub_subscribe_null_out_returns_invalid_arg(void);
 
 // Forward declarations from test_bb_mqtt_on_message.c
 void test_bb_mqtt_on_message_receives_injected_message(void);
@@ -5543,66 +5489,6 @@ void test_bb_filter_emit_decide_deferrable_below_floor_is_defer(void);
 void test_bb_filter_emit_decide_deferrable_at_floor_is_now(void);
 void test_bb_filter_emit_decide_deferrable_below_double_floor_is_now(void);
 void test_bb_filter_emit_decide_deferrable_at_double_floor_is_drop(void);
-
-// Forward declarations from test_bb_sink_display.c
-void test_bb_sink_display_caps_to_selector_maps_fields(void);
-void test_bb_sink_display_caps_to_selector_null_out_noop(void);
-void test_bb_sink_display_caps_to_selector_null_caps_zeroes_out(void);
-void test_bb_sink_display_select_orders_by_priority_and_truncates(void);
-void test_bb_sink_display_select_kind_mask_gates(void);
-void test_bb_sink_display_select_null_args_return_zero(void);
-void test_bb_sink_display_select_n_fields_over_capacity_truncated(void);
-void test_bb_sink_display_format_default_int(void);
-void test_bb_sink_display_format_default_float(void);
-void test_bb_sink_display_format_default_bool_true(void);
-void test_bb_sink_display_format_default_bool_false(void);
-void test_bb_sink_display_format_default_string(void);
-void test_bb_sink_display_format_default_null_item_renders_dashes(void);
-void test_bb_sink_display_format_default_mismatched_kind_renders_dashes(void);
-void test_bb_sink_display_format_default_float_mismatched_kind_renders_dashes(void);
-void test_bb_sink_display_format_default_float_null_item_renders_dashes(void);
-void test_bb_sink_display_format_default_bool_null_item_renders_dashes(void);
-void test_bb_sink_display_format_default_string_kind_null_item_renders_dashes(void);
-void test_bb_sink_display_format_default_string_kind_non_string_item_renders_dashes(void);
-void test_bb_sink_display_format_default_unknown_kind_renders_dashes(void);
-void test_bb_sink_display_format_default_null_label_and_unit(void);
-void test_bb_sink_display_format_default_null_args_noop(void);
-void test_bb_sink_display_resolve_field_success(void);
-void test_bb_sink_display_resolve_field_uses_custom_format(void);
-void test_bb_sink_display_resolve_field_missing_path_returns_false(void);
-void test_bb_sink_display_resolve_field_invalid_json_returns_false(void);
-void test_bb_sink_display_resolve_field_null_args_return_false(void);
-void test_bb_sink_display_table_init_zeroes(void);
-void test_bb_sink_display_table_init_null_noop(void);
-void test_bb_sink_display_table_add_is_idempotent(void);
-void test_bb_sink_display_table_add_null_args_invalid(void);
-void test_bb_sink_display_table_add_full_returns_no_space(void);
-void test_bb_sink_display_table_remove_by_key_removes_matching(void);
-void test_bb_sink_display_table_remove_by_key_no_match_returns_zero(void);
-void test_bb_sink_display_table_remove_by_key_field_without_cache_key_skipped(void);
-void test_bb_sink_display_table_remove_by_key_null_args_returns_zero(void);
-void test_bb_sink_display_table_apply_change_updates_row(void);
-void test_bb_sink_display_table_apply_change_clears_stale(void);
-void test_bb_sink_display_table_apply_change_not_found(void);
-void test_bb_sink_display_table_apply_change_null_args_invalid(void);
-void test_bb_sink_display_table_sweep_fresh_stays_fresh(void);
-void test_bb_sink_display_table_sweep_marks_stale_transition_once(void);
-void test_bb_sink_display_table_sweep_evicts_past_evict_after(void);
-void test_bb_sink_display_table_sweep_compacts_survivors_after_earlier_evict(void);
-void test_bb_sink_display_table_sweep_now_before_last_seen_treats_age_zero(void);
-void test_bb_sink_display_table_sweep_null_table_returns_zero(void);
-void test_bb_sink_display_table_collect_dirty_clears_flags(void);
-void test_bb_sink_display_table_collect_dirty_respects_out_cap(void);
-void test_bb_sink_display_table_collect_dirty_null_args_returns_zero(void);
-void test_bb_sink_display_validate_config_accepts_valid_default_lines(void);
-void test_bb_sink_display_validate_config_accepts_valid_custom(void);
-void test_bb_sink_display_validate_config_null_caps_invalid(void);
-void test_bb_sink_display_validate_config_null_cfg_invalid(void);
-void test_bb_sink_display_validate_config_custom_without_fn_invalid(void);
-void test_bb_sink_display_validate_config_display_seam_unsupported(void);
-void test_bb_sink_display_validate_config_evict_equal_stale_invalid(void);
-void test_bb_sink_display_validate_config_evict_less_than_stale_invalid(void);
-void test_bb_sink_display_validate_config_evict_greater_than_stale_valid(void);
 
 // Forward declarations from test_bb_collection.c
 void test_bb_collection_add_null_collection_returns_invalid_arg(void);
@@ -9713,21 +9599,6 @@ int main(void) {
     RUN_TEST(test_bb_pub_info_does_not_emit_mac);
     RUN_TEST(test_bb_pub_info_does_not_emit_version);
 
-    // bb_pub_health tests
-    RUN_TEST(test_bb_pub_health_always_publishes);
-    RUN_TEST(test_bb_pub_health_topic_is_correct);
-    RUN_TEST(test_bb_pub_health_has_ok_field);
-    RUN_TEST(test_bb_pub_health_ok_is_false_on_host);
-    RUN_TEST(test_bb_pub_health_has_mqtt_enabled_field);
-    RUN_TEST(test_bb_pub_health_mqtt_enabled_false_when_no_handle);
-    RUN_TEST(test_bb_pub_health_has_mqtt_connected_field);
-    RUN_TEST(test_bb_pub_health_mqtt_connected_false_when_no_handle);
-    RUN_TEST(test_bb_pub_health_mqtt_enabled_true_when_handle_set);
-    RUN_TEST(test_bb_pub_health_has_mqtt_reconnect_count_when_enabled);
-    RUN_TEST(test_bb_pub_health_mqtt_connected_reflects_state);
-    RUN_TEST(test_bb_pub_health_payload_has_uptime_ms_field);
-    RUN_TEST(test_bb_pub_health_has_heap_state);
-
     // bb_pub_rtos tests
     RUN_TEST(test_bb_pub_rtos_always_publishes);
     RUN_TEST(test_bb_pub_rtos_topic_is_correct);
@@ -9991,19 +9862,6 @@ int main(void) {
     RUN_TEST(test_bb_pub_subscription_match_null_entry_in_source_tags_skipped);
     RUN_TEST(test_bb_pub_subscription_match_null_tags_ptr_with_nonzero_ntags_skipped);
     RUN_TEST(test_bb_pub_tags_cleared_after_test_reset);
-
-    // bb_sink_event (B1 step 1)
-    RUN_TEST(test_bb_sink_event_null_out_returns_invalid_arg);
-    RUN_TEST(test_bb_sink_event_fills_sink);
-    RUN_TEST(test_bb_sink_event_register_topic_null_returns_invalid_arg);
-    RUN_TEST(test_bb_sink_event_register_topic_empty_returns_invalid_arg);
-    RUN_TEST(test_bb_sink_event_register_topic_ok);
-    RUN_TEST(test_bb_sink_event_tick_delivers_to_event_topic);
-    RUN_TEST(test_bb_sink_event_unregistered_subtopic_skipped);
-    RUN_TEST(test_bb_sink_event_sample_skip_not_delivered);
-    RUN_TEST(test_bb_sink_event_seed_all_posts_snapshot);
-    RUN_TEST(test_bb_sink_event_seed_all_no_source_skips);
-    RUN_TEST(test_bb_sink_event_max_topics_returns_no_space);
 
     // bb_pub parity (B1 step 1)
     RUN_TEST(test_bb_pub_parity_register_source_ex_null_tags_same_behavior);
@@ -10430,30 +10288,6 @@ int main(void) {
 
     RUN_TEST(test_bb_ota_check_topic_value_is_update_available);
 
-    // bb_sub
-    RUN_TEST(test_bb_sub_route_registers_and_cache_reflects_payload);
-    RUN_TEST(test_bb_sub_route_second_call_updates_same_topic);
-    RUN_TEST(test_bb_sub_route_multiple_distinct_topics);
-    RUN_TEST(test_bb_sub_route_overflow_drops_and_counts);
-    RUN_TEST(test_bb_sub_route_oversized_payload_returns_no_space);
-    RUN_TEST(test_bb_sub_route_bb_cache_registry_full_returns_error);
-    RUN_TEST(test_bb_sub_route_oversized_topic_returns_invalid_arg);
-    RUN_TEST(test_bb_sub_route_zero_length_payload_stored_as_empty);
-    RUN_TEST(test_bb_sub_route_snap_alloc_failure_returns_no_mem);
-    RUN_TEST(test_bb_sub_route_aggregate_topic_register_failure_still_routes);
-    RUN_TEST(test_bb_sub_route_malformed_json_payload_serializes_empty);
-    RUN_TEST(test_bb_sub_route_non_object_json_payload_serializes_empty);
-    RUN_TEST(test_bb_sub_route_null_topic_returns_invalid_arg);
-    RUN_TEST(test_bb_sub_route_empty_topic_returns_invalid_arg);
-    RUN_TEST(test_bb_sub_route_null_payload_returns_invalid_arg);
-    RUN_TEST(test_bb_sub_route_emits_aggregate_event);
-    RUN_TEST(test_bb_sub_subscribe_before_any_route_call);
-    RUN_TEST(test_bb_sub_route_dropped_message_does_not_emit_aggregate_event);
-    RUN_TEST(test_bb_sub_subscribe_null_cb_returns_invalid_arg);
-    RUN_TEST(test_bb_sub_subscribe_null_out_returns_invalid_arg);
-    RUN_TEST(test_bb_sub_subscribe_aggregate_topic_register_failure_returns_invalid_state);
-    RUN_TEST(test_bb_sub_route_sse_matches_cache_get_serialized);
-
     // bb_mqtt_client_on_message
     RUN_TEST(test_bb_mqtt_on_message_receives_injected_message);
     RUN_TEST(test_bb_mqtt_on_message_passes_ctx);
@@ -10722,65 +10556,6 @@ int main(void) {
     RUN_TEST(test_bb_filter_emit_decide_deferrable_at_floor_is_now);
     RUN_TEST(test_bb_filter_emit_decide_deferrable_below_double_floor_is_now);
     RUN_TEST(test_bb_filter_emit_decide_deferrable_at_double_floor_is_drop);
-
-    RUN_TEST(test_bb_sink_display_caps_to_selector_maps_fields);
-    RUN_TEST(test_bb_sink_display_caps_to_selector_null_out_noop);
-    RUN_TEST(test_bb_sink_display_caps_to_selector_null_caps_zeroes_out);
-    RUN_TEST(test_bb_sink_display_select_orders_by_priority_and_truncates);
-    RUN_TEST(test_bb_sink_display_select_kind_mask_gates);
-    RUN_TEST(test_bb_sink_display_select_null_args_return_zero);
-    RUN_TEST(test_bb_sink_display_select_n_fields_over_capacity_truncated);
-    RUN_TEST(test_bb_sink_display_format_default_int);
-    RUN_TEST(test_bb_sink_display_format_default_float);
-    RUN_TEST(test_bb_sink_display_format_default_bool_true);
-    RUN_TEST(test_bb_sink_display_format_default_bool_false);
-    RUN_TEST(test_bb_sink_display_format_default_string);
-    RUN_TEST(test_bb_sink_display_format_default_null_item_renders_dashes);
-    RUN_TEST(test_bb_sink_display_format_default_mismatched_kind_renders_dashes);
-    RUN_TEST(test_bb_sink_display_format_default_float_mismatched_kind_renders_dashes);
-    RUN_TEST(test_bb_sink_display_format_default_float_null_item_renders_dashes);
-    RUN_TEST(test_bb_sink_display_format_default_bool_null_item_renders_dashes);
-    RUN_TEST(test_bb_sink_display_format_default_string_kind_null_item_renders_dashes);
-    RUN_TEST(test_bb_sink_display_format_default_string_kind_non_string_item_renders_dashes);
-    RUN_TEST(test_bb_sink_display_format_default_unknown_kind_renders_dashes);
-    RUN_TEST(test_bb_sink_display_format_default_null_label_and_unit);
-    RUN_TEST(test_bb_sink_display_format_default_null_args_noop);
-    RUN_TEST(test_bb_sink_display_resolve_field_success);
-    RUN_TEST(test_bb_sink_display_resolve_field_uses_custom_format);
-    RUN_TEST(test_bb_sink_display_resolve_field_missing_path_returns_false);
-    RUN_TEST(test_bb_sink_display_resolve_field_invalid_json_returns_false);
-    RUN_TEST(test_bb_sink_display_resolve_field_null_args_return_false);
-    RUN_TEST(test_bb_sink_display_table_init_zeroes);
-    RUN_TEST(test_bb_sink_display_table_init_null_noop);
-    RUN_TEST(test_bb_sink_display_table_add_is_idempotent);
-    RUN_TEST(test_bb_sink_display_table_add_null_args_invalid);
-    RUN_TEST(test_bb_sink_display_table_add_full_returns_no_space);
-    RUN_TEST(test_bb_sink_display_table_remove_by_key_removes_matching);
-    RUN_TEST(test_bb_sink_display_table_remove_by_key_no_match_returns_zero);
-    RUN_TEST(test_bb_sink_display_table_remove_by_key_field_without_cache_key_skipped);
-    RUN_TEST(test_bb_sink_display_table_remove_by_key_null_args_returns_zero);
-    RUN_TEST(test_bb_sink_display_table_apply_change_updates_row);
-    RUN_TEST(test_bb_sink_display_table_apply_change_clears_stale);
-    RUN_TEST(test_bb_sink_display_table_apply_change_not_found);
-    RUN_TEST(test_bb_sink_display_table_apply_change_null_args_invalid);
-    RUN_TEST(test_bb_sink_display_table_sweep_fresh_stays_fresh);
-    RUN_TEST(test_bb_sink_display_table_sweep_marks_stale_transition_once);
-    RUN_TEST(test_bb_sink_display_table_sweep_evicts_past_evict_after);
-    RUN_TEST(test_bb_sink_display_table_sweep_compacts_survivors_after_earlier_evict);
-    RUN_TEST(test_bb_sink_display_table_sweep_now_before_last_seen_treats_age_zero);
-    RUN_TEST(test_bb_sink_display_table_sweep_null_table_returns_zero);
-    RUN_TEST(test_bb_sink_display_table_collect_dirty_clears_flags);
-    RUN_TEST(test_bb_sink_display_table_collect_dirty_respects_out_cap);
-    RUN_TEST(test_bb_sink_display_table_collect_dirty_null_args_returns_zero);
-    RUN_TEST(test_bb_sink_display_validate_config_accepts_valid_default_lines);
-    RUN_TEST(test_bb_sink_display_validate_config_accepts_valid_custom);
-    RUN_TEST(test_bb_sink_display_validate_config_null_caps_invalid);
-    RUN_TEST(test_bb_sink_display_validate_config_null_cfg_invalid);
-    RUN_TEST(test_bb_sink_display_validate_config_custom_without_fn_invalid);
-    RUN_TEST(test_bb_sink_display_validate_config_display_seam_unsupported);
-    RUN_TEST(test_bb_sink_display_validate_config_evict_equal_stale_invalid);
-    RUN_TEST(test_bb_sink_display_validate_config_evict_less_than_stale_invalid);
-    RUN_TEST(test_bb_sink_display_validate_config_evict_greater_than_stale_valid);
 
     // bb_collection
     RUN_TEST(test_bb_collection_add_null_collection_returns_invalid_arg);

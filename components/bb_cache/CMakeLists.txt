@@ -6,10 +6,10 @@
 # CONFIG_BB_CACHE_SWEEP_ENABLE here shows an EMPTY string on the early
 # requirements-expansion pass and 'y' only on the later full-registration
 # pass) -- a Kconfig-conditional REQUIRES/PRIV_REQUIRES silently resolves as
-# if the config were unset, every time, regardless of its real value. This
-# matches the established codebase convention seen in bb_pub_health's and
-# bb_alert's CMakeLists.txt: always PRIV_REQUIRES the optional dependency
-# unconditionally. In practice this costs nothing extra in a sweep-off
+# if the config were unset, every time, regardless of its real value. The
+# rule this drives: always PRIV_REQUIRES a Kconfig-gated optional dependency
+# unconditionally -- never behind a CONFIG_ guard in CMakeLists.txt. In
+# practice this costs nothing extra in a sweep-off
 # build: bb_cache's own use of the bb_timer API is entirely inside
 # `#if BB_CACHE_SWEEP_ENABLE`, which preprocesses to nothing when the
 # Kconfig is off, so --gc-sections drops any bb_timer symbols this component

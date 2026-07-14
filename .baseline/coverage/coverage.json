@@ -1111,26 +1111,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "65",
-      "path": "platform/host/bb_pub_health/bb_pub_health.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "66",
-      "path": "platform/host/bb_pub_health/bb_pub_health.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "75",
-      "path": "platform/host/bb_pub_health/bb_pub_health.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "77",
-      "path": "platform/host/bb_pub_health/bb_pub_health.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "120",
       "path": "platform/host/bb_pub_info/bb_pub_info.c",
       "type": "uncovered_line"
@@ -1258,41 +1238,6 @@
     {
       "id": "97",
       "path": "platform/host/bb_sensors/bb_sensors_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "107",
-      "path": "platform/host/bb_sink_event/bb_sink_event.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "109",
-      "path": "platform/host/bb_sink_event/bb_sink_event.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "53",
-      "path": "platform/host/bb_sink_event/bb_sink_event.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "78",
-      "path": "platform/host/bb_sink_event/bb_sink_event.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "79",
-      "path": "platform/host/bb_sink_event/bb_sink_event.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "83",
-      "path": "platform/host/bb_sink_event/bb_sink_event.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "84",
-      "path": "platform/host/bb_sink_event/bb_sink_event.c",
       "type": "uncovered_line"
     },
     {

@@ -89,11 +89,6 @@
       "id": "bb_queue:bb_queue_bytes_used_sub:*bytes_used",
       "path": "platform/host/bb_queue/bb_queue.c",
       "type": "sat_sub"
-    },
-    {
-      "id": "bb_sink_display:bb_sink_display_table_sweep:now_ms",
-      "path": "platform/host/bb_sink_display/bb_sink_display_table.c",
-      "type": "sat_sub"
     }
   ]
 }

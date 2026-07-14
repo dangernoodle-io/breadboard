@@ -750,9 +750,10 @@ static void net_section_get(bb_json_t section, void *ctx)
 // ---------------------------------------------------------------------------
 
 // Telemetry source: publish the live net-health snapshot to bb_pub on the
-// "net_health" subtopic. Registered here (not pulled in by bb_pub_health) so it
-// exists ONLY when net_health is set up — bb_net_health already depends on
-// bb_pub (adaptive backoff), so this adds no new dependency anywhere.
+// "net_health" subtopic. Registered here (not pulled in by a separate
+// aggregator component) so it exists ONLY when net_health is set up —
+// bb_net_health already depends on bb_pub (adaptive backoff), so this adds
+// no new dependency anywhere.
 //
 // Migration (telemetry-ssot): uses bb_pub_register_telemetry so the snapshot
 // is gathered into bb_cache once per tick; SSE and sinks all read the SAME

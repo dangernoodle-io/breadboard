@@ -89,7 +89,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_prov](./bb_prov/) | — |
 | [bb_prov_default_form](./bb_prov_default_form/) | — |
 | [bb_pub](./bb_pub/) | — |
-| [bb_pub_health](./bb_pub_health/) | — |
 | [bb_pub_info](./bb_pub_info/) | — |
 | [bb_pub_rtos](./bb_pub_rtos/) | — |
 | [bb_pub_telemetry](./bb_pub_telemetry/) | — |
@@ -103,8 +102,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_serialize](./bb_serialize/) | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. |
 | [bb_serialize_json](./bb_serialize_json/) | Hand-rolled, no-heap, bounded-buffer JSON bb_serialize_emit_t backend -- the default wire-format implementation for bb_serialize. |
 | [bb_settings](./bb_settings/) | bb's default WiFi-credentials store — a wifi-creds field table over `bb_config`, byte-compatible with the credentials `bb_nv_config` already persists. `bb_settings` is bb's opinionated bb-config authority (KB 805/806); `bb_wifi` reads its accessors directly. |
-| [bb_sink_display](./bb_sink_display/) | The northstar display-egress sink: renders a board-appropriate subset of |
-| [bb_sink_event](./bb_sink_event/) | — |
 | [bb_sink_http](./bb_sink_http/) | — |
 | [bb_sink_http_telemetry](./bb_sink_http_telemetry/) | — |
 | [bb_sink_mqtt](./bb_sink_mqtt/) | — |
@@ -116,7 +113,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_storage_ram](./bb_storage_ram/) | In-memory `bb_storage` backend — the reference implementation, a fixed-capacity key/value table with no heap allocation. |
 | [bb_storage_rtc](./bb_storage_rtc/) | Warm-reboot RTC-mirror `bb_storage` backend for WiFi credentials. |
 | [bb_str](./bb_str/) | — |
-| [bb_sub](./bb_sub/) | — |
 | [bb_system](./bb_system/) | — |
 | [bb_task](./bb_task/) | — |
 | [bb_task_registry](./bb_task_registry/) | — |
