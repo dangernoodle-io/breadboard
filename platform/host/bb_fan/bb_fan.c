@@ -46,6 +46,19 @@ struct bb_fan {
 
 static bb_fan_handle_t s_primary = NULL;
 
+#ifdef CONFIG_BB_FAN_AUTOFAN
+// Persist callback registered by the consumer (e.g. TM) to save config to NVS.
+static void (*s_persist_cb)(void *ctx, const bb_fan_autofan_cfg_t *cfg) = NULL;
+static void *s_persist_ctx = NULL;
+
+void bb_fan_set_autofan_persist_cb(
+    void (*cb)(void *ctx, const bb_fan_autofan_cfg_t *cfg), void *ctx)
+{
+    s_persist_cb  = cb;
+    s_persist_ctx = ctx;
+}
+#endif /* CONFIG_BB_FAN_AUTOFAN */
+
 bb_err_t bb_fan_handle_create(const bb_fan_driver_t *drv, void *state,
                                bb_fan_handle_t *out)
 {
@@ -366,11 +379,38 @@ void bb_fan_emit(bb_json_t obj, const bb_fan_snapshot_t *snap,
 #endif
 }
 
+// ---------------------------------------------------------------------------
+// Shared emit helper — writes "present" plus fan fields. SSOT for the
+// /api/sensors fan section (bb_sensors); folded from the former
+// bb_fan_routes glue component (its emit_section was a pure passthrough) and
+// its bb_fan_routes_set_autofan_persist_cb (renamed bb_fan_set_autofan_persist_cb).
+// ---------------------------------------------------------------------------
+
+void bb_fan_emit_section(bb_json_t obj)
+{
+    bb_fan_handle_t h = bb_fan_primary();
+    bool present = (h != NULL);
+    bb_fan_snapshot_t snap;
+    bb_fan_snapshot(h, &snap);
+    bb_json_obj_set_bool(obj, "present", present);
+#ifndef CONFIG_BB_FAN_AUTOFAN
+    bb_fan_emit(obj, &snap);
+#else
+    bb_fan_autofan_telemetry_t tel;
+    bb_fan_get_autofan_telemetry(h, &tel);
+    bb_fan_emit(obj, &snap, &tel);
+#endif
+}
+
 #ifdef BB_FAN_TESTING
 #include "bb_fan_test.h"
 void bb_fan_test_reset(void)
 {
     s_primary = NULL;
+#ifdef CONFIG_BB_FAN_AUTOFAN
+    s_persist_cb  = NULL;
+    s_persist_ctx = NULL;
+#endif
 }
 
 #ifdef CONFIG_BB_FAN_AUTOFAN
@@ -381,6 +421,13 @@ void bb_fan_pid_set_mock_clock(bb_fan_handle_t h, unsigned long (*fn)(void))
     // Reset PID timer so sample-time gate fires immediately on next compute
     if (fn) {
         h->pid.lastTime = fn() - h->pid.sampleTime;
+    }
+}
+
+void bb_fan_invoke_autofan_persist_cb(const bb_fan_autofan_cfg_t *cfg)
+{
+    if (s_persist_cb) {
+        s_persist_cb(s_persist_ctx, cfg);
     }
 }
 #endif /* CONFIG_BB_FAN_AUTOFAN */

@@ -3202,6 +3202,11 @@ void test_autofan_get_cfg_null_args(void);
 void test_autofan_set_aux_temp_null_handle(void);
 void test_autofan_set_autofan_null_handle(void);
 void test_autofan_set_autofan_null_cfg(void);
+void test_autofan_aux_ema_converges_toward_temp(void);
+void test_autofan_set_clock_null_handle_is_noop(void);
+void test_autofan_set_clock_injects_and_seeds_last_time(void);
+void test_autofan_persist_cb_invoked_with_registered_ctx(void);
+void test_autofan_persist_cb_not_invoked_when_unset(void);
 #endif /* CONFIG_BB_FAN_AUTOFAN */
 
 // Forward declarations from test_bb_fan_pid_unit.c (direct PID internals)
@@ -8004,6 +8009,11 @@ int main(void) {
     RUN_TEST(test_autofan_set_aux_temp_null_handle);
     RUN_TEST(test_autofan_set_autofan_null_handle);
     RUN_TEST(test_autofan_set_autofan_null_cfg);
+    RUN_TEST(test_autofan_aux_ema_converges_toward_temp);
+    RUN_TEST(test_autofan_set_clock_null_handle_is_noop);
+    RUN_TEST(test_autofan_set_clock_injects_and_seeds_last_time);
+    RUN_TEST(test_autofan_persist_cb_invoked_with_registered_ctx);
+    RUN_TEST(test_autofan_persist_cb_not_invoked_when_unset);
 
     // bb_fan_pid direct unit tests (covers internal branches not reachable via integration tests)
     RUN_TEST(test_pid_set_clock_null_is_ignored);

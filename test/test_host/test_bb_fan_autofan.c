@@ -581,4 +581,110 @@ void test_autofan_set_autofan_null_cfg(void)
     free(h);
 }
 
+// ---------------------------------------------------------------------------
+// Aux EMA: second reading exercises the "already initialized" convergence
+// branch (first reading seeds aux_ema; the second blends it).
+// ---------------------------------------------------------------------------
+
+void test_autofan_aux_ema_converges_toward_temp(void)
+{
+    bb_fan_handle_t h = make_handle();
+    enable_autofan(h, 60.0f, 75.0f, 25, 100);
+
+    g_af.die_c = 61.0f; // low die ratio; aux stays in play
+    bb_fan_set_aux_temp(h, 80.0f);
+    advance_poll(h, 5000); // aux_ema initialized to raw (80)
+
+    bb_fan_set_aux_temp(h, 90.0f);
+    advance_poll(h, 5000); // aux_ema = 0.2*90 + 0.8*80 = 82
+
+    bb_fan_autofan_telemetry_t tel;
+    bb_fan_get_autofan_telemetry(h, &tel);
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 82.0f, tel.aux_ema_c);
+
+    free(h);
+}
+
+// ---------------------------------------------------------------------------
+// bb_fan_autofan_set_clock — the production (non-test) PID clock injector
+// called from ESP-IDF init (bb_fan_autofan_inject_clock); host tests
+// otherwise only exercise the test-only bb_fan_pid_set_mock_clock path.
+// ---------------------------------------------------------------------------
+
+static unsigned long s_prod_clock_ms = 1000;
+static unsigned long prod_clock(void) { return s_prod_clock_ms; }
+
+void test_autofan_set_clock_null_handle_is_noop(void)
+{
+    bb_fan_autofan_set_clock(NULL, prod_clock);
+    // No crash — nothing else observable for a NULL handle.
+}
+
+void test_autofan_set_clock_injects_and_seeds_last_time(void)
+{
+    bb_fan_handle_t h = make_handle();
+    bb_fan_autofan_set_clock(h, prod_clock);
+
+    enable_autofan(h, 60.0f, 0.0f, 25, 100);
+    g_af.die_c = 75.0f;
+
+    // Seeded lastTime = prod_clock() - sampleTime, so the very next poll
+    // (still at s_prod_clock_ms) should already fire the PID.
+    bb_fan_poll(h);
+    TEST_ASSERT_GREATER_THAN(25, g_af.set_duty_last);
+
+    free(h);
+}
+
+// ---------------------------------------------------------------------------
+// Autofan persist callback: registered via bb_fan_set_autofan_persist_cb,
+// fired via the test-only bb_fan_invoke_autofan_persist_cb hook.
+// ---------------------------------------------------------------------------
+
+static int   s_persist_calls = 0;
+static void *s_persist_ctx_seen = NULL;
+static bb_fan_autofan_cfg_t s_persist_cfg_seen;
+
+static void test_persist_cb(void *ctx, const bb_fan_autofan_cfg_t *cfg)
+{
+    s_persist_calls++;
+    s_persist_ctx_seen = ctx;
+    s_persist_cfg_seen = *cfg;
+}
+
+void test_autofan_persist_cb_invoked_with_registered_ctx(void)
+{
+    s_persist_calls    = 0;
+    s_persist_ctx_seen = NULL;
+
+    int ctx_marker = 42;
+    bb_fan_set_autofan_persist_cb(test_persist_cb, &ctx_marker);
+
+    bb_fan_autofan_cfg_t cfg = {
+        .enabled      = true,
+        .die_target_c = 65.0f,
+        .aux_target_c = 0.0f,
+        .min_pct      = 25,
+        .manual_pct   = 100,
+    };
+    bb_fan_invoke_autofan_persist_cb(&cfg);
+
+    TEST_ASSERT_EQUAL_INT(1, s_persist_calls);
+    TEST_ASSERT_EQUAL_PTR(&ctx_marker, s_persist_ctx_seen);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 65.0f, s_persist_cfg_seen.die_target_c);
+
+    bb_fan_set_autofan_persist_cb(NULL, NULL);
+}
+
+void test_autofan_persist_cb_not_invoked_when_unset(void)
+{
+    s_persist_calls = 0;
+    bb_fan_set_autofan_persist_cb(NULL, NULL);
+
+    bb_fan_autofan_cfg_t cfg = {0};
+    bb_fan_invoke_autofan_persist_cb(&cfg);
+
+    TEST_ASSERT_EQUAL_INT(0, s_persist_calls);
+}
+
 #endif /* CONFIG_BB_FAN_AUTOFAN */

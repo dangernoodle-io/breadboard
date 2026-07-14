@@ -4,9 +4,8 @@
 // The route-registration path uses bb_http which is ESP-IDF + host-stub.
 #include "bb_sensors.h"
 #include "bb_response.h"
-#include "bb_fan_routes.h"
 #include "bb_fan.h"
-#include "bb_power_routes.h"
+#include "bb_power.h"
 #include "bb_thermal.h"
 #include "bb_http.h"
 #include "bb_http_server.h"

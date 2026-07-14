@@ -141,11 +141,6 @@
       "type": "component"
     },
     {
-      "id": "bb_fan_routes",
-      "path": "components/bb_fan_routes",
-      "type": "component"
-    },
-    {
       "id": "bb_filter",
       "path": "components/bb_filter",
       "type": "component"
@@ -378,11 +373,6 @@
     {
       "id": "bb_power_health",
       "path": "components/bb_power_health",
-      "type": "component"
-    },
-    {
-      "id": "bb_power_routes",
-      "path": "components/bb_power_routes",
       "type": "component"
     },
     {
