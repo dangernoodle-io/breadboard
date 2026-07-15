@@ -149,6 +149,31 @@ void test_bb_serialize_format_render_json_matches_direct_call(void);
 void test_bb_serialize_format_json_render_roundtrip_via_registry(void);
 void test_bb_serialize_json_register_format_idempotent(void);
 
+// Forward declarations from test_bb_serialize_populate.c
+void test_bb_serialize_populate_flat_scalars(void);
+void test_bb_serialize_populate_absent_field_keeps_default(void);
+void test_bb_serialize_populate_str_truncation_at_max_len(void);
+void test_bb_serialize_populate_nested_obj(void);
+void test_bb_serialize_populate_nested_obj_absent_leaves_untouched(void);
+void test_bb_serialize_populate_arr_of_obj(void);
+void test_bb_serialize_populate_arr_absent_leaves_untouched(void);
+void test_bb_serialize_populate_arr_present_null_items_degrades_to_zero(void);
+void test_bb_serialize_populate_arr_of_obj_stops_on_first_miss(void);
+void test_bb_serialize_populate_arr_capacity_bounds_at_max_items(void);
+void test_bb_serialize_populate_arr_max_items_zero_returns_invalid_arg(void);
+void test_bb_serialize_populate_arr_of_str(void);
+void test_bb_serialize_populate_arr_of_str_stops_on_first_miss(void);
+void test_bb_serialize_populate_str_get_false_leaves_default(void);
+void test_bb_serialize_populate_depth_guard_returns_no_space(void);
+void test_bb_serialize_populate_arr_of_obj_depth_guard_returns_no_space(void);
+void test_bb_serialize_populate_str_n_and_ref_are_unsupported(void);
+void test_bb_serialize_populate_ref_alone_is_unsupported(void);
+void test_bb_serialize_populate_str_n_in_nested_obj_is_unsupported(void);
+void test_bb_serialize_populate_str_n_in_arr_of_obj_is_unsupported(void);
+void test_bb_serialize_populate_unknown_type_is_noop(void);
+void test_bb_serialize_populate_null_args_returns_invalid_arg(void);
+void test_bb_serialize_populate_walk_roundtrip(void);
+
 // Forward declarations from test_bb_serialize_ref.c
 void test_bb_serialize_ref_happy_path_resolves_inline(void);
 void test_bb_serialize_ref_unregistered_sibling_omits_field(void);
@@ -9356,6 +9381,31 @@ int main(void) {
     RUN_TEST(test_bb_serialize_arr_of_obj_depth_guard_bails_on_self_reference);
     RUN_TEST(test_bb_serialize_unknown_type_is_noop);
     RUN_TEST(test_bb_serialize_desc_find_skips_null_key_field);
+
+    // bb_serialize_populate
+    RUN_TEST(test_bb_serialize_populate_flat_scalars);
+    RUN_TEST(test_bb_serialize_populate_absent_field_keeps_default);
+    RUN_TEST(test_bb_serialize_populate_str_truncation_at_max_len);
+    RUN_TEST(test_bb_serialize_populate_nested_obj);
+    RUN_TEST(test_bb_serialize_populate_nested_obj_absent_leaves_untouched);
+    RUN_TEST(test_bb_serialize_populate_arr_of_obj);
+    RUN_TEST(test_bb_serialize_populate_arr_absent_leaves_untouched);
+    RUN_TEST(test_bb_serialize_populate_arr_present_null_items_degrades_to_zero);
+    RUN_TEST(test_bb_serialize_populate_arr_of_obj_stops_on_first_miss);
+    RUN_TEST(test_bb_serialize_populate_arr_capacity_bounds_at_max_items);
+    RUN_TEST(test_bb_serialize_populate_arr_max_items_zero_returns_invalid_arg);
+    RUN_TEST(test_bb_serialize_populate_arr_of_str);
+    RUN_TEST(test_bb_serialize_populate_arr_of_str_stops_on_first_miss);
+    RUN_TEST(test_bb_serialize_populate_str_get_false_leaves_default);
+    RUN_TEST(test_bb_serialize_populate_depth_guard_returns_no_space);
+    RUN_TEST(test_bb_serialize_populate_arr_of_obj_depth_guard_returns_no_space);
+    RUN_TEST(test_bb_serialize_populate_str_n_and_ref_are_unsupported);
+    RUN_TEST(test_bb_serialize_populate_ref_alone_is_unsupported);
+    RUN_TEST(test_bb_serialize_populate_str_n_in_nested_obj_is_unsupported);
+    RUN_TEST(test_bb_serialize_populate_str_n_in_arr_of_obj_is_unsupported);
+    RUN_TEST(test_bb_serialize_populate_unknown_type_is_noop);
+    RUN_TEST(test_bb_serialize_populate_null_args_returns_invalid_arg);
+    RUN_TEST(test_bb_serialize_populate_walk_roundtrip);
 
     RUN_TEST(test_bb_format_name_none_returns_null);
     RUN_TEST(test_bb_format_name_json_returns_json);

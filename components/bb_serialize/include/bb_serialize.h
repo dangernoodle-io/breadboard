@@ -21,12 +21,18 @@
  * The walker is pure: no heap, no locks, no I/O, no format knowledge. Field
  * array order is emit order (fidelity-load-bearing for wire-format
  * consumers that assert byte-exact output).
+ *
+ * bb_serialize_populate() is the pure INVERSE: same descriptor SSOT, driven
+ * against a pull-based bb_serialize_populate_t source instead, scattering
+ * fields INTO a snapshot struct rather than reading them out of one. See
+ * the "Populate" section below for the full contract.
  */
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
+#include "bb_core.h"
 #include "bb_format.h"
 #include "bb_type.h"
 
@@ -108,11 +114,20 @@ typedef struct bb_serialize_field_s {
     // metadata. Leave 0 unless such a helper documents otherwise.
     uint16_t                           max_len;
 
-    // Reserved upper-bound hint (item count) for the same future byte-bound
-    // helper; 0 means unknown. Not consumed by the walker
-    // (bb_serialize_arr_t.count is authoritative at walk time) -- reserved
-    // now so descriptor tables declared today don't need a second breaking
-    // pass when the bound helper lands.
+    // Upper-bound hint (item count). For bb_serialize_walk(), reserved
+    // only -- not consumed (bb_serialize_arr_t.count is authoritative at
+    // walk time); a future byte-bound helper (e.g. bb_serialize_json_bound())
+    // treats 0 as unknown/unbounded.
+    //
+    // For bb_serialize_populate(), max_items is instead CONSUMED as the
+    // destination array's writable CAPACITY, and diverges from that
+    // 0-means-unbounded convention: populate scatters into caller-prewired,
+    // fixed-size storage, so "unbounded" has no meaning there -- there is
+    // no destination buffer to size against. max_items MUST be > 0 for
+    // every BB_TYPE_ARR field in a descriptor passed to
+    // bb_serialize_populate(); a max_items == 0 array field is rejected as
+    // BB_ERR_INVALID_ARG (see bb_serialize_populate()'s doc) rather than
+    // silently degrading to a zero-element array.
     uint16_t                           max_items;
 
     // BB_TYPE_ARR only: the element shape -- BB_TYPE_STR (items is
@@ -252,6 +267,119 @@ void bb_serialize_walk_ref(const bb_serialize_desc_t *desc, const void *snap,
 // key, or a matching field is absent.
 const bb_serialize_field_t *bb_serialize_desc_find(const bb_serialize_desc_t *desc,
                                                     const char *key);
+
+// ---------------------------------------------------------------------------
+// Populate vtable -- THE pull-based inverse of bb_serialize_emit_t, and the
+// pure inverse walker driving it
+// ---------------------------------------------------------------------------
+//
+// A format backend (JSON parser, msgpack, ...) implements this vtable in
+// its OWN component (REQUIRES bb_serialize) and bb_serialize_populate()
+// drives it against the SAME descriptor a walk() call would emit from --
+// same SSOT, opposite direction. bb_serialize itself ships no format
+// backend and has no JSON/cJSON/format dependency of any kind.
+//
+// Every callback receives `ctx` (== this vtable's own `ctx` member). `key`
+// is NULL for an array element getter/container, matching emit's
+// null-for-array-element convention.
+//
+// Presence contract: a getter/container callback returning false means the
+// field is ABSENT in the source -- populate leaves the corresponding
+// destination bytes entirely UNTOUCHED (never zeroes them). Callers MUST
+// pass a zero-initialized `dst` so an absent field keeps its zero/default
+// value; populate never zeroes `dst` itself.
+//
+// field->present is NOT consulted by populate. That gate is emit-direction
+// only -- it inspects the very struct being walked OUT of, which at
+// populate time is the struct still being filled IN, so evaluating it here
+// would race the fields it's meant to gate. Presence is instead driven
+// entirely by each callback's own bool return.
+//
+// get_str contract: `cap` is the field's `max_len`; the getter owns
+// bounds-checking a value into that capacity (the same bounded-write
+// convention as an embedded char[N] snapshot field) -- populate trusts a
+// typed getter rather than re-validating what it writes. Unlike the scalar
+// getters (which write into a local scratch temp and only memcpy it into
+// `dst` on a true return), get_str writes directly into `dst` -- so a
+// get_str implementation returning false MUST NOT have written to `dst`
+// first; populate has no scratch temp to fall back on for STR and relies
+// entirely on the getter honoring this contract.
+//
+// BB_TYPE_STR_N and BB_TYPE_REF are NOT supported by populate -- both
+// target caller-owned storage that lives outside the snapshot struct (a
+// STR_N's `.ptr`, a REF's resolved sibling) with no settled scatter
+// convention yet. Unlike an absent field, a descriptor containing either is
+// rejected LOUD: bb_serialize_populate() pre-flight-scans the whole
+// descriptor tree before writing anything and returns BB_ERR_UNSUPPORTED if
+// it finds one, rather than silently leaving the destination under-
+// populated. A future PR can add explicit support once that storage story
+// is designed.
+//
+// Array contract (BB_TYPE_ARR): populate never allocates. The destination
+// bb_serialize_arr_t at the field's offset must already have `.items`
+// pre-wired by the caller to writable, contiguous storage -- elem_size-
+// strided element structs for elem_type == BB_TYPE_OBJ, or an array of
+// writable `char *` buffers (each capacity >= `max_len`) for elem_type ==
+// BB_TYPE_STR. `max_items` is the consumed destination CAPACITY bound here
+// (see the field doc above) and MUST be > 0 -- a max_items == 0 array
+// field fails the pre-flight check with BB_ERR_INVALID_ARG before any
+// scatter begins. Otherwise populate reads at most min(source count,
+// max_items) elements and never writes past that pre-wired storage; the
+// source's begin_arr() call reports its own count via `*count`, purely
+// informational for the array's actual bound. On return,
+// the destination's `.count` reflects how many elements were actually
+// written (fewer than requested if a source getter returns false
+// mid-array, in which case the loop stops early rather than leaving a
+// hole followed by more writes).
+typedef struct {
+    bb_format_t format_id;
+    void       *ctx;
+
+    bool (*get_i64) (void *ctx, const char *key, int64_t  *out);
+    bool (*get_u64) (void *ctx, const char *key, uint64_t *out);
+    bool (*get_f64) (void *ctx, const char *key, double   *out);
+    bool (*get_bool)(void *ctx, const char *key, bool     *out);
+    bool (*get_str) (void *ctx, const char *key, char *dst, size_t cap, size_t *out_len);
+
+    bool (*begin_obj)(void *ctx, const char *key);
+    bool (*end_obj)  (void *ctx);
+    bool (*begin_arr)(void *ctx, const char *key, size_t *count);
+    bool (*end_arr)  (void *ctx);
+} bb_serialize_populate_t;
+
+// Walks desc->fields, scattering each present field's value from `src` into
+// `dst` (the destination snapshot struct's base address) in table order.
+// No heap, no locks, no I/O, no format knowledge -- purely a descriptor
+// interpreter, the pull-direction mirror of bb_serialize_walk(). Bounded
+// recursion at BB_SERIALIZE_MAX_DEPTH -- unlike bb_serialize_walk() (which
+// silently truncates a runaway descriptor), populate returns BB_ERR_NO_SPACE
+// rather than proceeding once the depth budget is exhausted, since a
+// partial-but-silent scatter into caller memory is a worse failure mode
+// than a walker's read-only truncation.
+//
+// Before scattering anything, pre-flight-scans the whole descriptor tree
+// (same depth cap): a BB_TYPE_ARR field with max_items == 0 fails with
+// BB_ERR_INVALID_ARG (see the field doc above -- populate's capacity bound
+// must be nonzero, unlike JSON's 0-means-unbounded), and a BB_TYPE_STR_N or
+// BB_TYPE_REF field anywhere in the tree fails with BB_ERR_UNSUPPORTED
+// (neither is scatter-supported yet -- see the populate vtable doc above).
+// This keeps a misconfigured/unsupported descriptor from ever reaching a
+// partial write.
+//
+// Returns BB_ERR_INVALID_ARG if desc, dst, or src is NULL, or if the
+// pre-flight scan above rejects a max_items == 0 array field;
+// BB_ERR_UNSUPPORTED if the pre-flight scan finds a STR_N/REF field; BB_OK
+// otherwise (an individual absent field is not an error -- see the
+// presence contract above). The pre-flight scan runs before any scatter,
+// so those two rejections leave `dst` fully untouched. BB_ERR_NO_SPACE
+// (the depth-guard trip, see below) is different: it fires mid-scatter, so
+// it does NOT imply `dst` is untouched -- fields earlier in table order (or
+// in an already-entered nested OBJ/ARR) may have already been scattered
+// before the guard tripped. Populate is deliberately non-atomic in that
+// case; a caller that needs all-or-nothing semantics must snapshot/restore
+// `dst` itself.
+bb_err_t bb_serialize_populate(const bb_serialize_desc_t *desc, void *dst,
+                                const bb_serialize_populate_t *src);
 
 #ifdef __cplusplus
 }
