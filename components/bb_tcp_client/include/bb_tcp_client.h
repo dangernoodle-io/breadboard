@@ -23,7 +23,7 @@
 // Usage:
 //   bb_tcp_client_cfg_t cfg = { .host = "stratum.example.com", .port = 3333 };
 //   bb_tcp_client_t h;
-//   bb_tcp_client_init(&cfg, &h);       // or NULL to load NVS-backed / Kconfig config
+//   bb_tcp_client_init("my_ns", &cfg, &h);  // or NULL cfg to load NVS-backed / Kconfig config
 //   bb_tcp_client_connect(h);           // blocking, bounded by connect_timeout_ms
 //   bb_tcp_client_write(h, buf, len);
 //   bb_tcp_client_read(h, buf, sizeof(buf), &n);
@@ -93,20 +93,27 @@ typedef struct {
  * Acquire an instance from the static pool and load its configuration.
  * Does NOT connect — call bb_tcp_client_connect() separately.
  *
- * Pass cfg_or_null = NULL to load the persisted config (NVS namespace
- * "bb_tcp", keys "host"/"port"/"tls"), falling back to Kconfig defaults for
- * any unset key. Pass non-NULL to override host/port/tls and persist them;
+ * Pass cfg_or_null = NULL to load the persisted config (NVS namespace `ns`,
+ * keys "host"/"port"/"tls"), falling back to Kconfig defaults for any unset
+ * key. Pass non-NULL to override host/port/tls and persist them under `ns`;
  * connect_timeout_ms/io_timeout_ms/cert fields are used for this instance
  * only and are never persisted.
  *
+ * @param ns           NVS namespace to load/persist host/port/tls under.
+ *                      Required, borrowed (not copied — used only for the
+ *                      duration of this call), ≤15 chars (NVS namespace
+ *                      limit). NULL or empty ⇒ BB_ERR_INVALID_ARG (before any
+ *                      storage is touched). The caller/composition decides
+ *                      WHERE config lives; this component only declares WHAT
+ *                      it stores.
  * @param cfg_or_null  Configuration, or NULL to load persisted/Kconfig defaults.
  * @param out          Receives the opaque handle on success.
- * @return BB_OK on success; BB_ERR_INVALID_ARG if out is NULL, or cfg_or_null
- *         is non-NULL and its host does not fit in BB_TCP_CLIENT_HOST_MAX - 1
- *         chars; BB_ERR_NO_SPACE if the static instance pool
- *         (BB_TCP_CLIENT_MAX_INSTANCES) is exhausted.
+ * @return BB_OK on success; BB_ERR_INVALID_ARG if ns is NULL/empty, out is
+ *         NULL, or cfg_or_null is non-NULL and its host does not fit in
+ *         BB_TCP_CLIENT_HOST_MAX - 1 chars; BB_ERR_NO_SPACE if the static
+ *         instance pool (BB_TCP_CLIENT_MAX_INSTANCES) is exhausted.
  */
-bb_err_t bb_tcp_client_init(const bb_tcp_client_cfg_t *cfg_or_null, bb_tcp_client_t *out);
+bb_err_t bb_tcp_client_init(const char *ns, const bb_tcp_client_cfg_t *cfg_or_null, bb_tcp_client_t *out);
 
 /**
  * Establish the connection (blocking, bounded by cfg.connect_timeout_ms or

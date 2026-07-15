@@ -9,11 +9,12 @@
 // B1-708) — bb_config's STR/U16/U8 encodings resolve to the SAME
 // nvs_set_str/nvs_set_u16/nvs_set_u8 calls bb_nv_set_str/set_u16/set_u8 made
 // (both are thin forwarders to bb_storage_nvs, see bb_storage_nvs.h), so the
-// on-flash namespace/key/type triples below are byte-compatible with what
-// this component previously wrote via bb_nv.
+// on-flash key/type triples below are byte-compatible with what this
+// component previously wrote via bb_nv (namespace is now caller-supplied,
+// B1-951 — the component declares WHAT it stores, the composition decides
+// WHERE; see bb_tls_creds's resolve_one for the reference pattern).
 #include "bb_tcp_client_priv.h"
 #include "bb_config.h"
-#include "bb_nv_namespaces.h"
 #include "bb_once.h"
 #include "bb_transport_health.h"
 
@@ -23,52 +24,75 @@
 #include <unistd.h>
 #endif
 
-// Namespace/keys byte-for-byte matched to bb_nv's prior BB_TCP_NVS_NS
-// ("bb_tcp")/"host"/"port"/"tls" — do not change without a migration plan,
-// this strands provisioned-board TCP transport config otherwise.
-static const bb_config_field_t s_tcp_host_field = {
-    .id      = "tcp.host",
-    .type    = BB_CONFIG_STR,
-    .addr    = { .backend = "nvs", .ns_or_dir = BB_TCP_NVS_NS, .key = "host" },
-    .max_len = BB_TCP_CLIENT_HOST_MAX,
-    .def     = { .str = "" },
-    .has_default = true,
-};
-
-static const bb_config_field_t s_tcp_port_field = {
-    .id          = "tcp.port",
-    .type        = BB_CONFIG_U16,
-    .addr        = { .backend = "nvs", .ns_or_dir = BB_TCP_NVS_NS, .key = "port" },
-    .def         = { .u16 = 0 },
-    .has_default = true,
-};
-
-static const bb_config_field_t s_tcp_tls_field = {
-    .id          = "tcp.tls",
-    .type        = BB_CONFIG_U8,
-    .addr        = { .backend = "nvs", .ns_or_dir = BB_TCP_NVS_NS, .key = "tls" },
-    .def         = { .u8 = BB_TCP_TLS_DEFAULT ? 1 : 0 },
-    .has_default = true,
-};
-
-void bb_tcp_client_priv_load_from_nvs(bb_tcp_client_cfg_t *out)
+void bb_tcp_client_priv_load_from_nvs(const char *ns, bb_tcp_client_cfg_t *out)
 {
     memset(out, 0, sizeof(*out));
 
+    // ns is caller-supplied at runtime, so these field descriptors are built
+    // per-call rather than declared static const — bb_config_field_t carries
+    // no state of its own, so a stack-local instance is safe to pass by
+    // pointer for the duration of this single call (mirrors bb_tls_creds's
+    // resolve_one).
+    const bb_config_field_t host_field = {
+        .id      = "tcp.host",
+        .type    = BB_CONFIG_STR,
+        .addr    = { .backend = "nvs", .ns_or_dir = ns, .key = "host" },
+        .max_len = BB_TCP_CLIENT_HOST_MAX,
+        .def     = { .str = "" },
+        .has_default = true,
+    };
+    const bb_config_field_t port_field = {
+        .id          = "tcp.port",
+        .type        = BB_CONFIG_U16,
+        .addr        = { .backend = "nvs", .ns_or_dir = ns, .key = "port" },
+        .def         = { .u16 = 0 },
+        .has_default = true,
+    };
+    const bb_config_field_t tls_field = {
+        .id          = "tcp.tls",
+        .type        = BB_CONFIG_U8,
+        .addr        = { .backend = "nvs", .ns_or_dir = ns, .key = "tls" },
+        .def         = { .u8 = BB_TCP_TLS_DEFAULT ? 1 : 0 },
+        .has_default = true,
+    };
+
     size_t out_len = 0;
-    bb_config_get_str(&s_tcp_host_field, out->host, sizeof(out->host), &out_len);
-    bb_config_get_u16(&s_tcp_port_field, &out->port);
+    bb_config_get_str(&host_field, out->host, sizeof(out->host), &out_len);
+    bb_config_get_u16(&port_field, &out->port);
 
     uint8_t tls_u8 = 0;
-    bb_config_get_u8(&s_tcp_tls_field, &tls_u8);
+    bb_config_get_u8(&tls_field, &tls_u8);
     out->tls = (tls_u8 != 0);
 }
 
-void bb_tcp_client_priv_save_to_nvs(const bb_tcp_client_cfg_t *cfg)
+void bb_tcp_client_priv_save_to_nvs(const char *ns, const bb_tcp_client_cfg_t *cfg)
 {
-    bb_config_set_str(&s_tcp_host_field, cfg->host);
-    bb_config_set_u16(&s_tcp_port_field, cfg->port);
-    bb_config_set_u8(&s_tcp_tls_field, cfg->tls ? 1 : 0);
+    const bb_config_field_t host_field = {
+        .id      = "tcp.host",
+        .type    = BB_CONFIG_STR,
+        .addr    = { .backend = "nvs", .ns_or_dir = ns, .key = "host" },
+        .max_len = BB_TCP_CLIENT_HOST_MAX,
+        .def     = { .str = "" },
+        .has_default = true,
+    };
+    const bb_config_field_t port_field = {
+        .id          = "tcp.port",
+        .type        = BB_CONFIG_U16,
+        .addr        = { .backend = "nvs", .ns_or_dir = ns, .key = "port" },
+        .def         = { .u16 = 0 },
+        .has_default = true,
+    };
+    const bb_config_field_t tls_field = {
+        .id          = "tcp.tls",
+        .type        = BB_CONFIG_U8,
+        .addr        = { .backend = "nvs", .ns_or_dir = ns, .key = "tls" },
+        .def         = { .u8 = BB_TCP_TLS_DEFAULT ? 1 : 0 },
+        .has_default = true,
+    };
+
+    bb_config_set_str(&host_field, cfg->host);
+    bb_config_set_u16(&port_field, cfg->port);
+    bb_config_set_u8(&tls_field, cfg->tls ? 1 : 0);
 }
 
 // Single shared AUTHORITATIVE slot for the whole component (not one per

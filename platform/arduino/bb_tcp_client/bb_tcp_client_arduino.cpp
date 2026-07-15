@@ -5,9 +5,9 @@
 // precedent.
 #include "bb_tcp_client.h"
 
-bb_err_t bb_tcp_client_init(const bb_tcp_client_cfg_t *cfg_or_null, bb_tcp_client_t *out)
+bb_err_t bb_tcp_client_init(const char *ns, const bb_tcp_client_cfg_t *cfg_or_null, bb_tcp_client_t *out)
 {
-    (void)cfg_or_null;
+    (void)ns; (void)cfg_or_null;
     if (out) *out = NULL;
     return BB_ERR_UNSUPPORTED;
 }
