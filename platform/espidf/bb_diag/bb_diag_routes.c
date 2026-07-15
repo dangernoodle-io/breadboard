@@ -9,7 +9,6 @@
 #include "bb_log.h"
 #include "bb_openapi.h"
 #include "bb_config.h"
-#include "bb_nv.h"
 #include "bb_nv_namespaces.h"
 #include "bb_nv_keys.h"
 #include "bb_ntp.h"

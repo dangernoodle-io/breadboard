@@ -11,6 +11,8 @@ Use it when a consumer wants named, typed config fields (e.g. `wifi.ssid`, `mqtt
 <!-- BEGIN bbtool:api -->
 - [`bb_config.h`](include/bb_config.h)
 - [`bb_config_staged.h`](include/bb_config_staged.h)
+- [`bb_nv_keys.h`](include/bb_nv_keys.h)
+- [`bb_nv_namespaces.h`](include/bb_nv_namespaces.h)
 
 Public symbols use the `bb_` prefix.
 <!-- END bbtool:api -->

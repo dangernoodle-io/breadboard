@@ -5,7 +5,6 @@
 #include <stddef.h>
 
 #include "bb_core.h"
-#include "bb_nv_namespaces.h"
 
 #ifdef __cplusplus
 extern "C" {

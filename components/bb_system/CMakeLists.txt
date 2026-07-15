@@ -1,7 +1,7 @@
-# bb_nv stays PRIV_REQUIRES for bb_nv_namespaces.h's BB_REBOOT_NVS_NS /
-# bb_nv_keys.h's BB_REBOOT_KEY_BOOT_CNT constants only (B1-756) -- the
-# boot-health counter no longer round-trips through bb_nv's generic-KV API,
-# that logic now lives in bb_config below.
+# bb_nv_namespaces.h's BB_REBOOT_NVS_NS / bb_nv_keys.h's
+# BB_REBOOT_KEY_BOOT_CNT constants now live in bb_config (B1-958, bb_nv
+# dissolution epic B1-708) -- bb_nv is no longer required at all here; the
+# boot-health counter round-trips through bb_config below.
 set(_sys_srcs
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_reboot_parse.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_reboot_record.c"
@@ -21,6 +21,6 @@ idf_component_register(
     SRCS ${_sys_srcs}
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_http_server
-    PRIV_REQUIRES bb_nv ${_sys_priv_reqs}
+    PRIV_REQUIRES ${_sys_priv_reqs}
 )
 
