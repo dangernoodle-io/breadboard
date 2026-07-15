@@ -1,6 +1,7 @@
 #include "bb_nv.h"
 #include "bb_log.h"
 #include "bb_manifest.h"
+#include "bb_nv_namespaces.h"
 #include "bb_settings.h"
 #include "bb_str.h"
 #include "bb_storage_nvs.h"

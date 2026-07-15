@@ -10,10 +10,11 @@ if(CONFIG_BB_DIAG_ROUTES)
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag/bb_diag_routes.c")
 endif()
 
-# bb_nv stays PRIV_REQUIRES for bb_nv_namespaces.h's BB_REBOOT_NVS_NS /
-# bb_nv_keys.h's BB_REBOOT_KEY_LAST/BB_REBOOT_KEY_HISTORY constants -- the
-# reboot-reason SSOT's persisted record/history no longer round-trip through
-# bb_nv's generic-KV API, that logic now lives in bb_config below (B1-756).
+# bb_nv_namespaces.h's BB_REBOOT_NVS_NS / bb_nv_keys.h's
+# BB_REBOOT_KEY_LAST/BB_REBOOT_KEY_HISTORY constants now live in bb_config
+# (B1-958, bb_nv dissolution epic B1-708) -- bb_nv is no longer required at
+# all here; the reboot-reason SSOT's persisted record/history round-trips
+# through bb_config below.
 # The DELETE /api/nvs route (and the private-include boundary violation it
 # required to reach bb_nv's implementation dir) moved out to bb_storage_http
 # (B1-757) -- bb_diag no longer wires or depends on it.
@@ -26,7 +27,7 @@ idf_component_register(
     SRCS ${_diag_srcs}
     INCLUDE_DIRS "include" "."
     REQUIRES bb_core bb_http_server
-    PRIV_REQUIRES bb_log bb_http bb_json bb_cache bb_nv bb_config bb_storage bb_ntp bb_openapi bb_system bb_ota_validator bb_event bb_event_routes bb_task_registry bb_task espcoredump lwip nvs_flash esp_partition esp_app_format bb_str
+    PRIV_REQUIRES bb_log bb_http bb_json bb_cache bb_config bb_storage bb_ntp bb_openapi bb_system bb_ota_validator bb_event bb_event_routes bb_task_registry bb_task espcoredump lwip nvs_flash esp_partition esp_app_format bb_str
 )
 
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)
