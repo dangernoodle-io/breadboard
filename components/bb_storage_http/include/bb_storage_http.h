@@ -2,7 +2,8 @@
 
 /**
  * @brief Backend-agnostic DELETE /api/diag/storage route over the
- * bb_storage facade — works for any registered backend (nvs today,
+ * bb_storage facade, plus POST /api/diag/factory-reset (whole-partition
+ * erase + reboot) — works for any registered backend (nvs today,
  * ram/rtc/a future sdcard) with no new route component per backend.
  */
 
@@ -61,9 +62,41 @@ extern "C" {
 // bbtool:init tier=regular fn=bb_storage_http_routes_init server=true
 bb_err_t bb_storage_http_routes_init(bb_http_handle_t server);
 
+// Registry hook — registers POST /api/diag/factory-reset. Rehomed off bb_nv
+// (B1-960, bb_nv dissolution epic B1-708) — was POST /api/factory-reset on
+// bb_nv_factory_reset_routes_init. A valid request body
+// {"confirm":"factory-reset"} erases the whole "nvs" bb_storage backend
+// (bb_storage_erase_all), invalidates the RTC creds mirror (when
+// CONFIG_BB_NV_CREDS_RTC_BACKUP is enabled), responds 202, then reboots
+// after ~500 ms. A SEPARATE // bbtool:init marker from
+// bb_storage_http_routes_init above, 1:1 with this one route — not folded
+// into a shared multi-route init.
+//
+// Gated behind CONFIG_BB_STORAGE_HTTP_FACTORY_RESET (default n — destructive,
+// opt-in only; same posture the deleted bb_nv route had via
+// CONFIG_BB_NV_FACTORY_RESET). codegen's `// bbtool:init` marker scan has no
+// preprocessor awareness (grep-time, see wire_parse.py), so bb_app_init.c
+// unconditionally calls this fn regardless of the Kconfig value; the #else
+// branch below supplies a no-op stub with matching signature so that call
+// always links, mirroring bb_nv.h's bb_nv_factory_reset_routes_init stub
+// pattern.
+#if defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET
+// bbtool:init tier=regular fn=bb_storage_http_factory_reset_routes_init server=true
+bb_err_t bb_storage_http_factory_reset_routes_init(bb_http_handle_t server);
+#else
+static inline bb_err_t bb_storage_http_factory_reset_routes_init(bb_http_handle_t server)
+{
+    (void)server;
+    return BB_OK;
+}
+#endif /* defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET */
+
 #ifdef BB_STORAGE_HTTP_TESTING
-// Expose the handler for host unit tests.
+// Expose the handlers for host unit tests.
 bb_err_t bb_storage_http_delete_handler_for_test(bb_http_request_t *req);
+#if defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET
+bb_err_t bb_storage_http_factory_reset_handler_for_test(bb_http_request_t *req);
+#endif /* defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET */
 #endif /* BB_STORAGE_HTTP_TESTING */
 
 #ifdef __cplusplus

@@ -15,14 +15,22 @@
 #include "bb_mem.h"
 #include "bb_settings.h"
 #include "bb_str.h"
+#include "bb_system.h"
+
+#ifdef ESP_PLATFORM
+#include "bb_clock.h"
+#include "bb_timer.h"
+#include "esp_system.h"
+#endif
 
 #include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "bb_storage_http";
 
-#define BB_STORAGE_HTTP_DELETE_BODY_MAX 1024
-#define BB_STORAGE_HTTP_BACKEND_MAX     16
+#define BB_STORAGE_HTTP_DELETE_BODY_MAX        1024
+#define BB_STORAGE_HTTP_BACKEND_MAX            16
+#define BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX 128
 
 // ---------------------------------------------------------------------------
 // Error helpers
@@ -370,7 +378,177 @@ static const bb_route_t s_storage_delete_route = {
 };
 
 // ---------------------------------------------------------------------------
-// Init: register the single route
+// POST /api/diag/factory-reset — whole-"nvs"-backend erase + reboot
+// (B1-960, rehomed off bb_nv's POST /api/factory-reset /
+// bb_nv_factory_reset_routes_init). Request schema PRESERVED exactly from
+// the old bb_nv route: {"confirm":"factory-reset"} exact-string match.
+//
+// Gated behind CONFIG_BB_STORAGE_HTTP_FACTORY_RESET (default n — see
+// bb_storage_http.h). Mirrors the deleted bb_nv_routes.c's
+// `#if CONFIG_BB_NV_FACTORY_RESET` posture: destructive routes are opt-in.
+// ---------------------------------------------------------------------------
+
+#if defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET
+
+#ifdef ESP_PLATFORM
+static void factory_reset_reboot_work_fn(void *arg)
+{
+    (void)arg;
+    uint32_t uptime_s = (uint32_t)(bb_clock_now_ms64() / 1000ULL);
+    /* epoch_s=0: no bb_ntp dependency here (would create an unwanted edge);
+     * the boot-side reader treats epoch_s=0 as "unknown/unsynced" per the
+     * record contract. */
+    bb_err_t rc = bb_system_reboot_record_save(BB_RESET_SRC_FACTORY_RESET, NULL, 0, uptime_s);
+    if (rc == BB_ERR_INVALID_ARG) {
+        bb_log_w(TAG, "factory_reset: record encode failed, rebooting without reason");
+    } else if (rc != BB_OK) {
+        bb_log_w(TAG, "factory_reset: NVS persist failed: %d", (int)rc);
+    }
+    esp_restart();
+}
+#endif /* ESP_PLATFORM */
+
+static bb_err_t factory_reset_handler(bb_http_request_t *req)
+{
+    int body_len = bb_http_req_body_len(req);
+    if (body_len <= 0 || body_len > BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX) {
+        send_400(req, "missing or oversized body");
+        return BB_ERR_INVALID_ARG;
+    }
+
+    char body[BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX];
+    int n = bb_http_req_recv(req, body, sizeof(body) - 1);
+    if (n < 0) {
+        send_400(req, "read failed");
+        return BB_ERR_INVALID_ARG;
+    }
+    body[n] = '\0';
+
+    bb_json_t parsed = bb_json_parse(body, (size_t)n);
+    if (!parsed) {
+        send_400(req, "invalid JSON");
+        return BB_ERR_INVALID_ARG;
+    }
+
+    char confirm[32];
+    confirm[0] = '\0';
+    bb_json_obj_get_string(parsed, "confirm", confirm, sizeof(confirm));
+    bb_json_free(parsed);
+
+    if (strcmp(confirm, "factory-reset") != 0) {
+        send_400(req, "confirm field must be \"factory-reset\"");
+        return BB_ERR_INVALID_ARG;
+    }
+
+    bb_err_t err = bb_storage_erase_all("nvs");
+    if (err != BB_OK) {
+        if (err == BB_ERR_UNSUPPORTED) {
+            send_501(req, "backend does not support whole-backend erase");
+        } else {
+            send_500(req, "factory reset failed");
+        }
+        return err;
+    }
+
+    /* Invalidate the shared RTC mirror so the restore-heal path does NOT
+     * re-populate credentials on next boot. Best-effort/fail-open, same
+     * posture as every other mirror clear in this codebase: an
+     * unregistered "rtc" backend (RTC-backup Kconfig-disabled builds, or a
+     * composer that never registered bb_storage_rtc) is harmless here.
+     *
+     * On device this stays gated on CONFIG_BB_NV_CREDS_RTC_BACKUP (the
+     * mirror only exists when that feature is on). On host there is no
+     * sdkconfig.h / CONFIG_ bridge at all, so the call is unconditional —
+     * same posture as the deleted bb_nv_config_factory_reset() host stub,
+     * which called this unconditionally and was covered by
+     * test_nv_factory_reset_invalidates_rtc_mirror. Keeping it unconditional
+     * on host (rather than compiling it out) is what makes this
+     * host-testable (B1-935 stale-creds-survive-factory-reset class). */
+#if !defined(ESP_PLATFORM) || defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
+    bb_settings_wifi_rtc_mirror_clear();
+#endif
+
+    bb_http_resp_set_status(req, 202);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "status", "factory_reset_accepted");
+    bb_http_resp_json_obj_set_bool(&obj, "reboot", true);
+    bb_http_resp_json_obj_end(&obj);
+
+#ifdef ESP_PLATFORM
+    static bb_oneshot_timer_t s_reset_timer = NULL;
+    if (!s_reset_timer) {
+        bb_timer_deferred_oneshot_create(factory_reset_reboot_work_fn, NULL,
+                                         "bb_storage_http_factory_reset", &s_reset_timer);
+    }
+    bb_timer_oneshot_stop(s_reset_timer);
+    bb_timer_oneshot_start(s_reset_timer, 500 * 1000); /* 500 ms — lets HTTP 202 flush */
+#endif /* ESP_PLATFORM */
+
+    return BB_OK;
+}
+
+static const bb_route_response_t s_factory_reset_responses[] = {
+    { 202, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"status\":{\"type\":\"string\"},"
+      "\"reboot\":{\"type\":\"boolean\"}},"
+      "\"required\":[\"status\",\"reboot\"]}",
+      "factory reset accepted; device will reboot after ~500 ms" },
+    { 400, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "missing or invalid confirmation body" },
+    { 500, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "factory reset (nvs erase) failed" },
+    { 501, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "backend does not support whole-backend erase" },
+    { 0 },
+};
+
+static const bb_route_t s_factory_reset_route = {
+    .method               = BB_HTTP_POST,
+    .path                 = "/api/diag/factory-reset",
+    .tag                  = "diag",
+    .summary              = "Erase the whole \"nvs\" bb_storage backend and reboot to factory defaults",
+    .request_content_type = "application/json",
+    .request_schema       = "{\"type\":\"object\","
+                            "\"properties\":{\"confirm\":{\"type\":\"string\"}},"
+                            "\"required\":[\"confirm\"]}",
+    .responses            = s_factory_reset_responses,
+    .handler              = factory_reset_handler,
+};
+
+bb_err_t bb_storage_http_factory_reset_routes_init(bb_http_handle_t server)
+{
+    if (!server) return BB_ERR_INVALID_ARG;
+
+    bb_err_t err = bb_http_register_described_route(server, &s_factory_reset_route);
+    if (err != BB_OK) return err;
+
+    bb_log_i(TAG, "factory reset route registered");
+    return BB_OK;
+}
+
+#ifdef BB_STORAGE_HTTP_TESTING
+bb_err_t bb_storage_http_factory_reset_handler_for_test(bb_http_request_t *req)
+{
+    return factory_reset_handler(req);
+}
+#endif /* BB_STORAGE_HTTP_TESTING */
+
+#endif /* defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET */
+
+// ---------------------------------------------------------------------------
+// Init: register the single (always-on) DELETE route
 // ---------------------------------------------------------------------------
 
 bb_err_t bb_storage_http_routes_init(bb_http_handle_t server)
@@ -385,7 +563,7 @@ bb_err_t bb_storage_http_routes_init(bb_http_handle_t server)
 }
 
 // ---------------------------------------------------------------------------
-// Testing exposure (host unit tests)
+// Testing exposure (host unit tests) — non-factory-reset handler
 // ---------------------------------------------------------------------------
 
 #ifdef BB_STORAGE_HTTP_TESTING

@@ -174,6 +174,37 @@ void test_bb_storage_erase_namespace_ram_backend_returns_unsupported(void)
 }
 
 /* ---------------------------------------------------------------------------
+ * erase_all (B1-960): NULL backend, unknown backend, and a backend whose
+ * vtable leaves erase_all NULL (bb_storage_ram deliberately does, same
+ * fail-closed contract as erase_namespace above). The success path (a
+ * backend that DOES implement it) is exercised by
+ * test_bb_storage_http_factory_reset.c against its own fake "nvs" backend.
+ * ---------------------------------------------------------------------------*/
+void test_bb_storage_erase_all_null_backend_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_erase_all(NULL));
+}
+
+void test_bb_storage_erase_all_unknown_backend_returns_not_found(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_storage_erase_all("does_not_exist"));
+}
+
+void test_bb_storage_erase_all_ram_backend_returns_unsupported(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_storage_erase_all("ram"));
+}
+
+/* ---------------------------------------------------------------------------
  * missing-key get (backend known, key never set)
  * ---------------------------------------------------------------------------*/
 void test_bb_storage_get_missing_key_returns_not_found(void)

@@ -27,12 +27,6 @@ extern "C" {
 // bbtool:init tier=early fn=bb_nv_config_init requires=storage_rtc
 bb_err_t bb_nv_config_init(void);
 
-/// Factory reset: erase ALL NVS flash, clear the in-RAM config, and invalidate
-/// the RTC creds mirror (so the restore-heal path does not re-populate creds on
-/// next boot). Returns BB_OK on success. Available on all platforms (host build
-/// clears in-memory state so host tests can assert the reset).
-bb_err_t bb_nv_config_factory_reset(void);
-
 // Register bb_cfg NVS keys with /api/manifest.
 // bbtool:init tier=pre_http fn=bb_nv_config_manifest_init
 bb_err_t bb_nv_config_manifest_init(void);
@@ -136,28 +130,6 @@ bb_err_t bb_nv_batch_set_u16(bb_nv_batch_t *batch, const char *key, uint16_t val
 bb_err_t bb_nv_batch_set_u32(bb_nv_batch_t *batch, const char *key, uint32_t value);
 bb_err_t bb_nv_batch_set_str(bb_nv_batch_t *batch, const char *key, const char *value);
 bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch);
-
-#if defined(CONFIG_BB_NV_FACTORY_RESET) && CONFIG_BB_NV_FACTORY_RESET
-/// Registry hook — registers POST /api/factory-reset.
-// bbtool:init tier=regular fn=bb_nv_factory_reset_routes_init server=true
-bb_err_t bb_nv_factory_reset_routes_init(bb_http_handle_t server);
-#else
-// No-op stub when the factory-reset route is compiled out (default) --
-// codegen's `// bbtool:init` marker scan has no preprocessor awareness
-// (grep-time, see wire_parse.py), so bb_app_init.c unconditionally calls
-// this fn; mirrors the bb_clock.h Kconfig-bridge stub pattern.
-static inline bb_err_t bb_nv_factory_reset_routes_init(bb_http_handle_t server)
-{
-    (void)server;
-    return BB_OK;
-}
-#endif /* defined(CONFIG_BB_NV_FACTORY_RESET) && CONFIG_BB_NV_FACTORY_RESET */
-
-#ifdef BB_NV_FACTORY_RESET_TESTING
-/// Expose the factory-reset route handler for host unit tests.
-/// Only available when CONFIG_BB_NV_FACTORY_RESET=1 and BB_NV_FACTORY_RESET_TESTING is defined.
-bb_err_t bb_nv_factory_reset_handler_for_test(bb_http_request_t *req);
-#endif /* BB_NV_FACTORY_RESET_TESTING */
 
 #ifdef __cplusplus
 }

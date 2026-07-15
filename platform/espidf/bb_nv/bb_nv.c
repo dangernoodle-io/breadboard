@@ -412,28 +412,6 @@ bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch)
     return err;
 }
 
-bb_err_t bb_nv_config_factory_reset(void)
-{
-    bb_log_i(TAG, "factory reset: erasing NVS partition");
-    bb_err_t err = nvs_flash_erase();
-    if (err != BB_OK) {
-        bb_log_e(TAG, "factory reset: nvs_flash_erase failed: %d", err);
-        return err;
-    }
-    /* Invalidate the shared RTC mirror so the restore-heal path in
-     * bb_nv_config_init does NOT re-populate credentials on next boot.
-     * Without this, a still-valid mirror would cause the heal to copy creds
-     * back into NVS, silently defeating the reset. Best-effort -- an
-     * unregistered "rtc" backend (RTC-backup Kconfig-disabled builds, or a
-     * composer that never registered bb_storage_rtc) is fail-open here, same
-     * posture as every other mirror clear in this file. */
-#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
-    bb_settings_wifi_rtc_mirror_clear();
-#endif
-    bb_log_i(TAG, "factory reset: done");
-    return BB_OK;
-}
-
 /* Query API — both symbols always present under ESP_PLATFORM so consumers
  * link unconditionally regardless of CONFIG_BB_NV_CREDS_RTC_BACKUP. */
 bool bb_nv_config_was_erased(void)
@@ -665,20 +643,3 @@ bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch)
 
 #endif /* !ESP_PLATFORM (host stubs for set/get/batch) */
 
-// Host implementations of ESP-only setters (non-ESP)
-#ifndef ESP_PLATFORM
-bb_err_t bb_nv_config_factory_reset(void)
-{
-    /* Host implementation: bb_nv no longer caches wifi creds (or anything
-     * else) in-RAM -- that state moved entirely to bb_settings' storage
-     * layer (B1: bb_nv creds-cluster relocation; hostname/timezone/wifi
-     * creds and display_en/mdns_en/update_check_en moved earlier, B1-750).
-     * There is no NVS partition to erase on host, so the ONE thing left for
-     * this stub to do is the same mirror-invalidate the ESP_PLATFORM branch
-     * performs after its (host-unavailable) nvs_flash_erase() -- best-effort,
-     * same fail-open posture: a test that never registered a "rtc" backend
-     * sees this as a harmless no-op. */
-    bb_settings_wifi_rtc_mirror_clear();
-    return BB_OK;
-}
-#endif

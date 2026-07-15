@@ -762,6 +762,22 @@ bb_err_t bb_storage_nvs_erase_namespace(const char *ns)
     return err;
 }
 
+// Moved verbatim from platform/espidf/bb_nv/bb_nv.c's
+// bb_nv_config_factory_reset() (B1-960) -- the nvs_flash_erase() call ONLY;
+// the RTC-mirror-clear + reboot-record steps that used to live alongside it
+// now belong to the caller (bb_storage_http's factory-reset route handler).
+bb_err_t bb_storage_nvs_erase_all(void)
+{
+    bb_log_i(TAG, "erase_all: erasing NVS partition");
+    bb_err_t err = nvs_flash_erase();
+    if (err != BB_OK) {
+        bb_log_e(TAG, "erase_all: nvs_flash_erase failed: %d", err);
+        return err;
+    }
+    bb_log_i(TAG, "erase_all: done");
+    return BB_OK;
+}
+
 bool bb_storage_nvs_exists(const char *ns, const char *key)
 {
     if (ns == NULL || key == NULL) return false;
@@ -909,6 +925,23 @@ static bb_err_t nvs_vt_erase_namespace(void *impl, const char *ns_or_dir)
 {
     (void)impl;
     return bb_storage_nvs_erase_namespace(ns_or_dir);
+}
+
+// Generic whole-partition erase_all hook -- thin forward to the typed
+// bb_storage_nvs_erase_all() above. impl is unused: there is no per-addr
+// scoping for a whole-backend erase.
+//
+// INSPECTION-AND-SMOKE-ONLY, never executed by any test (same B1-943-class
+// caveat as nvs_vt_erase_namespace above): this forwarder and the .erase_all
+// vtable slot below sit inside #ifdef ESP_PLATFORM; the host build of
+// bb_storage_nvs_register() returns BB_ERR_UNSUPPORTED, so the real "nvs"
+// backend can never register on host, and no test drives
+// bb_storage_erase_all("nvs") through this vtable member. This path is only
+// validated on hardware/smoke.
+static bb_err_t nvs_vt_erase_all(void *impl)
+{
+    (void)impl;
+    return bb_storage_nvs_erase_all();
 }
 
 static bool nvs_vt_exists(void *impl, const bb_storage_addr_t *addr)
@@ -1217,6 +1250,7 @@ static const bb_storage_vtable_t s_nvs_vtable = {
     .erase           = nvs_vt_erase,
     .exists          = nvs_vt_exists,
     .erase_namespace = nvs_vt_erase_namespace,  // inspection-and-smoke-only, see nvs_vt_erase_namespace() above
+    .erase_all       = nvs_vt_erase_all,        // inspection-and-smoke-only, see nvs_vt_erase_all() above
     .get_typed       = nvs_vt_get_typed,
     .set_typed       = nvs_vt_set_typed,
     .txn_begin       = nvs_txn_begin,
@@ -1320,6 +1354,11 @@ bb_err_t bb_storage_nvs_erase(const char *ns, const char *key)
 bb_err_t bb_storage_nvs_erase_namespace(const char *ns)
 {
     if (ns == NULL) return BB_ERR_INVALID_ARG;
+    return BB_ERR_UNSUPPORTED;
+}
+
+bb_err_t bb_storage_nvs_erase_all(void)
+{
     return BB_ERR_UNSUPPORTED;
 }
 
