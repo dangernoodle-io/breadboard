@@ -4,13 +4,10 @@
 // takes a snapshot of WiFi RSSI and MQTT state and produces a health bucket
 // with hysteresis.  It is host-testable with 100% branch coverage.
 //
-// The ESP-IDF glue (bb_net_health_attach_sse) lives in
-// platform/espidf/bb_net_health/bb_net_health_espidf.c and wires the pure
-// classifier to a retained "net.health" SSE topic.
-//
-// Call order (ESP-IDF side):
-//   bb_net_health_attach_sse()      — in the regular-tier init (after
-//     bb_event_routes is initialised).
+// The ESP-IDF glue lives in platform/espidf/bb_net_health/bb_net_health_espidf.c
+// and drives the pure classifier from a periodic evaluator, exposing the
+// result via bb_net_health_get_status() (served by GET /api/diag/net,
+// platform/espidf/bb_net_health/bb_net_health_routes.c).
 #pragma once
 
 #include <stdbool.h>
@@ -92,25 +89,6 @@ extern "C" {
 #endif
 #ifndef BB_NET_HEALTH_HEAP_TRACE
 #define BB_NET_HEALTH_HEAP_TRACE 0
-#endif
-
-// ---------------------------------------------------------------------------
-// SSE ring sizing (B1-472)
-//
-// The retained "net.health" SSE ring is attached with this explicit
-// max_entry via bb_event_routes_attach_ex2 (see bb_net_health_attach_sse in
-// platform/espidf/bb_net_health/bb_net_health_espidf.c), above the
-// bb_event_routes global default (CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY,
-// 256) — the serialized snapshot (nested mqtt object) measured ~352 B in the
-// host test's synthetic worst-case before the bb_pub/bb_sink_http cluster cut
-// (B1-905) dropped the "http" object; the figure is now an overestimate, kept
-// as the documented worst-case rather than re-tightened. Same shape as the
-// update.available / info.build precedent (#616, B1-434/435/439). Shared
-// here (not local to the espidf glue) so the host test's ring-size
-// assertions reference the same symbol the production call site uses.
-// ---------------------------------------------------------------------------
-#ifndef BB_NET_HEALTH_SSE_MAX_ENTRY
-#define BB_NET_HEALTH_SSE_MAX_ENTRY 512
 #endif
 
 // ---------------------------------------------------------------------------
@@ -532,21 +510,20 @@ typedef struct {
                                  // captured in the same evaluator snapshot as lost_ip/egress_dead_recoveries
                                  // (B1-486 finding #4) so GET /api/diag/net's recovery_count sums
                                  // point-in-time-consistent operands. Not currently serialized by
-                                 // bb_net_health_emit (net.health SSE topic keeps its existing schema).
+                                 // bb_net_health_emit (fixed existing schema).
     uint32_t roam_count;   // times STA roamed to a different BSSID (bb_wifi_get_roam_count);
                             // OBSERVE-ONLY (B1-497) — no recovery action is associated with this
                             // counter. Captured in the same evaluator snapshot as the other
-                            // recovery counters. Not serialized by bb_net_health_emit (net.health
-                            // SSE topic keeps its existing schema) — same precedent as
-                            // no_ip_recoveries; exposed via GET /api/diag/net instead.
+                            // recovery counters. Not serialized by bb_net_health_emit (fixed
+                            // existing schema) — same precedent as no_ip_recoveries; exposed
+                            // via GET /api/diag/net instead.
     uint32_t roam_age_s;   // seconds since the last roam event (bb_wifi_get_roam_age_s); 0 if never
     uint32_t last_session_s; // duration of the most recently ENDED connected session, in
                               // seconds (bb_wifi_get_last_session_s); 0 if no session has
                               // ended yet since boot. OBSERVE-ONLY — captured in the same
                               // evaluator snapshot as the other recovery/discriminator
-                              // counters. Serialized by bb_net_health_emit (GET /api/diag/net
-                              // + net.health SSE) so drop cadence is visible without parsing
-                              // logs.
+                              // counters. Serialized by bb_net_health_emit so drop cadence is
+                              // visible without parsing logs.
     bb_net_mode_t net_mode; // WiFi discrimination mode (bb_net_health_classify_mode); OBSERVE-ONLY
     bool     associated;    // true iff STA is L2-associated (bb_wifi_is_associated)
     bool     has_ip;        // true iff STA has an IP (bb_wifi_has_ip)
@@ -578,14 +555,13 @@ typedef struct {
     // tx_enabled, tx_failing). No recovery action is wired to this field; it
     // exists purely for /api/diag/net and the net_state log heartbeat
     // ("egr=" token, emitted only when != BB_EGRESS_STATE_OK). Not currently
-    // serialized by bb_net_health_emit (net.health SSE topic keeps its
-    // existing schema) — same precedent as gw_available/tx_available.
+    // serialized by bb_net_health_emit (fixed existing schema) — same
+    // precedent as gw_available/tx_available.
     bb_egress_state_t egress_state;
     // --- Log-heartbeat-only fields (KB#556) — sourced from data the
     // evaluator already fetches each cycle (bb_wifi_info_t / bb_wifi
-    // counters); NOT serialized by bb_net_health_emit (net.health SSE
-    // topic keeps its existing schema), consumed only by
-    // bb_net_health_format_log. ---
+    // counters); NOT serialized by bb_net_health_emit (fixed existing
+    // schema), consumed only by bb_net_health_format_log. ---
     char     ip[16];             // dotted-quad IPv4 (bb_wifi_info_t.ip), "0.0.0.0" if no IP.
     int      retry_count;        // STA retry attempts since last connect (bb_wifi_info_t.retry_count).
     uint32_t restart_sta_count;  // bb_wifi_get_restart_sta_count() — cumulative recovery restarts.
@@ -715,17 +691,6 @@ bool bb_net_health_throttle_decision(bb_net_health_state_t *st, int threshold);
 // ---------------------------------------------------------------------------
 
 #ifdef ESP_PLATFORM
-
-/**
- * Attach the "net.health" retained SSE topic and publish an initial
- * snapshot immediately so SSE clients connecting before the first
- * evaluator tick receive current state.
- *
- * Must be called in the regular-tier init (after bb_event_routes_init) and
- * AFTER bb_net_health_start() has already created the evaluator's cache
- * mutex — returns BB_ERR_INVALID_STATE otherwise.
- */
-bb_err_t bb_net_health_attach_sse(void);
 
 /**
  * PRE_HTTP: starts the evaluator (state+timer). No HTTP side effects.
