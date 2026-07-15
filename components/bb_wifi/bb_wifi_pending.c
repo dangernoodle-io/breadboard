@@ -1,4 +1,4 @@
-#include "bb_nv_wifi_pending.h"
+#include "bb_wifi_pending.h"
 
 #include <string.h>
 

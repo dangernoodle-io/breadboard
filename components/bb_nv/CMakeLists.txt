@@ -1,7 +1,6 @@
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_nv/bb_nv.c"
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_nv/bb_nv_routes.c"
-         "${CMAKE_CURRENT_LIST_DIR}/src/bb_nv_wifi_pending.c"
          "${CMAKE_CURRENT_LIST_DIR}/src/bb_nv_creds_boot_decide.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
