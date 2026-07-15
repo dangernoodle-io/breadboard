@@ -40,7 +40,6 @@ target_include_directories(emit_openapi PRIVATE
     "${BB_ROOT}/components/bb_http_server/include"
     "${BB_ROOT}/components/bb_json/include"
     "${BB_ROOT}/components/bb_log/include"
-    "${BB_ROOT}/components/bb_nv/include"
     "${BB_ROOT}/components/bb_core/include"
     "${BB_ROOT}/platform/host/bb_json"
     "${BB_ROOT}/platform/host/bb_http_server/include"

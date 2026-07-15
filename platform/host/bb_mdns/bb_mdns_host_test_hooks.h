@@ -1,7 +1,6 @@
 #pragma once
 
 #include "bb_mdns.h"
-#include "bb_nv.h"
 
 // Host-only test hooks for bb_mdns stubs.
 //

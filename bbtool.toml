@@ -136,7 +136,7 @@ components = [
     "bb_led", "bb_led_anim", "bb_led_apa102", "bb_led_gpio",
     "bb_led_pwm", "bb_led_rgb_pwm", "bb_lifecycle", "bb_log", "bb_log_event", "bb_manifest", "bb_mdns",
     "bb_mdns_cache", "bb_mem_arena", "bb_mem_arena_tls", "bb_mqtt_client", "bb_mqtt_info", "bb_net_health",
-    "bb_ntp", "bb_num", "bb_nv", "bb_openapi", "bb_ota_boot",
+    "bb_ntp", "bb_num", "bb_openapi", "bb_ota_boot",
     "bb_ota_check", "bb_ota_hooks", "bb_ota_pull", "bb_ota_push", "bb_ota_validator",
     "bb_partition", "bb_pool", "bb_power", "bb_power_health",
     "bb_power_tps546", "bb_prov",
@@ -194,7 +194,7 @@ capabilities = ["core"]
 # here would land squarely on TM.
 [capability.smoke]
 components = [
-    "bb_nv", "bb_log", "bb_log_event", "bb_log_http", "bb_wifi", "bb_wifi_ap",
+    "bb_log", "bb_log_event", "bb_log_http", "bb_wifi", "bb_wifi_ap",
     "bb_wifi_http", "bb_settings", "bb_http", "bb_http_server", "bb_mdns",
     "bb_mdns_cache", "bb_ota_pull", "bb_ota_push", "bb_ota_boot",
     "bb_board", "bb_manifest", "bb_ota_validator", "bb_system", "bb_openapi",

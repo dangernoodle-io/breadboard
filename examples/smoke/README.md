@@ -1,6 +1,6 @@
 # Breadboard smoke example
 
-A single portable smoke app that exercises `bb_log` + `bb_nv` + `bb_wifi` + `bb_http` across multiple boards. The same `src/smoke_app.c` compiles unchanged on every env; the entry shim and `bb_wifi` backend differ.
+A single portable smoke app that exercises `bb_log` + `bb_settings` + `bb_wifi` + `bb_http` across multiple boards. The same `src/smoke_app.c` compiles unchanged on every env; the entry shim and `bb_wifi` backend differ.
 
 ## Envs
 

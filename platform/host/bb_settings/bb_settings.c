@@ -716,7 +716,7 @@ bb_err_t bb_settings_creds_boot_init(void)
     bb_err_t flash_err = bb_storage_nvs_flash_init();
     if (flash_err != BB_OK) return flash_err;
 
-#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
+#if defined(CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP)
     /* The heal-vs-seed DECISION is a pure function
      * (bb_settings_creds_boot_decide, components/bb_settings/src/) and is
      * host-tested there -- see test/test_host/test_bb_settings_creds_boot_decide.c

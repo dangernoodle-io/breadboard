@@ -7,7 +7,6 @@
 
 #include "bb_log.h"
 #include "bb_settings.h"
-#include "bb_nv.h"
 #include "bb_config.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
@@ -267,13 +266,9 @@ void smoke_app_setup(void) {
 #endif
 #ifdef ESP_PLATFORM
     bb_settings_creds_boot_init();  // B1-963: relocated from bb_nv_config_init
-#else
-    // Arduino: bb_nv_config_init here is the UNRELATED EEPROM subsystem
-    // bring-up (platform/arduino/bb_nv/bb_nv_arduino.cpp) -- B1-963 only
-    // relocated the ESP-IDF creds-boot heal/seed shell that happened to
-    // share this name; Arduino's own bb_nv EEPROM path is untouched.
-    bb_nv_config_init();
 #endif
+    // Arduino: bb_nv (and its EEPROM subsystem bring-up) is deleted (B1-964);
+    // the Arduino path no longer does any bb_nv config bring-up here.
     bb_log_i(TAG, "boot");
 
     // === bb_led ===

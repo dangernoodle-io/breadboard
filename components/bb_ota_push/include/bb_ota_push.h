@@ -27,7 +27,6 @@ uint32_t bb_ota_push_deadline_ms_for_test(int content_len, int min_bytes_per_sec
 #endif
 
 #ifdef ESP_PLATFORM
-#include "bb_nv.h"
 #include "bb_http.h"
 
 /* Reserve route-table slots for bb_ota_push before the HTTP server starts. */
