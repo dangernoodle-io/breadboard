@@ -9,6 +9,6 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_net_health/bb_net_health_espidf.c"
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_net_health/bb_net_health_routes.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_http_server
-    PRIV_REQUIRES bb_board bb_mqtt_client bb_health bb_wifi bb_log bb_json bb_timer bb_http bb_transport_health bb_config bb_ntp bb_system esp_system bb_str
+    REQUIRES bb_core bb_http_server bb_wifi
+    PRIV_REQUIRES bb_board bb_mqtt_client bb_health bb_log bb_json bb_timer bb_http bb_transport_health bb_config bb_ntp bb_system esp_system bb_str
 )

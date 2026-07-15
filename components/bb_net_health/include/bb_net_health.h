@@ -15,55 +15,10 @@
 #include "bb_core.h"
 #include "bb_json.h"
 #include "bb_http_server.h"
+#include "bb_wifi.h"
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-// ---------------------------------------------------------------------------
-// RSSI bucket thresholds (compile-time overridable).
-//
-// On ESP-IDF, Kconfig generates CONFIG_BB_NET_HEALTH_* symbols (different
-// names from the public BB_NET_HEALTH_* knobs).  Bridge them here so that
-// menuconfig changes actually take effect.  On the host build there is no
-// sdkconfig, so we fall straight through to the numeric fallbacks.
-// ---------------------------------------------------------------------------
-
-#ifdef ESP_PLATFORM
-#  ifdef CONFIG_BB_NET_HEALTH_RSSI_GOOD
-#    define BB_NET_HEALTH_RSSI_GOOD CONFIG_BB_NET_HEALTH_RSSI_GOOD
-#  endif
-#endif
-#ifndef BB_NET_HEALTH_RSSI_GOOD
-#define BB_NET_HEALTH_RSSI_GOOD     (-67)  // rssi >= -67 → GOOD
-#endif
-
-#ifdef ESP_PLATFORM
-#  ifdef CONFIG_BB_NET_HEALTH_RSSI_MARGINAL_LO
-#    define BB_NET_HEALTH_RSSI_MARGINAL_LO CONFIG_BB_NET_HEALTH_RSSI_MARGINAL_LO
-#  endif
-#endif
-#ifndef BB_NET_HEALTH_RSSI_MARGINAL_LO
-#define BB_NET_HEALTH_RSSI_MARGINAL_LO  (-75)  // -75 <= rssi <= -68 → MARGINAL
-#endif
-
-// Hysteresis sample counts
-#ifdef ESP_PLATFORM
-#  ifdef CONFIG_BB_NET_HEALTH_HYST_DOWN
-#    define BB_NET_HEALTH_HYST_DOWN CONFIG_BB_NET_HEALTH_HYST_DOWN
-#  endif
-#endif
-#ifndef BB_NET_HEALTH_HYST_DOWN
-#define BB_NET_HEALTH_HYST_DOWN  3  // consecutive worse-bucket samples before downgrade
-#endif
-
-#ifdef ESP_PLATFORM
-#  ifdef CONFIG_BB_NET_HEALTH_HYST_UP
-#    define BB_NET_HEALTH_HYST_UP CONFIG_BB_NET_HEALTH_HYST_UP
-#  endif
-#endif
-#ifndef BB_NET_HEALTH_HYST_UP
-#define BB_NET_HEALTH_HYST_UP    3  // consecutive better-bucket samples before upgrade
 #endif
 
 // ---------------------------------------------------------------------------
@@ -156,36 +111,6 @@ bb_heap_state_t bb_net_health_heap_state(void);
 const char *bb_heap_state_str(bb_heap_state_t state);
 
 // ---------------------------------------------------------------------------
-// WiFi discrimination mode — pure classifier over (associated, has_ip).
-// ---------------------------------------------------------------------------
-
-/**
- * Coarse WiFi connectivity discriminator, distinguishing "no IP while
- * associated" (zombie/DHCP failure) from "not associated at all" (out of
- * range, wrong creds, AP down). OBSERVE-ONLY — no recovery action is wired
- * to this classification; it exists purely for /api/diag/net and net.health
- * observability.
- */
-typedef enum {
-    BB_NET_MODE_OK             = 0, // associated && has_ip
-    BB_NET_MODE_NO_IP          = 1, // associated && !has_ip
-    BB_NET_MODE_NOT_ASSOCIATED = 2, // !associated
-} bb_net_mode_t;
-
-/**
- * Pure classifier: derives a bb_net_mode_t from the current association and
- * IP-acquisition state. No side-effects; host-testable. Inputs are sourced
- * from bb_wifi_is_associated() / bb_wifi_has_ip() by the ESP-IDF evaluator.
- */
-bb_net_mode_t bb_net_health_classify_mode(bool associated, bool has_ip);
-
-/**
- * Return a static string for a bb_net_mode_t value.
- * "ok", "no_ip", or "not_associated". Never returns NULL.
- */
-const char *bb_net_mode_str(bb_net_mode_t mode);
-
-// ---------------------------------------------------------------------------
 // Egress-recovery SSOT (B1-518) — Phase 1 pure classifier.
 //
 // OBSERVE-ONLY: this classifier drives logging/counters only; no recovery
@@ -227,8 +152,8 @@ const char *bb_egress_state_str(bb_egress_state_t s);
  * ENDPOINT_DOWN — never GW_UNREACHABLE/ALL_DEAD — so a future recovery
  * action does not restart WiFi to fix a problem WiFi cannot fix.
  *
- * @param wifi_mode          Current bb_net_health_classify_mode() result.
- *                            Only BB_NET_MODE_OK is evaluated further — the
+ * @param wifi_mode          Current bb_wifi_classify_mode() result.
+ *                            Only BB_WIFI_MODE_OK is evaluated further — the
  *                            NOT_ASSOCIATED/NO_IP cases are owned by the
  *                            wifi FSM / no-IP watchdog, not this classifier.
  * @param gw_probed           True once at least one gateway probe attempt
@@ -240,7 +165,7 @@ const char *bb_egress_state_str(bb_egress_state_t s);
  * @param enabled_egress_count Number of egress clients currently enabled.
  * @param failing_egress_count Number of those clients currently failing.
  */
-bb_egress_state_t bb_net_health_classify_egress(bb_net_mode_t wifi_mode,
+bb_egress_state_t bb_net_health_classify_egress(bb_wifi_mode_t wifi_mode,
                                                  bool          gw_probed,
                                                  bool          gw_reachable,
                                                  uint8_t       gw_fail_streak,
@@ -427,37 +352,27 @@ typedef struct {
 } bb_net_health_input_t;
 
 /**
- * Ordered health state returned by the classifier.
- * GOOD > MARGINAL > POOR in signal quality.
- */
-typedef enum {
-    BB_NET_STATE_GOOD     = 0,
-    BB_NET_STATE_MARGINAL = 1,
-    BB_NET_STATE_POOR     = 2,
-} bb_net_state_t;
-
-/**
- * Opaque hysteresis state held by the caller across evaluations.
+ * Opaque hysteresis/fusion state held by the caller across evaluations.
  * Callers allocate this (typically as a static module variable) and
  * pass it to every bb_net_health_eval call.  Zero-init is valid.
+ *
+ * The RSSI-bucket hysteresis itself is delegated to bb_wifi_classify_link
+ * (net_health teardown PR-B); link_hyst is this module's own instance of
+ * that caller-owned state.
  */
 typedef struct {
-    bb_net_state_t current_state;       // current published bucket
-    int            down_count;          // consecutive worse-bucket samples
-    int            up_count;            // consecutive better-bucket samples
+    bb_wifi_link_hyst_t link_hyst;       // RSSI hysteresis state (bb_wifi_classify_link)
     uint32_t       last_reconnect_count; // reconnect_count seen last eval
     // Adaptive-backoff state (used by commit 4 throttle decision)
     int            sustained_poor_count; // consecutive POOR samples (not reset on GOOD)
     bool           throttled;            // true while adaptive backoff is active
-    // Cold-start seeding: first eval bypasses hysteresis to report reality immediately.
-    bool           initialized;          // false until first bb_net_health_eval call
 } bb_net_health_state_t;
 
 /**
  * Result produced by the classifier on each call.
  */
 typedef struct {
-    bb_net_state_t state;        // classified bucket after hysteresis
+    bb_wifi_link_state_t state;  // classified link bucket after hysteresis
     bool           early_warning; // true when a problem is imminent or ongoing
 } bb_net_health_output_t;
 
@@ -467,12 +382,16 @@ typedef struct {
 
 /**
  * Evaluate link health given the current input snapshot, updating hysteresis
- * state and producing an output.
+ * state and producing an output. The RSSI bucket + hysteresis is delegated
+ * to bb_wifi_classify_link; this function fuses that link state with
+ * MQTT reconnect/disconnect signal to produce early_warning (net_health
+ * teardown PR-B — the RSSI/hysteresis classifier moved to bb_wifi, the
+ * MQTT-fused early_warning computation stays here).
  *
  * Thread-safety: the caller owns `st`; no internal locking.  On a single-
  * evaluator design (e.g. a periodic timer callback) this is always safe.
  *
- * @param st   Hysteresis state (persistent across calls; zero-init for first call).
+ * @param st   Hysteresis/fusion state (persistent across calls; zero-init for first call).
  * @param in   Current network input snapshot.
  * @param out  Receives the updated health bucket and early_warning flag.
  */
@@ -480,19 +399,13 @@ void bb_net_health_eval(bb_net_health_state_t       *st,
                         const bb_net_health_input_t *in,
                         bb_net_health_output_t      *out);
 
-/**
- * Return a static string for a bb_net_state_t value.
- * "good", "marginal", or "poor".  Never returns NULL.
- */
-const char *bb_net_state_str(bb_net_state_t state);
-
 // ---------------------------------------------------------------------------
 // Live snapshot accessor (ESP-IDF) — current net-health bucket without
 // re-running eval. For telemetry / diagnostics consumers.
 // ---------------------------------------------------------------------------
 
 typedef struct {
-    bb_net_state_t state;                // classified bucket (GOOD/MARGINAL/POOR)
+    bb_wifi_link_state_t state;          // classified bucket (GOOD/MARGINAL/POOR)
     bool           early_warning;        // pre-failure warning latch
     bool           throttled;            // adaptive backoff active
     int            rssi;
@@ -524,7 +437,7 @@ typedef struct {
                               // evaluator snapshot as the other recovery/discriminator
                               // counters. Serialized by bb_net_health_emit so drop cadence is
                               // visible without parsing logs.
-    bb_net_mode_t net_mode; // WiFi discrimination mode (bb_net_health_classify_mode); OBSERVE-ONLY
+    bb_wifi_mode_t net_mode; // WiFi discrimination mode (bb_wifi_classify_mode); OBSERVE-ONLY
     bool     associated;    // true iff STA is L2-associated (bb_wifi_is_associated)
     bool     has_ip;        // true iff STA has an IP (bb_wifi_has_ip)
     // Gateway-probe status (B1-518 PR3, OBSERVE-ONLY): pulled each evaluator
@@ -591,7 +504,7 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out);
  * last_mode across calls.
  */
 bool bb_net_health_should_log(int64_t now_us, int64_t last_log_us,
-                               bb_net_mode_t mode, bb_net_mode_t last_mode,
+                               bb_wifi_mode_t mode, bb_wifi_mode_t last_mode,
                                uint32_t interval_s);
 
 /**

@@ -57,28 +57,6 @@ const char *bb_heap_state_str(bb_heap_state_t state)
 }
 
 // ---------------------------------------------------------------------------
-// WiFi discrimination mode — pure classifier (OBSERVE-ONLY)
-// ---------------------------------------------------------------------------
-
-bb_net_mode_t bb_net_health_classify_mode(bool associated, bool has_ip)
-{
-    if (!associated) {
-        return BB_NET_MODE_NOT_ASSOCIATED;
-    }
-    return has_ip ? BB_NET_MODE_OK : BB_NET_MODE_NO_IP;
-}
-
-const char *bb_net_mode_str(bb_net_mode_t mode)
-{
-    switch (mode) {
-    case BB_NET_MODE_OK:             return "ok";
-    case BB_NET_MODE_NO_IP:          return "no_ip";
-    case BB_NET_MODE_NOT_ASSOCIATED: return "not_associated";
-    default:                         return "not_associated";
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Egress-recovery SSOT (B1-518) — Phase 1 pure classifier (OBSERVE-ONLY)
 // ---------------------------------------------------------------------------
 
@@ -93,7 +71,7 @@ const char *bb_egress_state_str(bb_egress_state_t s)
     }
 }
 
-bb_egress_state_t bb_net_health_classify_egress(bb_net_mode_t wifi_mode,
+bb_egress_state_t bb_net_health_classify_egress(bb_wifi_mode_t wifi_mode,
                                                  bool          gw_probed,
                                                  bool          gw_reachable,
                                                  uint8_t       gw_fail_streak,
@@ -103,7 +81,7 @@ bb_egress_state_t bb_net_health_classify_egress(bb_net_mode_t wifi_mode,
 {
     // NOT_ASSOCIATED/NO_IP are owned by the wifi FSM / no-IP watchdog; the
     // egress classifier is only meaningful when associated+has_ip.
-    if (wifi_mode != BB_NET_MODE_OK) {
+    if (wifi_mode != BB_WIFI_MODE_OK) {
         return BB_EGRESS_STATE_OK;
     }
 
@@ -273,26 +251,6 @@ bool bb_net_health_reboot_state_decode(const char *str,
 }
 
 // ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-// Classify raw RSSI into a state bucket (no hysteresis).
-static bb_net_state_t rssi_bucket(int8_t rssi)
-{
-    // rssi >= 0 means no valid reading / not associated — treat as POOR.
-    if (rssi >= 0) {
-        return BB_NET_STATE_POOR;
-    }
-    if (rssi >= BB_NET_HEALTH_RSSI_GOOD) {
-        return BB_NET_STATE_GOOD;
-    }
-    if (rssi >= BB_NET_HEALTH_RSSI_MARGINAL_LO) {
-        return BB_NET_STATE_MARGINAL;
-    }
-    return BB_NET_STATE_POOR;
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -300,42 +258,13 @@ void bb_net_health_eval(bb_net_health_state_t       *st,
                         const bb_net_health_input_t *in,
                         bb_net_health_output_t      *out)
 {
-    bb_net_state_t raw = rssi_bucket(in->rssi);
-
-    // Cold-start seeding: on the very first call, bypass hysteresis and report
-    // the raw bucket directly so the boot snapshot reflects reality immediately.
-    if (!st->initialized) {
-        st->current_state = raw;
-        st->initialized   = true;
-    } else {
-        // Hysteresis: downgrade requires BB_NET_HEALTH_HYST_DOWN consecutive
-        // worse-bucket samples; upgrade requires BB_NET_HEALTH_HYST_UP
-        // consecutive better-bucket samples.
-        if (raw > st->current_state) {
-            // Moving to a worse bucket.
-            st->down_count++;
-            st->up_count = 0;
-            if (st->down_count >= BB_NET_HEALTH_HYST_DOWN) {
-                st->current_state = raw;
-                st->down_count    = 0;
-            }
-        } else if (raw < st->current_state) {
-            // Moving to a better bucket.
-            st->up_count++;
-            st->down_count = 0;
-            if (st->up_count >= BB_NET_HEALTH_HYST_UP) {
-                st->current_state = raw;
-                st->up_count      = 0;
-            }
-        } else {
-            // Same bucket — clear transition counters.
-            st->down_count = 0;
-            st->up_count   = 0;
-        }
-    }
+    // RSSI bucket + hysteresis is delegated to bb_wifi_classify_link
+    // (net_health teardown PR-B — the pure RSSI classifier moved to
+    // bb_wifi; only this fused early_warning computation stays here).
+    bb_wifi_link_state_t link_state = bb_wifi_classify_link(&st->link_hyst, in->rssi);
 
     // Sustained-poor counter (for adaptive backoff in commit 4).
-    if (st->current_state == BB_NET_STATE_POOR) {
+    if (link_state == BB_WIFI_LINK_POOR) {
         st->sustained_poor_count++;
     } else {
         st->sustained_poor_count = 0;
@@ -351,27 +280,17 @@ void bb_net_health_eval(bb_net_health_state_t       *st,
     //     correctly trips the warning.  mqtt_disc_age_s == 0 means "no
     //     disconnect observed yet" (e.g. fresh boot before first connect) and
     //     does NOT trigger the warning.
-    bool warn_poor      = (st->current_state == BB_NET_STATE_POOR);
+    bool warn_poor      = (link_state == BB_WIFI_LINK_POOR);
     bool warn_reconnect = (in->mqtt_reconnect_count > st->last_reconnect_count);
     bool warn_disc      = (!in->mqtt_connected &&
                            in->mqtt_disc_age_s > 0U &&
                            in->mqtt_disc_age_s < 60U);
 
-    out->state         = st->current_state;
+    out->state         = link_state;
     out->early_warning = warn_poor || warn_reconnect || warn_disc;
 
     // Update last-seen reconnect count for next eval.
     st->last_reconnect_count = in->mqtt_reconnect_count;
-}
-
-const char *bb_net_state_str(bb_net_state_t state)
-{
-    switch (state) {
-    case BB_NET_STATE_GOOD:     return "good";
-    case BB_NET_STATE_MARGINAL: return "marginal";
-    case BB_NET_STATE_POOR:     return "poor";
-    default:                    return "poor";
-    }
 }
 
 bool bb_net_health_throttle_decision(bb_net_health_state_t *st, int threshold)
@@ -383,7 +302,7 @@ bool bb_net_health_throttle_decision(bb_net_health_state_t *st, int threshold)
         }
     } else {
         // Stop throttling when state recovers to GOOD or MARGINAL.
-        if (st->current_state != BB_NET_STATE_POOR) {
+        if (st->link_hyst.current_state != BB_WIFI_LINK_POOR) {
             st->throttled = false;
         }
     }
@@ -392,7 +311,7 @@ bool bb_net_health_throttle_decision(bb_net_health_state_t *st, int threshold)
 
 void bb_net_health_emit_status(bb_json_t obj, const bb_net_health_status_t *snap)
 {
-    bb_json_obj_set_string(obj, "state",         bb_net_state_str(snap->state));
+    bb_json_obj_set_string(obj, "state",         bb_wifi_link_state_str(snap->state));
     bb_json_obj_set_bool  (obj, "early_warning", snap->early_warning);
     bb_json_obj_set_bool  (obj, "throttled",     snap->throttled);
 
@@ -407,7 +326,7 @@ void bb_net_health_emit(bb_json_t obj, const void *snap_v)
 {
     const bb_net_health_status_t *snap = (const bb_net_health_status_t *)snap_v;
     bb_json_obj_set_number(obj, "rssi",                   (double)snap->rssi);
-    bb_json_obj_set_string(obj, "state",                  bb_net_state_str(snap->state));
+    bb_json_obj_set_string(obj, "state",                  bb_wifi_link_state_str(snap->state));
     bb_json_obj_set_bool  (obj, "early_warning",          snap->early_warning);
     bb_json_obj_set_bool  (obj, "throttled",              snap->throttled);
     bb_json_obj_set_string(obj, "last_disconnect_reason",
@@ -422,7 +341,7 @@ void bb_net_health_emit(bb_json_t obj, const void *snap_v)
     bb_json_obj_set_int(obj, "roam_count",             (int64_t)snap->roam_count);
     bb_json_obj_set_int(obj, "roam_age_s",             (int64_t)snap->roam_age_s);
     bb_json_obj_set_int(obj, "last_session_s",         (int64_t)snap->last_session_s);
-    bb_json_obj_set_string(obj, "net_mode",            bb_net_mode_str(snap->net_mode));
+    bb_json_obj_set_string(obj, "net_mode",            bb_wifi_mode_str(snap->net_mode));
     bb_json_obj_set_bool  (obj, "associated",          snap->associated);
     bb_json_obj_set_bool  (obj, "has_ip",              snap->has_ip);
 
@@ -442,7 +361,7 @@ void bb_net_health_emit(bb_json_t obj, const void *snap_v)
 // ---------------------------------------------------------------------------
 
 bool bb_net_health_should_log(int64_t now_us, int64_t last_log_us,
-                               bb_net_mode_t mode, bb_net_mode_t last_mode,
+                               bb_wifi_mode_t mode, bb_wifi_mode_t last_mode,
                                uint32_t interval_s)
 {
     // Edge: any net_mode transition logs immediately, regardless of interval.
@@ -508,7 +427,7 @@ int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap
         " dr=%" PRIu32 " roam=%" PRIu32 " no_ip=%" PRIu32 " lost_ip=%" PRIu32
         " egress=%" PRIu32 " retry=%d restart=%" PRIu32 " up=%" PRIu32
         "%s%s%s",
-        bb_net_mode_str(s->net_mode),
+        bb_wifi_mode_str(s->net_mode),
         s->ip,
         (int)s->has_ip,
         (int)s->associated,

@@ -74,7 +74,7 @@ static const char *LOG_TAG_NETSTATE = "net_state";
 // ---------------------------------------------------------------------------
 
 static bb_net_health_state_t s_state;       // hysteresis state (zero-init = valid)
-static bb_net_state_t        s_last_published_state    = (bb_net_state_t)-1;
+static bb_wifi_link_state_t  s_last_published_state    = (bb_wifi_link_state_t)-1;
 static bool                  s_last_published_warn     = false;
 static bool                  s_last_published_throttled = false;
 static bb_periodic_timer_t   s_timer = NULL;
@@ -84,7 +84,7 @@ static bb_periodic_timer_t   s_timer = NULL;
 // mode guarantees the very first eval cycle always logs (mode transition
 // from "never logged" to whatever the real mode is).
 static int64_t                s_last_log_us   = 0;
-static bb_net_mode_t          s_last_logged_mode = (bb_net_mode_t)-1;
+static bb_wifi_mode_t         s_last_logged_mode = (bb_wifi_mode_t)-1;
 // MQTT disconnect tracking: record the ms-timestamp when reconnect_count
 // increases (the moment we detect a new disconnect).  0 means "no disconnect
 // observed yet" (i.e. no reconnects have ever occurred).
@@ -180,7 +180,7 @@ typedef struct {
     uint32_t mqtt_reconnect_count;
     uint32_t last_disconnect_reason;
     uint32_t disc_age_s;
-    bb_net_state_t state;
+    bb_wifi_link_state_t state;
     bool     early_warning;
     bool     throttled;
     uint32_t mqtt_disc_age_s;
@@ -193,7 +193,7 @@ typedef struct {
     uint32_t roam_count;       // B1-497: observe-only, captured alongside the recovery counters
     uint32_t roam_age_s;
     uint32_t last_session_s;   // duration of the most recently ended connected session (observe-only)
-    bb_net_mode_t net_mode;    // WiFi discrimination mode (observe-only)
+    bb_wifi_mode_t net_mode;    // WiFi discrimination mode (observe-only)
     bool     associated;
     bool     has_ip;
     bool     gw_available;    // B1-518 PR3: gateway-probe status (observe-only)
@@ -369,7 +369,7 @@ static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
         .roam_count             = bb_wifi_get_roam_count(),
         .roam_age_s             = bb_wifi_get_roam_age_s(),
         .last_session_s         = bb_wifi_get_last_session_s(),
-        .net_mode               = bb_net_health_classify_mode(associated, has_ip),
+        .net_mode               = bb_wifi_classify_mode(associated, has_ip),
         .associated             = associated,
         .has_ip                 = has_ip,
         .retry_count            = wi->retry_count,
@@ -505,8 +505,8 @@ static void eval_work_fn(void *arg)
     // here (not read back from the snapshot below) so the classify_egress
     // call and build_snapshot's internal net_mode recompute observe the
     // same live bb_wifi_is_associated()/bb_wifi_has_ip() read pair.
-    bb_net_mode_t egress_wifi_mode =
-        bb_net_health_classify_mode(bb_wifi_is_associated(), bb_wifi_has_ip());
+    bb_wifi_mode_t egress_wifi_mode =
+        bb_wifi_classify_mode(bb_wifi_is_associated(), bb_wifi_has_ip());
     bb_egress_state_t egress_state =
         bb_net_health_classify_egress(egress_wifi_mode, gw_available, gw.gw_reachable,
                                        gw.gw_fail_streak, (uint8_t)BB_WIFI_GW_PROBE_FAILS,

@@ -395,6 +395,111 @@ void bb_wifi_get_reason_histogram(uint16_t *out, size_t len);
 // hist==NULL or out_count==NULL.
 bb_wifi_disc_reason_t bb_wifi_reason_histogram_top(const uint16_t *hist, uint16_t *out_count);
 
+// ---------------------------------------------------------------------------
+// Link-quality classifier (RSSI bucket + hysteresis) — moved from
+// bb_net_health (net_health teardown PR-B). Pure, host-testable, no
+// ESP-IDF dependency. bb_net_health's early_warning fusion calls this to get
+// the current link bucket before combining it with MQTT-fused signal.
+// ---------------------------------------------------------------------------
+
+// RSSI-bucket thresholds (compile-time overridable). On ESP-IDF, Kconfig
+// generates CONFIG_BB_WIFI_* symbols; bridge them here so menuconfig changes
+// take effect. On the host build there is no sdkconfig, so we fall straight
+// through to the numeric fallbacks.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_WIFI_RSSI_GOOD
+#    define BB_WIFI_RSSI_GOOD CONFIG_BB_WIFI_RSSI_GOOD
+#  endif
+#endif
+#ifndef BB_WIFI_RSSI_GOOD
+#define BB_WIFI_RSSI_GOOD     (-67)  // rssi >= -67 -> GOOD
+#endif
+
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_WIFI_RSSI_MARGINAL_LO
+#    define BB_WIFI_RSSI_MARGINAL_LO CONFIG_BB_WIFI_RSSI_MARGINAL_LO
+#  endif
+#endif
+#ifndef BB_WIFI_RSSI_MARGINAL_LO
+#define BB_WIFI_RSSI_MARGINAL_LO  (-75)  // -75 <= rssi <= -68 -> MARGINAL
+#endif
+
+// Hysteresis sample counts
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_WIFI_HYST_DOWN
+#    define BB_WIFI_HYST_DOWN CONFIG_BB_WIFI_HYST_DOWN
+#  endif
+#endif
+#ifndef BB_WIFI_HYST_DOWN
+#define BB_WIFI_HYST_DOWN  3  // consecutive worse-bucket samples before downgrade
+#endif
+
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_WIFI_HYST_UP
+#    define BB_WIFI_HYST_UP CONFIG_BB_WIFI_HYST_UP
+#  endif
+#endif
+#ifndef BB_WIFI_HYST_UP
+#define BB_WIFI_HYST_UP    3  // consecutive better-bucket samples before upgrade
+#endif
+
+// Ordered link-quality bucket. GOOD > MARGINAL > POOR in signal quality.
+typedef enum {
+    BB_WIFI_LINK_GOOD     = 0,
+    BB_WIFI_LINK_MARGINAL = 1,
+    BB_WIFI_LINK_POOR     = 2,
+} bb_wifi_link_state_t;
+
+// Caller-owned hysteresis state, passed to every bb_wifi_classify_link call.
+// Zero-init is valid (initialized=false seeds directly from the raw bucket
+// on the first call, bypassing hysteresis so the boot snapshot reflects
+// reality immediately).
+typedef struct {
+    bb_wifi_link_state_t current_state; // current published bucket
+    int                  down_count;    // consecutive worse-bucket samples
+    int                  up_count;      // consecutive better-bucket samples
+    bool                 initialized;   // false until first classify call
+} bb_wifi_link_hyst_t;
+
+// Classify raw RSSI into a bb_wifi_link_state_t bucket, applying hysteresis
+// against the caller-owned *st. Thread-safety: the caller owns st; no
+// internal locking. Pure, host-testable — no side effects beyond *st.
+bb_wifi_link_state_t bb_wifi_classify_link(bb_wifi_link_hyst_t *st, int8_t rssi);
+
+// Return a static string for a bb_wifi_link_state_t value.
+// "good", "marginal", or "poor". Never returns NULL.
+const char *bb_wifi_link_state_str(bb_wifi_link_state_t state);
+
+// ---------------------------------------------------------------------------
+// WiFi discrimination mode — pure classifier over (associated, has_ip),
+// moved from bb_net_health (net_health teardown PR-B).
+// ---------------------------------------------------------------------------
+
+/**
+ * Coarse WiFi connectivity discriminator, distinguishing "no IP while
+ * associated" (zombie/DHCP failure) from "not associated at all" (out of
+ * range, wrong creds, AP down). OBSERVE-ONLY — no recovery action is wired
+ * to this classification; it exists purely for /api/diag/net and net.health
+ * observability.
+ */
+typedef enum {
+    BB_WIFI_MODE_OK             = 0, // associated && has_ip
+    BB_WIFI_MODE_NO_IP          = 1, // associated && !has_ip
+    BB_WIFI_MODE_NOT_ASSOCIATED = 2, // !associated
+} bb_wifi_mode_t;
+
+/**
+ * Pure classifier: derives a bb_wifi_mode_t from the current association and
+ * IP-acquisition state. No side-effects; host-testable.
+ */
+bb_wifi_mode_t bb_wifi_classify_mode(bool associated, bool has_ip);
+
+/**
+ * Return a static string for a bb_wifi_mode_t value.
+ * "ok", "no_ip", or "not_associated". Never returns NULL.
+ */
+const char *bb_wifi_mode_str(bb_wifi_mode_t mode);
+
 #ifdef ESP_PLATFORM
 // ICMP ping a target IPv4 address. target_addr is a raw IPv4 address in
 // esp_ip4_addr byte order (i.e. the same value as esp_ip4_addr_t.addr).
