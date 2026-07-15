@@ -10,8 +10,9 @@
 // bb_config_get_str). The probe-length / exact-buffer-length NUL-
 // termination regression check (part 3 below, guarding the
 // nvs_vt_get_typed_str HIGH-finding regression) is unrelated to bb_nv and
-// is kept unchanged -- it is still-valuable on-device proof of
-// bb_config_get_str's truncation contract.
+// is still-valuable on-device proof of bb_config_get_str's truncation
+// contract; its expectations were updated for B1-947's always-NUL-
+// terminate-within-cap behavior.
 //
 // Runs automatically at boot (called from entry_espidf.c after
 // bb_app_init_early(), once NVS is ready) and logs PASS/FAIL — the smoke
@@ -114,10 +115,10 @@ void bb_smoke_storage_typed_selftest(void)
     }
 
     // (3) HIGH finding regression (nvs_vt_get_typed_str NUL off-by-one):
-    // PROBE for the true length, then retry with a buffer allocated to
-    // EXACTLY that length (cap == str_len, no room for a NUL) -- the natural
-    // caller pattern this bug broke. Must succeed (BOUNCE, not a raw
-    // ESP_ERR_NVS_INVALID_LENGTH leaking through bb_config_get_str).
+    // PROBE for the true length, then retry with a buffer sized with room
+    // for the NUL (cap == str_len + 1) -- the natural caller pattern this
+    // bug broke. Must succeed (BOUNCE, not a raw ESP_ERR_NVS_INVALID_LENGTH
+    // leaking through bb_config_get_str) and return the full string.
     size_t probe_len = 0;
     rc = bb_config_get_str(&s_probe_field, NULL, 0, &probe_len);
     if (rc != BB_OK) {
@@ -132,15 +133,35 @@ void bb_smoke_storage_typed_selftest(void)
 
     char exact_buf[64] = {0};
     size_t exact_len = 0;
-    rc = bb_config_get_str(&s_probe_field, exact_buf, probe_len, &exact_len);
+    rc = bb_config_get_str(&s_probe_field, exact_buf, probe_len + 1, &exact_len);
+    if (rc != BB_OK) {
+        bb_log_e(TAG, "FAIL: bb_config_get_str cap==str_len+1 rc=%d (expected BB_OK, not NO_SPACE)",
+                 (int)rc);
+        return;
+    }
+    if (exact_len != probe_len || strncmp(exact_buf, updated, exact_len) != 0) {
+        bb_log_e(TAG, "FAIL: bb_config_get_str cap==str_len+1 mismatch: got '%.*s' want '%s'",
+                 (int)exact_len, exact_buf, updated);
+        return;
+    }
+
+    // (3b) NUL-terminate-within-cap boundary (B1-947): retry with a buffer
+    // allocated to EXACTLY the stored length (cap == str_len, no room for a
+    // NUL). Must still succeed and report the untruncated stored length via
+    // *out_len, but buf itself is truncated to cap-1 chars + NUL -- callers
+    // detect truncation via *out_len >= cap.
+    char trunc_buf[64] = {0};
+    size_t trunc_len = 0;
+    rc = bb_config_get_str(&s_probe_field, trunc_buf, probe_len, &trunc_len);
     if (rc != BB_OK) {
         bb_log_e(TAG, "FAIL: bb_config_get_str cap==str_len rc=%d (expected BB_OK, not NO_SPACE)",
                  (int)rc);
         return;
     }
-    if (exact_len != probe_len || strncmp(exact_buf, updated, exact_len) != 0) {
-        bb_log_e(TAG, "FAIL: bb_config_get_str cap==str_len mismatch: got '%.*s' want '%s'",
-                 (int)exact_len, exact_buf, updated);
+    if (trunc_len != probe_len || strncmp(trunc_buf, updated, probe_len - 1) != 0 ||
+        trunc_buf[probe_len - 1] != '\0') {
+        bb_log_e(TAG, "FAIL: bb_config_get_str cap==str_len truncation mismatch: got '%s' want '%.*s'",
+                 trunc_buf, (int)(probe_len - 1), updated);
         return;
     }
 
