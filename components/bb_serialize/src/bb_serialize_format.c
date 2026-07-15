@@ -25,11 +25,11 @@ bb_err_t bb_serialize_format_register(bb_format_t fmt, const bb_serialize_format
         return bb_registry_register(&s_bb_serialize_format_registry, name, (void *)entry);
     }
 
-    // Identical re-register (same backend vtables) is the legitimate
-    // idempotent codegen re-run -- no-op. A different backend claiming an
+    // Identical re-register (same backend fns) is the legitimate idempotent
+    // codegen re-run -- no-op. A different backend claiming an
     // already-registered format is a composition bug, not last-writer-wins:
     // reject it loudly rather than silently clobbering the prior entry.
-    if (existing->emit == entry->emit && existing->parse == entry->parse) {
+    if (existing->render == entry->render && existing->parse == entry->parse) {
         return BB_OK;
     }
 
@@ -45,16 +45,25 @@ static const bb_serialize_format_entry_t *bb_serialize_format_lookup(bb_format_t
     return (const bb_serialize_format_entry_t *)bb_registry_lookup(&s_bb_serialize_format_registry, name);
 }
 
-const bb_serialize_emit_t *bb_serialize_format_get_emit(bb_format_t fmt)
+bb_serialize_render_fn bb_serialize_format_get_render(bb_format_t fmt)
 {
     const bb_serialize_format_entry_t *entry = bb_serialize_format_lookup(fmt);
-    return entry ? entry->emit : NULL;
+    return entry ? entry->render : NULL;
 }
 
 const void *bb_serialize_format_get_parse(bb_format_t fmt)
 {
     const bb_serialize_format_entry_t *entry = bb_serialize_format_lookup(fmt);
     return entry ? entry->parse : NULL;
+}
+
+bb_err_t bb_serialize_format_render(bb_format_t fmt, const bb_serialize_desc_t *desc, const void *snap,
+                                     char *buf, size_t cap, size_t *out_len)
+{
+    bb_serialize_render_fn render = bb_serialize_format_get_render(fmt);
+    if (!render) return BB_ERR_UNSUPPORTED;
+
+    return render(desc, snap, buf, cap, out_len);
 }
 
 #ifdef BB_SERIALIZE_FORMAT_TESTING

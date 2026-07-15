@@ -1,7 +1,7 @@
 # bb_cache_serialize
 
 <!-- BEGIN bbtool:brief -->
-Compositional serialized-render cache (render memo), keyed (format_id, key, state_version).
+Compositional serialized-render cache (render memo), keyed (format_id, key, state_version). Format-agnostic: dispatches rendering through the format registry (bb_serialize_format) and deliberately declares NO dependency on any format backend. Rendering via bb_cache_serialize_get() therefore requires the composition to have registered a bb_serialize_* backend for the requested format -- an inherent property of registry dispatch, not a privileged default. A consumer that does not render through this path is unaffected.
 <!-- END bbtool:brief -->
 
 ## Public API
@@ -21,7 +21,6 @@ Public symbols use the `bb_` prefix.
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
 | `bb_log` | private | — | [bb_log](../README.md) |
 | `bb_serialize` | public | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
-| `bb_serialize_json` | public | Hand-rolled, no-heap, bounded-buffer JSON bb_serialize_emit_t backend -- the default wire-format implementation for bb_serialize. | [bb_serialize_json](../bb_serialize_json/README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support

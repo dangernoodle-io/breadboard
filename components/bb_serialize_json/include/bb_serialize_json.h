@@ -65,18 +65,18 @@ bb_serialize_emit_t bb_serialize_json_emit(bb_serialize_json_ctx_t *ctx);
 
 // Registers this backend under BB_FORMAT_JSON in bb_serialize's
 // format-dispatch registry (bb_serialize_format_register(), see
-// bb_serialize_format.h) so a runtime consumer can look up the JSON emit
-// vtable/scanner by bb_format_t rather than #include-ing this header
-// directly. The registered emit vtable's `ctx` is NULL (a template -- see
-// bb_serialize_json_emit()'s own contract); a caller that looks it up via
-// bb_serialize_format_get_emit() must copy the vtable and set its own `ctx`
-// before driving bb_serialize_walk(). The registered parse handle is
-// bb_serialize_json_scan_bounded(), cast to `const void *` per
-// bb_serialize_format_entry_t's opaque-parse contract -- a caller that
-// looks it up via bb_serialize_format_get_parse() casts it back to
-// `bb_err_t (*)(const char *, size_t, const bb_serialize_json_ingest_t *)`.
-// Idempotent (last-writer-wins, per bb_serialize_format_register()) --
-// safe to call more than once.
+// bb_serialize_format.h) so a runtime consumer can look up the JSON render
+// fn/scanner by bb_format_t rather than #include-ing this header directly.
+// The registered render fn is bb_serialize_json_render() itself -- a
+// one-shot, self-contained fn a caller looking it up via
+// bb_serialize_format_get_render() calls directly with its own
+// desc/snap/buf/cap/out_len, no per-call ctx copy/rebind needed. The
+// registered parse handle is bb_serialize_json_scan_bounded(), cast to
+// `const void *` per bb_serialize_format_entry_t's opaque-parse contract --
+// a caller that looks it up via bb_serialize_format_get_parse() casts it
+// back to `bb_err_t (*)(const char *, size_t, const
+// bb_serialize_json_ingest_t *)`. Idempotent (last-writer-wins, per
+// bb_serialize_format_register()) -- safe to call more than once.
 // bbtool:init tier=early fn=bb_serialize_json_register_format
 bb_err_t bb_serialize_json_register_format(void);
 

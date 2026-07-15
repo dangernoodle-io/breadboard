@@ -1,13 +1,16 @@
 // Host tests for the format-dispatch registry (bb_serialize_format.h) plus
-// bb_format_name() coverage -- B1-829 PR1.
+// bb_format_name() coverage -- B1-829 PR1, reshaped to a render-fn contract
+// in PR2 (B1-981).
 //
 // Coverage targets: bb_format_name for every real enum value + out-of-range
-// (both directions); register/get_emit/get_parse happy path; NULL entry;
+// (both directions); register/get_render/get_parse happy path; NULL entry;
 // BB_FORMAT_NONE and out-of-range fmt rejection on register/get_*;
 // nullable parse; identical re-register (idempotent no-op) and re-register
-// with a different backend (rejected, not clobbered); and a
-// bb_serialize_json round trip driven entirely through the registry lookups
-// (no direct #include of a format's own emit/scan symbols by the consumer).
+// with a different backend (rejected, not clobbered); the
+// bb_serialize_format_render() convenience wrapper (unsupported-fmt +
+// dispatch-equals-direct-call regression); and a bb_serialize_json round
+// trip driven entirely through the registry lookups (no direct #include of
+// a format's own render/scan symbols by the consumer).
 
 #include "unity.h"
 #include "bb_serialize_format.h"
@@ -45,57 +48,31 @@ void test_bb_format_name_out_of_range_positive_returns_null(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_serialize_format_register / get_emit / get_parse
+// bb_serialize_format_register / get_render / get_parse
 // ---------------------------------------------------------------------------
 
-static void dummy_begin_obj(void *ctx, const char *key) { (void)ctx; (void)key; }
-static void dummy_end_obj(void *ctx) { (void)ctx; }
-static void dummy_begin_arr(void *ctx, const char *key) { (void)ctx; (void)key; }
-static void dummy_end_arr(void *ctx) { (void)ctx; }
-static void dummy_emit_i64(void *ctx, const char *key, int64_t v) { (void)ctx; (void)key; (void)v; }
-static void dummy_emit_u64(void *ctx, const char *key, uint64_t v) { (void)ctx; (void)key; (void)v; }
-static void dummy_emit_f64(void *ctx, const char *key, double v) { (void)ctx; (void)key; (void)v; }
-static void dummy_emit_bool(void *ctx, const char *key, bool v) { (void)ctx; (void)key; (void)v; }
-static void dummy_emit_str(void *ctx, const char *key, const char *s, size_t len)
+static bb_err_t dummy_render_a(const bb_serialize_desc_t *desc, const void *snap,
+                                char *buf, size_t cap, size_t *out_len)
 {
-    (void)ctx; (void)key; (void)s; (void)len;
+    (void)desc; (void)snap; (void)buf; (void)cap;
+    *out_len = 0;
+    return BB_OK;
 }
-static void dummy_emit_null(void *ctx, const char *key) { (void)ctx; (void)key; }
 
-static const bb_serialize_emit_t s_dummy_emit_a = {
-    .format_id = BB_FORMAT_JSON,
-    .begin_obj = dummy_begin_obj,
-    .end_obj = dummy_end_obj,
-    .begin_arr = dummy_begin_arr,
-    .end_arr = dummy_end_arr,
-    .emit_i64 = dummy_emit_i64,
-    .emit_u64 = dummy_emit_u64,
-    .emit_f64 = dummy_emit_f64,
-    .emit_bool = dummy_emit_bool,
-    .emit_str = dummy_emit_str,
-    .emit_null = dummy_emit_null,
-};
-
-static const bb_serialize_emit_t s_dummy_emit_b = {
-    .format_id = BB_FORMAT_JSON,
-    .begin_obj = dummy_begin_obj,
-    .end_obj = dummy_end_obj,
-    .begin_arr = dummy_begin_arr,
-    .end_arr = dummy_end_arr,
-    .emit_i64 = dummy_emit_i64,
-    .emit_u64 = dummy_emit_u64,
-    .emit_f64 = dummy_emit_f64,
-    .emit_bool = dummy_emit_bool,
-    .emit_str = dummy_emit_str,
-    .emit_null = dummy_emit_null,
-};
+static bb_err_t dummy_render_b(const bb_serialize_desc_t *desc, const void *snap,
+                                char *buf, size_t cap, size_t *out_len)
+{
+    (void)desc; (void)snap; (void)buf; (void)cap;
+    *out_len = 0;
+    return BB_OK;
+}
 
 static int s_dummy_parse_target = 0;
 
-void test_bb_serialize_format_get_emit_miss_before_register(void)
+void test_bb_serialize_format_get_render_miss_before_register(void)
 {
     bb_serialize_format_test_reset();
-    TEST_ASSERT_NULL(bb_serialize_format_get_emit(BB_FORMAT_JSON));
+    TEST_ASSERT_NULL(bb_serialize_format_get_render(BB_FORMAT_JSON));
     TEST_ASSERT_NULL(bb_serialize_format_get_parse(BB_FORMAT_JSON));
 }
 
@@ -108,106 +85,107 @@ void test_bb_serialize_format_register_null_entry_returns_invalid_arg(void)
 void test_bb_serialize_format_register_none_returns_invalid_arg(void)
 {
     bb_serialize_format_test_reset();
-    bb_serialize_format_entry_t entry = { .emit = &s_dummy_emit_a, .parse = NULL };
+    bb_serialize_format_entry_t entry = { .render = dummy_render_a, .parse = NULL };
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_serialize_format_register(BB_FORMAT_NONE, &entry));
 }
 
 void test_bb_serialize_format_register_out_of_range_returns_invalid_arg(void)
 {
     bb_serialize_format_test_reset();
-    bb_serialize_format_entry_t entry = { .emit = &s_dummy_emit_a, .parse = NULL };
+    bb_serialize_format_entry_t entry = { .render = dummy_render_a, .parse = NULL };
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
                        bb_serialize_format_register((bb_format_t)(BB_FORMAT__COUNT + 1), &entry));
 }
 
-void test_bb_serialize_format_register_get_emit_roundtrip(void)
+void test_bb_serialize_format_register_get_render_roundtrip(void)
 {
     bb_serialize_format_test_reset();
-    bb_serialize_format_entry_t entry = { .emit = &s_dummy_emit_a, .parse = &s_dummy_parse_target };
+    bb_serialize_format_entry_t entry = { .render = dummy_render_a, .parse = &s_dummy_parse_target };
 
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_register(BB_FORMAT_JSON, &entry));
-    TEST_ASSERT_EQUAL_PTR(&s_dummy_emit_a, bb_serialize_format_get_emit(BB_FORMAT_JSON));
+    TEST_ASSERT_EQUAL_PTR(dummy_render_a, bb_serialize_format_get_render(BB_FORMAT_JSON));
     TEST_ASSERT_EQUAL_PTR(&s_dummy_parse_target, bb_serialize_format_get_parse(BB_FORMAT_JSON));
 }
 
 void test_bb_serialize_format_get_parse_nullable(void)
 {
     bb_serialize_format_test_reset();
-    bb_serialize_format_entry_t entry = { .emit = &s_dummy_emit_a, .parse = NULL };
+    bb_serialize_format_entry_t entry = { .render = dummy_render_a, .parse = NULL };
 
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_register(BB_FORMAT_JSON, &entry));
-    TEST_ASSERT_EQUAL_PTR(&s_dummy_emit_a, bb_serialize_format_get_emit(BB_FORMAT_JSON));
+    TEST_ASSERT_EQUAL_PTR(dummy_render_a, bb_serialize_format_get_render(BB_FORMAT_JSON));
     TEST_ASSERT_NULL(bb_serialize_format_get_parse(BB_FORMAT_JSON));
 }
 
-// Re-register the SAME format with an entry carrying identical emit/parse
+// Re-register the SAME format with an entry carrying identical render/parse
 // pointers: idempotent no-op (BB_OK), the legitimate codegen-re-run case.
 void test_bb_serialize_format_reregister_identical_is_noop(void)
 {
     bb_serialize_format_test_reset();
-    bb_serialize_format_entry_t entry_a = { .emit = &s_dummy_emit_a, .parse = &s_dummy_parse_target };
-    bb_serialize_format_entry_t entry_a_again = { .emit = &s_dummy_emit_a, .parse = &s_dummy_parse_target };
+    bb_serialize_format_entry_t entry_a = { .render = dummy_render_a, .parse = &s_dummy_parse_target };
+    bb_serialize_format_entry_t entry_a_again = { .render = dummy_render_a, .parse = &s_dummy_parse_target };
 
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_register(BB_FORMAT_JSON, &entry_a));
-    TEST_ASSERT_EQUAL_PTR(&s_dummy_emit_a, bb_serialize_format_get_emit(BB_FORMAT_JSON));
+    TEST_ASSERT_EQUAL_PTR(dummy_render_a, bb_serialize_format_get_render(BB_FORMAT_JSON));
 
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_register(BB_FORMAT_JSON, &entry_a_again));
-    TEST_ASSERT_EQUAL_PTR(&s_dummy_emit_a, bb_serialize_format_get_emit(BB_FORMAT_JSON));
+    TEST_ASSERT_EQUAL_PTR(dummy_render_a, bb_serialize_format_get_render(BB_FORMAT_JSON));
     TEST_ASSERT_EQUAL_PTR(&s_dummy_parse_target, bb_serialize_format_get_parse(BB_FORMAT_JSON));
 }
 
 // Re-register the same format with a DIFFERENT backend (different
-// emit/parse pointers): rejected, not clobbered -- the prior entry survives.
+// render/parse pointers): rejected, not clobbered -- the prior entry
+// survives.
 void test_bb_serialize_format_reregister_different_backend_rejected(void)
 {
     bb_serialize_format_test_reset();
-    bb_serialize_format_entry_t entry_a = { .emit = &s_dummy_emit_a, .parse = NULL };
-    bb_serialize_format_entry_t entry_b = { .emit = &s_dummy_emit_b, .parse = &s_dummy_parse_target };
+    bb_serialize_format_entry_t entry_a = { .render = dummy_render_a, .parse = NULL };
+    bb_serialize_format_entry_t entry_b = { .render = dummy_render_b, .parse = &s_dummy_parse_target };
 
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_register(BB_FORMAT_JSON, &entry_a));
-    TEST_ASSERT_EQUAL_PTR(&s_dummy_emit_a, bb_serialize_format_get_emit(BB_FORMAT_JSON));
+    TEST_ASSERT_EQUAL_PTR(dummy_render_a, bb_serialize_format_get_render(BB_FORMAT_JSON));
 
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_serialize_format_register(BB_FORMAT_JSON, &entry_b));
     // Prior entry is untouched -- no clobber.
-    TEST_ASSERT_EQUAL_PTR(&s_dummy_emit_a, bb_serialize_format_get_emit(BB_FORMAT_JSON));
+    TEST_ASSERT_EQUAL_PTR(dummy_render_a, bb_serialize_format_get_render(BB_FORMAT_JSON));
     TEST_ASSERT_NULL(bb_serialize_format_get_parse(BB_FORMAT_JSON));
 }
 
-// Re-register the same format with an entry whose `emit` pointer MATCHES
+// Re-register the same format with an entry whose `render` pointer MATCHES
 // the existing entry but whose `parse` pointer DIFFERS: still rejected (the
 // identical-entry check requires both to match) -- and, like the
 // both-differ case above, the prior entry survives untouched.
 static int s_dummy_parse_target_2 = 0;
 
-void test_bb_serialize_format_reregister_emit_matches_parse_differs_rejected(void)
+void test_bb_serialize_format_reregister_render_matches_parse_differs_rejected(void)
 {
     bb_serialize_format_test_reset();
-    bb_serialize_format_entry_t entry_a = { .emit = &s_dummy_emit_a, .parse = &s_dummy_parse_target };
-    bb_serialize_format_entry_t entry_c = { .emit = &s_dummy_emit_a, .parse = &s_dummy_parse_target_2 };
+    bb_serialize_format_entry_t entry_a = { .render = dummy_render_a, .parse = &s_dummy_parse_target };
+    bb_serialize_format_entry_t entry_c = { .render = dummy_render_a, .parse = &s_dummy_parse_target_2 };
 
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_register(BB_FORMAT_JSON, &entry_a));
-    TEST_ASSERT_EQUAL_PTR(&s_dummy_emit_a, bb_serialize_format_get_emit(BB_FORMAT_JSON));
+    TEST_ASSERT_EQUAL_PTR(dummy_render_a, bb_serialize_format_get_render(BB_FORMAT_JSON));
     TEST_ASSERT_EQUAL_PTR(&s_dummy_parse_target, bb_serialize_format_get_parse(BB_FORMAT_JSON));
 
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_serialize_format_register(BB_FORMAT_JSON, &entry_c));
     // Prior entry is untouched -- no clobber.
-    TEST_ASSERT_EQUAL_PTR(&s_dummy_emit_a, bb_serialize_format_get_emit(BB_FORMAT_JSON));
+    TEST_ASSERT_EQUAL_PTR(dummy_render_a, bb_serialize_format_get_render(BB_FORMAT_JSON));
     TEST_ASSERT_EQUAL_PTR(&s_dummy_parse_target, bb_serialize_format_get_parse(BB_FORMAT_JSON));
 }
 
-// get_emit/get_parse called with an fmt that can never be registered
+// get_render/get_parse called with an fmt that can never be registered
 // (BB_FORMAT_NONE or out-of-range) hit the lookup helper's `!name` branch
 // directly, independent of whatever is or isn't currently registered.
-void test_bb_serialize_format_get_emit_none_returns_null(void)
+void test_bb_serialize_format_get_render_none_returns_null(void)
 {
     bb_serialize_format_test_reset();
-    TEST_ASSERT_NULL(bb_serialize_format_get_emit(BB_FORMAT_NONE));
+    TEST_ASSERT_NULL(bb_serialize_format_get_render(BB_FORMAT_NONE));
 }
 
-void test_bb_serialize_format_get_emit_out_of_range_returns_null(void)
+void test_bb_serialize_format_get_render_out_of_range_returns_null(void)
 {
     bb_serialize_format_test_reset();
-    TEST_ASSERT_NULL(bb_serialize_format_get_emit((bb_format_t)(BB_FORMAT__COUNT + 1)));
+    TEST_ASSERT_NULL(bb_serialize_format_get_render((bb_format_t)(BB_FORMAT__COUNT + 1)));
 }
 
 void test_bb_serialize_format_get_parse_none_returns_null(void)
@@ -223,10 +201,18 @@ void test_bb_serialize_format_get_parse_out_of_range_returns_null(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_serialize_json round trip through the registry -- the consumer never
-// #includes a format-specific emit/scan symbol directly, only looks it up
-// by bb_format_t.
+// bb_serialize_format_render() -- the convenience dispatch wrapper.
 // ---------------------------------------------------------------------------
+
+void test_bb_serialize_format_render_unregistered_returns_unsupported(void)
+{
+    bb_serialize_format_test_reset();
+
+    char buf[16];
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED,
+                       bb_serialize_format_render(BB_FORMAT_JSON, NULL, NULL, buf, sizeof(buf), &out_len));
+}
 
 typedef struct {
     int64_t n;
@@ -243,38 +229,53 @@ static const bb_serialize_desc_t s_rt_desc = {
     .snap_size = sizeof(rt_snap_t),
 };
 
+// Regression: dispatching JSON through bb_serialize_format_render() produces
+// BYTE-FOR-BYTE identical output to a direct bb_serialize_json_render() call
+// on the same desc/snap -- the dispatch path and the direct path must never
+// diverge.
+void test_bb_serialize_format_render_json_matches_direct_call(void)
+{
+    bb_serialize_format_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_register_format());
+
+    rt_snap_t snap = { .n = 42 };
+
+    char via_registry[64];
+    size_t registry_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_render(BB_FORMAT_JSON, &s_rt_desc, &snap,
+                                                         via_registry, sizeof(via_registry), &registry_len));
+
+    char direct[64];
+    size_t direct_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK,
+                       bb_serialize_json_render(&s_rt_desc, &snap, direct, sizeof(direct), &direct_len));
+
+    TEST_ASSERT_EQUAL_UINT(direct_len, registry_len);
+    TEST_ASSERT_EQUAL_MEMORY(direct, via_registry, direct_len);
+    TEST_ASSERT_EQUAL_STRING("{\"n\":42}", via_registry);
+}
+
+// ---------------------------------------------------------------------------
+// bb_serialize_json round trip through the registry -- the consumer never
+// #includes a format-specific render/scan symbol directly, only looks it up
+// by bb_format_t.
+// ---------------------------------------------------------------------------
+
 void test_bb_serialize_format_json_render_roundtrip_via_registry(void)
 {
     bb_serialize_format_test_reset();
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_register_format());
 
-    const bb_serialize_emit_t *tmpl = bb_serialize_format_get_emit(BB_FORMAT_JSON);
-    TEST_ASSERT_NOT_NULL(tmpl);
-    TEST_ASSERT_EQUAL(BB_FORMAT_JSON, tmpl->format_id);
-
-    // The registered vtable is a ctx-less template -- copy it and bind a
-    // fresh writer ctx before walking, exactly as a future consumer
-    // (bb_cache_serialize, PR2) would.
-    bb_serialize_json_ctx_t writer;
-    char buf[64];
-    bb_serialize_json_ctx_init(&writer, buf, sizeof(buf) - 1);
-
-    bb_serialize_emit_t emit = *tmpl;
-    emit.ctx = &writer;
+    bb_serialize_render_fn render = bb_serialize_format_get_render(BB_FORMAT_JSON);
+    TEST_ASSERT_NOT_NULL(render);
 
     rt_snap_t snap = { .n = 42 };
+    char buf[64];
+    size_t out_len = 0;
 
-    // Mirror bb_serialize_json_render()'s own '{'...'}' wrapping since we're
-    // driving the walker manually via the looked-up vtable -- the writer's
-    // root level (stack[0]) is already object-context from ctx_init(), so
-    // wrapping is a raw brace write, not another begin_obj/end_obj pair
-    // (that would push a second, key-requiring level).
-    buf[0] = '{';
-    writer.len = 1;
-    bb_serialize_walk(&s_rt_desc, &snap, &emit);
-    TEST_ASSERT_EQUAL(BB_OK, writer.err);
-    buf[writer.len++] = '}';
-    buf[writer.len] = '\0';
+    // The registered render fn is self-contained -- no ctx to copy/bind, the
+    // consumer calls it directly with its own desc/snap/buf/cap.
+    TEST_ASSERT_EQUAL(BB_OK, render(&s_rt_desc, &snap, buf, sizeof(buf), &out_len));
     TEST_ASSERT_EQUAL_STRING("{\"n\":42}", buf);
 
     // parse side: cast the opaque handle back to bb_serialize_json's own
@@ -308,5 +309,5 @@ void test_bb_serialize_json_register_format_idempotent(void)
     bb_serialize_format_test_reset();
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_register_format());
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_register_format());
-    TEST_ASSERT_NOT_NULL(bb_serialize_format_get_emit(BB_FORMAT_JSON));
+    TEST_ASSERT_NOT_NULL(bb_serialize_format_get_render(BB_FORMAT_JSON));
 }

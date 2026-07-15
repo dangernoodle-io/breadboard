@@ -17,6 +17,7 @@
 #include "../../components/bb_health/bb_health_stack.h"
 #include "bb_lifecycle.h"
 #include "bb_fsm.h"
+#include "bb_serialize_json.h"
 // Forward declarations from test_bb_lifecycle.c
 void test_bb_lifecycle_autoinit_returns_ok(void);
 void test_bb_lifecycle_register_starts_stopped(void);
@@ -130,19 +131,21 @@ void test_bb_format_name_json_returns_json(void);
 void test_bb_format_name_count_sentinel_returns_null(void);
 void test_bb_format_name_out_of_range_negative_returns_null(void);
 void test_bb_format_name_out_of_range_positive_returns_null(void);
-void test_bb_serialize_format_get_emit_miss_before_register(void);
+void test_bb_serialize_format_get_render_miss_before_register(void);
 void test_bb_serialize_format_register_null_entry_returns_invalid_arg(void);
 void test_bb_serialize_format_register_none_returns_invalid_arg(void);
 void test_bb_serialize_format_register_out_of_range_returns_invalid_arg(void);
-void test_bb_serialize_format_register_get_emit_roundtrip(void);
+void test_bb_serialize_format_register_get_render_roundtrip(void);
 void test_bb_serialize_format_get_parse_nullable(void);
 void test_bb_serialize_format_reregister_identical_is_noop(void);
 void test_bb_serialize_format_reregister_different_backend_rejected(void);
-void test_bb_serialize_format_reregister_emit_matches_parse_differs_rejected(void);
-void test_bb_serialize_format_get_emit_none_returns_null(void);
-void test_bb_serialize_format_get_emit_out_of_range_returns_null(void);
+void test_bb_serialize_format_reregister_render_matches_parse_differs_rejected(void);
+void test_bb_serialize_format_get_render_none_returns_null(void);
+void test_bb_serialize_format_get_render_out_of_range_returns_null(void);
 void test_bb_serialize_format_get_parse_none_returns_null(void);
 void test_bb_serialize_format_get_parse_out_of_range_returns_null(void);
+void test_bb_serialize_format_render_unregistered_returns_unsupported(void);
+void test_bb_serialize_format_render_json_matches_direct_call(void);
 void test_bb_serialize_format_json_render_roundtrip_via_registry(void);
 void test_bb_serialize_json_register_format_idempotent(void);
 
@@ -4390,6 +4393,13 @@ void setUp(void) {
     bb_wdt_test_reset();
     bb_openapi_schema_registry_clear();
     bb_mem_reset_stats();
+    // bb_cache_serialize (PR2, B1-981) dispatches through the format-dispatch
+    // registry rather than a hardcoded BB_FORMAT_JSON branch, so a test that
+    // exercises it needs BB_FORMAT_JSON actually registered. Idempotent --
+    // safe to call before every test, including ones in
+    // test_bb_serialize_format.c that immediately clear the registry via
+    // bb_serialize_format_test_reset() and register their own dummy entries.
+    bb_serialize_json_register_format();
 }
 void tearDown(void) {}
 
@@ -9352,19 +9362,21 @@ int main(void) {
     RUN_TEST(test_bb_format_name_count_sentinel_returns_null);
     RUN_TEST(test_bb_format_name_out_of_range_negative_returns_null);
     RUN_TEST(test_bb_format_name_out_of_range_positive_returns_null);
-    RUN_TEST(test_bb_serialize_format_get_emit_miss_before_register);
+    RUN_TEST(test_bb_serialize_format_get_render_miss_before_register);
     RUN_TEST(test_bb_serialize_format_register_null_entry_returns_invalid_arg);
     RUN_TEST(test_bb_serialize_format_register_none_returns_invalid_arg);
     RUN_TEST(test_bb_serialize_format_register_out_of_range_returns_invalid_arg);
-    RUN_TEST(test_bb_serialize_format_register_get_emit_roundtrip);
+    RUN_TEST(test_bb_serialize_format_register_get_render_roundtrip);
     RUN_TEST(test_bb_serialize_format_get_parse_nullable);
     RUN_TEST(test_bb_serialize_format_reregister_identical_is_noop);
     RUN_TEST(test_bb_serialize_format_reregister_different_backend_rejected);
-    RUN_TEST(test_bb_serialize_format_reregister_emit_matches_parse_differs_rejected);
-    RUN_TEST(test_bb_serialize_format_get_emit_none_returns_null);
-    RUN_TEST(test_bb_serialize_format_get_emit_out_of_range_returns_null);
+    RUN_TEST(test_bb_serialize_format_reregister_render_matches_parse_differs_rejected);
+    RUN_TEST(test_bb_serialize_format_get_render_none_returns_null);
+    RUN_TEST(test_bb_serialize_format_get_render_out_of_range_returns_null);
     RUN_TEST(test_bb_serialize_format_get_parse_none_returns_null);
     RUN_TEST(test_bb_serialize_format_get_parse_out_of_range_returns_null);
+    RUN_TEST(test_bb_serialize_format_render_unregistered_returns_unsupported);
+    RUN_TEST(test_bb_serialize_format_render_json_matches_direct_call);
     RUN_TEST(test_bb_serialize_format_json_render_roundtrip_via_registry);
     RUN_TEST(test_bb_serialize_json_register_format_idempotent);
 
