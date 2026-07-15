@@ -79,6 +79,64 @@ size_t   bb_board_rtc_total(void);
 // Returns 0 on platforms where the linker symbols are not available (host).
 size_t   bb_board_dram_static_bytes(void);
 
+// ---------------------------------------------------------------------------
+// Heap state — moved from bb_net_health (net_health teardown PR-C). Pure,
+// host-testable, no ESP-IDF dependency. bb_net_health's evaluator classifies
+// bb_board_heap_free_total() each cycle and stores the result here.
+// ---------------------------------------------------------------------------
+
+// Heap-threshold thresholds (compile-time overridable). On ESP-IDF, Kconfig
+// generates CONFIG_BB_BOARD_* symbols; bridge them here so menuconfig
+// changes take effect. On the host build there is no sdkconfig, so we fall
+// straight through to the numeric fallbacks.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_BOARD_HEAP_LOW_BYTES
+#    define BB_BOARD_HEAP_LOW_BYTES CONFIG_BB_BOARD_HEAP_LOW_BYTES
+#  endif
+#endif
+#ifndef BB_BOARD_HEAP_LOW_BYTES
+#define BB_BOARD_HEAP_LOW_BYTES      40000  // free heap bytes below which → LOW
+#endif
+
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_BOARD_HEAP_CRITICAL_BYTES
+#    define BB_BOARD_HEAP_CRITICAL_BYTES CONFIG_BB_BOARD_HEAP_CRITICAL_BYTES
+#  endif
+#endif
+#ifndef BB_BOARD_HEAP_CRITICAL_BYTES
+#define BB_BOARD_HEAP_CRITICAL_BYTES 20000  // free heap bytes below which → CRITICAL
+#endif
+
+/**
+ * Coarse heap health bucket.  Zero-init is BB_BOARD_HEAP_STATE_OK so host
+ * stubs and uninitialised-state callers always get a sane default.
+ */
+typedef enum {
+    BB_BOARD_HEAP_STATE_OK       = 0,
+    BB_BOARD_HEAP_STATE_LOW      = 1,
+    BB_BOARD_HEAP_STATE_CRITICAL = 2,
+} bb_board_heap_state_t;
+
+/**
+ * Pure heap classifier: maps total free heap bytes to a bb_board_heap_state_t
+ * bucket against the BB_BOARD_HEAP_LOW_BYTES / BB_BOARD_HEAP_CRITICAL_BYTES
+ * thresholds.  No side-effects; host-testable.
+ */
+bb_board_heap_state_t bb_board_classify_heap(size_t free_bytes);
+
+/**
+ * Return the latest heap state computed by the evaluator.
+ * Thread-safe: reads a module-static set by the evaluator.
+ * Returns BB_BOARD_HEAP_STATE_OK on host (evaluator never runs).
+ */
+bb_board_heap_state_t bb_board_heap_state(void);
+
+/**
+ * Return a static string for a bb_board_heap_state_t value.
+ * "ok", "low", or "critical".  Never returns NULL.
+ */
+const char *bb_board_heap_state_str(bb_board_heap_state_t state);
+
 #ifdef ESP_PLATFORM
 #endif
 

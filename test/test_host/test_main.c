@@ -2612,6 +2612,18 @@ void test_bb_board_get_reset_reason_zero_size_returns_invalid_arg(void);
 void test_bb_board_get_reset_reason_writes_power_on_string(void);
 void test_bb_board_heap_internal_largest_free_block_callable(void);
 
+// Forward declarations from test_bb_board_heap_state.c (moved from
+// bb_net_health, net_health teardown PR-C)
+void test_bb_board_classify_heap_ok(void);
+void test_bb_board_classify_heap_low(void);
+void test_bb_board_classify_heap_critical(void);
+void test_bb_board_classify_heap_zero(void);
+void test_bb_board_heap_state_str_ok(void);
+void test_bb_board_heap_state_str_low(void);
+void test_bb_board_heap_state_str_critical(void);
+void test_bb_board_heap_state_str_unknown_returns_ok(void);
+void test_bb_board_set_heap_state_roundtrip(void);
+
 // Forward declarations from test_bb_meminfo.c
 void test_bb_meminfo_get_rejects_null(void);
 void test_bb_meminfo_get_host_zeroes_snapshot(void);
@@ -2705,15 +2717,6 @@ void test_bb_net_health_emit_has_net_mode_and_discriminator_fields(void);
 void test_bb_net_health_emit_last_session_s_nonzero(void);
 void test_bb_net_health_emit_last_session_s_zero_sentinel(void);
 void test_bb_net_health_emit_status_no_last_session_s(void);
-void test_bb_net_health_classify_heap_ok(void);
-void test_bb_net_health_classify_heap_low(void);
-void test_bb_net_health_classify_heap_critical(void);
-void test_bb_net_health_classify_heap_zero(void);
-void test_bb_heap_state_str_ok(void);
-void test_bb_heap_state_str_low(void);
-void test_bb_heap_state_str_critical(void);
-void test_bb_heap_state_str_unknown_returns_ok(void);
-void test_bb_net_health_set_heap_state_roundtrip(void);
 void test_bb_net_health_should_log_mode_changed(void);
 void test_bb_net_health_should_log_interval_elapsed(void);
 void test_bb_net_health_should_log_neither(void);
@@ -6734,6 +6737,15 @@ int main(void) {
     RUN_TEST(test_bb_board_get_reset_reason_zero_size_returns_invalid_arg);
     RUN_TEST(test_bb_board_get_reset_reason_writes_power_on_string);
     RUN_TEST(test_bb_board_heap_internal_largest_free_block_callable);
+    RUN_TEST(test_bb_board_classify_heap_ok);
+    RUN_TEST(test_bb_board_classify_heap_low);
+    RUN_TEST(test_bb_board_classify_heap_critical);
+    RUN_TEST(test_bb_board_classify_heap_zero);
+    RUN_TEST(test_bb_board_heap_state_str_ok);
+    RUN_TEST(test_bb_board_heap_state_str_low);
+    RUN_TEST(test_bb_board_heap_state_str_critical);
+    RUN_TEST(test_bb_board_heap_state_str_unknown_returns_ok);
+    RUN_TEST(test_bb_board_set_heap_state_roundtrip);
 
     // bb_meminfo tests
     RUN_TEST(test_bb_meminfo_get_rejects_null);
@@ -6830,15 +6842,6 @@ int main(void) {
     RUN_TEST(test_bb_net_health_emit_last_session_s_nonzero);
     RUN_TEST(test_bb_net_health_emit_last_session_s_zero_sentinel);
     RUN_TEST(test_bb_net_health_emit_status_no_last_session_s);
-    RUN_TEST(test_bb_net_health_classify_heap_ok);
-    RUN_TEST(test_bb_net_health_classify_heap_low);
-    RUN_TEST(test_bb_net_health_classify_heap_critical);
-    RUN_TEST(test_bb_net_health_classify_heap_zero);
-    RUN_TEST(test_bb_heap_state_str_ok);
-    RUN_TEST(test_bb_heap_state_str_low);
-    RUN_TEST(test_bb_heap_state_str_critical);
-    RUN_TEST(test_bb_heap_state_str_unknown_returns_ok);
-    RUN_TEST(test_bb_net_health_set_heap_state_roundtrip);
     RUN_TEST(test_bb_net_health_should_log_mode_changed);
     RUN_TEST(test_bb_net_health_should_log_interval_elapsed);
     RUN_TEST(test_bb_net_health_should_log_neither);

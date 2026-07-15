@@ -37,9 +37,10 @@
 #include <time.h>
 #endif
 
-// Internal setter defined in components/bb_net_health/src/bb_net_health.c;
-// not part of the public header (espidf-only call site).
-extern void bb_net_health_set_heap_state(bb_heap_state_t state);
+// Internal setter defined in components/bb_board/src/bb_board_heap_state.c;
+// not part of the public header (espidf-only call site). Moved from
+// bb_net_health (net_health teardown PR-C).
+extern void bb_board_set_heap_state(bb_board_heap_state_t state);
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -461,17 +462,18 @@ static void eval_work_fn(void *arg)
         }
     }
 
-    // Heap state: always update the module-static (read by bb_net_health_heap_state).
-    // g_free is the only heap_caps walk on the unconditional path; g_min and
-    // g_largest are only needed for the HEAPTRACE log line, so they stay inside
-    // that block to avoid three concurrent heap_caps walks on every tick on
-    // single-core / low-RAM targets like the C3 (B1-433).
+    // Heap state: always update the module-static (read by bb_board_heap_state,
+    // moved from bb_net_health in net_health teardown PR-C). g_free is the
+    // only heap_caps walk on the unconditional path; g_min and g_largest are
+    // only needed for the HEAPTRACE log line, so they stay inside that block
+    // to avoid three concurrent heap_caps walks on every tick on single-core /
+    // low-RAM targets like the C3 (B1-433).
     {
         size_t g_free = bb_board_heap_free_total();
-        bb_heap_state_t heap_st = bb_net_health_classify_heap(g_free);
-        bb_net_health_set_heap_state(heap_st);
+        bb_board_heap_state_t heap_st = bb_board_classify_heap(g_free);
+        bb_board_set_heap_state(heap_st);
 
-#if BB_NET_HEALTH_HEAP_TRACE
+#if CONFIG_BB_BOARD_HEAP_TRACE
         size_t g_min     = bb_board_heap_minimum_ever();
         size_t g_largest = bb_board_heap_largest_free_block();
         bb_mem_stats_t ms;
@@ -484,7 +486,7 @@ static void eval_work_fn(void *arg)
                  " m_sp=%zu m_int=%zu",
                  bb_clock_now_ms(),
                  g_free, g_min, g_largest,
-                 bb_heap_state_str(heap_st),
+                 bb_board_heap_state_str(heap_st),
                  ms.outstanding_bytes, ms.peak_outstanding,
                  ms.alloc_count, ms.free_count, ms.alloc_fail,
                  ms.spiram_alloc_bytes, ms.internal_alloc_bytes);
