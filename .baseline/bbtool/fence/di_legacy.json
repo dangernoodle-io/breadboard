@@ -21,11 +21,6 @@
       "type": "auto_attach_kconfig"
     },
     {
-      "id": "BB_NET_HEALTH_SSE_AUTO_ATTACH",
-      "path": "components/bb_net_health/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
       "id": "BB_OTA_CHECK_AUTO_ATTACH",
       "path": "components/bb_ota_check/Kconfig",
       "type": "auto_attach_kconfig"
@@ -53,11 +48,6 @@
     {
       "id": "BB_LOG_EVENT_AUTO_ATTACH",
       "path": "platform/espidf/bb_log_event/bb_log_event.c",
-      "type": "auto_attach_usage"
-    },
-    {
-      "id": "BB_NET_HEALTH_SSE_AUTO_ATTACH",
-      "path": "platform/espidf/bb_net_health/bb_net_health_espidf.c",
       "type": "auto_attach_usage"
     },
     {

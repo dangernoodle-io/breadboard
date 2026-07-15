@@ -1,26 +1,18 @@
-// bb_net_health ESP-IDF glue — retained SSE topic + /api/diag/net.
+// bb_net_health ESP-IDF glue — /api/diag/net evaluator.
 //
 // Call order:
 //   bb_net_health_start()           — at PRE_HTTP tier
-//   bb_net_health_attach_sse()      — in regular-tier init (after bb_event_routes)
 //
 // The 5-second evaluator reads bb_wifi_get_info() and bb_mqtt_client_get_stats(), runs
-// bb_net_health_eval against a static module state, and publishes to the
-// "net.health" retained SSE topic ONLY when state or early_warning changes.
-//
-// Note: bb_net_health_attach_sse must be called before the server starts
-// serving SSE clients so the initial snapshot populates the retained ring.
+// bb_net_health_eval against a static module state, and updates the cached
+// snapshot read by bb_net_health_get_status() (served via /api/diag/net).
 #include "bb_net_health.h"
 #include "bb_board.h"
-#include "bb_cache.h"
 #include "bb_health.h"
 #include "bb_mem.h"
-#include "bb_openapi.h"
 #include "bb_wifi.h"
 #include "bb_mqtt_client.h"
 #include "bb_tls.h"
-#include "bb_event.h"
-#include "bb_event_routes.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_timer.h"
@@ -64,7 +56,6 @@ static const char *TAG = "bb_net_health";
 // on/off control (default INFO = visible).
 static const char *LOG_TAG_NETSTATE = "net_state";
 
-#define BB_NET_HEALTH_TOPIC "net.health"
 #define BB_NET_HEALTH_EVAL_PERIOD_US ((uint64_t)CONFIG_BB_NET_HEALTH_EVAL_PERIOD_S * 1000000ULL)
 
 // Kconfig bridge (B1-518 PR3): mirrors the identical bridge in
@@ -83,7 +74,6 @@ static const char *LOG_TAG_NETSTATE = "net_state";
 // ---------------------------------------------------------------------------
 
 static bb_net_health_state_t s_state;       // hysteresis state (zero-init = valid)
-static bb_event_topic_t      s_topic = NULL;
 static bb_net_state_t        s_last_published_state    = (bb_net_state_t)-1;
 static bool                  s_last_published_warn     = false;
 static bool                  s_last_published_throttled = false;
@@ -180,10 +170,10 @@ static void egress_act_persist_state(void)
 }
 #endif // CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
 
-// Cached health snapshot — written only by eval_cb (and the initial snapshot in
-// attach_sse). /api/diag/net (bb_net_health_routes.c) reads this cache via
-// bb_net_health_get_status instead of calling bb_net_health_eval, preventing
-// HTTP polls from injecting extra samples into the hysteresis state.
+// Cached health snapshot — written only by eval_cb. /api/diag/net
+// (bb_net_health_routes.c) reads this cache via bb_net_health_get_status
+// instead of calling bb_net_health_eval, preventing HTTP polls from
+// injecting extra samples into the hysteresis state.
 typedef struct {
     int8_t   rssi;
     bool     mqtt_connected;
@@ -217,34 +207,8 @@ typedef struct {
     bb_egress_state_t egress_state; // B1-518 PR3: arbiter verdict (observe-only)
 } bb_net_health_cache_t;
 
-static bb_net_health_cache_t s_cache;       // zero-init; valid once attach_sse writes it
+static bb_net_health_cache_t s_cache;       // zero-init; valid once eval_work_fn writes it
 static SemaphoreHandle_t     s_cache_lock;  // protects s_cache against torn read/write
-
-// Full schema for the net.health SSE topic — matches bb_net_health_emit output.
-static const char k_net_sse_schema[] =
-    "{\"type\":\"object\",\"properties\":{"
-    "\"rssi\":{\"type\":\"integer\"},"
-    "\"state\":{\"type\":\"string\"},"
-    "\"early_warning\":{\"type\":\"boolean\"},"
-    "\"throttled\":{\"type\":\"boolean\"},"
-    "\"last_disconnect_reason\":{\"type\":\"string\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"lost_ip_recoveries\":{\"type\":\"integer\"},"
-    "\"lost_ip_age_s\":{\"type\":\"integer\"},"
-    "\"egress_dead_recoveries\":{\"type\":\"integer\"},"
-    "\"mqtt\":{\"type\":\"object\",\"properties\":{"
-    "\"connected\":{\"type\":\"boolean\"},"
-    "\"reconnect_count\":{\"type\":\"integer\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"disc_reason\":{\"type\":\"integer\"},"
-    "\"tls_fail\":{\"type\":\"integer\"}}},"
-    "\"no_ip_recoveries\":{\"type\":\"integer\"},"
-    "\"roam_count\":{\"type\":\"integer\"},"
-    "\"roam_age_s\":{\"type\":\"integer\"},"
-    "\"last_session_s\":{\"type\":\"integer\"},"
-    "\"net_mode\":{\"type\":\"string\"},"
-    "\"associated\":{\"type\":\"boolean\"},"
-    "\"has_ip\":{\"type\":\"boolean\"}}}";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -323,14 +287,9 @@ static void pull_tx_status(bool *out_available, int *out_enabled, int *out_faili
     *out_failing   = failing;
 }
 
-// Publish a net.health payload to the SSE topic and update the module cache.
-//
-// The SSE payload carries only the 4 essential fields (rssi, state,
-// early_warning, throttled) — worst case ~62 B — so it fits inside
-// CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY even on consumers that set a small
-// value like 128 (e.g. TaipanMiner).  The full detail is always available via
-// GET /api/diag/net (bb_net_health_routes.c), which reads from the cache
-// that is updated unconditionally here.
+// Return the cached snapshot last written by publish_snapshot(). The full
+// detail is always available via GET /api/diag/net (bb_net_health_routes.c),
+// which reads from the cache that is updated unconditionally there.
 bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;
@@ -371,10 +330,10 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
 }
 
 // Build a full status snapshot from the current evaluation inputs/outputs.
-// Pure construction — no cache writes, no SSE/bb_cache posts. Called once per
-// eval_work_fn cycle so both the SSE-publish path (on state/warning/throttle
-// change) and the log-heartbeat path (on net_mode change or interval
-// elapsed) observe the exact same point-in-time snapshot.
+// Pure construction — no cache writes. Called once per eval_work_fn cycle so
+// both the publish path (on state/warning/throttle change) and the
+// log-heartbeat path (on net_mode change or interval elapsed) observe the
+// exact same point-in-time snapshot.
 static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
                                              const bb_net_health_input_t  *in,
                                              const bb_wifi_info_t         *wi,
@@ -431,11 +390,11 @@ static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
     return snap;
 }
 
-// Update s_cache + bb_cache/SSE from an already-built snapshot.
+// Update s_cache from an already-built snapshot.
 static void publish_snapshot(const bb_net_health_status_t *snap)
 {
-    // Update s_cache so bb_net_health_get_status (used by the pub source) can
-    // read the latest snapshot without re-running eval.
+    // Update s_cache so bb_net_health_get_status (used by GET /api/diag/net)
+    // can read the latest snapshot without re-running eval.
     xSemaphoreTake(s_cache_lock, portMAX_DELAY);
     s_cache.rssi                    = snap->rssi;
     s_cache.mqtt_connected          = snap->mqtt_connected;
@@ -468,11 +427,6 @@ static void publish_snapshot(const bb_net_health_status_t *snap)
     s_cache.tx_failing              = snap->tx_failing;
     s_cache.egress_state            = snap->egress_state;
     xSemaphoreGive(s_cache_lock);
-
-    // Update bb_cache owned struct — SSE uses bb_cache_post, REST uses
-    // bb_cache_serialize_into; both serialize from the same snapshot.
-    bb_cache_update(&(bb_cache_update_t){ .key = BB_NET_HEALTH_TOPIC, .snap = snap });
-    bb_cache_post(BB_NET_HEALTH_TOPIC);
 }
 
 // ---------------------------------------------------------------------------
@@ -668,7 +622,7 @@ static void eval_work_fn(void *arg)
     // Diagnostic-state log heartbeat (KB#556, observe-only): emit a
     // structured line on every net_mode transition (immediate) or every
     // BB_NET_HEALTH_LOG_INTERVAL_S seconds (throttled periodic heartbeat),
-    // independent of whether the SSE snapshot above published. Rides the
+    // independent of whether the cache snapshot above published. Rides the
     // "log" bb_event topic (serial + future UDP log sink) so a no-route/
     // zombie board that cannot serve HTTP/MQTT still reports full state.
     // Always compiled in; runtime-controlled via the "net_state" tag's log
@@ -690,150 +644,14 @@ static void eval_work_fn(void *arg)
 }
 
 // ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-bb_err_t bb_net_health_attach_sse(void)
-{
-#if !CONFIG_BB_NET_HEALTH_SSE_AUTO_ATTACH
-    // Gate disabled (B1-546): safe no-op. Consumers (e.g. TM) call this
-    // unconditionally; with the gate off the "net.health" SSE topic is never
-    // attached and the retained-ring heap it would otherwise consume is
-    // never allocated. Gated inside the function body (rather than at the
-    // call site) so disabling the Kconfig requires no consumer code change.
-    bb_log_d(TAG, "attach_sse: BB_NET_HEALTH_SSE_AUTO_ATTACH disabled, no-op");
-    return BB_OK;
-#else
-    // The evaluator (state + mutex + timer) must already be up — bb_net_health_start
-    // (PRE_HTTP tier) creates s_cache_lock before the timer is armed. publish_snapshot
-    // below does an unguarded xSemaphoreTake, so attach_sse must never run first.
-    if (!s_cache_lock) return BB_ERR_INVALID_STATE;
-
-    // Register net.health in bb_cache (owned-struct form).
-    bb_cache_config_t cache_cfg = {
-        .key       = BB_NET_HEALTH_TOPIC,
-        .snapshot  = NULL,
-        .snap_size = sizeof(bb_net_health_status_t),
-        .serialize = bb_net_health_emit,
-        .flags     = BB_CACHE_FLAG_SSE,
-    };
-    bb_err_t cerr = bb_cache_register(&cache_cfg);
-    if (cerr != BB_OK) {
-        bb_log_w(TAG, "bb_cache_register failed: %d", (int)cerr);
-        return cerr;
-    }
-
-    bb_openapi_register_topic_schema(BB_NET_HEALTH_TOPIC, k_net_sse_schema, "NetHealth");
-
-    // Register the event topic so bb_event_post can target it.
-    bb_err_t err = bb_event_topic_register(BB_NET_HEALTH_TOPIC, &s_topic);
-    if (err != BB_OK) {
-        bb_log_w(TAG, "topic register failed: %d", (int)err);
-        return err;
-    }
-
-    // Attach as a retained SSE topic. max_entry=BB_NET_HEALTH_SSE_MAX_ENTRY
-    // (512, defined in bb_net_health.h): the serialized snapshot (nested
-    // mqtt/http objects) measures ~341 B on HW (~352 B in the host test's
-    // synthetic worst-ish case — the gap is digit-width in a few integer
-    // fields, not a real discrepancy), above the bb_event_routes global
-    // default (256) — same precedent as update.available / info.build
-    // (#616, B1-434/435/439; see bb_ota_check_espidf.c).
-    // B1-472.
-    err = bb_event_routes_attach_ex2(BB_NET_HEALTH_TOPIC, /*retained=*/true,
-                                      BB_NET_HEALTH_SSE_MAX_ENTRY);
-    if (err != BB_OK) {
-        bb_log_w(TAG, "attach_ex2 failed: %d", (int)err);
-        return err;
-    }
-
-    // Publish initial snapshot so the retained ring is non-empty from T=0.
-    {
-        bb_net_health_input_t in;
-        build_input(&in);
-
-        bb_wifi_info_t wi;
-        memset(&wi, 0, sizeof(wi));
-        bb_wifi_get_info(&wi);
-
-        bb_net_health_output_t out;
-        bb_net_health_eval(&s_state, &in, &out);
-
-        // B1-362: capture disc_reason + tls_fail separately for publish_snapshot
-        bb_mqtt_client_disc_t mqtt_disc_reason = BB_MQTT_CLIENT_DISC_NONE;
-        bb_tls_fail_t  mqtt_tls_fail   = BB_TLS_FAIL_NONE;
-        {
-            bb_mqtt_client_t mqtt = bb_mqtt_client_default();
-            if (mqtt) {
-                bb_mqtt_client_stats_t stats;
-                if (bb_mqtt_client_get_stats(mqtt, &stats) == BB_OK) {
-                    mqtt_disc_reason = stats.disc_reason;
-                    mqtt_tls_fail    = stats.tls_fail;
-                }
-            }
-        }
-
-        bool gw_available;
-        bb_wifi_gw_status_t gw;
-        pull_gw_status(&gw_available, &gw);
-
-        bool tx_available;
-        int  tx_enabled, tx_failing;
-        pull_tx_status(&tx_available, &tx_enabled, &tx_failing);
-
-        // B1-518 PR3, OBSERVE-ONLY: classify the initial snapshot too, so
-        // /api/diag/net and the T=0 log heartbeat report a real verdict
-        // instead of a stale default. s_prev_egress_state is intentionally
-        // left untouched here — the would-recover edge log is owned by
-        // eval_work_fn only (the gw-probe worker has not run yet this early
-        // in boot, so gw_available is false and this classifies to OK).
-        bb_net_mode_t egress_wifi_mode =
-            bb_net_health_classify_mode(bb_wifi_is_associated(), bb_wifi_has_ip());
-        bb_egress_state_t egress_state =
-            bb_net_health_classify_egress(egress_wifi_mode, gw_available, gw.gw_reachable,
-                                           gw.gw_fail_streak, (uint8_t)BB_WIFI_GW_PROBE_FAILS,
-                                           tx_enabled, tx_failing);
-
-        bb_net_health_status_t snap = build_snapshot(&out, &in, &wi, false,
-                                                      mqtt_disc_reason, mqtt_tls_fail,
-                                                      gw_available, &gw,
-                                                      tx_available, tx_enabled, tx_failing,
-                                                      egress_state);
-        publish_snapshot(&snap);
-        s_last_published_state     = out.state;
-        s_last_published_warn      = out.early_warning;
-        s_last_published_throttled = false;
-
-        // Initial heartbeat: sentinel s_last_logged_mode guarantees this
-        // always logs (mode transition from "never logged"), so a
-        // no-route/zombie board reports diagnostic state from T=0. Always
-        // compiled in; runtime-controlled via the "net_state" tag's log
-        // level (see eval_work_fn for the gating rationale).
-        int64_t now_us = bb_timer_now_us();
-        s_last_log_us      = now_us;
-        s_last_logged_mode = snap.net_mode;
-        if (esp_log_level_get(LOG_TAG_NETSTATE) >= ESP_LOG_INFO) {
-            char line[224];
-            bb_net_health_format_log(&snap, line, sizeof(line));
-            bb_log_i(LOG_TAG_NETSTATE, "%s", line);
-        }
-    }
-
-    bb_log_i(TAG, "SSE attached (retained)");
-    return BB_OK;
-#endif // CONFIG_BB_NET_HEALTH_SSE_AUTO_ATTACH
-}
-
-// ---------------------------------------------------------------------------
 // PRE_HTTP lifecycle entry point
 // ---------------------------------------------------------------------------
 
 // Starts the background evaluator: cache mutex + deferred periodic timer.
-// No HTTP/cache/openapi/event-topic side effects — those stay in attach_sse
-// (regular tier, after bb_event_routes is up). The mutex MUST be created
-// before the timer is armed: publish_snapshot (called from eval_work_fn on
-// the timer) does an unguarded xSemaphoreTake on s_cache_lock, so an armed
-// timer racing ahead of mutex creation is a NULL-handle take -> hard fault.
+// The mutex MUST be created before the timer is armed: publish_snapshot
+// (called from eval_work_fn on the timer) does an unguarded xSemaphoreTake
+// on s_cache_lock, so an armed timer racing ahead of mutex creation is a
+// NULL-handle take -> hard fault.
 bb_err_t bb_net_health_start(void)
 {
     s_cache_lock = xSemaphoreCreateMutex();
