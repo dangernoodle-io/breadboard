@@ -17,7 +17,7 @@
 
 #include "bb_cache.h"
 #include "bb_log.h"
-#include "bb_serialize_json.h"
+#include "bb_serialize_format.h"
 
 #include <inttypes.h>
 #include <pthread.h>
@@ -252,10 +252,12 @@ bb_err_t bb_cache_serialize_get(bb_format_t fmt, const char *key,
     // would otherwise mask this as NOT_FOUND). The local slot-table lookup
     // just above is cheap (no bb_cache call, s_lock only) and stays ahead of
     // this check so an existing memo for `key` under a DIFFERENT fmt is
-    // still found before falling through to the fmt gate. JSON is the only
-    // wired backend today; a future format backend adds its own branch
-    // here, not a registry.
-    if (fmt != BB_FORMAT_JSON) {
+    // still found before falling through to the fmt gate. A registry lookup
+    // (rather than a hardcoded BB_FORMAT_JSON branch) so any format backend
+    // that has registered itself via bb_serialize_format_register() is
+    // supported here, not just JSON.
+    bb_serialize_render_fn render = bb_serialize_format_get_render(fmt);
+    if (!render) {
         pthread_mutex_unlock(&s_lock);
         return BB_ERR_UNSUPPORTED;
     }
@@ -293,7 +295,7 @@ bb_err_t bb_cache_serialize_get(bb_format_t fmt, const char *key,
     }
 
     // MISS / recache. fmt support was already validated above, before this
-    // point -- reaching here means fmt == BB_FORMAT_JSON.
+    // point -- reaching here means `render` is a valid, registered fn.
     if (!slot) {
         slot = find_free_slot_locked();
         if (!slot) {
@@ -324,7 +326,7 @@ bb_err_t bb_cache_serialize_get(bb_format_t fmt, const char *key,
     // current small MAX_ENTRIES; revisit (e.g. per-slot locks) if the table
     // grows large enough for render latency to matter.
     size_t n = 0;
-    rc = bb_serialize_json_render(reg->desc, snap.state, (char *)slot->buf, sizeof(slot->buf), &n);
+    rc = render(reg->desc, snap.state, (char *)slot->buf, sizeof(slot->buf), &n);
 #ifdef BB_CACHE_SERIALIZE_TESTING
     s_render_count++;
 #endif

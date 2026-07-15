@@ -2,7 +2,13 @@
 
 /**
  * @brief Compositional serialized-render cache (render memo), keyed
- * (format_id, key, state_version).
+ * (format_id, key, state_version). Format-agnostic: dispatches rendering
+ * through the format registry (bb_serialize_format) and deliberately
+ * declares NO dependency on any format backend. Rendering via
+ * bb_cache_serialize_get() therefore requires the composition to have
+ * registered a bb_serialize_* backend for the requested format -- an
+ * inherent property of registry dispatch, not a privileged default. A
+ * consumer that does not render through this path is unaffected.
  *
  * bb_cache_serialize sits ABOVE bb_cache and bb_serialize as a pure
  * composition: it reads a key's canonical owned struct via
