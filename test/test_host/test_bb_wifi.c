@@ -849,3 +849,294 @@ void test_bb_wifi_request_recovery_blocked_noop(void)
     bb_wifi_test_set_recovery_blocked(false);
 #endif
 }
+
+// ---------------------------------------------------------------------------
+// bb_wifi_classify_link — pure RSSI-bucket + hysteresis classifier (moved
+// from bb_net_health, net_health teardown PR-B).
+// ---------------------------------------------------------------------------
+
+static bb_wifi_link_hyst_t s_link_hyst;
+
+static void link_reset(void)
+{
+    memset(&s_link_hyst, 0, sizeof(s_link_hyst));
+}
+
+// Classify N times with the same rssi, returning the final state.
+static bb_wifi_link_state_t link_classify_n(int8_t rssi, int n)
+{
+    bb_wifi_link_state_t state = BB_WIFI_LINK_GOOD;
+    for (int i = 0; i < n; i++) {
+        state = bb_wifi_classify_link(&s_link_hyst, rssi);
+    }
+    return state;
+}
+
+// ---------------------------------------------------------------------------
+// RSSI bucket boundary tests (with fresh state — single classify)
+// ---------------------------------------------------------------------------
+
+// BUG 1 regression: rssi==0 (no valid reading) must classify as POOR.
+void test_bb_wifi_classify_link_rssi_zero_is_poor(void)
+{
+    link_reset();
+    bb_wifi_link_state_t state = bb_wifi_classify_link(&s_link_hyst, 0); // cold-start: seeds directly
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, state);
+}
+
+// BUG 1 regression: any positive rssi must classify as POOR.
+void test_bb_wifi_classify_link_rssi_positive_is_poor(void)
+{
+    link_reset();
+    bb_wifi_link_state_t state = bb_wifi_classify_link(&s_link_hyst, 10);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, state);
+}
+
+// BUG 2 regression: cold-start with poor rssi must report POOR immediately
+// (not GOOD via hysteresis lag).
+void test_bb_wifi_classify_link_cold_start_poor_rssi_reports_poor(void)
+{
+    link_reset();
+    bb_wifi_link_state_t state = bb_wifi_classify_link(&s_link_hyst, -80); // first call — seeds, bypasses hysteresis
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, state);
+}
+
+// BUG 2 regression: cold-start with good rssi must report GOOD immediately.
+void test_bb_wifi_classify_link_cold_start_good_rssi_reports_good(void)
+{
+    link_reset();
+    bb_wifi_link_state_t state = bb_wifi_classify_link(&s_link_hyst, -50); // first call — seeds
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_GOOD, state);
+}
+
+// Hysteresis applies starting from the 2nd call — a single POOR sample after
+// a seeded-GOOD first call must NOT immediately flip to POOR.
+void test_bb_wifi_classify_link_hyst_applies_after_cold_start(void)
+{
+    link_reset();
+    bb_wifi_link_state_t state = bb_wifi_classify_link(&s_link_hyst, -50); // seed GOOD
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_GOOD, state);
+
+    // Second call with POOR rssi — hysteresis: still GOOD after 1 sample.
+    state = bb_wifi_classify_link(&s_link_hyst, -80);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_GOOD, state);
+
+    // Need HYST_DOWN consecutive POOR to downgrade.
+    for (int i = 1; i < BB_WIFI_HYST_DOWN; i++) {
+        state = bb_wifi_classify_link(&s_link_hyst, -80);
+    }
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, state);
+}
+
+void test_bb_wifi_classify_link_rssi_good_boundary(void)
+{
+    link_reset();
+    bb_wifi_link_state_t state = bb_wifi_classify_link(&s_link_hyst, -67); // exactly at GOOD threshold
+    // First call seeds directly — GOOD.
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_GOOD, state);
+}
+
+void test_bb_wifi_classify_link_rssi_marginal_lo(void)
+{
+    link_reset();
+    // First MARGINAL sample (just below GOOD threshold) N times to trigger downgrade.
+    bb_wifi_link_state_t state = link_classify_n(-68, BB_WIFI_HYST_DOWN);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_MARGINAL, state);
+}
+
+void test_bb_wifi_classify_link_rssi_marginal_hi(void)
+{
+    link_reset();
+    // Exactly at MARGINAL_LO threshold (still MARGINAL).
+    bb_wifi_link_state_t state = link_classify_n(-75, BB_WIFI_HYST_DOWN);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_MARGINAL, state);
+}
+
+void test_bb_wifi_classify_link_rssi_poor_below_marginal_lo(void)
+{
+    link_reset();
+    // One below MARGINAL_LO -> POOR.
+    bb_wifi_link_state_t state = link_classify_n(-76, BB_WIFI_HYST_DOWN);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, state);
+}
+
+void test_bb_wifi_classify_link_rssi_very_poor(void)
+{
+    link_reset();
+    bb_wifi_link_state_t state = link_classify_n(-95, BB_WIFI_HYST_DOWN);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, state);
+}
+
+// ---------------------------------------------------------------------------
+// Hysteresis downgrade tests
+// ---------------------------------------------------------------------------
+
+void test_bb_wifi_classify_link_hyst_down_requires_n_samples(void)
+{
+    link_reset();
+    bb_wifi_link_state_t state = bb_wifi_classify_link(&s_link_hyst, -50); // establish GOOD
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_GOOD, state);
+
+    // Feed MARGINAL signal — should NOT downgrade until HYST_DOWN consecutive.
+    for (int i = 0; i < BB_WIFI_HYST_DOWN - 1; i++) {
+        state = bb_wifi_classify_link(&s_link_hyst, -70);
+        TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_GOOD, state);
+    }
+    // One more — now should downgrade.
+    state = bb_wifi_classify_link(&s_link_hyst, -70);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_MARGINAL, state);
+}
+
+void test_bb_wifi_classify_link_hyst_down_reset_on_good_sample(void)
+{
+    link_reset();
+    bb_wifi_classify_link(&s_link_hyst, -50); // establish GOOD
+
+    // Feed HYST_DOWN-1 MARGINAL samples, then one GOOD — counter resets.
+    for (int i = 0; i < BB_WIFI_HYST_DOWN - 1; i++) {
+        bb_wifi_classify_link(&s_link_hyst, -70);
+    }
+    bb_wifi_link_state_t state = bb_wifi_classify_link(&s_link_hyst, -50); // back to GOOD — resets down_count
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_GOOD, state);
+
+    // Another HYST_DOWN MARGINAL samples should be needed for downgrade.
+    for (int i = 0; i < BB_WIFI_HYST_DOWN - 1; i++) {
+        state = bb_wifi_classify_link(&s_link_hyst, -70);
+        TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_GOOD, state);
+    }
+    state = bb_wifi_classify_link(&s_link_hyst, -70);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_MARGINAL, state);
+}
+
+// ---------------------------------------------------------------------------
+// Hysteresis upgrade tests
+// ---------------------------------------------------------------------------
+
+void test_bb_wifi_classify_link_hyst_up_requires_n_samples(void)
+{
+    link_reset();
+    // Drive to POOR first.
+    bb_wifi_link_state_t state = link_classify_n(-80, BB_WIFI_HYST_DOWN);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, state);
+
+    // Feed MARGINAL — should NOT upgrade until HYST_UP consecutive.
+    for (int i = 0; i < BB_WIFI_HYST_UP - 1; i++) {
+        state = bb_wifi_classify_link(&s_link_hyst, -70);
+        TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, state);
+    }
+    state = bb_wifi_classify_link(&s_link_hyst, -70);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_MARGINAL, state);
+}
+
+void test_bb_wifi_classify_link_hyst_up_reset_on_poor_sample(void)
+{
+    link_reset();
+    // Drive to POOR.
+    bb_wifi_link_state_t state = link_classify_n(-80, BB_WIFI_HYST_DOWN);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, state);
+
+    // Feed HYST_UP-1 MARGINAL samples, then one POOR — up_count resets.
+    for (int i = 0; i < BB_WIFI_HYST_UP - 1; i++) {
+        bb_wifi_classify_link(&s_link_hyst, -70);
+    }
+    state = bb_wifi_classify_link(&s_link_hyst, -80); // back to POOR — resets up_count
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, state);
+
+    // Now feed HYST_UP MARGINAL samples — should upgrade.
+    state = link_classify_n(-70, BB_WIFI_HYST_UP);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_MARGINAL, state);
+}
+
+void test_bb_wifi_classify_link_hyst_up_all_the_way_to_good(void)
+{
+    link_reset();
+    // Drive to POOR.
+    bb_wifi_link_state_t state = link_classify_n(-80, BB_WIFI_HYST_DOWN);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, state);
+
+    // Upgrade to MARGINAL.
+    state = link_classify_n(-70, BB_WIFI_HYST_UP);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_MARGINAL, state);
+
+    // Upgrade to GOOD.
+    state = link_classify_n(-50, BB_WIFI_HYST_UP);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_GOOD, state);
+}
+
+// ---------------------------------------------------------------------------
+// bb_wifi_link_state_str helper
+// ---------------------------------------------------------------------------
+
+void test_bb_wifi_link_state_str_good(void)
+{
+    TEST_ASSERT_EQUAL_STRING("good", bb_wifi_link_state_str(BB_WIFI_LINK_GOOD));
+}
+
+void test_bb_wifi_link_state_str_marginal(void)
+{
+    TEST_ASSERT_EQUAL_STRING("marginal", bb_wifi_link_state_str(BB_WIFI_LINK_MARGINAL));
+}
+
+void test_bb_wifi_link_state_str_poor(void)
+{
+    TEST_ASSERT_EQUAL_STRING("poor", bb_wifi_link_state_str(BB_WIFI_LINK_POOR));
+}
+
+void test_bb_wifi_link_state_str_unknown_returns_nonnull(void)
+{
+    // Unknown enum values should not return NULL.
+    const char *s = bb_wifi_link_state_str((bb_wifi_link_state_t)99);
+    TEST_ASSERT_NOT_NULL(s);
+}
+
+// ---------------------------------------------------------------------------
+// bb_wifi_classify_mode — pure WiFi discrimination classifier (moved from
+// bb_net_health, net_health teardown PR-B).
+// ---------------------------------------------------------------------------
+
+void test_bb_wifi_classify_mode_ok(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_MODE_OK, bb_wifi_classify_mode(true, true));
+}
+
+void test_bb_wifi_classify_mode_no_ip(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_MODE_NO_IP, bb_wifi_classify_mode(true, false));
+}
+
+void test_bb_wifi_classify_mode_not_associated(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_MODE_NOT_ASSOCIATED, bb_wifi_classify_mode(false, false));
+}
+
+// Not-associated dominates has_ip=true (an inconsistent/impossible input on
+// real hardware, but the classifier must still resolve deterministically).
+void test_bb_wifi_classify_mode_not_associated_dominates_has_ip(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_MODE_NOT_ASSOCIATED, bb_wifi_classify_mode(false, true));
+}
+
+// ---------------------------------------------------------------------------
+// bb_wifi_mode_str helper
+// ---------------------------------------------------------------------------
+
+void test_bb_wifi_mode_str_ok(void)
+{
+    TEST_ASSERT_EQUAL_STRING("ok", bb_wifi_mode_str(BB_WIFI_MODE_OK));
+}
+
+void test_bb_wifi_mode_str_no_ip(void)
+{
+    TEST_ASSERT_EQUAL_STRING("no_ip", bb_wifi_mode_str(BB_WIFI_MODE_NO_IP));
+}
+
+void test_bb_wifi_mode_str_not_associated(void)
+{
+    TEST_ASSERT_EQUAL_STRING("not_associated", bb_wifi_mode_str(BB_WIFI_MODE_NOT_ASSOCIATED));
+}
+
+void test_bb_wifi_mode_str_unknown_returns_not_associated(void)
+{
+    const char *s = bb_wifi_mode_str((bb_wifi_mode_t)99);
+    TEST_ASSERT_EQUAL_STRING("not_associated", s);
+}

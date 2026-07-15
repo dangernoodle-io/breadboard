@@ -1,11 +1,11 @@
-// Host tests for bb_net_health pure classifier.
+// Host tests for bb_net_health — MQTT-fused early_warning classifier +
+// egress/heap/emit/log helpers.
+//
+// The RSSI-bucket + hysteresis classifier and the net-mode classifier moved
+// to bb_wifi (test/test_host/test_bb_wifi.c) — net_health teardown PR-B.
 // Covers:
-//   - every RSSI bucket boundary (GOOD / MARGINAL / POOR)
-//   - hysteresis downgrade (N consecutive worse samples required)
-//   - hysteresis upgrade (N consecutive better samples required)
 //   - early_warning on each trigger: sustained-poor, reconnect-increase, disconnect
 //   - warn_disc uses mqtt_disc_age_s (not wifi disc_age_s)
-//   - bb_net_state_str helper
 //   - bb_net_health_throttle_decision: throttle start + restore
 //   - bb_net_health_emit: nested mqtt sub-object; OOM branch coverage
 #include "unity.h"
@@ -53,223 +53,6 @@ static void eval_n(int n)
 }
 
 // ---------------------------------------------------------------------------
-// RSSI bucket boundary tests (with fresh state — single eval)
-// ---------------------------------------------------------------------------
-
-// BUG 1 regression: rssi==0 (no valid reading) must classify as POOR.
-void test_bb_net_health_rssi_zero_is_poor(void)
-{
-    reset();
-    s_in.rssi = 0;
-    eval();  // cold-start: seeds directly from raw bucket
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
-    TEST_ASSERT_TRUE(s_out.early_warning);  // POOR → early_warning
-}
-
-// BUG 1 regression: any positive rssi must classify as POOR.
-void test_bb_net_health_rssi_positive_is_poor(void)
-{
-    reset();
-    s_in.rssi = 10;
-    eval();
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
-}
-
-// BUG 2 regression: cold-start with poor rssi must report POOR immediately
-// (not GOOD via hysteresis lag).
-void test_bb_net_health_cold_start_poor_rssi_reports_poor(void)
-{
-    reset();
-    s_in.rssi = -80;  // raw bucket = POOR
-    eval();           // first eval — seeds, bypasses hysteresis
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
-    TEST_ASSERT_TRUE(s_out.early_warning);
-}
-
-// BUG 2 regression: cold-start with good rssi must report GOOD immediately.
-void test_bb_net_health_cold_start_good_rssi_reports_good(void)
-{
-    reset();
-    s_in.rssi = -50;  // raw bucket = GOOD
-    eval();           // first eval — seeds
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_GOOD, s_out.state);
-}
-
-// Hysteresis applies starting from the 2nd eval — a single POOR sample after
-// a seeded-GOOD first eval must NOT immediately flip to POOR.
-void test_bb_net_health_hyst_applies_after_cold_start(void)
-{
-    reset();
-    s_in.rssi = -50;  // seed GOOD on first eval
-    eval();
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_GOOD, s_out.state);
-
-    // Second eval with POOR rssi — hysteresis: still GOOD after 1 sample.
-    s_in.rssi = -80;
-    eval();
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_GOOD, s_out.state);
-
-    // Need HYST_DOWN consecutive POOR to downgrade.
-    for (int i = 1; i < BB_NET_HEALTH_HYST_DOWN; i++) {
-        eval();
-    }
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
-}
-
-void test_bb_net_health_rssi_good_boundary(void)
-{
-    reset();
-    s_in.rssi = -67;  // exactly at GOOD threshold
-    eval();
-    // First eval seeds directly — GOOD.
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_GOOD, s_out.state);
-}
-
-void test_bb_net_health_rssi_marginal_lo(void)
-{
-    reset();
-    // Start in GOOD, then feed MARGINAL N times to trigger downgrade.
-    s_in.rssi = -68;  // first MARGINAL sample (just below GOOD threshold)
-    eval_n(BB_NET_HEALTH_HYST_DOWN);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_MARGINAL, s_out.state);
-}
-
-void test_bb_net_health_rssi_marginal_hi(void)
-{
-    reset();
-    s_in.rssi = -75;  // exactly at MARGINAL_LO threshold (still MARGINAL)
-    eval_n(BB_NET_HEALTH_HYST_DOWN);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_MARGINAL, s_out.state);
-}
-
-void test_bb_net_health_rssi_poor_below_marginal_lo(void)
-{
-    reset();
-    s_in.rssi = -76;  // one below MARGINAL_LO → POOR
-    eval_n(BB_NET_HEALTH_HYST_DOWN);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
-}
-
-void test_bb_net_health_rssi_very_poor(void)
-{
-    reset();
-    s_in.rssi = -95;
-    eval_n(BB_NET_HEALTH_HYST_DOWN);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
-}
-
-// ---------------------------------------------------------------------------
-// Hysteresis downgrade tests
-// ---------------------------------------------------------------------------
-
-void test_bb_net_health_hyst_down_requires_n_samples(void)
-{
-    reset();
-    s_in.rssi = -50;
-    eval();  // establish GOOD
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_GOOD, s_out.state);
-
-    // Feed MARGINAL signal — should NOT downgrade until HYST_DOWN consecutive.
-    s_in.rssi = -70;
-    for (int i = 0; i < BB_NET_HEALTH_HYST_DOWN - 1; i++) {
-        eval();
-        TEST_ASSERT_EQUAL_INT(BB_NET_STATE_GOOD, s_out.state);
-    }
-    // One more — now should downgrade.
-    eval();
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_MARGINAL, s_out.state);
-}
-
-void test_bb_net_health_hyst_down_reset_on_good_sample(void)
-{
-    reset();
-    s_in.rssi = -50;
-    eval();  // establish GOOD
-
-    // Feed HYST_DOWN-1 MARGINAL samples, then one GOOD — counter resets.
-    s_in.rssi = -70;
-    for (int i = 0; i < BB_NET_HEALTH_HYST_DOWN - 1; i++) {
-        eval();
-    }
-    s_in.rssi = -50;  // back to GOOD — resets down_count
-    eval();
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_GOOD, s_out.state);
-
-    // Another HYST_DOWN MARGINAL samples should be needed for downgrade.
-    s_in.rssi = -70;
-    for (int i = 0; i < BB_NET_HEALTH_HYST_DOWN - 1; i++) {
-        eval();
-        TEST_ASSERT_EQUAL_INT(BB_NET_STATE_GOOD, s_out.state);
-    }
-    eval();
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_MARGINAL, s_out.state);
-}
-
-// ---------------------------------------------------------------------------
-// Hysteresis upgrade tests
-// ---------------------------------------------------------------------------
-
-void test_bb_net_health_hyst_up_requires_n_samples(void)
-{
-    reset();
-    // Drive to POOR first.
-    s_in.rssi = -80;
-    eval_n(BB_NET_HEALTH_HYST_DOWN);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
-
-    // Feed MARGINAL — should NOT upgrade until HYST_UP consecutive.
-    s_in.rssi = -70;
-    for (int i = 0; i < BB_NET_HEALTH_HYST_UP - 1; i++) {
-        eval();
-        TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
-    }
-    eval();
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_MARGINAL, s_out.state);
-}
-
-void test_bb_net_health_hyst_up_reset_on_poor_sample(void)
-{
-    reset();
-    // Drive to POOR.
-    s_in.rssi = -80;
-    eval_n(BB_NET_HEALTH_HYST_DOWN);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
-
-    // Feed HYST_UP-1 MARGINAL samples, then one POOR — up_count resets.
-    s_in.rssi = -70;
-    for (int i = 0; i < BB_NET_HEALTH_HYST_UP - 1; i++) {
-        eval();
-    }
-    s_in.rssi = -80;  // back to POOR — resets up_count
-    eval();
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
-
-    // Now feed HYST_UP MARGINAL samples — should upgrade.
-    s_in.rssi = -70;
-    eval_n(BB_NET_HEALTH_HYST_UP);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_MARGINAL, s_out.state);
-}
-
-void test_bb_net_health_hyst_up_all_the_way_to_good(void)
-{
-    reset();
-    // Drive to POOR.
-    s_in.rssi = -80;
-    eval_n(BB_NET_HEALTH_HYST_DOWN);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
-
-    // Upgrade to MARGINAL.
-    s_in.rssi = -70;
-    eval_n(BB_NET_HEALTH_HYST_UP);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_MARGINAL, s_out.state);
-
-    // Upgrade to GOOD.
-    s_in.rssi = -50;
-    eval_n(BB_NET_HEALTH_HYST_UP);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_GOOD, s_out.state);
-}
-
-// ---------------------------------------------------------------------------
 // early_warning trigger: sustained POOR
 // ---------------------------------------------------------------------------
 
@@ -278,8 +61,8 @@ void test_bb_net_health_early_warning_sustained_poor(void)
     reset();
     // Drive to POOR — early_warning should be true once in POOR state.
     s_in.rssi = -80;
-    eval_n(BB_NET_HEALTH_HYST_DOWN);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
+    eval_n(BB_WIFI_HYST_DOWN);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, s_out.state);
     TEST_ASSERT_TRUE(s_out.early_warning);
 }
 
@@ -292,7 +75,7 @@ void test_bb_net_health_no_early_warning_when_good(void)
     s_in.disc_age_s           = 0;
     s_in.mqtt_disc_age_s      = 0;
     eval();
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_GOOD, s_out.state);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_GOOD, s_out.state);
     TEST_ASSERT_FALSE(s_out.early_warning);
 }
 
@@ -374,32 +157,6 @@ void test_bb_net_health_wifi_disc_age_does_not_trigger_warn_disc(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_net_state_str helper
-// ---------------------------------------------------------------------------
-
-void test_bb_net_state_str_good(void)
-{
-    TEST_ASSERT_EQUAL_STRING("good", bb_net_state_str(BB_NET_STATE_GOOD));
-}
-
-void test_bb_net_state_str_marginal(void)
-{
-    TEST_ASSERT_EQUAL_STRING("marginal", bb_net_state_str(BB_NET_STATE_MARGINAL));
-}
-
-void test_bb_net_state_str_poor(void)
-{
-    TEST_ASSERT_EQUAL_STRING("poor", bb_net_state_str(BB_NET_STATE_POOR));
-}
-
-void test_bb_net_state_str_unknown_returns_nonnull(void)
-{
-    // Unknown enum values should not return NULL.
-    const char *s = bb_net_state_str((bb_net_state_t)99);
-    TEST_ASSERT_NOT_NULL(s);
-}
-
-// ---------------------------------------------------------------------------
 // bb_net_health_throttle_decision
 // ---------------------------------------------------------------------------
 
@@ -416,8 +173,8 @@ void test_bb_net_health_throttle_starts_after_sustained_poor(void)
     reset();
     // Drive to POOR and sustain.
     s_in.rssi = -80;
-    eval_n(BB_NET_HEALTH_HYST_DOWN);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
+    eval_n(BB_WIFI_HYST_DOWN);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, s_out.state);
 
     // After HYST_DOWN evals, sustained_poor_count == HYST_DOWN.
     // But throttle threshold is 3 — we need 3 consecutive POOR *after* downgrade.
@@ -441,7 +198,7 @@ void test_bb_net_health_throttle_restores_on_good(void)
     reset();
     // Drive to POOR and throttle.
     s_in.rssi = -80;
-    eval_n(BB_NET_HEALTH_HYST_DOWN + 3);  // ensure sustained count >= 3
+    eval_n(BB_WIFI_HYST_DOWN + 3);  // ensure sustained count >= 3
     bb_net_health_throttle_decision(&s_st, 3);  // should set throttled
     // If for some reason still not throttled, force it.
     s_st.throttled            = true;
@@ -449,8 +206,8 @@ void test_bb_net_health_throttle_restores_on_good(void)
 
     // Recover to GOOD.
     s_in.rssi = -50;
-    eval_n(BB_NET_HEALTH_HYST_UP);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_GOOD, s_out.state);
+    eval_n(BB_WIFI_HYST_UP);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_GOOD, s_out.state);
 
     bool t = bb_net_health_throttle_decision(&s_st, 3);
     TEST_ASSERT_FALSE(t);
@@ -462,14 +219,14 @@ void test_bb_net_health_throttle_restores_on_marginal(void)
     reset();
     // Force throttled state with POOR.
     s_in.rssi = -80;
-    eval_n(BB_NET_HEALTH_HYST_DOWN);
+    eval_n(BB_WIFI_HYST_DOWN);
     s_st.throttled            = true;
     s_st.sustained_poor_count = 5;
 
     // Recover to MARGINAL.
     s_in.rssi = -70;
-    eval_n(BB_NET_HEALTH_HYST_UP);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_MARGINAL, s_out.state);
+    eval_n(BB_WIFI_HYST_UP);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_MARGINAL, s_out.state);
 
     bool t = bb_net_health_throttle_decision(&s_st, 3);
     TEST_ASSERT_FALSE(t);
@@ -479,7 +236,7 @@ void test_bb_net_health_throttle_no_restore_while_poor(void)
 {
     reset();
     s_in.rssi = -80;
-    eval_n(BB_NET_HEALTH_HYST_DOWN + 3);
+    eval_n(BB_WIFI_HYST_DOWN + 3);
     s_st.throttled = true;
 
     // Still POOR — throttle should remain.
@@ -500,7 +257,7 @@ void test_bb_net_health_throttle_entry_exit_transitions(void)
     reset();
     // Drive to sustained POOR.
     s_in.rssi = -80;
-    eval_n(BB_NET_HEALTH_HYST_DOWN + 3);
+    eval_n(BB_WIFI_HYST_DOWN + 3);
 
     // First call while poor: throttle should start (false → true edge).
     bool prev = false;
@@ -517,7 +274,7 @@ void test_bb_net_health_throttle_entry_exit_transitions(void)
 
     // Recover to GOOD.
     s_in.rssi = -50;
-    eval_n(BB_NET_HEALTH_HYST_UP);
+    eval_n(BB_WIFI_HYST_UP);
 
     // First call after recovery: throttle stops (true → false edge).
     prev = curr;
@@ -542,13 +299,13 @@ void test_bb_net_health_multi_trigger(void)
     reset();
     s_in.rssi             = -80;
     s_in.mqtt_reconnect_count = 0;
-    eval_n(BB_NET_HEALTH_HYST_DOWN);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
+    eval_n(BB_WIFI_HYST_DOWN);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, s_out.state);
 
     s_in.mqtt_reconnect_count = 3;
     eval();
     TEST_ASSERT_TRUE(s_out.early_warning);
-    TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_LINK_POOR, s_out.state);
 }
 
 // ---------------------------------------------------------------------------
@@ -562,7 +319,7 @@ void test_bb_net_health_multi_trigger(void)
 void test_bb_net_health_sse_payload_fits_256_byte_ring_slot(void)
 {
     bb_net_health_status_t snap = {
-        .state                  = BB_NET_STATE_MARGINAL,
+        .state                  = BB_WIFI_LINK_MARGINAL,
         .early_warning          = true,
         .throttled              = true,
         .rssi                   = -128,
@@ -597,7 +354,7 @@ void test_bb_net_health_sse_payload_fits_256_byte_ring_slot(void)
 void test_bb_net_health_emit_has_8_fields(void)
 {
     bb_net_health_status_t snap = {
-        .state                  = BB_NET_STATE_GOOD,
+        .state                  = BB_WIFI_LINK_GOOD,
         .early_warning          = true,
         .throttled              = false,
         .rssi                   = -55,
@@ -677,7 +434,7 @@ void test_bb_net_health_emit_has_8_fields(void)
 void test_bb_net_health_emit_full_has_8_fields(void)
 {
     bb_net_health_status_t snap = {
-        .state                  = BB_NET_STATE_POOR,
+        .state                  = BB_WIFI_LINK_POOR,
         .early_warning          = true,
         .throttled              = true,
         .rssi                   = -85,
@@ -757,7 +514,7 @@ void test_bb_net_health_emit_full_has_8_fields(void)
 void test_bb_net_health_emit_compact_false_branch(void)
 {
     bb_net_health_status_t snap = {
-        .state         = BB_NET_STATE_MARGINAL,
+        .state         = BB_WIFI_LINK_MARGINAL,
         .early_warning = false,
         .throttled     = false,
         .rssi          = -70,
@@ -793,7 +550,7 @@ void test_bb_net_health_emit_compact_false_branch(void)
 void test_bb_net_health_emit_full_true_branch(void)
 {
     bb_net_health_status_t snap = {
-        .state                  = BB_NET_STATE_GOOD,
+        .state                  = BB_WIFI_LINK_GOOD,
         .early_warning          = true,
         .throttled              = true,
         .rssi                   = -60,
@@ -839,7 +596,7 @@ void test_bb_net_health_emit_full_true_branch(void)
 void test_bb_net_health_emit_idempotent(void)
 {
     bb_net_health_status_t snap = {
-        .state                  = BB_NET_STATE_MARGINAL,
+        .state                  = BB_WIFI_LINK_MARGINAL,
         .early_warning          = true,
         .throttled              = false,
         .rssi                   = -72,
@@ -883,7 +640,7 @@ void test_bb_net_health_emit_idempotent(void)
 void test_bb_net_health_emit_mqtt_alloc_fail(void)
 {
     bb_net_health_status_t snap = {
-        .state                  = BB_NET_STATE_GOOD,
+        .state                  = BB_WIFI_LINK_GOOD,
         .early_warning          = false,
         .throttled              = false,
         .rssi                   = -60,
@@ -928,7 +685,7 @@ void test_bb_net_health_emit_mqtt_alloc_fail(void)
 void test_bb_net_health_emit_lost_ip_fields(void)
 {
     bb_net_health_status_t snap = {
-        .state                  = BB_NET_STATE_GOOD,
+        .state                  = BB_WIFI_LINK_GOOD,
         .early_warning          = false,
         .throttled              = false,
         .rssi                   = -55,
@@ -973,7 +730,7 @@ void test_bb_net_health_emit_lost_ip_fields(void)
 void test_bb_net_health_emit_lost_ip_zero(void)
 {
     bb_net_health_status_t snap = {
-        .state                  = BB_NET_STATE_GOOD,
+        .state                  = BB_WIFI_LINK_GOOD,
         .rssi                   = -55,
         .lost_ip_recoveries     = 0,
         .lost_ip_age_s          = 0,
@@ -1015,7 +772,7 @@ void test_bb_net_health_emit_lost_ip_zero(void)
 void test_bb_net_health_emit_status_status_only(void)
 {
     bb_net_health_status_t snap = {
-        .state                  = BB_NET_STATE_MARGINAL,
+        .state                  = BB_WIFI_LINK_MARGINAL,
         .early_warning          = true,
         .throttled              = false,
         .rssi                   = -70,
@@ -1075,7 +832,7 @@ void test_bb_net_health_emit_status_status_only(void)
 void test_bb_net_health_emit_status_mqtt_alloc_fail(void)
 {
     bb_net_health_status_t snap = {
-        .state          = BB_NET_STATE_GOOD,
+        .state          = BB_WIFI_LINK_GOOD,
         .early_warning  = false,
         .throttled      = false,
         .mqtt_connected = true,
@@ -1105,33 +862,6 @@ void test_bb_net_health_emit_status_mqtt_alloc_fail(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_net_health_classify_mode — pure WiFi discrimination classifier
-// (wifi-netmode PR, observe-only).
-// ---------------------------------------------------------------------------
-
-void test_bb_net_health_classify_mode_ok(void)
-{
-    TEST_ASSERT_EQUAL_INT(BB_NET_MODE_OK, bb_net_health_classify_mode(true, true));
-}
-
-void test_bb_net_health_classify_mode_no_ip(void)
-{
-    TEST_ASSERT_EQUAL_INT(BB_NET_MODE_NO_IP, bb_net_health_classify_mode(true, false));
-}
-
-void test_bb_net_health_classify_mode_not_associated(void)
-{
-    TEST_ASSERT_EQUAL_INT(BB_NET_MODE_NOT_ASSOCIATED, bb_net_health_classify_mode(false, false));
-}
-
-// Not-associated dominates has_ip=true (an inconsistent/impossible input on
-// real hardware, but the classifier must still resolve deterministically).
-void test_bb_net_health_classify_mode_not_associated_dominates_has_ip(void)
-{
-    TEST_ASSERT_EQUAL_INT(BB_NET_MODE_NOT_ASSOCIATED, bb_net_health_classify_mode(false, true));
-}
-
-// ---------------------------------------------------------------------------
 // bb_net_health_classify_egress — pure egress-state classifier
 // (egress-recovery SSOT, B1-518, Phase 1, OBSERVE-ONLY).
 // ---------------------------------------------------------------------------
@@ -1140,41 +870,41 @@ void test_bb_net_health_classify_mode_not_associated_dominates_has_ip(void)
 void test_bb_net_health_classify_egress_no_ip_mode_is_ok(void)
 {
     TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_OK,
-        bb_net_health_classify_egress(BB_NET_MODE_NO_IP, true, false, 5, 3, 2, 2));
+        bb_net_health_classify_egress(BB_WIFI_MODE_NO_IP, true, false, 5, 3, 2, 2));
 }
 
 void test_bb_net_health_classify_egress_not_associated_mode_is_ok(void)
 {
     TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_OK,
-        bb_net_health_classify_egress(BB_NET_MODE_NOT_ASSOCIATED, true, false, 5, 3, 2, 2));
+        bb_net_health_classify_egress(BB_WIFI_MODE_NOT_ASSOCIATED, true, false, 5, 3, 2, 2));
 }
 
 // No probe data yet → OK.
 void test_bb_net_health_classify_egress_not_probed_is_ok(void)
 {
     TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_OK,
-        bb_net_health_classify_egress(BB_NET_MODE_OK, false, false, 0, 3, 2, 2));
+        bb_net_health_classify_egress(BB_WIFI_MODE_OK, false, false, 0, 3, 2, 2));
 }
 
 // !gw_reachable, streak below threshold → transient miss, still OK.
 void test_bb_net_health_classify_egress_gw_unreachable_below_threshold_is_ok(void)
 {
     TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_OK,
-        bb_net_health_classify_egress(BB_NET_MODE_OK, true, false, 2, 3, 0, 0));
+        bb_net_health_classify_egress(BB_WIFI_MODE_OK, true, false, 2, 3, 0, 0));
 }
 
 // !gw_reachable, streak == threshold → GW_UNREACHABLE.
 void test_bb_net_health_classify_egress_gw_unreachable_at_threshold(void)
 {
     TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_GW_UNREACHABLE,
-        bb_net_health_classify_egress(BB_NET_MODE_OK, true, false, 3, 3, 0, 0));
+        bb_net_health_classify_egress(BB_WIFI_MODE_OK, true, false, 3, 3, 0, 0));
 }
 
 // gw_reachable, failing == 0 → OK.
 void test_bb_net_health_classify_egress_gw_reachable_none_failing(void)
 {
     TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_OK,
-        bb_net_health_classify_egress(BB_NET_MODE_OK, true, true, 0, 3, 2, 0));
+        bb_net_health_classify_egress(BB_WIFI_MODE_OK, true, true, 0, 3, 2, 0));
 }
 
 // gw_reachable, 0 < failing < enabled → ENDPOINT_DOWN. This is the whole
@@ -1183,21 +913,21 @@ void test_bb_net_health_classify_egress_gw_reachable_none_failing(void)
 void test_bb_net_health_classify_egress_gw_reachable_one_endpoint_down(void)
 {
     TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_ENDPOINT_DOWN,
-        bb_net_health_classify_egress(BB_NET_MODE_OK, true, true, 0, 3, 2, 1));
+        bb_net_health_classify_egress(BB_WIFI_MODE_OK, true, true, 0, 3, 2, 1));
 }
 
 // gw_reachable, failing == enabled (> 0) → ALL_DEAD.
 void test_bb_net_health_classify_egress_gw_reachable_all_endpoints_down(void)
 {
     TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_ALL_DEAD,
-        bb_net_health_classify_egress(BB_NET_MODE_OK, true, true, 0, 3, 2, 2));
+        bb_net_health_classify_egress(BB_WIFI_MODE_OK, true, true, 0, 3, 2, 2));
 }
 
 // gw_reachable, enabled == 0 → OK (no egress clients configured at all).
 void test_bb_net_health_classify_egress_gw_reachable_no_egress_clients(void)
 {
     TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_OK,
-        bb_net_health_classify_egress(BB_NET_MODE_OK, true, true, 0, 3, 0, 0));
+        bb_net_health_classify_egress(BB_WIFI_MODE_OK, true, true, 0, 3, 0, 0));
 }
 
 void test_bb_egress_state_str_ok(void)
@@ -1226,27 +956,6 @@ void test_bb_egress_state_str_unknown_returns_nonnull(void)
     TEST_ASSERT_NOT_NULL(s);
 }
 
-void test_bb_net_mode_str_ok(void)
-{
-    TEST_ASSERT_EQUAL_STRING("ok", bb_net_mode_str(BB_NET_MODE_OK));
-}
-
-void test_bb_net_mode_str_no_ip(void)
-{
-    TEST_ASSERT_EQUAL_STRING("no_ip", bb_net_mode_str(BB_NET_MODE_NO_IP));
-}
-
-void test_bb_net_mode_str_not_associated(void)
-{
-    TEST_ASSERT_EQUAL_STRING("not_associated", bb_net_mode_str(BB_NET_MODE_NOT_ASSOCIATED));
-}
-
-void test_bb_net_mode_str_unknown_returns_not_associated(void)
-{
-    const char *s = bb_net_mode_str((bb_net_mode_t)99);
-    TEST_ASSERT_EQUAL_STRING("not_associated", s);
-}
-
 // ---------------------------------------------------------------------------
 // bb_net_health_emit: net_mode/associated/has_ip + the no_ip_recoveries/roam
 // serialization-gap fix (they were captured in the status struct but never
@@ -1256,12 +965,12 @@ void test_bb_net_mode_str_unknown_returns_not_associated(void)
 void test_bb_net_health_emit_has_net_mode_and_discriminator_fields(void)
 {
     bb_net_health_status_t snap = {
-        .state           = BB_NET_STATE_GOOD,
+        .state           = BB_WIFI_LINK_GOOD,
         .rssi            = -55,
         .no_ip_recoveries = 3,
         .roam_count       = 2,
         .roam_age_s       = 45,
-        .net_mode         = BB_NET_MODE_NO_IP,
+        .net_mode         = BB_WIFI_MODE_NO_IP,
         .associated       = true,
         .has_ip           = false,
     };
@@ -1314,7 +1023,7 @@ void test_bb_net_health_emit_has_net_mode_and_discriminator_fields(void)
 void test_bb_net_health_emit_last_session_s_nonzero(void)
 {
     bb_net_health_status_t snap = {
-        .state           = BB_NET_STATE_GOOD,
+        .state           = BB_WIFI_LINK_GOOD,
         .rssi            = -55,
         .last_session_s  = 3661, // 1h 1m 1s
     };
@@ -1342,7 +1051,7 @@ void test_bb_net_health_emit_last_session_s_nonzero(void)
 void test_bb_net_health_emit_last_session_s_zero_sentinel(void)
 {
     bb_net_health_status_t snap = {
-        .state          = BB_NET_STATE_GOOD,
+        .state          = BB_WIFI_LINK_GOOD,
         .rssi           = -55,
         .last_session_s = 0,
     };
@@ -1369,7 +1078,7 @@ void test_bb_net_health_emit_last_session_s_zero_sentinel(void)
 void test_bb_net_health_emit_status_no_last_session_s(void)
 {
     bb_net_health_status_t snap = {
-        .state          = BB_NET_STATE_GOOD,
+        .state          = BB_WIFI_LINK_GOOD,
         .last_session_s = 42,
     };
 
@@ -1487,7 +1196,7 @@ void test_bb_net_health_set_heap_state_roundtrip(void)
 void test_bb_net_health_should_log_mode_changed(void)
 {
     bool r = bb_net_health_should_log(/*now_us=*/1000, /*last_log_us=*/999,
-                                       BB_NET_MODE_NO_IP, BB_NET_MODE_OK,
+                                       BB_WIFI_MODE_NO_IP, BB_WIFI_MODE_OK,
                                        /*interval_s=*/60);
     TEST_ASSERT_TRUE(r);
 }
@@ -1497,7 +1206,7 @@ void test_bb_net_health_should_log_interval_elapsed(void)
 {
     int64_t interval_us = 60LL * 1000000LL;
     bool r = bb_net_health_should_log(/*now_us=*/interval_us, /*last_log_us=*/0,
-                                       BB_NET_MODE_OK, BB_NET_MODE_OK,
+                                       BB_WIFI_MODE_OK, BB_WIFI_MODE_OK,
                                        /*interval_s=*/60);
     TEST_ASSERT_TRUE(r);
 }
@@ -1506,7 +1215,7 @@ void test_bb_net_health_should_log_interval_elapsed(void)
 void test_bb_net_health_should_log_neither(void)
 {
     bool r = bb_net_health_should_log(/*now_us=*/1000000, /*last_log_us=*/0,
-                                       BB_NET_MODE_OK, BB_NET_MODE_OK,
+                                       BB_WIFI_MODE_OK, BB_WIFI_MODE_OK,
                                        /*interval_s=*/60);
     TEST_ASSERT_FALSE(r);
 }
@@ -1516,7 +1225,7 @@ void test_bb_net_health_should_log_both(void)
 {
     int64_t interval_us = 60LL * 1000000LL;
     bool r = bb_net_health_should_log(/*now_us=*/interval_us + 5, /*last_log_us=*/0,
-                                       BB_NET_MODE_NOT_ASSOCIATED, BB_NET_MODE_OK,
+                                       BB_WIFI_MODE_NOT_ASSOCIATED, BB_WIFI_MODE_OK,
                                        /*interval_s=*/60);
     TEST_ASSERT_TRUE(r);
 }
@@ -1526,7 +1235,7 @@ void test_bb_net_health_should_log_both(void)
 void test_bb_net_health_should_log_clock_went_backwards(void)
 {
     bool r = bb_net_health_should_log(/*now_us=*/0, /*last_log_us=*/5000,
-                                       BB_NET_MODE_OK, BB_NET_MODE_OK,
+                                       BB_WIFI_MODE_OK, BB_WIFI_MODE_OK,
                                        /*interval_s=*/60);
     TEST_ASSERT_FALSE(r);
 }
@@ -1539,7 +1248,7 @@ static bb_net_health_status_t sample_status_for_log(void)
 {
     bb_net_health_status_t s;
     memset(&s, 0, sizeof(s));
-    s.net_mode                = BB_NET_MODE_NO_IP;
+    s.net_mode                = BB_WIFI_MODE_NO_IP;
     s.associated               = true;
     s.has_ip                   = false;
     s.rssi                     = -72;
@@ -1606,7 +1315,7 @@ void test_bb_net_health_format_log_fields_present(void)
 void test_bb_net_health_format_log_net_mode_ok(void)
 {
     bb_net_health_status_t s = sample_status_for_log();
-    s.net_mode = BB_NET_MODE_OK;
+    s.net_mode = BB_WIFI_MODE_OK;
     char buf[256];
     bb_net_health_format_log(&s, buf, sizeof(buf));
     TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "nm=ok") != NULL, buf);
@@ -1615,7 +1324,7 @@ void test_bb_net_health_format_log_net_mode_ok(void)
 void test_bb_net_health_format_log_net_mode_not_associated(void)
 {
     bb_net_health_status_t s = sample_status_for_log();
-    s.net_mode = BB_NET_MODE_NOT_ASSOCIATED;
+    s.net_mode = BB_WIFI_MODE_NOT_ASSOCIATED;
     char buf[256];
     bb_net_health_format_log(&s, buf, sizeof(buf));
     TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "nm=not_associated") != NULL, buf);

@@ -1634,6 +1634,36 @@ void test_bb_wifi_event_payload_build_disconnect_blanks_ip(void);
 void test_bb_wifi_event_payload_build_lost_ip_blanks_ip(void);
 void test_bb_wifi_event_payload_build_reason_passthrough(void);
 
+// bb_wifi_classify_link / bb_wifi_classify_mode (moved from bb_net_health,
+// net_health teardown PR-B)
+void test_bb_wifi_classify_link_rssi_zero_is_poor(void);
+void test_bb_wifi_classify_link_rssi_positive_is_poor(void);
+void test_bb_wifi_classify_link_cold_start_poor_rssi_reports_poor(void);
+void test_bb_wifi_classify_link_cold_start_good_rssi_reports_good(void);
+void test_bb_wifi_classify_link_hyst_applies_after_cold_start(void);
+void test_bb_wifi_classify_link_rssi_good_boundary(void);
+void test_bb_wifi_classify_link_rssi_marginal_lo(void);
+void test_bb_wifi_classify_link_rssi_marginal_hi(void);
+void test_bb_wifi_classify_link_rssi_poor_below_marginal_lo(void);
+void test_bb_wifi_classify_link_rssi_very_poor(void);
+void test_bb_wifi_classify_link_hyst_down_requires_n_samples(void);
+void test_bb_wifi_classify_link_hyst_down_reset_on_good_sample(void);
+void test_bb_wifi_classify_link_hyst_up_requires_n_samples(void);
+void test_bb_wifi_classify_link_hyst_up_reset_on_poor_sample(void);
+void test_bb_wifi_classify_link_hyst_up_all_the_way_to_good(void);
+void test_bb_wifi_link_state_str_good(void);
+void test_bb_wifi_link_state_str_marginal(void);
+void test_bb_wifi_link_state_str_poor(void);
+void test_bb_wifi_link_state_str_unknown_returns_nonnull(void);
+void test_bb_wifi_classify_mode_ok(void);
+void test_bb_wifi_classify_mode_no_ip(void);
+void test_bb_wifi_classify_mode_not_associated(void);
+void test_bb_wifi_classify_mode_not_associated_dominates_has_ip(void);
+void test_bb_wifi_mode_str_ok(void);
+void test_bb_wifi_mode_str_no_ip(void);
+void test_bb_wifi_mode_str_not_associated(void);
+void test_bb_wifi_mode_str_unknown_returns_not_associated(void);
+
 // Forward declarations from test_bb_wifi_ap.c
 void test_bb_wifi_ap_build_ssid_formats_prefix_and_mac(void);
 void test_bb_wifi_ap_build_ssid_custom_prefix(void);
@@ -2632,21 +2662,6 @@ void test_bb_health_stack_build_json_null_task_name_returns_neg1(void);
 void test_bb_health_stack_build_json_initial_snapshot(void);
 
 // Forward declarations from test_bb_net_health.c
-void test_bb_net_health_rssi_zero_is_poor(void);
-void test_bb_net_health_rssi_positive_is_poor(void);
-void test_bb_net_health_cold_start_poor_rssi_reports_poor(void);
-void test_bb_net_health_cold_start_good_rssi_reports_good(void);
-void test_bb_net_health_hyst_applies_after_cold_start(void);
-void test_bb_net_health_rssi_good_boundary(void);
-void test_bb_net_health_rssi_marginal_lo(void);
-void test_bb_net_health_rssi_marginal_hi(void);
-void test_bb_net_health_rssi_poor_below_marginal_lo(void);
-void test_bb_net_health_rssi_very_poor(void);
-void test_bb_net_health_hyst_down_requires_n_samples(void);
-void test_bb_net_health_hyst_down_reset_on_good_sample(void);
-void test_bb_net_health_hyst_up_requires_n_samples(void);
-void test_bb_net_health_hyst_up_reset_on_poor_sample(void);
-void test_bb_net_health_hyst_up_all_the_way_to_good(void);
 void test_bb_net_health_early_warning_sustained_poor(void);
 void test_bb_net_health_no_early_warning_when_good(void);
 void test_bb_net_health_early_warning_reconnect_increase(void);
@@ -2654,10 +2669,6 @@ void test_bb_net_health_no_warning_after_reconnect_stabilizes(void);
 void test_bb_net_health_early_warning_mqtt_disc_recent(void);
 void test_bb_net_health_no_early_warning_mqtt_disc_old(void);
 void test_bb_net_health_wifi_disc_age_does_not_trigger_warn_disc(void);
-void test_bb_net_state_str_good(void);
-void test_bb_net_state_str_marginal(void);
-void test_bb_net_state_str_poor(void);
-void test_bb_net_state_str_unknown_returns_nonnull(void);
 void test_bb_net_health_throttle_decision_not_throttled_initially(void);
 void test_bb_net_health_throttle_starts_after_sustained_poor(void);
 void test_bb_net_health_throttle_restores_on_good(void);
@@ -2676,10 +2687,6 @@ void test_bb_net_health_emit_lost_ip_fields(void);
 void test_bb_net_health_emit_lost_ip_zero(void);
 void test_bb_net_health_emit_status_status_only(void);
 void test_bb_net_health_emit_status_mqtt_alloc_fail(void);
-void test_bb_net_health_classify_mode_ok(void);
-void test_bb_net_health_classify_mode_no_ip(void);
-void test_bb_net_health_classify_mode_not_associated(void);
-void test_bb_net_health_classify_mode_not_associated_dominates_has_ip(void);
 void test_bb_net_health_classify_egress_no_ip_mode_is_ok(void);
 void test_bb_net_health_classify_egress_not_associated_mode_is_ok(void);
 void test_bb_net_health_classify_egress_not_probed_is_ok(void);
@@ -2694,10 +2701,6 @@ void test_bb_egress_state_str_endpoint_down(void);
 void test_bb_egress_state_str_gw_unreachable(void);
 void test_bb_egress_state_str_all_dead(void);
 void test_bb_egress_state_str_unknown_returns_nonnull(void);
-void test_bb_net_mode_str_ok(void);
-void test_bb_net_mode_str_no_ip(void);
-void test_bb_net_mode_str_not_associated(void);
-void test_bb_net_mode_str_unknown_returns_not_associated(void);
 void test_bb_net_health_emit_has_net_mode_and_discriminator_fields(void);
 void test_bb_net_health_emit_last_session_s_nonzero(void);
 void test_bb_net_health_emit_last_session_s_zero_sentinel(void);
@@ -5987,6 +5990,36 @@ int main(void) {
     RUN_TEST(test_bb_wifi_event_payload_build_lost_ip_blanks_ip);
     RUN_TEST(test_bb_wifi_event_payload_build_reason_passthrough);
 
+    // bb_wifi_classify_link / bb_wifi_classify_mode (moved from bb_net_health,
+    // net_health teardown PR-B)
+    RUN_TEST(test_bb_wifi_classify_link_rssi_zero_is_poor);
+    RUN_TEST(test_bb_wifi_classify_link_rssi_positive_is_poor);
+    RUN_TEST(test_bb_wifi_classify_link_cold_start_poor_rssi_reports_poor);
+    RUN_TEST(test_bb_wifi_classify_link_cold_start_good_rssi_reports_good);
+    RUN_TEST(test_bb_wifi_classify_link_hyst_applies_after_cold_start);
+    RUN_TEST(test_bb_wifi_classify_link_rssi_good_boundary);
+    RUN_TEST(test_bb_wifi_classify_link_rssi_marginal_lo);
+    RUN_TEST(test_bb_wifi_classify_link_rssi_marginal_hi);
+    RUN_TEST(test_bb_wifi_classify_link_rssi_poor_below_marginal_lo);
+    RUN_TEST(test_bb_wifi_classify_link_rssi_very_poor);
+    RUN_TEST(test_bb_wifi_classify_link_hyst_down_requires_n_samples);
+    RUN_TEST(test_bb_wifi_classify_link_hyst_down_reset_on_good_sample);
+    RUN_TEST(test_bb_wifi_classify_link_hyst_up_requires_n_samples);
+    RUN_TEST(test_bb_wifi_classify_link_hyst_up_reset_on_poor_sample);
+    RUN_TEST(test_bb_wifi_classify_link_hyst_up_all_the_way_to_good);
+    RUN_TEST(test_bb_wifi_link_state_str_good);
+    RUN_TEST(test_bb_wifi_link_state_str_marginal);
+    RUN_TEST(test_bb_wifi_link_state_str_poor);
+    RUN_TEST(test_bb_wifi_link_state_str_unknown_returns_nonnull);
+    RUN_TEST(test_bb_wifi_classify_mode_ok);
+    RUN_TEST(test_bb_wifi_classify_mode_no_ip);
+    RUN_TEST(test_bb_wifi_classify_mode_not_associated);
+    RUN_TEST(test_bb_wifi_classify_mode_not_associated_dominates_has_ip);
+    RUN_TEST(test_bb_wifi_mode_str_ok);
+    RUN_TEST(test_bb_wifi_mode_str_no_ip);
+    RUN_TEST(test_bb_wifi_mode_str_not_associated);
+    RUN_TEST(test_bb_wifi_mode_str_unknown_returns_not_associated);
+
     // bb_wifi_ap tests
     RUN_TEST(test_bb_wifi_ap_build_ssid_formats_prefix_and_mac);
     RUN_TEST(test_bb_wifi_ap_build_ssid_custom_prefix);
@@ -6755,21 +6788,6 @@ int main(void) {
     RUN_TEST(test_bb_health_stack_build_json_initial_snapshot);
 
     // bb_net_health pure classifier tests
-    RUN_TEST(test_bb_net_health_rssi_zero_is_poor);
-    RUN_TEST(test_bb_net_health_rssi_positive_is_poor);
-    RUN_TEST(test_bb_net_health_cold_start_poor_rssi_reports_poor);
-    RUN_TEST(test_bb_net_health_cold_start_good_rssi_reports_good);
-    RUN_TEST(test_bb_net_health_hyst_applies_after_cold_start);
-    RUN_TEST(test_bb_net_health_rssi_good_boundary);
-    RUN_TEST(test_bb_net_health_rssi_marginal_lo);
-    RUN_TEST(test_bb_net_health_rssi_marginal_hi);
-    RUN_TEST(test_bb_net_health_rssi_poor_below_marginal_lo);
-    RUN_TEST(test_bb_net_health_rssi_very_poor);
-    RUN_TEST(test_bb_net_health_hyst_down_requires_n_samples);
-    RUN_TEST(test_bb_net_health_hyst_down_reset_on_good_sample);
-    RUN_TEST(test_bb_net_health_hyst_up_requires_n_samples);
-    RUN_TEST(test_bb_net_health_hyst_up_reset_on_poor_sample);
-    RUN_TEST(test_bb_net_health_hyst_up_all_the_way_to_good);
     RUN_TEST(test_bb_net_health_early_warning_sustained_poor);
     RUN_TEST(test_bb_net_health_no_early_warning_when_good);
     RUN_TEST(test_bb_net_health_early_warning_reconnect_increase);
@@ -6777,10 +6795,6 @@ int main(void) {
     RUN_TEST(test_bb_net_health_early_warning_mqtt_disc_recent);
     RUN_TEST(test_bb_net_health_no_early_warning_mqtt_disc_old);
     RUN_TEST(test_bb_net_health_wifi_disc_age_does_not_trigger_warn_disc);
-    RUN_TEST(test_bb_net_state_str_good);
-    RUN_TEST(test_bb_net_state_str_marginal);
-    RUN_TEST(test_bb_net_state_str_poor);
-    RUN_TEST(test_bb_net_state_str_unknown_returns_nonnull);
     RUN_TEST(test_bb_net_health_throttle_decision_not_throttled_initially);
     RUN_TEST(test_bb_net_health_throttle_starts_after_sustained_poor);
     RUN_TEST(test_bb_net_health_throttle_restores_on_good);
@@ -6798,10 +6812,6 @@ int main(void) {
     RUN_TEST(test_bb_net_health_emit_lost_ip_zero);
     RUN_TEST(test_bb_net_health_emit_status_status_only);
     RUN_TEST(test_bb_net_health_emit_status_mqtt_alloc_fail);
-    RUN_TEST(test_bb_net_health_classify_mode_ok);
-    RUN_TEST(test_bb_net_health_classify_mode_no_ip);
-    RUN_TEST(test_bb_net_health_classify_mode_not_associated);
-    RUN_TEST(test_bb_net_health_classify_mode_not_associated_dominates_has_ip);
     RUN_TEST(test_bb_net_health_classify_egress_no_ip_mode_is_ok);
     RUN_TEST(test_bb_net_health_classify_egress_not_associated_mode_is_ok);
     RUN_TEST(test_bb_net_health_classify_egress_not_probed_is_ok);
@@ -6816,10 +6826,6 @@ int main(void) {
     RUN_TEST(test_bb_egress_state_str_gw_unreachable);
     RUN_TEST(test_bb_egress_state_str_all_dead);
     RUN_TEST(test_bb_egress_state_str_unknown_returns_nonnull);
-    RUN_TEST(test_bb_net_mode_str_ok);
-    RUN_TEST(test_bb_net_mode_str_no_ip);
-    RUN_TEST(test_bb_net_mode_str_not_associated);
-    RUN_TEST(test_bb_net_mode_str_unknown_returns_not_associated);
     RUN_TEST(test_bb_net_health_emit_has_net_mode_and_discriminator_fields);
     RUN_TEST(test_bb_net_health_emit_last_session_s_nonzero);
     RUN_TEST(test_bb_net_health_emit_last_session_s_zero_sentinel);

@@ -744,7 +744,7 @@ static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available, bool wi
     snap.roam_age_s             = 45;
     snap.associated             = true;
     snap.has_ip                 = true;
-    snap.net_mode               = bb_net_health_classify_mode(snap.associated, snap.has_ip);
+    snap.net_mode               = bb_wifi_classify_mode(snap.associated, snap.has_ip);
     snap.mqtt_reconnect_count   = 2;
     snap.mqtt_disc_age_s        = 5;
     snap.mqtt_disc_reason       = 0;
@@ -769,7 +769,7 @@ static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available, bool wi
         (int64_t)(snap.no_ip_recoveries + snap.lost_ip_recoveries + snap.egress_dead_recoveries));
     bb_http_resp_json_obj_set_int(&obj, "roam_count", (int64_t)snap.roam_count);
     bb_http_resp_json_obj_set_int(&obj, "roam_age_s", (int64_t)snap.roam_age_s);
-    bb_http_resp_json_obj_set_str (&obj, "net_mode",   bb_net_mode_str(snap.net_mode));
+    bb_http_resp_json_obj_set_str (&obj, "net_mode",   bb_wifi_mode_str(snap.net_mode));
     bb_http_resp_json_obj_set_bool(&obj, "associated", snap.associated);
     bb_http_resp_json_obj_set_bool(&obj, "has_ip",     snap.has_ip);
     bb_http_resp_json_obj_set_str (&obj, "egress_state", bb_egress_state_str(snap.egress_state));

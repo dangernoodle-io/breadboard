@@ -1,37 +1,5 @@
 menu "breadboard: bb_net_health"
 
-config BB_NET_HEALTH_RSSI_GOOD
-    int "RSSI threshold for GOOD bucket (dBm)"
-    default -67
-    range -100 0
-    help
-        RSSI >= this value is classified as GOOD.
-
-config BB_NET_HEALTH_RSSI_MARGINAL_LO
-    int "Lower RSSI threshold for MARGINAL bucket (dBm)"
-    default -75
-    range -100 0
-    help
-        RSSI in the range [BB_NET_HEALTH_RSSI_MARGINAL_LO ..
-        BB_NET_HEALTH_RSSI_GOOD-1] is classified as MARGINAL.
-        RSSI below this value is classified as POOR.
-
-config BB_NET_HEALTH_HYST_DOWN
-    int "Hysteresis sample count before downgrading state"
-    default 3
-    range 1 10
-    help
-        Number of consecutive worse-bucket RSSI samples required before
-        the published state is downgraded. Prevents single-sample flaps.
-
-config BB_NET_HEALTH_HYST_UP
-    int "Hysteresis sample count before upgrading state"
-    default 3
-    range 1 10
-    help
-        Number of consecutive better-bucket RSSI samples required before
-        the published state is upgraded.
-
 config BB_NET_HEALTH_EVAL_PERIOD_S
     int "Net-health evaluator period (seconds)"
     range 1 3600

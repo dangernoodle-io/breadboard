@@ -5,6 +5,7 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_wifi/bb_wifi_emit.c"
          "${CMAKE_CURRENT_LIST_DIR}/wifi_reconn_policy.c"
          "${CMAKE_CURRENT_LIST_DIR}/bb_wifi_pending.c"
+         "${CMAKE_CURRENT_LIST_DIR}/bb_wifi_link_classify.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "."
     REQUIRES bb_core

@@ -105,7 +105,7 @@ static bb_err_t diag_net_handler(bb_http_request_t *req)
 
         // WiFi discrimination mode (OBSERVE-ONLY, no recovery action wired):
         // distinguishes no-IP-while-associated from not-associated-at-all.
-        bb_http_resp_json_obj_set_str (&obj, "net_mode",   bb_net_mode_str(snap.net_mode));
+        bb_http_resp_json_obj_set_str (&obj, "net_mode",   bb_wifi_mode_str(snap.net_mode));
         bb_http_resp_json_obj_set_bool(&obj, "associated", snap.associated);
         bb_http_resp_json_obj_set_bool(&obj, "has_ip",     snap.has_ip);
 

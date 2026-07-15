@@ -1,5 +1,47 @@
 menu "breadboard: bb_wifi (routes)"
 
+config BB_WIFI_RSSI_GOOD
+    int "RSSI threshold for GOOD link bucket (dBm)"
+    default -67
+    range -100 0
+    help
+        RSSI >= this value is classified as GOOD. Moved from bb_net_health
+        (net_health teardown PR-B); a saved sdkconfig override of the old
+        BB_NET_HEALTH_RSSI_GOOD name silently reverts to this default.
+
+config BB_WIFI_RSSI_MARGINAL_LO
+    int "Lower RSSI threshold for MARGINAL link bucket (dBm)"
+    default -75
+    range -100 0
+    help
+        RSSI in the range [BB_WIFI_RSSI_MARGINAL_LO ..
+        BB_WIFI_RSSI_GOOD-1] is classified as MARGINAL. RSSI below this
+        value is classified as POOR. Moved from bb_net_health (net_health
+        teardown PR-B); a saved sdkconfig override of the old
+        BB_NET_HEALTH_RSSI_MARGINAL_LO name silently reverts to this
+        default.
+
+config BB_WIFI_HYST_DOWN
+    int "Hysteresis sample count before downgrading link state"
+    default 3
+    range 1 10
+    help
+        Number of consecutive worse-bucket RSSI samples required before the
+        published link state is downgraded. Prevents single-sample flaps.
+        Moved from bb_net_health (net_health teardown PR-B); a saved
+        sdkconfig override of the old BB_NET_HEALTH_HYST_DOWN name silently
+        reverts to this default.
+
+config BB_WIFI_HYST_UP
+    int "Hysteresis sample count before upgrading link state"
+    default 3
+    range 1 10
+    help
+        Number of consecutive better-bucket RSSI samples required before the
+        published link state is upgraded. Moved from bb_net_health
+        (net_health teardown PR-B); a saved sdkconfig override of the old
+        BB_NET_HEALTH_HYST_UP name silently reverts to this default.
+
 config BB_WIFI_RETRY_FOREVER_WHEN_VALIDATED
     bool "Retry wifi forever when OTA is validated"
     default y

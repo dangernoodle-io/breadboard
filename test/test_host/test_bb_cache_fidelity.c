@@ -94,7 +94,7 @@ static const synth_snap_t s_synth_initial = {
 };
 
 static const bb_net_health_status_t s_net_health_initial = {
-    .state                  = BB_NET_STATE_GOOD,
+    .state                  = BB_WIFI_LINK_GOOD,
     .early_warning          = false,
     .throttled              = false,
     .rssi                   = -55,
