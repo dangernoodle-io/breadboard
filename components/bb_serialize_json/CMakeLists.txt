@@ -3,4 +3,5 @@ idf_component_register(
          "src/bb_serialize_json_format.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_serialize bb_core
+    PRIV_REQUIRES bb_num
 )

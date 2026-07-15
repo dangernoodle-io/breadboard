@@ -391,6 +391,11 @@
       "type": "component"
     },
     {
+      "id": "bb_serialize_console",
+      "path": "components/bb_serialize_console",
+      "type": "component"
+    },
+    {
       "id": "bb_serialize_json",
       "path": "components/bb_serialize_json",
       "type": "component"

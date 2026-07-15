@@ -5,6 +5,8 @@
 
 #include "bb_serialize_json.h"
 
+#include "bb_num.h"
+
 #include <assert.h>
 #include <math.h>
 #include <string.h>
@@ -85,34 +87,24 @@ static void bb_json_escape_write(bb_serialize_json_ctx_t *ctx, const char *s, si
 }
 
 // ---------------------------------------------------------------------------
-// Number formatting -- hand-rolled, no snprintf, no locale.
+// Number formatting -- portable u64/i64 -> decimal delegated to bb_num (no
+// snprintf, no locale, no libc `ll`-format dependency); the JSON-specific
+// bit is funneling the result through bb_json_put() so the sticky
+// all-or-nothing overflow contract still governs every byte written.
 // ---------------------------------------------------------------------------
 
 static void bb_json_write_u64(bb_serialize_json_ctx_t *ctx, uint64_t v)
 {
-    char digits[20];  // UINT64_MAX has 20 decimal digits
-    int  n = 0;
-    do {
-        digits[n++] = (char)('0' + (v % 10));
-        v /= 10;
-    } while (v > 0);
-
-    char out[20];
-    for (int i = 0; i < n; i++) out[i] = digits[n - 1 - i];
-    bb_json_put(ctx, out, (size_t)n);
+    char   digits[21];  // 20 decimal digits + NUL
+    size_t n = bb_num_u64_to_dec(digits, sizeof(digits), v);
+    bb_json_put(ctx, digits, n);
 }
 
 static void bb_json_write_i64(bb_serialize_json_ctx_t *ctx, int64_t v)
 {
-    if (v < 0) {
-        bb_json_putc(ctx, '-');
-        // Negate as unsigned so INT64_MIN (whose magnitude overflows
-        // int64_t) is handled correctly.
-        uint64_t mag = (uint64_t)(-(v + 1)) + 1;
-        bb_json_write_u64(ctx, mag);
-    } else {
-        bb_json_write_u64(ctx, (uint64_t)v);
-    }
+    char   digits[22];  // sign + 20 decimal digits + NUL
+    size_t n = bb_num_i64_to_dec(digits, sizeof(digits), v);
+    bb_json_put(ctx, digits, n);
 }
 
 // Fixed-width zero-padded fractional digit write (single put() call).

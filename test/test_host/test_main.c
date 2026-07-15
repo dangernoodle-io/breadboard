@@ -18,6 +18,7 @@
 #include "bb_lifecycle.h"
 #include "bb_fsm.h"
 #include "bb_serialize_json.h"
+#include "bb_serialize_console.h"
 // Forward declarations from test_bb_lifecycle.c
 void test_bb_lifecycle_autoinit_returns_ok(void);
 void test_bb_lifecycle_register_starts_stopped(void);
@@ -148,6 +149,27 @@ void test_bb_serialize_format_render_unregistered_returns_unsupported(void);
 void test_bb_serialize_format_render_json_matches_direct_call(void);
 void test_bb_serialize_format_json_render_roundtrip_via_registry(void);
 void test_bb_serialize_json_register_format_idempotent(void);
+
+// Forward declarations from test_bb_serialize_console.c
+void test_bb_serialize_console_flat_scalars(void);
+void test_bb_serialize_console_null_str_n_emits_null(void);
+void test_bb_serialize_console_empty_str_n_emits_empty(void);
+void test_bb_serialize_console_nested_obj_no_crash(void);
+void test_bb_serialize_console_array_of_strings_no_crash(void);
+void test_bb_serialize_console_render_truncates_cleanly(void);
+void test_bb_serialize_console_render_rejects_null_buf(void);
+void test_bb_serialize_console_render_rejects_zero_cap(void);
+void test_bb_serialize_console_render_rejects_zero_cap_null_out_len(void);
+void test_bb_serialize_console_render_success_null_out_len(void);
+void test_bb_serialize_console_ctx_init_zero_cap_does_not_write(void);
+void test_bb_serialize_console_emit_zero_cap_ctx_walk_is_noop(void);
+void test_bb_serialize_console_register_format_idempotent(void);
+void test_bb_serialize_console_heap_gather_rejects_null_dst(void);
+void test_bb_serialize_console_heap_gather_host_zero_snapshot(void);
+void test_bb_serialize_console_heap_desc_matches_snap_layout(void);
+void test_bb_serialize_console_heap_report_renders_via_desc(void);
+void test_bb_serialize_console_heap_report_smoke(void);
+void test_bb_format_name_console_returns_console(void);
 
 // Forward declarations from test_bb_serialize_populate.c
 void test_bb_serialize_populate_flat_scalars(void);
@@ -2095,6 +2117,20 @@ void test_bb_clampf_above_range_returns_hi(void);
 void test_bb_clampf_in_range_returns_x(void);
 void test_bb_clampf_equal_to_lo_returns_lo(void);
 void test_bb_clampf_equal_to_hi_returns_hi(void);
+void test_bb_num_u64_to_dec_zero(void);
+void test_bb_num_u64_to_dec_single_digit(void);
+void test_bb_num_u64_to_dec_max(void);
+void test_bb_num_u64_to_dec_zero_cap_is_noop(void);
+void test_bb_num_u64_to_dec_cap_one_writes_only_nul(void);
+void test_bb_num_u64_to_dec_truncates_and_nul_terminates(void);
+void test_bb_num_i64_to_dec_zero(void);
+void test_bb_num_i64_to_dec_positive(void);
+void test_bb_num_i64_to_dec_negative(void);
+void test_bb_num_i64_to_dec_int64_min(void);
+void test_bb_num_i64_to_dec_int64_max(void);
+void test_bb_num_i64_to_dec_zero_cap_is_noop(void);
+void test_bb_num_i64_to_dec_negative_cap_one_writes_only_nul(void);
+void test_bb_num_i64_to_dec_negative_truncates_to_sign_only(void);
 
 // Forward declarations from test_bb_fmt.c
 void test_bb_fmt_hex_zero_nbytes_returns_zero_and_terminates(void);
@@ -6375,6 +6411,20 @@ int main(void) {
     RUN_TEST(test_bb_clampf_in_range_returns_x);
     RUN_TEST(test_bb_clampf_equal_to_lo_returns_lo);
     RUN_TEST(test_bb_clampf_equal_to_hi_returns_hi);
+    RUN_TEST(test_bb_num_u64_to_dec_zero);
+    RUN_TEST(test_bb_num_u64_to_dec_single_digit);
+    RUN_TEST(test_bb_num_u64_to_dec_max);
+    RUN_TEST(test_bb_num_u64_to_dec_zero_cap_is_noop);
+    RUN_TEST(test_bb_num_u64_to_dec_cap_one_writes_only_nul);
+    RUN_TEST(test_bb_num_u64_to_dec_truncates_and_nul_terminates);
+    RUN_TEST(test_bb_num_i64_to_dec_zero);
+    RUN_TEST(test_bb_num_i64_to_dec_positive);
+    RUN_TEST(test_bb_num_i64_to_dec_negative);
+    RUN_TEST(test_bb_num_i64_to_dec_int64_min);
+    RUN_TEST(test_bb_num_i64_to_dec_int64_max);
+    RUN_TEST(test_bb_num_i64_to_dec_zero_cap_is_noop);
+    RUN_TEST(test_bb_num_i64_to_dec_negative_cap_one_writes_only_nul);
+    RUN_TEST(test_bb_num_i64_to_dec_negative_truncates_to_sign_only);
 
     // bb_fmt tests
     RUN_TEST(test_bb_fmt_hex_zero_nbytes_returns_zero_and_terminates);
@@ -9427,6 +9477,25 @@ int main(void) {
     RUN_TEST(test_bb_serialize_format_render_unregistered_returns_unsupported);
     RUN_TEST(test_bb_serialize_format_render_json_matches_direct_call);
     RUN_TEST(test_bb_serialize_format_json_render_roundtrip_via_registry);
+    RUN_TEST(test_bb_format_name_console_returns_console);
+    RUN_TEST(test_bb_serialize_console_flat_scalars);
+    RUN_TEST(test_bb_serialize_console_null_str_n_emits_null);
+    RUN_TEST(test_bb_serialize_console_empty_str_n_emits_empty);
+    RUN_TEST(test_bb_serialize_console_nested_obj_no_crash);
+    RUN_TEST(test_bb_serialize_console_array_of_strings_no_crash);
+    RUN_TEST(test_bb_serialize_console_render_truncates_cleanly);
+    RUN_TEST(test_bb_serialize_console_render_rejects_null_buf);
+    RUN_TEST(test_bb_serialize_console_render_rejects_zero_cap);
+    RUN_TEST(test_bb_serialize_console_render_rejects_zero_cap_null_out_len);
+    RUN_TEST(test_bb_serialize_console_render_success_null_out_len);
+    RUN_TEST(test_bb_serialize_console_ctx_init_zero_cap_does_not_write);
+    RUN_TEST(test_bb_serialize_console_emit_zero_cap_ctx_walk_is_noop);
+    RUN_TEST(test_bb_serialize_console_register_format_idempotent);
+    RUN_TEST(test_bb_serialize_console_heap_gather_rejects_null_dst);
+    RUN_TEST(test_bb_serialize_console_heap_gather_host_zero_snapshot);
+    RUN_TEST(test_bb_serialize_console_heap_desc_matches_snap_layout);
+    RUN_TEST(test_bb_serialize_console_heap_report_renders_via_desc);
+    RUN_TEST(test_bb_serialize_console_heap_report_smoke);
     RUN_TEST(test_bb_serialize_json_register_format_idempotent);
 
     RUN_TEST(test_bb_serialize_ref_happy_path_resolves_inline);

@@ -1,13 +1,13 @@
-# bb_serialize_json
+# bb_serialize_console
 
 <!-- BEGIN bbtool:brief -->
-Hand-rolled, no-heap, bounded-buffer JSON bb_serialize_emit_t backend -- the default wire-format implementation for bb_serialize.
+Heap-over-serial emit backend -- a bb_serialize_emit_t implementation that renders a snapshot as a single human-readable "key=val key=val" line (no braces, no quoting), plus a one-shot heap-snapshot report helper (bb_serialize_console_heap_report()) built on top of bb_meminfo.
 <!-- END bbtool:brief -->
 
 ## Public API
 
 <!-- BEGIN bbtool:api -->
-- [`bb_serialize_json.h`](include/bb_serialize_json.h)
+- [`bb_serialize_console.h`](include/bb_serialize_console.h)
 
 Public symbols use the `bb_` prefix.
 <!-- END bbtool:api -->
@@ -18,6 +18,8 @@ Public symbols use the `bb_` prefix.
 | Component | Kind | Role | Docs |
 |-----------|------|------|------|
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
+| `bb_log` | private | — | [bb_log](../README.md) |
+| `bb_meminfo` | private | Canonical system-heap reader SSOT (KB #698/#699/#693) — the one component that | [bb_meminfo](../bb_meminfo/README.md) |
 | `bb_num` | private | — | [bb_num](../README.md) |
 | `bb_serialize` | public | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
 <!-- END bbtool:deps -->
@@ -39,14 +41,14 @@ _(no baseline)_
 ## Use in your project
 
 <!-- BEGIN bbtool:wiring -->
-Use in your project → [wiring guide](https://github.com/dangernoodle-io/breadboard/wiki/components/bb_serialize_json#use).
+Use in your project → [wiring guide](https://github.com/dangernoodle-io/breadboard/wiki/components/bb_serialize_console#use).
 <!-- END bbtool:wiring -->
 
 ## Links
 
 <!-- BEGIN bbtool:links -->
 - Repository: [https://github.com/dangernoodle-io/breadboard](https://github.com/dangernoodle-io/breadboard)
-- [https://github.com/dangernoodle-io/breadboard/wiki/components/bb_serialize_json](https://github.com/dangernoodle-io/breadboard/wiki/components/bb_serialize_json)
+- [https://github.com/dangernoodle-io/breadboard/wiki/components/bb_serialize_console](https://github.com/dangernoodle-io/breadboard/wiki/components/bb_serialize_console)
 - [https://github.com/dangernoodle-io/breadboard/wiki/Component-Docs](https://github.com/dangernoodle-io/breadboard/wiki/Component-Docs)
 <!-- END bbtool:links -->
 
