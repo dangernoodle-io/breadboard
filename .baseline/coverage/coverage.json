@@ -631,22 +631,27 @@
       "type": "uncovered_line"
     },
     {
-      "id": "156",
+      "id": "155",
       "path": "platform/host/bb_mdns/bb_mdns_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "159",
+      "id": "158",
       "path": "platform/host/bb_mdns/bb_mdns_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "161",
+      "id": "160",
       "path": "platform/host/bb_mdns/bb_mdns_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "164",
+      "id": "163",
+      "path": "platform/host/bb_mdns/bb_mdns_host.c",
+      "type": "uncovered_line"
+    },
+    {
+      "id": "191",
       "path": "platform/host/bb_mdns/bb_mdns_host.c",
       "type": "uncovered_line"
     },
@@ -666,12 +671,12 @@
       "type": "uncovered_line"
     },
     {
-      "id": "195",
+      "id": "210",
       "path": "platform/host/bb_mdns/bb_mdns_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "211",
+      "id": "236",
       "path": "platform/host/bb_mdns/bb_mdns_host.c",
       "type": "uncovered_line"
     },
@@ -686,27 +691,22 @@
       "type": "uncovered_line"
     },
     {
-      "id": "239",
+      "id": "242",
       "path": "platform/host/bb_mdns/bb_mdns_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "243",
+      "id": "281",
       "path": "platform/host/bb_mdns/bb_mdns_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "282",
+      "id": "283",
       "path": "platform/host/bb_mdns/bb_mdns_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "284",
-      "path": "platform/host/bb_mdns/bb_mdns_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "90",
+      "id": "89",
       "path": "platform/host/bb_mdns/bb_mdns_host.c",
       "type": "uncovered_line"
     },

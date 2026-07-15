@@ -1,4 +1,3 @@
-#include "bb_nv.h"
 #include "bb_mdns.h"
 #include "bb_mdns_host_test_hooks.h"
 #include "bb_log.h"

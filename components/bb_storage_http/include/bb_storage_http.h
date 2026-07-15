@@ -36,7 +36,7 @@
 //   - a namespace bb_settings identifies as the wifi-creds namespace (see
 //     bb_settings_ns_is_wifi_creds) additionally requires "wipe_wifi": true,
 //     because that namespace holds wifi credentials. Note: if
-//     CONFIG_BB_NV_CREDS_RTC_BACKUP is enabled, credentials are
+//     CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP is enabled, credentials are
 //     automatically restored from the RTC mirror on the next boot if the
 //     mirror is valid.
 //   - "key" with an array namespace returns 400 (ambiguous).
@@ -67,7 +67,7 @@ bb_err_t bb_storage_http_routes_init(bb_http_handle_t server);
 // bb_nv_factory_reset_routes_init. A valid request body
 // {"confirm":"factory-reset"} erases the whole "nvs" bb_storage backend
 // (bb_storage_erase_all), invalidates the RTC creds mirror (when
-// CONFIG_BB_NV_CREDS_RTC_BACKUP is enabled), responds 202, then reboots
+// CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP is enabled), responds 202, then reboots
 // after ~500 ms. A SEPARATE // bbtool:init marker from
 // bb_storage_http_routes_init above, 1:1 with this one route — not folded
 // into a shared multi-route init.

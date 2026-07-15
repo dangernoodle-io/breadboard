@@ -286,11 +286,6 @@
       "type": "component"
     },
     {
-      "id": "bb_nv",
-      "path": "components/bb_nv",
-      "type": "component"
-    },
-    {
       "id": "bb_openapi",
       "path": "components/bb_openapi",
       "type": "component"

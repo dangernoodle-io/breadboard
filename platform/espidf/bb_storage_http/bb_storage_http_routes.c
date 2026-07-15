@@ -223,7 +223,7 @@ static bb_err_t storage_delete_handler(bb_http_request_t *req)
             send_412(req,
                 "this namespace contains wifi credentials; also pass "
                 "\"wipe_wifi\": true to confirm wifi credential erasure. "
-                "Note: if CONFIG_BB_NV_CREDS_RTC_BACKUP is enabled, "
+                "Note: if CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP is enabled, "
                 "credentials are restored from RTC on next boot.");
             return BB_ERR_INVALID_STATE;
         }
@@ -359,7 +359,7 @@ static const bb_route_t s_storage_delete_route = {
                         "backend (\"backend\", default \"nvs\"). For the wifi-creds namespace "
                         "(bb_settings-owned) also requires {\"wipe_wifi\":true} (contains wifi "
                         "credentials; RTC backup may restore them on next boot if "
-                        "CONFIG_BB_NV_CREDS_RTC_BACKUP is enabled). Use an array namespace to "
+                        "CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP is enabled). Use an array namespace to "
                         "reset multiple namespaces in one call (e.g. [\"bb_mqtt\",\"bb_udp\",\"bb_tcp\"]). "
                         "\"key\" is forbidden when namespace is an array.",
     .request_schema   = "{\"type\":\"object\","
@@ -456,7 +456,7 @@ static bb_err_t factory_reset_handler(bb_http_request_t *req)
      * unregistered "rtc" backend (RTC-backup Kconfig-disabled builds, or a
      * composer that never registered bb_storage_rtc) is harmless here.
      *
-     * On device this stays gated on CONFIG_BB_NV_CREDS_RTC_BACKUP (the
+     * On device this stays gated on CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP (the
      * mirror only exists when that feature is on). On host there is no
      * sdkconfig.h / CONFIG_ bridge at all, so the call is unconditional —
      * same posture as the deleted bb_nv_config_factory_reset() host stub,
@@ -464,7 +464,7 @@ static bb_err_t factory_reset_handler(bb_http_request_t *req)
      * test_nv_factory_reset_invalidates_rtc_mirror. Keeping it unconditional
      * on host (rather than compiling it out) is what makes this
      * host-testable (B1-935 stale-creds-survive-factory-reset class). */
-#if !defined(ESP_PLATFORM) || defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
+#if !defined(ESP_PLATFORM) || defined(CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP)
     bb_settings_wifi_rtc_mirror_clear();
 #endif
 

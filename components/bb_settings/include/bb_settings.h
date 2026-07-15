@@ -252,7 +252,7 @@ void bb_settings_wifi_rtc_mirror_write(const char *ssid, const char *pass);
 // bb_settings_wifi_* accessors above) are unchanged; only the caller moved).
 // ---------------------------------------------------------------------------
 
-// Bring up the NVS partition, then (CONFIG_BB_NV_CREDS_RTC_BACKUP-gated)
+// Bring up the NVS partition, then (CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP-gated)
 // decide and execute the RTC-mirror heal-vs-seed action for wifi creds. ESP-
 // IDF only (a no-op returning BB_OK on host, matching bb_nv_config_init's
 // prior host stub exactly). requires=storage_rtc: this reads/writes the

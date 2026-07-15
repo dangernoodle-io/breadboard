@@ -71,7 +71,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_net_health](./bb_net_health/) | — |
 | [bb_ntp](./bb_ntp/) | — |
 | [bb_num](./bb_num/) | — |
-| [bb_nv](./bb_nv/) | — |
 | [bb_openapi](./bb_openapi/) | — |
 | [bb_ota_boot](./bb_ota_boot/) | — |
 | [bb_ota_check](./bb_ota_check/) | — |

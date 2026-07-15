@@ -1,11 +1,12 @@
-menu "breadboard: bb_nv"
+menu "breadboard: bb_settings"
 
-config BB_NV_CREDS_RTC_BACKUP
+config BB_SETTINGS_CREDS_RTC_BACKUP
     bool "Back up wifi creds to RTC slow memory (survive NVS erase-on-corruption)"
     default y
     help
       Mirrors wifi ssid/pass/provisioned (~108 bytes) into RTC_NOINIT memory so a
       crash-induced NVS erase doesn't strand a headless board. Survives software
-      reset/panic; lost on full power-off. See B1-242.
+      reset/panic; lost on full power-off. See B1-242. Rehomed from bb_nv
+      (CONFIG_BB_NV_CREDS_RTC_BACKUP) as part of the bb_nv dissolution, B1-964.
 
 endmenu

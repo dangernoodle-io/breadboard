@@ -2,7 +2,6 @@
 #include "bb_mem.h"
 #include "bb_openapi.h"
 #include "../../components/bb_log/src/bb_log_internal.h"
-#include "bb_nv.h"
 #include "bb_system_test.h"
 #include "bb_mdns_host_test_hooks.h"
 #include "bb_event_test.h"
@@ -761,9 +760,6 @@ void test_json_obj_set_bool_emit_key_error(void);
 void test_json_obj_set_null_emit_key_error(void);
 void test_json_obj_set_num_emit_key_error(void);
 
-// Forward declarations from test_nv_config.c
-void test_nv_config_is_provisioned_stub_returns_false(void);
-
 // Forward declarations from test_bb_settings_creds_boot.c
 void test_bb_settings_creds_boot_init_success(void);
 void test_bb_settings_creds_boot_wifi_ssid_empty_after_init(void);
@@ -775,13 +771,6 @@ void test_bb_settings_creds_boot_decide_none_when_both_absent(void);
 void test_bb_settings_creds_boot_decide_seed_when_live_creds_and_no_mirror(void);
 void test_bb_settings_creds_boot_decide_heal_when_no_live_creds_and_valid_mirror(void);
 void test_bb_settings_creds_boot_decide_none_when_both_present(void);
-
-// Forward declarations from test_bb_nv_erase_namespace.c
-void test_nv_erase_namespace_null_returns_err(void);
-void test_nv_erase_namespace_removes_all_keys(void);
-void test_nv_erase_namespace_does_not_affect_other_namespaces(void);
-void test_nv_erase_namespace_empty_is_ok(void);
-void test_nv_erase_namespace_then_set_works(void);
 
 // Forward declarations from test_bb_storage_http_routes.c
 void test_storage_delete_no_body_returns_400(void);
@@ -1321,60 +1310,6 @@ void test_stream_malformed_mid_stream_before_tag_found(void);
 void test_stream_malformed_mid_stream_after_tag_found(void);
 void test_stream_tag_buffer_too_small_returns_no_space(void);
 void test_stream_truncated_mid_url_leaves_no_partial_url(void);
-
-// Forward declarations from test_nv_generic.c
-void test_nv_set_u8_null_ns(void);
-void test_nv_set_u8_null_key(void);
-void test_nv_set_u8_valid(void);
-void test_nv_set_u16_null_ns(void);
-void test_nv_set_u16_null_key(void);
-void test_nv_set_u16_valid(void);
-void test_nv_set_u32_null_ns(void);
-void test_nv_set_u32_null_key(void);
-void test_nv_set_u32_valid(void);
-void test_nv_set_str_null_ns(void);
-void test_nv_set_str_null_key(void);
-void test_nv_set_str_null_value(void);
-void test_nv_set_str_valid(void);
-void test_nv_get_u8_null_ns(void);
-void test_nv_get_u8_null_key(void);
-void test_nv_get_u8_null_out(void);
-void test_nv_get_u8_returns_fallback(void);
-void test_nv_get_u16_null_ns(void);
-void test_nv_get_u16_null_key(void);
-void test_nv_get_u16_null_out(void);
-void test_nv_get_u16_returns_fallback(void);
-void test_nv_get_u32_null_ns(void);
-void test_nv_get_u32_null_key(void);
-void test_nv_get_u32_null_out(void);
-void test_nv_get_u32_returns_fallback(void);
-void test_nv_get_str_null_ns(void);
-void test_nv_get_str_null_key(void);
-void test_nv_get_str_null_buf(void);
-void test_nv_get_str_zero_len(void);
-void test_nv_get_str_returns_fallback(void);
-void test_nv_get_str_returns_fallback_null(void);
-void test_nv_get_str_truncates_fallback(void);
-void test_nv_erase_null_ns(void);
-void test_nv_erase_null_key(void);
-void test_nv_erase_valid(void);
-void test_nv_batch_begin_null_batch(void);
-void test_nv_batch_begin_null_ns(void);
-void test_nv_batch_begin_valid(void);
-void test_nv_batch_set_u32_before_begin(void);
-void test_nv_batch_set_u32_null_key(void);
-void test_nv_batch_set_u32_valid(void);
-void test_nv_batch_set_str_null_value(void);
-void test_nv_batch_commit_null(void);
-void test_nv_batch_set_after_commit_rejected(void);
-void test_nv_batch_three_u32_writes_succeed(void);
-void test_nv_exists_absent_key_returns_false(void);
-void test_nv_exists_short_value_returns_true(void);
-void test_nv_exists_long_value_gt8_returns_true(void);
-void test_nv_exists_null_ns_returns_false(void);
-void test_nv_exists_null_key_returns_false(void);
-void test_nv_ssot_namespace_values_are_byte_identical(void);
-void test_nv_ssot_key_values_are_byte_identical(void);
 
 // Forward declarations from test_bb_json.c
 void test_bb_json_obj_string_roundtrip(void);
@@ -4404,7 +4339,6 @@ void bb_cache_reset_for_test(void);
 void setUp(void) {
     _bb_log_registry_reset();
     bb_system_boot_count_reset_for_test();
-    bb_nv_host_str_store_reset();
     bb_mdns_host_reset();
     wifi_reconn_policy_test_reset();
     bb_mdns_lifecycle_test_reset();
@@ -5632,9 +5566,6 @@ int main(void) {
     RUN_TEST(test_json_obj_set_null_emit_key_error);
     RUN_TEST(test_json_obj_set_num_emit_key_error);
 
-    // NV config tests (bb_nv_config_is_provisioned -- staying dead, B1-964)
-    RUN_TEST(test_nv_config_is_provisioned_stub_returns_false);
-
     // bb_settings creds-boot shell + manifest tests (B1-963: relocated from
     // bb_nv_config_init/_manifest_init)
     RUN_TEST(test_bb_settings_creds_boot_init_success);
@@ -5648,13 +5579,6 @@ int main(void) {
     RUN_TEST(test_bb_settings_creds_boot_decide_seed_when_live_creds_and_no_mirror);
     RUN_TEST(test_bb_settings_creds_boot_decide_heal_when_no_live_creds_and_valid_mirror);
     RUN_TEST(test_bb_settings_creds_boot_decide_none_when_both_present);
-
-    // bb_nv_erase_namespace tests (B1-290)
-    RUN_TEST(test_nv_erase_namespace_null_returns_err);
-    RUN_TEST(test_nv_erase_namespace_removes_all_keys);
-    RUN_TEST(test_nv_erase_namespace_does_not_affect_other_namespaces);
-    RUN_TEST(test_nv_erase_namespace_empty_is_ok);
-    RUN_TEST(test_nv_erase_namespace_then_set_works);
 
     // DELETE /api/diag/storage route tests (B1-757, rehomed off bb_nv)
     RUN_TEST(test_storage_delete_no_body_returns_400);
@@ -5716,60 +5640,6 @@ int main(void) {
     RUN_TEST(test_wifi_pending_validate_pass_over_max_returns_invalid_arg);
     RUN_TEST(test_wifi_pending_validate_null_pass_returns_ok);
     RUN_TEST(test_wifi_pending_validate_empty_pass_returns_ok);
-
-    // Generic NV API tests
-    RUN_TEST(test_nv_set_u8_null_ns);
-    RUN_TEST(test_nv_set_u8_null_key);
-    RUN_TEST(test_nv_set_u8_valid);
-    RUN_TEST(test_nv_set_u16_null_ns);
-    RUN_TEST(test_nv_set_u16_null_key);
-    RUN_TEST(test_nv_set_u16_valid);
-    RUN_TEST(test_nv_set_u32_null_ns);
-    RUN_TEST(test_nv_set_u32_null_key);
-    RUN_TEST(test_nv_set_u32_valid);
-    RUN_TEST(test_nv_set_str_null_ns);
-    RUN_TEST(test_nv_set_str_null_key);
-    RUN_TEST(test_nv_set_str_null_value);
-    RUN_TEST(test_nv_set_str_valid);
-    RUN_TEST(test_nv_get_u8_null_ns);
-    RUN_TEST(test_nv_get_u8_null_key);
-    RUN_TEST(test_nv_get_u8_null_out);
-    RUN_TEST(test_nv_get_u8_returns_fallback);
-    RUN_TEST(test_nv_get_u16_null_ns);
-    RUN_TEST(test_nv_get_u16_null_key);
-    RUN_TEST(test_nv_get_u16_null_out);
-    RUN_TEST(test_nv_get_u16_returns_fallback);
-    RUN_TEST(test_nv_get_u32_null_ns);
-    RUN_TEST(test_nv_get_u32_null_key);
-    RUN_TEST(test_nv_get_u32_null_out);
-    RUN_TEST(test_nv_get_u32_returns_fallback);
-    RUN_TEST(test_nv_get_str_null_ns);
-    RUN_TEST(test_nv_get_str_null_key);
-    RUN_TEST(test_nv_get_str_null_buf);
-    RUN_TEST(test_nv_get_str_zero_len);
-    RUN_TEST(test_nv_get_str_returns_fallback);
-    RUN_TEST(test_nv_get_str_returns_fallback_null);
-    RUN_TEST(test_nv_get_str_truncates_fallback);
-    RUN_TEST(test_nv_erase_null_ns);
-    RUN_TEST(test_nv_erase_null_key);
-    RUN_TEST(test_nv_erase_valid);
-    RUN_TEST(test_nv_batch_begin_null_batch);
-    RUN_TEST(test_nv_batch_begin_null_ns);
-    RUN_TEST(test_nv_batch_begin_valid);
-    RUN_TEST(test_nv_batch_set_u32_before_begin);
-    RUN_TEST(test_nv_batch_set_u32_null_key);
-    RUN_TEST(test_nv_batch_set_u32_valid);
-    RUN_TEST(test_nv_batch_set_str_null_value);
-    RUN_TEST(test_nv_batch_commit_null);
-    RUN_TEST(test_nv_batch_set_after_commit_rejected);
-    RUN_TEST(test_nv_batch_three_u32_writes_succeed);
-    RUN_TEST(test_nv_exists_absent_key_returns_false);
-    RUN_TEST(test_nv_exists_short_value_returns_true);
-    RUN_TEST(test_nv_exists_long_value_gt8_returns_true);
-    RUN_TEST(test_nv_exists_null_ns_returns_false);
-    RUN_TEST(test_nv_exists_null_key_returns_false);
-    RUN_TEST(test_nv_ssot_namespace_values_are_byte_identical);
-    RUN_TEST(test_nv_ssot_key_values_are_byte_identical);
 
     // Route registry tests
     RUN_TEST(test_route_registry_count_starts_at_zero);

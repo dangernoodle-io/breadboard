@@ -23,11 +23,11 @@
 // The RTC-mirror-clear step (bb_settings_wifi_rtc_mirror_clear(), moved
 // verbatim from bb_nv_config_factory_reset's ESP_PLATFORM branch) is called
 // unconditionally on host (see the handler's
-// `#if !defined(ESP_PLATFORM) || defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)`
+// `#if !defined(ESP_PLATFORM) || defined(CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP)`
 // guard) -- same posture as the deleted bb_nv_config_factory_reset() host
 // stub, which called it unconditionally and was covered by
 // test_nv_factory_reset_invalidates_rtc_mirror. On device the call stays
-// gated on CONFIG_BB_NV_CREDS_RTC_BACKUP; this file only exercises the host
+// gated on CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP; this file only exercises the host
 // branch.
 
 #include "unity.h"
