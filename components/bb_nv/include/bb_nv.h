@@ -11,7 +11,20 @@
 extern "C" {
 #endif
 
-// bbtool:init tier=early fn=bb_nv_config_init
+// requires=storage_rtc: the heal/mirror-seed logic in bb_nv_config_init
+// (platform/espidf/bb_nv/bb_nv.c) reads and writes the shared "rtc"
+// bb_storage backend through bb_settings' mirror accessors, which need
+// bb_storage_rtc_register() (provides=storage_rtc, bb_storage_rtc.h) to have
+// run first in the same EARLY tier -- same-tier ordering is otherwise
+// unspecified, and the heal reading before the backend registers means
+// bb_storage_get returns BB_ERR_NOT_FOUND with no crash and no log (the
+// RTC backup silently never fires). This edge is gated behind
+// CONFIG_BB_NV_CREDS_RTC_BACKUP at runtime (default y), but the marker
+// itself is unconditional -- codegen's marker scan has no preprocessor
+// awareness (grep-time, see wire_parse.py), same posture as every other
+// requires= edge in this codebase (e.g. bb_wifi_autoinit's requires=
+// storage_nvs).
+// bbtool:init tier=early fn=bb_nv_config_init requires=storage_rtc
 bb_err_t bb_nv_config_init(void);
 
 /// Factory reset: erase ALL NVS flash, clear the in-RAM config, and invalidate
@@ -31,9 +44,6 @@ bb_err_t bb_nv_config_manifest_init(void);
 /// (the // bbtool:init tier=early marker lives on bb_storage_nvs_register(),
 /// which now brings up the partition internally — see bb_storage_nvs.h).
 bb_err_t bb_nv_flash_init(void);
-
-const char *bb_nv_config_wifi_ssid(void);
-const char *bb_nv_config_wifi_pass(void);
 
 #ifndef ESP_PLATFORM
 // Test hook: clear the in-memory string store used by host bb_nv_get_str /
@@ -58,39 +68,8 @@ bool bb_nv_config_creds_restored(void);
 bool      bb_nv_config_ota_skip_check(void);
 bb_err_t bb_nv_config_set_ota_skip_check(bool skip);
 
-bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass);
-
-/// Stage pending wifi credentials (wifi_ssid_p / wifi_pass_p / wifi_try=1).
-/// Validates via bb_wifi_pending_validate. Does NOT touch live creds or mirror.
-bb_err_t bb_nv_config_set_wifi_pending(const char *ssid, const char *pass);
-
-/// Return true if a pending wifi reconfigure is armed (try flag set + ssid non-empty).
-bool bb_nv_config_wifi_pending_active(void);
-
-/// Return the staged pending SSID (empty string when none).
-const char *bb_nv_config_wifi_pending_ssid(void);
-
-/// Return the staged pending password (empty string when none).
-const char *bb_nv_config_wifi_pending_pass(void);
-
-/// Promote pending creds to live (wifi_ssid / wifi_pass), erase pending NVS
-/// keys, update s_config and the RTC mirror. BB_ERR_INVALID_STATE if no pending.
-bb_err_t bb_nv_config_commit_wifi_pending(void);
-
-/// Erase pending NVS keys and clear the in-RAM pending cache.
-/// Does NOT touch live creds or the RTC mirror.
-bb_err_t bb_nv_config_clear_wifi_pending(void);
-
 #else
 static inline bool bb_nv_config_is_provisioned(void) { return false; }
-
-static inline bb_err_t bb_nv_config_set_wifi_pending(const char *ssid, const char *pass)
-    { (void)ssid; (void)pass; return BB_ERR_UNSUPPORTED; }
-static inline bool bb_nv_config_wifi_pending_active(void) { return false; }
-static inline const char *bb_nv_config_wifi_pending_ssid(void) { return ""; }
-static inline const char *bb_nv_config_wifi_pending_pass(void) { return ""; }
-static inline bb_err_t bb_nv_config_commit_wifi_pending(void) { return BB_ERR_UNSUPPORTED; }
-static inline bb_err_t bb_nv_config_clear_wifi_pending(void) { return BB_ERR_UNSUPPORTED; }
 #endif
 
 // All bb_nv_set_u* variants erase-on-type-mismatch: if an existing NVS entry

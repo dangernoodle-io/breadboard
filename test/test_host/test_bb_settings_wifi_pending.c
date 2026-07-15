@@ -307,3 +307,29 @@ void test_bb_settings_wifi_pending_pass_get_null_out_len_still_fills_buf(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_settings_wifi_pending_pass_get(pass, sizeof(pass), NULL));
     TEST_ASSERT_EQUAL_STRING("hunter2", pass);
 }
+
+// Rollback bite-proof: pending_clear must NOT touch the live ssid/pass
+// fields -- only the pending/try keys. Seeds live creds first via the
+// test-local field descriptors (same addr as bb_settings.c's internal
+// s_wifi_ssid_field/s_wifi_pass_field), stages + clears a pending attempt,
+// and asserts the live values are UNCHANGED. Reverting
+// bb_settings_wifi_pending_clear() to (incorrectly) also erase/zero the live
+// fields turns this RED.
+void test_bb_settings_wifi_pending_clear_leaves_live_creds_unchanged(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_set_str(&s_test_ssid_field, "LiveNet"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_set_str(&s_test_pass_field, "livepass"));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_settings_wifi_pending_set("StagedNet", "stagedpass"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_settings_wifi_pending_clear());
+
+    char ssid[40] = {0};
+    size_t len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_str(&s_test_ssid_field, ssid, sizeof(ssid), &len));
+    TEST_ASSERT_EQUAL_STRING_LEN("LiveNet", ssid, len);
+
+    char pass[70] = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_str(&s_test_pass_field, pass, sizeof(pass), &len));
+    TEST_ASSERT_EQUAL_STRING_LEN("livepass", pass, len);
+}

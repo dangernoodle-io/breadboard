@@ -768,9 +768,16 @@ void test_nv_config_wifi_pass_empty_after_init(void);
 void test_nv_config_is_provisioned_stub_returns_false(void);
 void test_nv_config_init_registers_bb_cfg_keys(void);
 
+// Forward declarations from test_bb_nv_creds_boot_decide.c
+void test_bb_nv_creds_boot_decide_none_when_both_absent(void);
+void test_bb_nv_creds_boot_decide_seed_when_live_creds_and_no_mirror(void);
+void test_bb_nv_creds_boot_decide_heal_when_no_live_creds_and_valid_mirror(void);
+void test_bb_nv_creds_boot_decide_none_when_both_present(void);
+
 // Forward declarations from test_bb_nv_factory_reset.c
-void test_nv_factory_reset_clears_wifi_ssid(void);
+void test_nv_factory_reset_invalidates_rtc_mirror(void);
 void test_nv_factory_reset_returns_ok_after_reinit(void);
+void test_nv_factory_reset_ok_when_rtc_backend_unregistered(void);
 #if CONFIG_BB_NV_FACTORY_RESET
 void test_nv_factory_reset_route_no_body_returns_400(void);
 void test_nv_factory_reset_route_wrong_confirm_returns_400(void);
@@ -887,6 +894,8 @@ void test_bb_storage_ram_register_twice_returns_invalid_state(void);
 void test_bb_storage_rtc_cold_boot_all_keys_not_found(void);
 void test_bb_storage_rtc_ssid_set_get_round_trip(void);
 void test_bb_storage_rtc_pass_set_get_round_trip(void);
+void test_bb_storage_rtc_ssid_get_truncation_nul_terminates(void);
+void test_bb_storage_rtc_pass_get_truncation_nul_terminates(void);
 void test_bb_storage_rtc_provisioned_set_get_round_trip(void);
 void test_bb_storage_rtc_test_reset_simulates_cold_boot(void);
 void test_bb_storage_rtc_warm_survival_across_sequential_gets(void);
@@ -912,6 +921,13 @@ void test_bb_storage_rtc_txn_on_cold_region_zeroes_unstaged_fields(void);
 void test_bb_storage_rtc_txn_partial_key_preserves_prior_provisioned(void);
 void test_bb_storage_rtc_txn_duplicate_key_last_wins(void);
 void test_bb_storage_rtc_txn_unknown_key_invalid_arg(void);
+void test_bb_storage_rtc_txn_for_test_forwarders_round_trip(void);
+void test_bb_storage_rtc_txn_for_test_abort_forwarder(void);
+void test_bb_storage_rtc_txn_for_test_set_on_unopened_returns_invalid_state(void);
+void test_bb_storage_rtc_txn_for_test_commit_on_unopened_returns_invalid_state(void);
+void test_bb_storage_rtc_txn_for_test_abort_on_unopened_is_ok_noop(void);
+void test_bb_storage_rtc_txn_for_test_null_key_returns_invalid_arg(void);
+void test_bb_storage_rtc_txn_for_test_sticky_error_short_circuits_second_set(void);
 
 // Forward declarations from test_bb_storage_nvs_get_decision.c
 void test_bb_storage_nvs_get_decide_zero_cap_probes(void);
@@ -1132,6 +1148,19 @@ void test_bb_settings_wifi_pending_promote_mirror_not_stale(void);
 void test_bb_settings_wifi_pending_promote_ok_when_rtc_backend_unregistered(void);
 void test_bb_settings_wifi_set_and_promote_converge_on_same_live_fields(void);
 void test_bb_settings_wifi_set_mirrors_all_3_rtc_keys_atomically(void);
+void test_bb_settings_wifi_rtc_mirror_has_creds_false_when_unregistered(void);
+void test_bb_settings_wifi_rtc_mirror_has_creds_false_when_empty(void);
+void test_bb_settings_wifi_rtc_mirror_has_creds_true_after_write(void);
+void test_bb_settings_wifi_rtc_mirror_write_round_trips_via_accessors(void);
+void test_bb_settings_wifi_rtc_mirror_write_null_pass_treated_as_empty(void);
+void test_bb_settings_wifi_rtc_mirror_write_ok_when_rtc_backend_unregistered(void);
+void test_bb_settings_wifi_rtc_mirror_ssid_get_empty_when_unregistered(void);
+void test_bb_settings_wifi_rtc_mirror_provisioned_get_false_when_unregistered(void);
+void test_bb_settings_wifi_rtc_mirror_clear_invalidates_region(void);
+void test_bb_settings_wifi_rtc_mirror_clear_propagates_error_when_unregistered(void);
+void test_bb_settings_wifi_rtc_mirror_seed_gate_true_when_live_creds_and_empty_mirror(void);
+void test_bb_settings_wifi_rtc_mirror_seed_gate_false_when_mirror_already_valid(void);
+void test_bb_settings_wifi_rtc_mirror_seed_gate_false_when_no_live_creds(void);
 
 // Forward declarations from test_bb_settings_wifi_pending.c
 void test_bb_settings_wifi_pending_set_stages_ssid_pass_try(void);
@@ -1149,6 +1178,7 @@ void test_bb_settings_wifi_pending_promote_erases_pending_bytes(void);
 void test_bb_settings_wifi_pending_promote_leaves_pending_active_false(void);
 void test_bb_settings_wifi_pending_clear_clears_try_and_erases_bytes(void);
 void test_bb_settings_wifi_pending_clear_idempotent_when_never_set(void);
+void test_bb_settings_wifi_pending_clear_leaves_live_creds_unchanged(void);
 void test_bb_settings_wifi_pending_ssid_get_empty_when_unset(void);
 void test_bb_settings_wifi_pending_ssid_get_cap_zero_probes_length(void);
 void test_bb_settings_wifi_pending_pass_get_truncation_reports_full_len(void);
@@ -5598,9 +5628,16 @@ int main(void) {
     RUN_TEST(test_nv_config_is_provisioned_stub_returns_false);
     RUN_TEST(test_nv_config_init_registers_bb_cfg_keys);
 
+    // bb_nv_creds_boot_decide pure-function tests
+    RUN_TEST(test_bb_nv_creds_boot_decide_none_when_both_absent);
+    RUN_TEST(test_bb_nv_creds_boot_decide_seed_when_live_creds_and_no_mirror);
+    RUN_TEST(test_bb_nv_creds_boot_decide_heal_when_no_live_creds_and_valid_mirror);
+    RUN_TEST(test_bb_nv_creds_boot_decide_none_when_both_present);
+
     // NV factory reset tests (B1-260)
-    RUN_TEST(test_nv_factory_reset_clears_wifi_ssid);
+    RUN_TEST(test_nv_factory_reset_invalidates_rtc_mirror);
     RUN_TEST(test_nv_factory_reset_returns_ok_after_reinit);
+    RUN_TEST(test_nv_factory_reset_ok_when_rtc_backend_unregistered);
 #if CONFIG_BB_NV_FACTORY_RESET
     RUN_TEST(test_nv_factory_reset_route_no_body_returns_400);
     RUN_TEST(test_nv_factory_reset_route_wrong_confirm_returns_400);
@@ -8076,6 +8113,8 @@ int main(void) {
     RUN_TEST(test_bb_storage_rtc_cold_boot_all_keys_not_found);
     RUN_TEST(test_bb_storage_rtc_ssid_set_get_round_trip);
     RUN_TEST(test_bb_storage_rtc_pass_set_get_round_trip);
+    RUN_TEST(test_bb_storage_rtc_ssid_get_truncation_nul_terminates);
+    RUN_TEST(test_bb_storage_rtc_pass_get_truncation_nul_terminates);
     RUN_TEST(test_bb_storage_rtc_provisioned_set_get_round_trip);
     RUN_TEST(test_bb_storage_rtc_test_reset_simulates_cold_boot);
     RUN_TEST(test_bb_storage_rtc_warm_survival_across_sequential_gets);
@@ -8101,6 +8140,13 @@ int main(void) {
     RUN_TEST(test_bb_storage_rtc_txn_partial_key_preserves_prior_provisioned);
     RUN_TEST(test_bb_storage_rtc_txn_duplicate_key_last_wins);
     RUN_TEST(test_bb_storage_rtc_txn_unknown_key_invalid_arg);
+    RUN_TEST(test_bb_storage_rtc_txn_for_test_forwarders_round_trip);
+    RUN_TEST(test_bb_storage_rtc_txn_for_test_abort_forwarder);
+    RUN_TEST(test_bb_storage_rtc_txn_for_test_set_on_unopened_returns_invalid_state);
+    RUN_TEST(test_bb_storage_rtc_txn_for_test_commit_on_unopened_returns_invalid_state);
+    RUN_TEST(test_bb_storage_rtc_txn_for_test_abort_on_unopened_is_ok_noop);
+    RUN_TEST(test_bb_storage_rtc_txn_for_test_null_key_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_rtc_txn_for_test_sticky_error_short_circuits_second_set);
 
     // bb_storage_nvs_get_decision tests
     RUN_TEST(test_bb_storage_nvs_get_decide_zero_cap_probes);
@@ -8218,6 +8264,7 @@ int main(void) {
     RUN_TEST(test_bb_settings_wifi_pending_promote_leaves_pending_active_false);
     RUN_TEST(test_bb_settings_wifi_pending_clear_clears_try_and_erases_bytes);
     RUN_TEST(test_bb_settings_wifi_pending_clear_idempotent_when_never_set);
+    RUN_TEST(test_bb_settings_wifi_pending_clear_leaves_live_creds_unchanged);
     RUN_TEST(test_bb_settings_wifi_pending_ssid_get_empty_when_unset);
     RUN_TEST(test_bb_settings_wifi_pending_ssid_get_cap_zero_probes_length);
     RUN_TEST(test_bb_settings_wifi_pending_pass_get_truncation_reports_full_len);
@@ -8236,6 +8283,22 @@ int main(void) {
     RUN_TEST(test_bb_settings_wifi_pending_promote_ok_when_rtc_backend_unregistered);
     RUN_TEST(test_bb_settings_wifi_set_and_promote_converge_on_same_live_fields);
     RUN_TEST(test_bb_settings_wifi_set_mirrors_all_3_rtc_keys_atomically);
+
+    // bb_settings RTC mirror accessors + seed-gate primitives (bb_nv
+    // creds-cluster relocation)
+    RUN_TEST(test_bb_settings_wifi_rtc_mirror_has_creds_false_when_unregistered);
+    RUN_TEST(test_bb_settings_wifi_rtc_mirror_has_creds_false_when_empty);
+    RUN_TEST(test_bb_settings_wifi_rtc_mirror_has_creds_true_after_write);
+    RUN_TEST(test_bb_settings_wifi_rtc_mirror_write_round_trips_via_accessors);
+    RUN_TEST(test_bb_settings_wifi_rtc_mirror_write_null_pass_treated_as_empty);
+    RUN_TEST(test_bb_settings_wifi_rtc_mirror_write_ok_when_rtc_backend_unregistered);
+    RUN_TEST(test_bb_settings_wifi_rtc_mirror_ssid_get_empty_when_unregistered);
+    RUN_TEST(test_bb_settings_wifi_rtc_mirror_provisioned_get_false_when_unregistered);
+    RUN_TEST(test_bb_settings_wifi_rtc_mirror_clear_invalidates_region);
+    RUN_TEST(test_bb_settings_wifi_rtc_mirror_clear_propagates_error_when_unregistered);
+    RUN_TEST(test_bb_settings_wifi_rtc_mirror_seed_gate_true_when_live_creds_and_empty_mirror);
+    RUN_TEST(test_bb_settings_wifi_rtc_mirror_seed_gate_false_when_mirror_already_valid);
+    RUN_TEST(test_bb_settings_wifi_rtc_mirror_seed_gate_false_when_no_live_creds);
 
     // bb_storage_typed (get_typed/set_typed facade) tests
     RUN_TEST(test_bb_storage_get_typed_falls_back_to_get_on_ram_backend);

@@ -246,3 +246,112 @@ void test_bb_storage_rtc_txn_unknown_key_invalid_arg(void)
     bb_storage_rtc_region_t *after = bb_storage_rtc_region_for_test();
     TEST_ASSERT_EQUAL_MEMORY(&before, after, sizeof(before));
 }
+
+/* ---------------------------------------------------------------------------
+ * The _for_test direct-drive seam (bb_storage_rtc_txn_begin/set/commit/
+ * abort_for_test) -- thin forwarders straight to the backend's static
+ * rtc_txn_* functions, bypassing bb_storage_txn_begin("rtc", ...) entirely
+ * (bb_storage_rtc.h's own doc comment: "mirroring bb_storage_nvs's
+ * _txn_*_for_test pattern"). Every test above drives the FACADE path; these
+ * are the first to exercise the forwarders themselves, plus the handle-
+ * lifecycle guards a facade round trip never reaches (an unopened/never-
+ * begun txn, and a literal NULL key).
+ * ---------------------------------------------------------------------------*/
+void test_bb_storage_rtc_txn_for_test_forwarders_round_trip(void)
+{
+    reset_all();
+
+    bb_storage_txn_t txn = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL));
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_set_for_test(&txn, "ssid", BB_STORAGE_ENC_STR, "FwdNet", 6));
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_commit_for_test(&txn));
+
+    bb_storage_addr_t ssid_addr = { .backend = "rtc", .ns_or_dir = NULL, .key = "ssid" };
+    char buf[32] = {0};
+    size_t len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_get(&ssid_addr, buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL_STRING_LEN("FwdNet", buf, len);
+}
+
+void test_bb_storage_rtc_txn_for_test_abort_forwarder(void)
+{
+    reset_all();
+
+    bb_storage_txn_t txn = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL));
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_set_for_test(&txn, "ssid", BB_STORAGE_ENC_STR, "FwdNet", 6));
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_abort_for_test(&txn));
+
+    bb_storage_addr_t ssid_addr = { .backend = "rtc", .ns_or_dir = NULL, .key = "ssid" };
+    char buf[32] = {0};
+    size_t len = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_storage_get(&ssid_addr, buf, sizeof(buf), &len));
+}
+
+// A never-begun txn (zero-initialized, _open still 0): set()/commit() fail
+// closed with BB_ERR_INVALID_STATE, and abort() is a safe BB_OK no-op --
+// none of these three guards are reachable through a facade round trip
+// (bb_storage_txn_begin always succeeds against a registered backend before
+// any set/commit/abort call is possible).
+void test_bb_storage_rtc_txn_for_test_set_on_unopened_returns_invalid_state(void)
+{
+    reset_all();
+
+    bb_storage_txn_t txn = {0};
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE,
+                       bb_storage_rtc_txn_set_for_test(&txn, "ssid", BB_STORAGE_ENC_STR, "x", 1));
+}
+
+void test_bb_storage_rtc_txn_for_test_commit_on_unopened_returns_invalid_state(void)
+{
+    reset_all();
+
+    bb_storage_txn_t txn = {0};
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_storage_rtc_txn_commit_for_test(&txn));
+}
+
+void test_bb_storage_rtc_txn_for_test_abort_on_unopened_is_ok_noop(void)
+{
+    reset_all();
+
+    bb_storage_txn_t txn = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_abort_for_test(&txn));
+}
+
+// A literal NULL key -- rtc_txn_classify's own guard, ahead of the
+// backend-agnostic key-name check in bb_storage_txn_slot_stage.
+void test_bb_storage_rtc_txn_for_test_null_key_returns_invalid_arg(void)
+{
+    reset_all();
+
+    bb_storage_txn_t txn = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                       bb_storage_rtc_txn_set_for_test(&txn, NULL, BB_STORAGE_ENC_STR, "x", 1));
+}
+
+// Sticky poison short-circuits a SECOND set() call BEFORE it ever reaches
+// rtc_txn_classify again -- an otherwise-perfectly-valid "ssid" set after an
+// already-poisoned txn must still return the ORIGINAL sticky error, not
+// re-validate and (incorrectly) succeed or return a different error.
+void test_bb_storage_rtc_txn_for_test_sticky_error_short_circuits_second_set(void)
+{
+    reset_all();
+
+    bb_storage_txn_t txn = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                       bb_storage_rtc_txn_set_for_test(&txn, NULL, BB_STORAGE_ENC_STR, "x", 1));
+
+    // Second call, otherwise-valid key/value -- must short-circuit to the
+    // SAME sticky error without re-running rtc_txn_classify.
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                       bb_storage_rtc_txn_set_for_test(&txn, "ssid", BB_STORAGE_ENC_STR, "TxnNet", 6));
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_rtc_txn_commit_for_test(&txn));
+
+    bb_storage_addr_t ssid_addr = { .backend = "rtc", .ns_or_dir = NULL, .key = "ssid" };
+    char buf[32] = {0};
+    size_t len = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_storage_get(&ssid_addr, buf, sizeof(buf), &len));
+}

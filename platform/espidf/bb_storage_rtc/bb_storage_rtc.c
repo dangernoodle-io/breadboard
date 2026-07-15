@@ -46,7 +46,13 @@ static bb_err_t rtc_get(void *impl, const bb_storage_addr_t *addr, void *buf, si
         size_t len = strlen(s_region.ssid);
         *out_len = len;
         if (cap > 0) {
-            memcpy(buf, s_region.ssid, len < cap ? len : cap);
+            // B1-948: NUL-terminate on the truncating branch too (cap <=
+            // len) -- the prior memcpy-only version left buf without a
+            // terminator whenever the caller's cap couldn't hold the full
+            // value, which is now LIVE on bb_nv's heal/seed recovery path.
+            size_t n = (len < cap) ? len : cap - 1;
+            memcpy(buf, s_region.ssid, n);
+            ((char *)buf)[n] = '\0';
         }
         return BB_OK;
     }
@@ -55,7 +61,10 @@ static bb_err_t rtc_get(void *impl, const bb_storage_addr_t *addr, void *buf, si
         size_t len = strlen(s_region.pass);
         *out_len = len;
         if (cap > 0) {
-            memcpy(buf, s_region.pass, len < cap ? len : cap);
+            // B1-948: same NUL-termination fix as the ssid branch above.
+            size_t n = (len < cap) ? len : cap - 1;
+            memcpy(buf, s_region.pass, n);
+            ((char *)buf)[n] = '\0';
         }
         return BB_OK;
     }

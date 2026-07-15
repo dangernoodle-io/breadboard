@@ -1,6 +1,5 @@
 #include "bb_wifi.h"
 #include "bb_settings.h"
-#include "bb_nv.h"
 #include "bb_nv_wifi_pending.h"
 #include "bb_str.h"
 #include "wifi_reconn.h"
@@ -479,7 +478,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 #if CONFIG_BB_WIFI_RECONFIGURE
         if (s_pending_try) {
             s_pending_try = false;
-            bb_nv_config_commit_wifi_pending();
+            bb_settings_wifi_pending_promote();
         }
 #endif
         bb_system_boot_count_reset();
@@ -563,8 +562,8 @@ bb_err_t bb_wifi_ensure_net_stack(void)
 typedef enum { CREDS_LIVE, CREDS_PENDING } wifi_creds_src_t;
 
 // Live-creds helpers: read directly from bb_settings, which owns the bb-
-// config wifi.ssid/wifi.pass descriptors and reads/writes the SAME NVS ns/
-// keys bb_nv_config_wifi_ssid/pass used to (byte-compat -- see bb_settings.h).
+// config wifi.ssid/wifi.pass descriptors (byte-compat with the pre-
+// relocation "bb_cfg"/wifi_ssid/wifi_pass NVS keys -- see bb_settings.h).
 // Never log the password value returned by wifi_read_pass. out_len may be
 // NULL -- bb_settings_wifi_ssid_get/_pass_get own the NULL-safety guarantee
 // (#776 CRITICAL) so callers here don't need a defensive local fallback.
@@ -582,6 +581,25 @@ static bool wifi_has_creds(void)
 {
     return bb_settings_wifi_has_creds();
 }
+
+#if CONFIG_BB_WIFI_RECONFIGURE
+// Pending-creds helpers -- read directly from bb_settings, which owns the
+// wifi.ssid_pending/wifi.pass_pending bb-config descriptors (byte-compat
+// with the pre-relocation "bb_cfg"/wifi_ssid_p/wifi_pass_p NVS keys -- see
+// bb_settings.h). Never log the password value. Unlike
+// bb_settings_wifi_pending_ssid_get/_pass_get's own NULL-safe out_len
+// guarantee, these callers never need the length back, so out_len is
+// dropped here (NULL is accepted per that guarantee).
+static void wifi_read_pending_ssid(char *buf, size_t cap)
+{
+    bb_settings_wifi_pending_ssid_get(buf, cap, NULL);
+}
+
+static void wifi_read_pending_pass(char *buf, size_t cap)
+{
+    bb_settings_wifi_pending_pass_get(buf, cap, NULL);
+}
+#endif
 
 static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms)
 {
@@ -621,8 +639,12 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms)
     wifi_config_t wifi_config = {0};
 #if CONFIG_BB_WIFI_RECONFIGURE
     if (src == CREDS_PENDING) {
-        bb_str_field((char *)wifi_config.sta.ssid, bb_nv_config_wifi_pending_ssid(), sizeof(wifi_config.sta.ssid));
-        bb_str_field((char *)wifi_config.sta.password, bb_nv_config_wifi_pending_pass(), sizeof(wifi_config.sta.password));
+        char pending_ssid[32] = {0};
+        char pending_pass[64] = {0};
+        wifi_read_pending_ssid(pending_ssid, sizeof(pending_ssid));
+        wifi_read_pending_pass(pending_pass, sizeof(pending_pass));
+        bb_str_field((char *)wifi_config.sta.ssid, pending_ssid, sizeof(wifi_config.sta.ssid));
+        bb_str_field((char *)wifi_config.sta.password, pending_pass, sizeof(wifi_config.sta.password));
     } else {
 #endif
         wifi_read_ssid((char *)wifi_config.sta.ssid, sizeof(wifi_config.sta.ssid), NULL);
@@ -838,7 +860,7 @@ bb_err_t bb_wifi_reconfigure(const char *ssid, const char *pass)
     bb_err_t err = bb_wifi_pending_validate(ssid, pass);
     if (err != BB_OK) return err;
 
-    err = bb_nv_config_set_wifi_pending(ssid, pass);
+    err = bb_settings_wifi_pending_set(ssid, pass);
     if (err != BB_OK) return err;
 
     static bb_oneshot_timer_t s_reconfig_timer = NULL;
@@ -874,7 +896,7 @@ bb_err_t bb_wifi_autoinit(void)
     // to connect with them under a bounded timeout. Success commits them as live;
     // timeout discards them and reboots onto the untouched live creds WITHOUT
     // incrementing boot_count so the device does not drift toward AP-fallback.
-    if (bb_nv_config_wifi_pending_active()) {
+    if (bb_settings_wifi_pending_active()) {
         s_pending_try = true;
         esp_err_t terr = wifi_connect_sta_ex(CREDS_PENDING,
             (uint32_t)CONFIG_BB_WIFI_PENDING_TRY_TIMEOUT_S * 1000);
@@ -883,7 +905,7 @@ bb_err_t bb_wifi_autoinit(void)
             return BB_OK;
         }
         s_pending_try = false;
-        bb_nv_config_clear_wifi_pending();
+        bb_settings_wifi_pending_clear();
         bb_log_w(TAG, "pending wifi try failed; reverting to saved network and rebooting");
         bb_system_restart_reason(BB_RESET_SRC_WIFI_PENDING_REVERT, NULL);
         // unreachable — bb_system_restart_reason does not return

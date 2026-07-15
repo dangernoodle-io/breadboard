@@ -188,6 +188,61 @@ bb_err_t bb_settings_wifi_pending_promote(void);
 // -- returns BB_OK whether or not a pending attempt was active.
 bb_err_t bb_settings_wifi_pending_clear(void);
 
+// ---------------------------------------------------------------------------
+// RTC warm-reboot mirror accessors (B1: bb_nv creds-cluster relocation --
+// bb_nv's heal/seed/factory-reset paths read and invalidate the SAME shared
+// "rtc" bb_storage backend bb_settings_wifi_set/_pending_promote already
+// mirror onto, rather than owning a private RTC region of their own).
+// ---------------------------------------------------------------------------
+
+// True iff the RTC mirror currently holds a non-empty SSID (per rtc_exists'
+// own semantics: region valid AND ssid non-empty) -- the exact gate a heal
+// or seed decision needs ("is there anything here worth reading/worth NOT
+// overwriting").
+bool bb_settings_wifi_rtc_mirror_has_creds(void);
+
+// Read the RTC-mirrored SSID. Same size-probe/truncation contract and
+// NULL-safe out_len guarantee as bb_settings_wifi_ssid_get. Neither mirror
+// field carries a has_default (matching the LIVE wifi.ssid/wifi.pass fields'
+// own contract, bb_settings_wifi_ssid_get/_pass_get) -- returns
+// BB_ERR_NOT_FOUND, not BB_OK+empty, when the mirror is empty/invalid/
+// unregistered. Callers must check bb_settings_wifi_rtc_mirror_has_creds()
+// first rather than relying on this getter's error to distinguish "empty"
+// from "unregistered backend"/other I/O failure.
+bb_err_t bb_settings_wifi_rtc_mirror_ssid_get(char *buf, size_t cap, size_t *out_len);
+
+// Read the RTC-mirrored password. Same contract (including the
+// BB_ERR_NOT_FOUND-not-BB_OK-when-empty note) as
+// bb_settings_wifi_rtc_mirror_ssid_get. SECRET -- callers must never log it.
+bb_err_t bb_settings_wifi_rtc_mirror_pass_get(char *buf, size_t cap, size_t *out_len);
+
+// True iff the RTC mirror's "provisioned" key reads back non-zero. Fail-
+// CLOSED (false) on any backend error or an invalid/unregistered mirror --
+// unlike the display/mdns/update-check flags above, a storage error here
+// must never be treated as "yes, provisioned", since this gates whether a
+// heal re-marks a recovered board as provisioned.
+bool bb_settings_wifi_rtc_mirror_provisioned_get(void);
+
+// Invalidate the RTC mirror (whole-region erase -- rtc_erase invalidates
+// regardless of which key is passed, see bb_storage_rtc). Best-effort
+// semantics are the CALLER's choice here (unlike the write paths above,
+// which are always best-effort/fail-open); this wrapper returns whatever
+// bb_storage_erase itself returns, including BB_ERR_NOT_FOUND when no "rtc"
+// backend is registered at all.
+bb_err_t bb_settings_wifi_rtc_mirror_clear(void);
+
+// Best-effort mirror of ssid/pass into the "rtc" bb_storage backend (single
+// atomic bb_config_staged commit -- ssid/pass/provisioned=1 land together or
+// not at all). Exposed publicly so callers OUTSIDE bb_settings.c (bb_nv's
+// init-time mirror-seed and provisioned-flag repack) can arm/refresh the
+// mirror without duplicating this component's field descriptors or
+// cross-backend staging precheck. pass may be NULL (treated as empty).
+// Fail-open: a missing "rtc" backend, or any backend error, is silently
+// swallowed -- the mirror is a recovery cache, never required for
+// correctness. See bb_settings_wifi_set's doc for the full crash/
+// availability contract this mirror write follows.
+void bb_settings_wifi_rtc_mirror_write(const char *ssid, const char *pass);
+
 #ifdef __cplusplus
 }
 #endif

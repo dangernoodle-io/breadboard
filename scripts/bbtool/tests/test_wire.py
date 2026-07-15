@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
 from commands.wire import WireError, collect_entries, collect_provides_entries, render_source
-from wire_graph import topo_sort
+from wire_graph import MissingProviderError, topo_sort
 
 
 def _write(path: Path, content: str = "") -> None:
@@ -243,6 +243,84 @@ class TestConsumesSetterInjection(unittest.TestCase):
             source = render_source(topo_sort(entries), provides)
             self.assertIn("__auto_type bb_app_http_handle = bb_http_start();", source)
             self.assertIn("bb_routes_register(bb_app_http_handle);", source)
+
+
+def _fixture_root_with_nv_rtc(tmp: str, bogus_provides_key: bool = False) -> Path:
+    """Mirrors the REAL bb_nv_config_init/bb_storage_rtc_register markers
+    verbatim (B1: bb_nv creds-cluster relocation, requires=storage_rtc) --
+    bb_nv "requires" the key bb_storage_rtc "provides", both tier=early.
+    bogus_provides_key=True renames the provider's key (typo'd/removed
+    provides=) to prove an unmatched requires= is a hard MissingProviderError,
+    never a silent same-order-as-input pass-through."""
+    root = Path(tmp)
+    provides_key = "storage_rtc_TYPO" if bogus_provides_key else "storage_rtc"
+    _make_component(
+        root, "bb_storage_rtc",
+        "#pragma once\n"
+        f"// bbtool:init tier=early fn=bb_storage_rtc_register provides={provides_key}\n"
+        "bb_err_t bb_storage_rtc_register(void);\n",
+    )
+    _make_component(
+        root, "bb_nv",
+        "#pragma once\n"
+        "// bbtool:init tier=early fn=bb_nv_config_init requires=storage_rtc\n"
+        "bb_err_t bb_nv_config_init(void);\n",
+    )
+    return root
+
+
+class TestNvRequiresStorageRtcHostileOrder(unittest.TestCase):
+    """B1: bb_nv creds-cluster relocation -- bb_nv_config_init's heal/seed
+    reads the shared "rtc" bb_storage backend through bb_settings, which
+    needs bb_storage_rtc_register() to have already run in the SAME early
+    tier (same-tier order is otherwise unspecified per wire_graph's own
+    docstring). Proof mirrors B1-756 PR-B's validation method: a hostile
+    parse order (the REQUIRER listed before its PROVIDER in --components)
+    must still order the provider first, and an unmatched requires= key must
+    hard-fail rather than silently falling back to input order."""
+
+    def test_hostile_parse_order_still_orders_provider_first(self):
+        """--components lists bb_nv (the requirer) BEFORE bb_storage_rtc (the
+        provider) -- the adversarial order a naive "strip the edge, order
+        unchanged" test could not catch, since bb_nv's natural real-repo
+        parse order already happens to come after bb_storage_rtc
+        alphabetically. This test inverts that natural order on purpose."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_nv_rtc(tmp)
+            entries = collect_entries(str(root), ["bb_nv", "bb_storage_rtc"], "espidf")
+            # Sanity: the hostile order is really present in parse order --
+            # otherwise this test would trivially pass without exercising
+            # the requires=/provides= edge at all.
+            self.assertEqual([e.fn for e in entries],
+                              ["bb_nv_config_init", "bb_storage_rtc_register"])
+
+            ordered = topo_sort(entries)
+            self.assertEqual([e.fn for e in ordered],
+                              ["bb_storage_rtc_register", "bb_nv_config_init"])
+
+    def test_natural_parse_order_also_orders_provider_first(self):
+        """Companion case, provider listed first -- both orders converge on
+        the same result, proving the edge (not incidental list order) drives
+        the outcome."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_nv_rtc(tmp)
+            entries = collect_entries(str(root), ["bb_storage_rtc", "bb_nv"], "espidf")
+            ordered = topo_sort(entries)
+            self.assertEqual([e.fn for e in ordered],
+                              ["bb_storage_rtc_register", "bb_nv_config_init"])
+
+    def test_bogus_provides_key_hard_fails(self):
+        """The provider's key typo'd/renamed away from what bb_nv requires --
+        MissingProviderError, never a silent fallback to parse-order (which
+        would happen to look "correct" here purely by chance, masking the
+        missing edge)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_nv_rtc(tmp, bogus_provides_key=True)
+            entries = collect_entries(str(root), ["bb_nv", "bb_storage_rtc"], "espidf")
+            with self.assertRaises(MissingProviderError) as ctx:
+                topo_sort(entries)
+            self.assertIn("storage_rtc", str(ctx.exception))
+            self.assertIn("bb_nv_config_init", str(ctx.exception))
 
 
 if __name__ == "__main__":

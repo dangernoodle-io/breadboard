@@ -12,17 +12,28 @@ config BB_STORAGE_MAX_BACKENDS
 config BB_STORAGE_TXN_MAX_KEYS
     int "Multi-key transaction slot capacity"
     default 3
+    range 3 32
     help
         Maximum number of distinct keys a single bb_storage_txn_t can stage
         (matches wifi-pending ssid/pass/try). Staging a new key once a
         transaction's slot table is full returns BB_ERR_NO_SPACE.
 
+        Floored at 3: bb_storage_rtc (components/bb_storage_rtc) stages
+        exactly 3 fixed keys (ssid/pass/provisioned) per commit -- a lower
+        cap would make its transaction path always spuriously fail with
+        BB_ERR_NO_SPACE.
+
 config BB_STORAGE_TXN_VALUE_MAX_BYTES
     int "Multi-key transaction max staged value size (bytes)"
     default 64
+    range 63 4096
     help
         Maximum size in bytes of a single value staged within a
         bb_storage_txn_t (covers a 63-byte WiFi password). A
         bb_storage_txn_set() call exceeding this returns BB_ERR_NO_SPACE.
+
+        Floored at 63: bb_storage_rtc's "pass" field allows up to 63
+        non-NUL bytes -- a lower cap would make staging a max-length WiFi
+        password through the "rtc" backend always spuriously fail.
 
 endmenu

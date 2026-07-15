@@ -27,7 +27,6 @@ bb_prov_parse_result_t bb_prov_parse_body(
 // ============================================================================
 
 #ifdef ESP_PLATFORM
-#include "bb_nv.h"
 #include "bb_http_server.h"
 #include <stdint.h>
 
