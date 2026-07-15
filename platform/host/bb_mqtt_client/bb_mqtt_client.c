@@ -9,6 +9,7 @@
 // than bb_nv's generic KV forwarder (B1-756) — see s_mqtt_uri_field below.
 #include "bb_mqtt_client.h"
 #include "bb_config.h"
+#include "bb_mqtt_client_nvs.h"
 #include "bb_mqtt_client_reassemble.h"
 #include "bb_str.h"
 
@@ -18,8 +19,8 @@
 
 #define BB_MQTT_CLIENT_HOST_PUB_CAP 32
 
-// NVS key constants (host: mirrored from espidf backend). BB_MQTT_NVS_NS is
-// the SSOT namespace constant from bb_mqtt_client.h. Declared early so the
+// NVS key constants (host: mirrored from espidf backend). BB_MQTT_CLIENT_NVS_NS
+// is owned by bb_mqtt_client (bb_mqtt_client_nvs.h). Declared early so the
 // handle struct below can size its uri[] test-observability field against it.
 #define BB_MQTT_CLIENT_URI_MAX 128
 
@@ -230,7 +231,7 @@ static bool s_stop_only  = false;   // controlled by bb_mqtt_client_host_set_sto
 static const bb_config_field_t s_mqtt_uri_field = {
     .id          = "mqtt.uri",
     .type        = BB_CONFIG_STR,
-    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = "uri" },
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_CLIENT_NVS_NS, .key = "uri" },
     .max_len     = BB_MQTT_CLIENT_URI_MAX,
     .def         = { .str = "" },
     .has_default = true,

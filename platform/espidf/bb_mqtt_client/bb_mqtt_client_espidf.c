@@ -33,7 +33,7 @@
 #include "bb_log.h"
 #include "bb_mem.h"
 #include "bb_config.h"
-#include "bb_nv_keys.h"
+#include "bb_mqtt_client_nvs.h"
 #include "bb_settings.h"
 #include "bb_wifi.h"
 #include "bb_event.h"
@@ -51,7 +51,7 @@
 
 static const char *TAG = "bb_mqtt_client";
 
-// BB_MQTT_NVS_NS is the SSOT namespace constant from bb_mqtt_client.h.
+// BB_MQTT_CLIENT_NVS_NS is owned by bb_mqtt_client (bb_mqtt_client_nvs.h), not bb_nv.
 #define BB_MQTT_CLIENT_URI_MAX       128
 #define BB_MQTT_CLIENT_ID_MAX 64
 #define BB_MQTT_CLIENT_USER_MAX      64
@@ -708,15 +708,15 @@ bb_err_t bb_mqtt_client_stop(bb_mqtt_client_t *handle_p)
 // live).  Callers that snapshot the return value must treat NULL as "suspended".
 static bb_mqtt_client_t s_auto_client = NULL;
 
-// Namespace/keys byte-for-byte matched to bb_nv's prior BB_MQTT_NVS_NS
-// ("bb_mqtt")/"enabled"/"uri"/BB_NV_KEY_CLIENT_ID("client_id")/"username"/
-// "password"/"tls" — all STR-typed decimal-flag or plain-string encodings,
-// unchanged — do not change without a migration plan, this strands
-// provisioned-board MQTT config otherwise.
+// Namespace/keys owned by bb_mqtt_client (bb_mqtt_client_nvs.h): NVS_NS
+// ("bb_mqtt")/"enabled"/"uri"/BB_MQTT_CLIENT_NVS_KEY_CLIENT_ID("client_id")/
+// "username"/"password"/"tls" — all STR-typed decimal-flag or plain-string
+// encodings, unchanged — do not change without a migration plan, this
+// strands provisioned-board MQTT config otherwise.
 static const bb_config_field_t s_mqtt_enabled_field = {
     .id          = "mqtt.enabled",
     .type        = BB_CONFIG_STR,
-    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = "enabled" },
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_CLIENT_NVS_NS, .key = "enabled" },
     .max_len     = 4,
     .def         = { .str = "0" },
     .has_default = true,
@@ -725,7 +725,7 @@ static const bb_config_field_t s_mqtt_enabled_field = {
 static const bb_config_field_t s_mqtt_uri_field = {
     .id          = "mqtt.uri",
     .type        = BB_CONFIG_STR,
-    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = "uri" },
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_CLIENT_NVS_NS, .key = "uri" },
     .max_len     = BB_MQTT_CLIENT_URI_MAX,
     .def         = { .str = "" },
     .has_default = true,
@@ -734,7 +734,7 @@ static const bb_config_field_t s_mqtt_uri_field = {
 static const bb_config_field_t s_mqtt_client_id_field = {
     .id          = "mqtt.client_id",
     .type        = BB_CONFIG_STR,
-    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = BB_NV_KEY_CLIENT_ID },
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_CLIENT_NVS_NS, .key = BB_MQTT_CLIENT_NVS_KEY_CLIENT_ID },
     .max_len     = BB_MQTT_CLIENT_ID_MAX,
     .def         = { .str = "" },
     .has_default = true,
@@ -743,7 +743,7 @@ static const bb_config_field_t s_mqtt_client_id_field = {
 static const bb_config_field_t s_mqtt_username_field = {
     .id          = "mqtt.username",
     .type        = BB_CONFIG_STR,
-    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = "username" },
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_CLIENT_NVS_NS, .key = "username" },
     .max_len     = BB_MQTT_CLIENT_USER_MAX,
     .def         = { .str = "" },
     .has_default = true,
@@ -752,7 +752,7 @@ static const bb_config_field_t s_mqtt_username_field = {
 static const bb_config_field_t s_mqtt_password_field = {
     .id          = "mqtt.password",
     .type        = BB_CONFIG_STR,
-    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = "password" },
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_CLIENT_NVS_NS, .key = "password" },
     .max_len     = BB_MQTT_CLIENT_PASS_MAX,
     .def         = { .str = "" },
     .has_default = true,
@@ -762,7 +762,7 @@ static const bb_config_field_t s_mqtt_password_field = {
 static const bb_config_field_t s_mqtt_tls_field = {
     .id          = "mqtt.tls",
     .type        = BB_CONFIG_STR,
-    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = "tls" },
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_CLIENT_NVS_NS, .key = "tls" },
     .max_len     = 4,
     .def         = { .str = "0" },
     .has_default = true,
@@ -812,7 +812,7 @@ static bb_err_t auto_client_create_from_nvs(void)
         .username  = username[0]  ? username  : NULL,
         .password  = password[0]  ? password  : NULL,
         .tls       = (tls_str[0] == '1'),
-        .creds_ns  = BB_MQTT_NVS_NS,
+        .creds_ns  = BB_MQTT_CLIENT_NVS_NS,
     };
 
     bb_err_t rc = bb_mqtt_client_init(&cfg, &s_auto_client);

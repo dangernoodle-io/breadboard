@@ -3815,6 +3815,7 @@ void test_bb_mqtt_subscribe_null_topic_returns_invalid_arg(void);
 void test_bb_mqtt_subscribe_happy_path_returns_ok(void);
 void test_bb_mqtt_host_set_subscribe_fail_forces_error(void);
 void test_bb_mqtt_host_set_subscribe_fail_can_be_cleared(void);
+void test_bb_mqtt_client_nvs_ssot_values_are_byte_identical(void);
 // Forward declarations from test_bb_mqtt_on_message.c
 void test_bb_mqtt_on_message_receives_injected_message(void);
 void test_bb_mqtt_on_message_passes_ctx(void);
@@ -8485,6 +8486,7 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_subscribe_happy_path_returns_ok);
     RUN_TEST(test_bb_mqtt_host_set_subscribe_fail_forces_error);
     RUN_TEST(test_bb_mqtt_host_set_subscribe_fail_can_be_cleared);
+    RUN_TEST(test_bb_mqtt_client_nvs_ssot_values_are_byte_identical);
     // bb_mqtt_client_on_message tests
     RUN_TEST(test_bb_mqtt_on_message_receives_injected_message);
     RUN_TEST(test_bb_mqtt_on_message_passes_ctx);
