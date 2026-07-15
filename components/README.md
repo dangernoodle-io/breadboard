@@ -47,7 +47,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_http](./bb_http/) | — |
 | [bb_http_client](./bb_http_client/) | — |
 | [bb_http_server](./bb_http_server/) | — |
-| [bb_hw](./bb_hw/) | — |
 | [bb_i2c](./bb_i2c/) | — |
 | [bb_json](./bb_json/) | — |
 | [bb_led](./bb_led/) | — |

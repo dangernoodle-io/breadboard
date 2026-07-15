@@ -166,11 +166,6 @@
       "type": "component"
     },
     {
-      "id": "bb_hw",
-      "path": "components/bb_hw",
-      "type": "component"
-    },
-    {
       "id": "bb_i2c",
       "path": "components/bb_i2c",
       "type": "component"
