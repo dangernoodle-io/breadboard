@@ -379,12 +379,10 @@ void test_nv_exists_null_key_returns_false(void)
 void test_nv_ssot_namespace_values_are_byte_identical(void)
 {
     TEST_ASSERT_EQUAL_STRING("bb_cfg",       BB_NV_CONFIG_NVS_NS);
-    TEST_ASSERT_EQUAL_STRING("bb_mqtt",      BB_MQTT_NVS_NS);
 }
 
 void test_nv_ssot_key_values_are_byte_identical(void)
 {
-    TEST_ASSERT_EQUAL_STRING("client_id",   BB_NV_KEY_CLIENT_ID);
     TEST_ASSERT_EQUAL_STRING("tls_ca",      BB_NV_KEY_TLS_CA);
     TEST_ASSERT_EQUAL_STRING("tls_cert",    BB_NV_KEY_TLS_CERT);
     TEST_ASSERT_EQUAL_STRING("tls_key",     BB_NV_KEY_TLS_KEY);

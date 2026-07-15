@@ -12,6 +12,7 @@
 #include "unity.h"
 #include "bb_mqtt_client.h"
 #include "bb_config.h"
+#include "bb_mqtt_client_nvs.h"
 #include "bb_storage.h"
 #include "fake_nvs_backend.h"
 
@@ -917,4 +918,13 @@ void test_bb_mqtt_host_set_subscribe_fail_can_be_cleared(void)
     bb_mqtt_client_destroy(h);
 }
 
-
+// Byte-identical guard (B1-949): bb_mqtt_client now owns these NVS
+// namespace/key constants internally (bb_mqtt_client_nvs.h) instead of
+// borrowing bb_nv's former BB_MQTT_NVS_NS/BB_NV_KEY_CLIENT_ID. If this test
+// ever fails, do NOT "fix" the assertion -- the constant's value changed
+// and that change must be reverted (strands provisioned-board MQTT config).
+void test_bb_mqtt_client_nvs_ssot_values_are_byte_identical(void)
+{
+    TEST_ASSERT_EQUAL_STRING("bb_mqtt",   BB_MQTT_CLIENT_NVS_NS);
+    TEST_ASSERT_EQUAL_STRING("client_id", BB_MQTT_CLIENT_NVS_KEY_CLIENT_ID);
+}
