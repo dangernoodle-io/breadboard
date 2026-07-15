@@ -124,6 +124,28 @@ void test_bb_serialize_arr_of_obj_depth_guard_bails_on_self_reference(void);
 void test_bb_serialize_unknown_type_is_noop(void);
 void test_bb_serialize_desc_find_skips_null_key_field(void);
 
+// Forward declarations from test_bb_serialize_format.c
+void test_bb_format_name_none_returns_null(void);
+void test_bb_format_name_json_returns_json(void);
+void test_bb_format_name_count_sentinel_returns_null(void);
+void test_bb_format_name_out_of_range_negative_returns_null(void);
+void test_bb_format_name_out_of_range_positive_returns_null(void);
+void test_bb_serialize_format_get_emit_miss_before_register(void);
+void test_bb_serialize_format_register_null_entry_returns_invalid_arg(void);
+void test_bb_serialize_format_register_none_returns_invalid_arg(void);
+void test_bb_serialize_format_register_out_of_range_returns_invalid_arg(void);
+void test_bb_serialize_format_register_get_emit_roundtrip(void);
+void test_bb_serialize_format_get_parse_nullable(void);
+void test_bb_serialize_format_reregister_identical_is_noop(void);
+void test_bb_serialize_format_reregister_different_backend_rejected(void);
+void test_bb_serialize_format_reregister_emit_matches_parse_differs_rejected(void);
+void test_bb_serialize_format_get_emit_none_returns_null(void);
+void test_bb_serialize_format_get_emit_out_of_range_returns_null(void);
+void test_bb_serialize_format_get_parse_none_returns_null(void);
+void test_bb_serialize_format_get_parse_out_of_range_returns_null(void);
+void test_bb_serialize_format_json_render_roundtrip_via_registry(void);
+void test_bb_serialize_json_register_format_idempotent(void);
+
 // Forward declarations from test_bb_serialize_ref.c
 void test_bb_serialize_ref_happy_path_resolves_inline(void);
 void test_bb_serialize_ref_unregistered_sibling_omits_field(void);
@@ -9324,6 +9346,28 @@ int main(void) {
     RUN_TEST(test_bb_serialize_arr_of_obj_depth_guard_bails_on_self_reference);
     RUN_TEST(test_bb_serialize_unknown_type_is_noop);
     RUN_TEST(test_bb_serialize_desc_find_skips_null_key_field);
+
+    RUN_TEST(test_bb_format_name_none_returns_null);
+    RUN_TEST(test_bb_format_name_json_returns_json);
+    RUN_TEST(test_bb_format_name_count_sentinel_returns_null);
+    RUN_TEST(test_bb_format_name_out_of_range_negative_returns_null);
+    RUN_TEST(test_bb_format_name_out_of_range_positive_returns_null);
+    RUN_TEST(test_bb_serialize_format_get_emit_miss_before_register);
+    RUN_TEST(test_bb_serialize_format_register_null_entry_returns_invalid_arg);
+    RUN_TEST(test_bb_serialize_format_register_none_returns_invalid_arg);
+    RUN_TEST(test_bb_serialize_format_register_out_of_range_returns_invalid_arg);
+    RUN_TEST(test_bb_serialize_format_register_get_emit_roundtrip);
+    RUN_TEST(test_bb_serialize_format_get_parse_nullable);
+    RUN_TEST(test_bb_serialize_format_reregister_identical_is_noop);
+    RUN_TEST(test_bb_serialize_format_reregister_different_backend_rejected);
+    RUN_TEST(test_bb_serialize_format_reregister_emit_matches_parse_differs_rejected);
+    RUN_TEST(test_bb_serialize_format_get_emit_none_returns_null);
+    RUN_TEST(test_bb_serialize_format_get_emit_out_of_range_returns_null);
+    RUN_TEST(test_bb_serialize_format_get_parse_none_returns_null);
+    RUN_TEST(test_bb_serialize_format_get_parse_out_of_range_returns_null);
+    RUN_TEST(test_bb_serialize_format_json_render_roundtrip_via_registry);
+    RUN_TEST(test_bb_serialize_json_register_format_idempotent);
+
     RUN_TEST(test_bb_serialize_ref_happy_path_resolves_inline);
     RUN_TEST(test_bb_serialize_ref_unregistered_sibling_omits_field);
     RUN_TEST(test_bb_serialize_ref_plain_walk_no_resolver_omits_field);

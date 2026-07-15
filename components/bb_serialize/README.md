@@ -8,6 +8,7 @@ Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the b
 
 <!-- BEGIN bbtool:api -->
 - [`bb_serialize.h`](include/bb_serialize.h)
+- [`bb_serialize_format.h`](include/bb_serialize_format.h)
 
 Public symbols use the `bb_` prefix.
 <!-- END bbtool:api -->
@@ -18,6 +19,8 @@ Public symbols use the `bb_` prefix.
 | Component | Kind | Role | Docs |
 |-----------|------|------|------|
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
+| `bb_log` | private | — | [bb_log](../README.md) |
+| `bb_registry` | private | — | [bb_registry](../README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support
