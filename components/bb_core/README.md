@@ -14,6 +14,7 @@ Foundational, near-zero-dep primitives every bb_* component builds on: the porta
 - [`bb_core.h`](include/bb_core.h)
 - [`bb_emit.h`](include/bb_emit.h)
 - [`bb_format.h`](include/bb_format.h)
+- [`bb_hw.h`](include/bb_hw.h)
 - [`bb_lock.h`](include/bb_lock.h)
 - [`bb_mem.h`](include/bb_mem.h)
 - [`bb_mem_test.h`](include/bb_mem_test.h)
