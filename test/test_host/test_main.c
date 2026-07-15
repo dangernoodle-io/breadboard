@@ -1199,7 +1199,7 @@ void test_bb_storage_rtc_region_null_ssid_treated_as_empty(void);
 void test_bb_storage_rtc_region_null_pass_treated_as_empty(void);
 void test_bb_storage_rtc_region_empty_ssid_is_valid_but_not_restorable(void);
 
-// Forward declarations from test_nv_wifi_pending.c
+// Forward declarations from test_wifi_pending.c
 void test_wifi_pending_decide_try0_with_ssid_returns_none(void);
 void test_wifi_pending_decide_try1_empty_ssid_returns_none(void);
 void test_wifi_pending_decide_try1_null_ssid_returns_none(void);

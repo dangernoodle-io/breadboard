@@ -478,10 +478,10 @@ bb_err_t bb_settings_wifi_pending_pass_get(char *buf, size_t cap, size_t *out_le
     return bb_config_get_str(&s_wifi_pass_p_field, buf, cap, out_len ? out_len : &len);
 }
 
-// Pure storage read of the same try!=0 AND ssid-non-empty gate bb_nv's
-// bb_wifi_pending_decide implements (components/bb_nv/bb_nv_wifi_pending.c)
-// -- reimplemented locally rather than depending on bb_nv, since bb_settings
-// is bb_nv's replacement surface here (a bb_settings -> bb_nv dependency
+// Pure storage read of the same try!=0 AND ssid-non-empty gate bb_wifi's
+// bb_wifi_pending_decide implements (components/bb_wifi/bb_wifi_pending.c)
+// -- reimplemented locally rather than depending on bb_wifi, since bb_settings
+// is bb_nv's replacement surface here (a bb_settings -> bb_wifi dependency
 // would point the wrong direction). NOT wifi policy; bb_wifi still owns the
 // decide orchestration.
 // Deliberate fail-closed: a real backend error on either read is treated

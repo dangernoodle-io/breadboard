@@ -14,7 +14,7 @@
 #include "esp_wifi.h"
 
 #if CONFIG_BB_WIFI_RECONFIGURE
-#include "bb_nv_wifi_pending.h"
+#include "bb_wifi_pending.h"
 #endif
 
 // Local buffer for the memoized /api/wifi payload copy-out.  The wifi section

@@ -1,6 +1,6 @@
 #include "bb_wifi.h"
 #include "bb_settings.h"
-#include "bb_nv_wifi_pending.h"
+#include "bb_wifi_pending.h"
 #include "bb_str.h"
 #include "wifi_reconn.h"
 #include <string.h>
