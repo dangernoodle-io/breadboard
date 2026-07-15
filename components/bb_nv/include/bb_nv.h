@@ -10,26 +10,6 @@
 extern "C" {
 #endif
 
-// requires=storage_rtc: the heal/mirror-seed logic in bb_nv_config_init
-// (platform/espidf/bb_nv/bb_nv.c) reads and writes the shared "rtc"
-// bb_storage backend through bb_settings' mirror accessors, which need
-// bb_storage_rtc_register() (provides=storage_rtc, bb_storage_rtc.h) to have
-// run first in the same EARLY tier -- same-tier ordering is otherwise
-// unspecified, and the heal reading before the backend registers means
-// bb_storage_get returns BB_ERR_NOT_FOUND with no crash and no log (the
-// RTC backup silently never fires). This edge is gated behind
-// CONFIG_BB_NV_CREDS_RTC_BACKUP at runtime (default y), but the marker
-// itself is unconditional -- codegen's marker scan has no preprocessor
-// awareness (grep-time, see wire_parse.py), same posture as every other
-// requires= edge in this codebase (e.g. bb_wifi_autoinit's requires=
-// storage_nvs).
-// bbtool:init tier=early fn=bb_nv_config_init requires=storage_rtc
-bb_err_t bb_nv_config_init(void);
-
-// Register bb_cfg NVS keys with /api/manifest.
-// bbtool:init tier=pre_http fn=bb_nv_config_manifest_init
-bb_err_t bb_nv_config_manifest_init(void);
-
 /// Thin forwarder to bb_storage_nvs_flash_init() on ESP-IDF (B1-840, bb_nv
 /// dissolution epic B1-708) — bb_nv no longer owns NVS partition bring-up.
 /// The Arduino backend keeps its own EEPROM-era no-op impl returning BB_OK.
@@ -37,6 +17,19 @@ bb_err_t bb_nv_config_manifest_init(void);
 /// (the // bbtool:init tier=early marker lives on bb_storage_nvs_register(),
 /// which now brings up the partition internally — see bb_storage_nvs.h).
 bb_err_t bb_nv_flash_init(void);
+
+/// Arduino-only EEPROM subsystem bring-up (magic-header check/write,
+/// enabling this file's generic bb_nv_set_u8/get_u8/set_str/get_str/erase
+/// forwarders) -- see platform/arduino/bb_nv/bb_nv_arduino.cpp. UNRELATED to
+/// the ESP-IDF creds-boot heal/seed shell that previously shared this name
+/// (relocated to bb_settings_creds_boot_init, B1-963/B1-708) -- the two were
+/// always distinct per-platform implementations behind one declared name
+/// (flat per-platform-TU dispatch); ESP-IDF's platform/espidf/bb_nv/bb_nv.c
+/// no longer defines this symbol at all, so calling it from ESP-IDF/host
+/// code is now a link error by design. Not a composition-root entry point
+/// (no // bbtool:init marker) -- examples/smoke's Arduino build calls it
+/// directly (see smoke_app.c).
+bb_err_t bb_nv_config_init(void);
 
 #ifndef ESP_PLATFORM
 // Test hook: clear the in-memory string store used by host bb_nv_get_str /

@@ -1,4 +1,4 @@
-// Portable smoke app — exercises bb_log, bb_nv, bb_wifi, bb_http on every
+// Portable smoke app — exercises bb_log, bb_settings, bb_wifi, bb_http on every
 // supported framework/backend. Entry shims (entry_arduino.cpp / entry_espidf.c)
 // call into smoke_app_setup() and smoke_app_loop().
 //
@@ -6,6 +6,7 @@
 // Backend selection happens via build_src_filter and build_flags.
 
 #include "bb_log.h"
+#include "bb_settings.h"
 #include "bb_nv.h"
 #include "bb_config.h"
 #include "bb_http.h"
@@ -264,7 +265,15 @@ void smoke_app_setup(void) {
         }
     }
 #endif
+#ifdef ESP_PLATFORM
+    bb_settings_creds_boot_init();  // B1-963: relocated from bb_nv_config_init
+#else
+    // Arduino: bb_nv_config_init here is the UNRELATED EEPROM subsystem
+    // bring-up (platform/arduino/bb_nv/bb_nv_arduino.cpp) -- B1-963 only
+    // relocated the ESP-IDF creds-boot heal/seed shell that happened to
+    // share this name; Arduino's own bb_nv EEPROM path is untouched.
     bb_nv_config_init();
+#endif
     bb_log_i(TAG, "boot");
 
     // === bb_led ===

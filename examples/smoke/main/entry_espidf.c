@@ -8,7 +8,7 @@
 //      bb_wifi core no longer depends on bb_ota_validator; this composes
 //      the real behavior back in at the app layer).
 //   1. bb_app_init_early() — EARLY tier, `bbtool codegen`-generated from
-//      `// bbtool:init tier=early` markers (bb_nv_config_init,
+//      `// bbtool:init tier=early` markers (bb_settings_creds_boot_init,
 //      bb_wifi_autoinit, etc.) -- DI DEMOLITION (KB decision #735):
 //      the bb_init self-registration walker is retired from this entry
 //      point (bb_init_init_early() is no longer called); generated/
@@ -16,7 +16,7 @@
 //      Call this EXACTLY ONCE -- bb_app_init() below is early+rest combined
 //      (bb_app_init_early() + bb_app_init_rest()), so calling both
 //      bb_app_init_early() and bb_app_init() here would double-fire every
-//      EARLY-tier fn (bb_storage_nvs_register, bb_nv_config_init,
+//      EARLY-tier fn (bb_storage_nvs_register, bb_settings_creds_boot_init,
 //      bb_wifi_autoinit, ...).
 //   2. bb_app_init_rest()  — PRE_HTTP tier, HTTP autostart (the
 //      provides=http_server marker on bb_http_autostart_init), then the

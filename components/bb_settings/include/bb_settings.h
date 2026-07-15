@@ -233,15 +233,42 @@ bb_err_t bb_settings_wifi_rtc_mirror_clear(void);
 
 // Best-effort mirror of ssid/pass into the "rtc" bb_storage backend (single
 // atomic bb_config_staged commit -- ssid/pass/provisioned=1 land together or
-// not at all). Exposed publicly so callers OUTSIDE bb_settings.c (bb_nv's
-// init-time mirror-seed and provisioned-flag repack) can arm/refresh the
-// mirror without duplicating this component's field descriptors or
-// cross-backend staging precheck. pass may be NULL (treated as empty).
-// Fail-open: a missing "rtc" backend, or any backend error, is silently
-// swallowed -- the mirror is a recovery cache, never required for
-// correctness. See bb_settings_wifi_set's doc for the full crash/
-// availability contract this mirror write follows.
+// not at all). Exposed publicly so callers OUTSIDE bb_settings.c (formerly
+// bb_nv's init-time mirror-seed and provisioned-flag repack, now
+// bb_settings_creds_boot_init below) can arm/refresh the mirror without
+// duplicating this component's field descriptors or cross-backend staging
+// precheck. pass may be NULL (treated as empty). Fail-open: a missing "rtc"
+// backend, or any backend error, is silently swallowed -- the mirror is a
+// recovery cache, never required for correctness. See bb_settings_wifi_set's
+// doc for the full crash/availability contract this mirror write follows.
 void bb_settings_wifi_rtc_mirror_write(const char *ssid, const char *pass);
+
+// ---------------------------------------------------------------------------
+// Creds-boot heal/seed shell + /api/manifest registration (B1-963/B1-708:
+// relocated VERBATIM from platform/espidf/bb_nv/bb_nv.c's
+// bb_nv_config_init()/bb_nv_config_manifest_init() -- the shell's own
+// delegates (bb_storage_nvs_flash_init(), the pure heal-vs-seed decision now
+// at components/bb_settings/src/bb_settings_creds_boot_decide.c, and the
+// bb_settings_wifi_* accessors above) are unchanged; only the caller moved).
+// ---------------------------------------------------------------------------
+
+// Bring up the NVS partition, then (CONFIG_BB_NV_CREDS_RTC_BACKUP-gated)
+// decide and execute the RTC-mirror heal-vs-seed action for wifi creds. ESP-
+// IDF only (a no-op returning BB_OK on host, matching bb_nv_config_init's
+// prior host stub exactly). requires=storage_rtc: this reads/writes the
+// shared "rtc" bb_storage backend via the mirror accessors above, which
+// needs bb_storage_rtc_register() (provides=storage_rtc) to have already run
+// in the same EARLY tier -- see bb_settings_creds_boot_init's implementation
+// comment (platform/host/bb_settings/bb_settings.c) for the full ordering
+// rationale, preserved verbatim from bb_nv_config_init.
+// bbtool:init tier=early fn=bb_settings_creds_boot_init requires=storage_rtc
+bb_err_t bb_settings_creds_boot_init(void);
+
+// Register the wifi_ssid/wifi_pass/provisioned NVS keys (namespace "bb_cfg")
+// with /api/manifest. Portable (no ESP-IDF deps), moved verbatim from
+// bb_nv_config_manifest_init.
+// bbtool:init tier=pre_http fn=bb_settings_creds_boot_manifest_init
+bb_err_t bb_settings_creds_boot_manifest_init(void);
 
 #ifdef __cplusplus
 }

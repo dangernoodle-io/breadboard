@@ -4,7 +4,7 @@
 #include "bb_storage_rtc.h"
 #include "bb_config.h"
 #include "fake_nvs_backend.h"
-#include "bb_nv_creds_boot_decide.h"
+#include "bb_settings_creds_boot_decide.h"
 
 #include <string.h>
 
@@ -335,11 +335,11 @@ void test_bb_settings_wifi_rtc_mirror_has_creds_false_when_empty(void)
     TEST_ASSERT_FALSE(bb_settings_wifi_rtc_mirror_has_creds());
 }
 
-// The exact "should the seed fire" gate bb_nv_config_init's mirror-seed
-// evaluates: has_creds() flips true only AFTER a write lands, proving the
-// gate this test exercises is the SAME storage state a seed call would
-// observe. Reverting bb_settings_wifi_rtc_mirror_write's provisioned=1 stage
-// (or has_creds' bb_storage_exists wrap) turns this RED.
+// The exact "should the seed fire" gate bb_settings_creds_boot_init's
+// mirror-seed evaluates: has_creds() flips true only AFTER a write lands,
+// proving the gate this test exercises is the SAME storage state a seed call
+// would observe. Reverting bb_settings_wifi_rtc_mirror_write's provisioned=1
+// stage (or has_creds' bb_storage_exists wrap) turns this RED.
 void test_bb_settings_wifi_rtc_mirror_has_creds_true_after_write(void)
 {
     reset_all();
@@ -459,16 +459,19 @@ void test_bb_settings_wifi_rtc_mirror_clear_propagates_error_when_unregistered(v
 }
 
 /* ---------------------------------------------------------------------------
- * Seed-gate integration: bb_nv_config_init's heal-vs-seed policy is a pure
- * function, bb_nv_creds_boot_decide (components/bb_nv/src/, unit-tested
- * against all 4 boolean combinations in test_bb_nv_creds_boot_decide.c).
- * These tests prove the COMPOSITION: driving that same decision function
- * with the REAL bb_settings_wifi_has_creds() / bb_settings_wifi_rtc_mirror_
- * has_creds() readers, against real bb_settings/bb_storage_rtc state, yields
- * the correct action -- not just that the precondition readers report the
- * right booleans in isolation. The decision's CALL SITE in bb_nv_config_init
- * remains ESP_PLATFORM-only (see file header comment above); only the I/O
- * that follows the decision rides on HW validation.
+ * Seed-gate integration: bb_settings_creds_boot_init's heal-vs-seed policy is
+ * a pure function, bb_settings_creds_boot_decide (components/bb_settings/
+ * src/, unit-tested against all 4 boolean combinations in
+ * test_bb_settings_creds_boot_decide.c -- moved+renamed from bb_nv's
+ * bb_nv_creds_boot_decide, B1-963/B1-708). These tests prove the
+ * COMPOSITION: driving that same decision function with the REAL
+ * bb_settings_wifi_has_creds() / bb_settings_wifi_rtc_mirror_has_creds()
+ * readers, against real bb_settings/bb_storage_rtc state, yields the correct
+ * action -- not just that the precondition readers report the right
+ * booleans in isolation. The decision's CALL SITE in
+ * bb_settings_creds_boot_init remains ESP_PLATFORM-only (see
+ * platform/host/bb_settings/bb_settings.c); only the I/O that follows the
+ * decision rides on HW validation.
  * ---------------------------------------------------------------------------*/
 void test_bb_settings_wifi_rtc_mirror_seed_gate_true_when_live_creds_and_empty_mirror(void)
 {
@@ -482,9 +485,10 @@ void test_bb_settings_wifi_rtc_mirror_seed_gate_true_when_live_creds_and_empty_m
     // never armed on a factory-flashed board pre-dating this relocation.
     TEST_ASSERT_EQUAL(BB_OK, bb_settings_wifi_rtc_mirror_clear());
 
-    bb_nv_boot_action_t action = bb_nv_creds_boot_decide(bb_settings_wifi_has_creds(),
-                                                          bb_settings_wifi_rtc_mirror_has_creds());
-    TEST_ASSERT_EQUAL(BB_NV_BOOT_SEED, action);
+    bb_settings_creds_boot_action_t action =
+        bb_settings_creds_boot_decide(bb_settings_wifi_has_creds(),
+                                       bb_settings_wifi_rtc_mirror_has_creds());
+    TEST_ASSERT_EQUAL(BB_SETTINGS_CREDS_BOOT_SEED, action);
 }
 
 void test_bb_settings_wifi_rtc_mirror_seed_gate_false_when_mirror_already_valid(void)
@@ -495,11 +499,12 @@ void test_bb_settings_wifi_rtc_mirror_seed_gate_false_when_mirror_already_valid(
     TEST_ASSERT_EQUAL(BB_OK, bb_settings_wifi_set("LiveNet", "livepass"));
     // wifi_set()'s own best-effort mirror write already armed the mirror.
 
-    bb_nv_boot_action_t action = bb_nv_creds_boot_decide(bb_settings_wifi_has_creds(),
-                                                          bb_settings_wifi_rtc_mirror_has_creds());
+    bb_settings_creds_boot_action_t action =
+        bb_settings_creds_boot_decide(bb_settings_wifi_has_creds(),
+                                       bb_settings_wifi_rtc_mirror_has_creds());
     // A correctly-gated seed must NOT fire here, never clobbering an
     // already-valid mirror (which may carry in-flight pending-try state).
-    TEST_ASSERT_EQUAL(BB_NV_BOOT_NONE, action);
+    TEST_ASSERT_EQUAL(BB_SETTINGS_CREDS_BOOT_NONE, action);
 }
 
 void test_bb_settings_wifi_rtc_mirror_seed_gate_false_when_no_live_creds(void)
@@ -507,8 +512,9 @@ void test_bb_settings_wifi_rtc_mirror_seed_gate_false_when_no_live_creds(void)
     reset_all();
     register_rtc();
 
-    bb_nv_boot_action_t action = bb_nv_creds_boot_decide(bb_settings_wifi_has_creds(),
-                                                          bb_settings_wifi_rtc_mirror_has_creds());
+    bb_settings_creds_boot_action_t action =
+        bb_settings_creds_boot_decide(bb_settings_wifi_has_creds(),
+                                       bb_settings_wifi_rtc_mirror_has_creds());
     // Nothing live to seed the mirror with -- must NOT fire.
-    TEST_ASSERT_EQUAL(BB_NV_BOOT_NONE, action);
+    TEST_ASSERT_EQUAL(BB_SETTINGS_CREDS_BOOT_NONE, action);
 }

@@ -762,17 +762,19 @@ void test_json_obj_set_null_emit_key_error(void);
 void test_json_obj_set_num_emit_key_error(void);
 
 // Forward declarations from test_nv_config.c
-void test_nv_config_init_success(void);
-void test_nv_config_wifi_ssid_empty_after_init(void);
-void test_nv_config_wifi_pass_empty_after_init(void);
 void test_nv_config_is_provisioned_stub_returns_false(void);
-void test_nv_config_init_registers_bb_cfg_keys(void);
 
-// Forward declarations from test_bb_nv_creds_boot_decide.c
-void test_bb_nv_creds_boot_decide_none_when_both_absent(void);
-void test_bb_nv_creds_boot_decide_seed_when_live_creds_and_no_mirror(void);
-void test_bb_nv_creds_boot_decide_heal_when_no_live_creds_and_valid_mirror(void);
-void test_bb_nv_creds_boot_decide_none_when_both_present(void);
+// Forward declarations from test_bb_settings_creds_boot.c
+void test_bb_settings_creds_boot_init_success(void);
+void test_bb_settings_creds_boot_wifi_ssid_empty_after_init(void);
+void test_bb_settings_creds_boot_wifi_pass_empty_after_init(void);
+void test_bb_settings_creds_boot_init_registers_bb_cfg_keys(void);
+
+// Forward declarations from test_bb_settings_creds_boot_decide.c
+void test_bb_settings_creds_boot_decide_none_when_both_absent(void);
+void test_bb_settings_creds_boot_decide_seed_when_live_creds_and_no_mirror(void);
+void test_bb_settings_creds_boot_decide_heal_when_no_live_creds_and_valid_mirror(void);
+void test_bb_settings_creds_boot_decide_none_when_both_present(void);
 
 // Forward declarations from test_bb_nv_erase_namespace.c
 void test_nv_erase_namespace_null_returns_err(void);
@@ -5630,18 +5632,22 @@ int main(void) {
     RUN_TEST(test_json_obj_set_null_emit_key_error);
     RUN_TEST(test_json_obj_set_num_emit_key_error);
 
-    // NV config tests
-    RUN_TEST(test_nv_config_init_success);
-    RUN_TEST(test_nv_config_wifi_ssid_empty_after_init);
-    RUN_TEST(test_nv_config_wifi_pass_empty_after_init);
+    // NV config tests (bb_nv_config_is_provisioned -- staying dead, B1-964)
     RUN_TEST(test_nv_config_is_provisioned_stub_returns_false);
-    RUN_TEST(test_nv_config_init_registers_bb_cfg_keys);
 
-    // bb_nv_creds_boot_decide pure-function tests
-    RUN_TEST(test_bb_nv_creds_boot_decide_none_when_both_absent);
-    RUN_TEST(test_bb_nv_creds_boot_decide_seed_when_live_creds_and_no_mirror);
-    RUN_TEST(test_bb_nv_creds_boot_decide_heal_when_no_live_creds_and_valid_mirror);
-    RUN_TEST(test_bb_nv_creds_boot_decide_none_when_both_present);
+    // bb_settings creds-boot shell + manifest tests (B1-963: relocated from
+    // bb_nv_config_init/_manifest_init)
+    RUN_TEST(test_bb_settings_creds_boot_init_success);
+    RUN_TEST(test_bb_settings_creds_boot_wifi_ssid_empty_after_init);
+    RUN_TEST(test_bb_settings_creds_boot_wifi_pass_empty_after_init);
+    RUN_TEST(test_bb_settings_creds_boot_init_registers_bb_cfg_keys);
+
+    // bb_settings_creds_boot_decide pure-function tests (B1-963: relocated
+    // from bb_nv_creds_boot_decide)
+    RUN_TEST(test_bb_settings_creds_boot_decide_none_when_both_absent);
+    RUN_TEST(test_bb_settings_creds_boot_decide_seed_when_live_creds_and_no_mirror);
+    RUN_TEST(test_bb_settings_creds_boot_decide_heal_when_no_live_creds_and_valid_mirror);
+    RUN_TEST(test_bb_settings_creds_boot_decide_none_when_both_present);
 
     // bb_nv_erase_namespace tests (B1-290)
     RUN_TEST(test_nv_erase_namespace_null_returns_err);
