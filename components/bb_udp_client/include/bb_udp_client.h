@@ -1,4 +1,9 @@
-// bb_udp_client — reusable IPv4 UDP datagram transport (ouroboros KB#702/#710).
+// bb_udp_client — reusable IPv4 UDP datagram transport.
+//
+/**
+ * @brief Reusable IPv4 UDP datagram transport (ouroboros KB#702/#710) — the
+ * datagram peer to bb_tcp_client.
+ */
 //
 // Owns the socket lifecycle, destination config (unicast host:port or local
 // broadcast), and the actual send. Framing/encoding is NOT this component's
@@ -7,7 +12,7 @@
 //
 // Usage:
 //   bb_udp_client_cfg_t cfg = { .host = "192.168.1.50", .port = 9109 };
-//   bb_udp_client_init(&cfg);   // or NULL to load NVS-backed / Kconfig config
+//   bb_udp_client_init("my_ns", &cfg);  // or NULL cfg to load NVS-backed / Kconfig config
 //   bb_udp_client_send(buf, len);
 #pragma once
 
@@ -28,14 +33,24 @@ typedef struct {
 } bb_udp_client_cfg_t;
 
 /**
- * Initialize bb_udp_client config. NVS-backed (namespace "bb_udp").
- * Pass NULL to load the persisted config (falling back to Kconfig defaults
- * when NVS is empty); pass non-NULL to override and persist `cfg`.
+ * Initialize bb_udp_client config. NVS-backed (namespace `ns`).
+ * Pass cfg_or_null = NULL to load the persisted config (NVS namespace `ns`),
+ * falling back to Kconfig defaults when NVS is empty; pass non-NULL to
+ * override host/port/broadcast and persist them under `ns`.
  *
- * @return BB_OK on success; BB_ERR_INVALID_ARG if cfg is non-NULL and
- *         cfg->host does not fit in BB_UDP_CLIENT_HOST_MAX - 1 chars.
+ * @param ns           NVS namespace to load/persist host/port/broadcast
+ *                      under. Required, borrowed (not copied — used only
+ *                      for the duration of this call), ≤15 chars (NVS
+ *                      namespace limit). NULL or empty ⇒ BB_ERR_INVALID_ARG
+ *                      (before any storage is touched). The caller/
+ *                      composition decides WHERE config lives; this
+ *                      component only declares WHAT it stores.
+ * @param cfg_or_null  Configuration, or NULL to load persisted/Kconfig defaults.
+ * @return BB_OK on success; BB_ERR_INVALID_ARG if ns is NULL/empty, or
+ *         cfg_or_null is non-NULL and cfg_or_null->host does not fit in
+ *         BB_UDP_CLIENT_HOST_MAX - 1 chars.
  */
-bb_err_t bb_udp_client_init(const bb_udp_client_cfg_t *cfg_or_null);
+bb_err_t bb_udp_client_init(const char *ns, const bb_udp_client_cfg_t *cfg_or_null);
 
 /**
  * Send `len` bytes of `buf` as one UDP datagram to the configured

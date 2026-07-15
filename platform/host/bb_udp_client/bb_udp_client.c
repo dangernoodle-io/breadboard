@@ -19,16 +19,17 @@
 static bb_udp_client_cfg_t s_cfg;
 static bool                s_initialized = false;
 
-bb_err_t bb_udp_client_init(const bb_udp_client_cfg_t *cfg_or_null)
+bb_err_t bb_udp_client_init(const char *ns, const bb_udp_client_cfg_t *cfg_or_null)
 {
+    if (!ns || ns[0] == '\0') return BB_ERR_INVALID_ARG;
     if (cfg_or_null) {
         if (strnlen(cfg_or_null->host, sizeof(cfg_or_null->host)) >= sizeof(s_cfg.host)) {
             return BB_ERR_INVALID_ARG;
         }
         s_cfg = *cfg_or_null;
-        bb_udp_client_priv_save_to_nvs(&s_cfg);
+        bb_udp_client_priv_save_to_nvs(ns, &s_cfg);
     } else {
-        bb_udp_client_priv_load_from_nvs(&s_cfg);
+        bb_udp_client_priv_load_from_nvs(ns, &s_cfg);
     }
     s_initialized = true;
     return BB_OK;
