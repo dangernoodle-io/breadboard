@@ -1,6 +1,5 @@
 #include "bb_nv.h"
 #include "bb_log.h"
-#include "bb_manifest.h"
 #include "bb_nv_namespaces.h"
 #include "bb_settings.h"
 #include "bb_str.h"
@@ -12,11 +11,8 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_attr.h"
-#include "bb_nv_creds_boot_decide.h"
 #endif
 
-#define BB_NV_KEY_WIFI_SSID         "wifi_ssid"
-#define BB_NV_KEY_WIFI_PASS         "wifi_pass"
 #define BB_NV_KEY_PROVISIONED       "provisioned"
 
 static const char *TAG_NV = "bb_nv";
@@ -28,127 +24,19 @@ static const char *TAG_NV = "bb_nv";
  * creds-cluster relocation). s_creds_restored is a plain BSS (per-boot) flag.
  * The "was NVS erased this boot" flag lives in bb_storage_nvs.c
  * (bb_storage_nvs_flash_was_erased) alongside the erase-and-retry logic it
- * tracks — see B1-840. */
+ * tracks — see B1-840.
+ *
+ * B1-963: the ONLY writer of this flag was bb_nv_config_init's HEAL branch,
+ * which has now relocated to bb_settings_creds_boot_init
+ * (platform/host/bb_settings/bb_settings.c) -- bb_nv_config_creds_restored()
+ * has zero external callers (verified before this relocation), so rather
+ * than invent a new cross-component channel for an already-dead
+ * observability signal, s_creds_restored simply stops being set here and
+ * bb_nv_config_creds_restored() now always reports false. Both the flag and
+ * its accessor are dead code awaiting bb_nv's full deletion (B1-964). */
 #ifdef ESP_PLATFORM
 static bool s_creds_restored;
-#endif
 
-static const bb_manifest_nv_t s_bb_cfg_keys[] = {
-    {
-        .key              = BB_NV_KEY_WIFI_SSID,
-        .type             = "str",
-        .default_         = NULL,
-        .max_len          = 32,
-        .desc             = "WiFi SSID",
-        .reboot_required  = true,
-        .provisioning_only = true,
-    },
-    {
-        .key              = BB_NV_KEY_WIFI_PASS,
-        .type             = "str",
-        .default_         = NULL,
-        .max_len          = 63,
-        .desc             = "WiFi password",
-        .reboot_required  = true,
-        .provisioning_only = true,
-    },
-    {
-        .key              = BB_NV_KEY_PROVISIONED,
-        .type             = "bool",
-        .default_         = "false",
-        .max_len          = 0,
-        .desc             = "Provisioning completed flag (set after first successful config save; "
-                            "pre-seed via direct NVS write to skip AP-mode boot, e.g. for "
-                            "factory flash workflows)",
-        .reboot_required  = true,
-        .provisioning_only = false,
-    },
-};
-
-#ifdef ESP_PLATFORM
-static const char *TAG = "nv_config";
-#endif
-
-bb_err_t bb_nv_config_init(void)
-{
-#ifdef ESP_PLATFORM
-    bb_err_t flash_err = bb_storage_nvs_flash_init();
-    if (flash_err != BB_OK) return flash_err;
-
-#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
-    /* The heal-vs-seed DECISION is a pure function (bb_nv_creds_boot_decide,
-     * components/bb_nv/src/) and is host-tested there -- see
-     * test/test_host/test_bb_nv_creds_boot_decide.c for all 4 input
-     * combinations plus bite-proof (RED-when-inverted) evidence. Everything
-     * below this point is the NVS/RTC-mirror I/O for whichever action came
-     * back; that I/O is espidf-only (B1-943/B1-516, coverage-invisible) and
-     * rides on HW validation, NOT host coverage -- do not read the `make
-     * coverage` gate as proof this I/O is exercised.
-     *
-     * requires=storage_rtc on this fn's // bbtool:init marker (bb_nv.h)
-     * forces bb_storage_rtc's registration to run first in the same EARLY
-     * tier -- without it, bb_settings_wifi_rtc_mirror_has_creds() would
-     * silently read BB_ERR_NOT_FOUND/false and the heal action would never
-     * be decided. */
-    bb_nv_boot_action_t action = bb_nv_creds_boot_decide(bb_settings_wifi_has_creds(),
-                                                          bb_settings_wifi_rtc_mirror_has_creds());
-
-    if (action == BB_NV_BOOT_HEAL) {
-        /* Restore: NVS has no live creds but the shared "rtc" mirror
-         * (bb_settings_wifi_rtc_mirror_*, "rtc" bb_storage backend) does --
-         * recover them by writing straight through bb_settings' live-creds
-         * writer -- a single atomic bb_config_staged commit against the SAME
-         * "bb_cfg"/wifi_ssid/wifi_pass NVS keys bb_nv used to write directly
-         * (byte-compat unaffected by this relocation, see bb_settings.h). */
-        char ssid[32] = {0};
-        char pass[64] = {0};
-        size_t ssid_len = 0, pass_len = 0;
-        bb_err_t sret = bb_settings_wifi_rtc_mirror_ssid_get(ssid, sizeof(ssid), &ssid_len);
-        bb_err_t pret = bb_settings_wifi_rtc_mirror_pass_get(pass, sizeof(pass), &pass_len);
-        if (sret == BB_OK && pret == BB_OK && ssid[0] != '\0') {
-            bb_err_t werr = bb_settings_wifi_set(ssid, pass);
-            if (werr == BB_OK) {
-                s_creds_restored = true;
-                bb_log_w(TAG, "creds restored from RTC backup");
-                if (bb_settings_wifi_rtc_mirror_provisioned_get()) {
-                    bb_nv_config_set_provisioned();
-                }
-            } else {
-                bb_log_e(TAG, "creds restore from RTC backup failed to persist: %d", (int)werr);
-            }
-        }
-    } else if (action == BB_NV_BOOT_SEED) {
-        /* Mirror-seed: proactively arm the recovery net on a freshly-flashed
-         * provisioned board, rather than lazily on the next credential
-         * write. Never overwrites an already-valid mirror (which may hold
-         * in-flight pending-try state written by
-         * bb_settings_wifi_pending_promote), and is idempotent across warm
-         * resets (a valid mirror decides NONE on every subsequent boot; this
-         * fires at most once, right after a cold boot with erased/never-
-         * armed RTC memory). */
-        char ssid[32] = {0};
-        char pass[64] = {0};
-        size_t ssid_len = 0, pass_len = 0;
-        bb_err_t sret = bb_settings_wifi_ssid_get(ssid, sizeof(ssid), &ssid_len);
-        bb_err_t pret = bb_settings_wifi_pass_get(pass, sizeof(pass), &pass_len);
-        if (sret == BB_OK && pret == BB_OK) {
-            bb_settings_wifi_rtc_mirror_write(ssid, pass);
-        }
-    }
-#endif
-
-    bb_log_i(TAG, "config loaded");
-#endif
-    return BB_OK;
-}
-
-bb_err_t bb_nv_config_manifest_init(void)
-{
-    return bb_manifest_register_nv(BB_NV_CONFIG_NVS_NS, s_bb_cfg_keys,
-                                   sizeof(s_bb_cfg_keys) / sizeof(s_bb_cfg_keys[0]));
-}
-
-#ifdef ESP_PLATFORM
 /* Thin forwarder — see bb_nv.h. The erase-and-retry logic itself now lives
  * in bb_storage_nvs_flash_init() (B1-840). */
 bb_err_t bb_nv_flash_init(void)

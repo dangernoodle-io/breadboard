@@ -8,7 +8,6 @@
 #include "esp_http_server.h"
 #include "esp_event.h"
 #include "bb_log.h"
-#include "bb_nv.h"
 #include "freertos/task.h"
 #include <stdio.h>
 #include <string.h>
