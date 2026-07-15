@@ -8,4 +8,41 @@ config BB_BOARD_AUTOREGISTER
         cores, flash size, heap, OTA state) through bb_init. Disable
         to skip the route while keeping any other bb_board API exposed.
 
+config BB_BOARD_HEAP_LOW_BYTES
+    int "Free-heap LOW threshold (bytes)"
+    default 40000
+    range 1000 1000000
+    help
+        Total free heap bytes below which the heap state transitions to LOW.
+        Applies to bb_board_heap_free_total() (PSRAM + internal on boards with
+        PSRAM; internal-only on boards without). Tune down on boards with PSRAM
+        where total free can be hundreds of KB. Moved from bb_net_health
+        (net_health teardown PR-C); a saved sdkconfig override of the old
+        BB_NET_HEALTH_HEAP_LOW_BYTES name silently reverts to this default.
+
+config BB_BOARD_HEAP_CRITICAL_BYTES
+    int "Free-heap CRITICAL threshold (bytes)"
+    default 20000
+    range 1000 1000000
+    help
+        Total free heap bytes below which the heap state transitions to
+        CRITICAL. Must be less than BB_BOARD_HEAP_LOW_BYTES. Moved from
+        bb_net_health (net_health teardown PR-C); a saved sdkconfig override
+        of the old BB_NET_HEALTH_HEAP_CRITICAL_BYTES name silently reverts to
+        this default.
+
+config BB_BOARD_HEAP_TRACE
+    bool "Emit HEAPTRACE log line each net-health eval cycle"
+    default n
+    help
+        When enabled, bb_net_health's evaluator emits one
+        bb_log_i(TAG, "HEAPTRACE ...") line every BB_NET_HEALTH_EVAL_PERIOD_S
+        seconds with: uptime, global free/min/largest block, heap state
+        bucket, and bb_mem accounting counters. Requires BB_MEM_STATS_ENABLE
+        to populate the m_* fields; they will be zero otherwise (stats still
+        disabled independently). Default OFF — zero runtime cost when
+        disabled. Moved from bb_net_health (net_health teardown PR-C); a
+        saved sdkconfig override of the old BB_NET_HEALTH_HEAP_TRACE name
+        silently reverts to this default.
+
 endmenu
