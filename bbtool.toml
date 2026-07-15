@@ -142,7 +142,7 @@ components = [
     "bb_power_tps546", "bb_prov",
     "bb_queue",
     "bb_registry", "bb_release_manifest", "bb_response",
-    "bb_scalar", "bb_sensors", "bb_serialize", "bb_serialize_json", "bb_settings",
+    "bb_scalar", "bb_sensors", "bb_serialize", "bb_serialize_console", "bb_serialize_json", "bb_settings",
     "bb_sse_writer",
     "bb_storage", "bb_storage_http", "bb_storage_ram", "bb_storage_rtc",
     "bb_str", "bb_system", "bb_task", "bb_task_registry",
@@ -209,7 +209,7 @@ components = [
     "bb_net_health", "bb_mem_arena", "bb_pool", "bb_udp_frame", "bb_udp_client",
     "bb_dispatch_cmd", "bb_meminfo", "bb_timer", "bb_config",
     "bb_storage_nvs", "bb_storage_http", "bb_storage_rtc", "bb_bqueue",
-    "bb_fsm", "bb_lifecycle", "bb_tcp_client",
+    "bb_fsm", "bb_lifecycle", "bb_tcp_client", "bb_serialize_console",
 ]
 
 # Real smoke espidf boards -- the board id IS the literal FIRMWARE_BOARD

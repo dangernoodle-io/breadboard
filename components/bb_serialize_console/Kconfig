@@ -1,0 +1,15 @@
+menu "breadboard: bb_serialize_console"
+
+config BB_SERIALIZE_CONSOLE_LINE_MAX_BYTES
+    int "Stack line-buffer size (bytes) for console heap-report rendering"
+    default 160
+    range 64 512
+    help
+        Size of the on-stack line buffer bb_serialize_console_heap_report()
+        uses to render a heap snapshot as a single human-readable
+        "key=val key=val" line before logging it via bb_log_i(). A
+        tuning/instrumentation knob, not a composition toggle -- overflow
+        truncates the line (snprintf semantics, safe and NUL-terminated)
+        rather than failing.
+
+endmenu

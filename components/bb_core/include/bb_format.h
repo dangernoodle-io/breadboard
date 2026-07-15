@@ -15,6 +15,7 @@ extern "C" {
 typedef enum {
     BB_FORMAT_NONE = 0,  // recording/test emit, no wire format
     BB_FORMAT_JSON,      // PR-2 bb_serialize_json backend
+    BB_FORMAT_CONSOLE,   // B1-833 bb_serialize_console backend
     BB_FORMAT__COUNT,    // sentinel -- not a real format; array/table sizing only
 } bb_format_t;
 
