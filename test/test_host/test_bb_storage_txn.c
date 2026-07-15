@@ -49,6 +49,7 @@ static int      s_txn_log_count;
 static int      s_txn_begin_calls;
 static int      s_txn_commit_calls;
 static int      s_txn_abort_calls;
+static int      s_txn_set_calls;
 static bool     s_txn_fail_second_set;
 
 static void fake_txn_reset(void)
@@ -58,6 +59,7 @@ static void fake_txn_reset(void)
     s_txn_begin_calls   = 0;
     s_txn_commit_calls  = 0;
     s_txn_abort_calls   = 0;
+    s_txn_set_calls     = 0;
     s_txn_fail_second_set = false;
 }
 
@@ -73,6 +75,7 @@ static bb_err_t fake_txn_set(void *impl, bb_storage_txn_t *txn, const char *key,
                               const void *buf, size_t len)
 {
     (void)impl; (void)txn; (void)enc; (void)buf; (void)len;
+    s_txn_set_calls++;
     if (s_txn_fail_second_set && s_txn_log_count == 1) {
         return BB_ERR_NO_SPACE;
     }
@@ -195,6 +198,28 @@ void test_bb_storage_txn_commit_returns_sticky_error_from_failed_set(void)
 }
 
 /* ---------------------------------------------------------------------------
+ * 5b. A THIRD set() after the txn is already poisoned (sticky _err set by a
+ * prior failed set) short-circuits at the facade -- returns the sticky
+ * error WITHOUT dispatching to the backend again (proves bb_storage_txn_set
+ * never re-calls a backend it already knows has failed).
+ * ---------------------------------------------------------------------------*/
+void test_bb_storage_txn_set_after_poisoned_short_circuits_backend_dispatch(void)
+{
+    reset_all();
+    register_fake_txn_backend();
+    s_txn_fail_second_set = true;
+
+    bb_storage_txn_t txn = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn));
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "k1", BB_STORAGE_ENC_STR, "a", 1));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_storage_txn_set(&txn, "k2", BB_STORAGE_ENC_STR, "b", 1));
+    TEST_ASSERT_EQUAL(2, s_txn_set_calls);
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_storage_txn_set(&txn, "k3", BB_STORAGE_ENC_STR, "c", 1));
+    TEST_ASSERT_EQUAL(2, s_txn_set_calls); /* unchanged -- never reached the backend */
+}
+
+/* ---------------------------------------------------------------------------
  * 6. set/commit/abort on never-begun or already-closed txn.
  * ---------------------------------------------------------------------------*/
 void test_bb_storage_txn_set_on_never_begun_txn_returns_invalid_state(void)
@@ -299,4 +324,32 @@ void test_bb_storage_txn_abort_null_returns_invalid_arg(void)
 {
     reset_all();
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_txn_abort(NULL));
+}
+
+/* ---------------------------------------------------------------------------
+ * bb_storage_txn_slot_stage -- the shared buffering-model slot-staging
+ * helper backends call from their own txn_set (see bb_storage.h). Direct
+ * NULL/oversized-key coverage here: a real backend (ram/rtc) runs its own
+ * key validation/classification BEFORE calling this helper, so these
+ * defensive branches are unreachable through either backend's own txn_set
+ * path -- exercised directly against the helper instead.
+ * ---------------------------------------------------------------------------*/
+void test_bb_storage_txn_slot_stage_null_args_return_invalid_arg(void)
+{
+    bb_storage_txn_t txn = {0};
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                       bb_storage_txn_slot_stage(NULL, "k", BB_STORAGE_ENC_STR, "a", 1));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                       bb_storage_txn_slot_stage(&txn, NULL, BB_STORAGE_ENC_STR, "a", 1));
+}
+
+void test_bb_storage_txn_slot_stage_key_too_long_returns_invalid_arg(void)
+{
+    bb_storage_txn_t txn = {0};
+    char long_key[BB_STORAGE_TXN_KEY_MAX_BYTES + 1];
+    memset(long_key, 'k', sizeof(long_key) - 1);
+    long_key[sizeof(long_key) - 1] = '\0';
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                       bb_storage_txn_slot_stage(&txn, long_key, BB_STORAGE_ENC_STR, "a", 1));
 }

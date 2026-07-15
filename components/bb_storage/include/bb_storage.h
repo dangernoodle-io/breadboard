@@ -162,6 +162,19 @@ typedef struct {
     // "erase all" op, so no fallback is offered here either.
     bb_err_t (*erase_namespace)(void *impl, const char *ns_or_dir);
 
+    // Optional (single member) — NULL means the backend does not support a
+    // whole-PARTITION/whole-BACKEND erase. Fail-closed EXACTLY like
+    // erase_namespace above: bb_storage_erase_all() returns
+    // BB_ERR_UNSUPPORTED for a backend that leaves this NULL rather than
+    // silently no-op'ing the most destructive request this facade exposes.
+    // Broader than erase_namespace (which scopes to one ns_or_dir) — this
+    // wipes every namespace/key the backend holds, e.g. the NVS backend's
+    // whole-partition nvs_flash_erase(). No fallback is offered for the same
+    // reason erase_namespace has none: there is no safe generic way to
+    // enumerate and erase everything a backend holds without a
+    // backend-native "erase all" op.
+    bb_err_t (*erase_all)(void *impl);
+
     // Optional pair — both NULL or both set (validated at registration).
     bb_err_t (*get_typed)(void *impl, const bb_storage_addr_t *addr, bb_storage_enc_t enc,
                            void *buf, size_t cap, size_t *out_len);
@@ -241,6 +254,17 @@ bb_err_t bb_storage_erase(const bb_storage_addr_t *addr);
 //                         erase (vtable erase_namespace is NULL) — never a
 //                         silent no-op on a destructive request
 bb_err_t bb_storage_erase_namespace(const char *backend, const char *ns_or_dir);
+
+// Erase EVERYTHING `backend` holds (every namespace/key) — broader than
+// bb_storage_erase_namespace, which scopes to one ns_or_dir. Idempotent.
+// Returns:
+//   BB_OK                 erased (or already empty)
+//   BB_ERR_INVALID_ARG    backend is NULL
+//   BB_ERR_NOT_FOUND      no backend registered under `backend`
+//   BB_ERR_UNSUPPORTED    the backend does not implement whole-backend erase
+//                         (vtable erase_all is NULL) — never a silent no-op
+//                         on a destructive request
+bb_err_t bb_storage_erase_all(const char *backend);
 
 // Returns true iff a value is currently stored at addr. false for a NULL
 // addr, a NULL addr->backend, or an unknown backend name — never a crash.

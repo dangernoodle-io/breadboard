@@ -197,6 +197,15 @@ bb_err_t bb_storage_nvs_erase(const char *ns, const char *key);
 // yet is treated as already-clean (BB_OK), not an error.
 bb_err_t bb_storage_nvs_erase_namespace(const char *ns);
 
+// Erase the ENTIRE NVS partition (every namespace). Moved verbatim from
+// platform/espidf/bb_nv/bb_nv.c's bb_nv_config_factory_reset() (B1-960,
+// bb_nv dissolution epic B1-708) — the caller (bb_storage_http's
+// POST /api/diag/factory-reset route) is responsible for the RTC-mirror
+// invalidation and reboot-record steps that used to live alongside this
+// call in bb_nv_config_factory_reset(); this function does ONLY the
+// partition erase.
+bb_err_t bb_storage_nvs_erase_all(void);
+
 // Returns true if the key exists in the given namespace and its stored
 // value is non-empty (length > 1 including NUL).
 bool bb_storage_nvs_exists(const char *ns, const char *key);

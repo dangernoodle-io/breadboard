@@ -774,19 +774,6 @@ void test_bb_nv_creds_boot_decide_seed_when_live_creds_and_no_mirror(void);
 void test_bb_nv_creds_boot_decide_heal_when_no_live_creds_and_valid_mirror(void);
 void test_bb_nv_creds_boot_decide_none_when_both_present(void);
 
-// Forward declarations from test_bb_nv_factory_reset.c
-void test_nv_factory_reset_invalidates_rtc_mirror(void);
-void test_nv_factory_reset_returns_ok_after_reinit(void);
-void test_nv_factory_reset_ok_when_rtc_backend_unregistered(void);
-#if CONFIG_BB_NV_FACTORY_RESET
-void test_nv_factory_reset_route_no_body_returns_400(void);
-void test_nv_factory_reset_route_wrong_confirm_returns_400(void);
-void test_nv_factory_reset_route_missing_confirm_field_returns_400(void);
-void test_nv_factory_reset_route_invalid_json_returns_400(void);
-void test_nv_factory_reset_route_valid_confirm_returns_202(void);
-void test_nv_factory_reset_route_oversized_body_returns_400(void);
-#endif /* CONFIG_BB_NV_FACTORY_RESET */
-
 // Forward declarations from test_bb_nv_erase_namespace.c
 void test_nv_erase_namespace_null_returns_err(void);
 void test_nv_erase_namespace_removes_all_keys(void);
@@ -814,6 +801,18 @@ void test_storage_delete_unknown_backend_returns_500(void);
 void test_storage_delete_backend_without_erase_namespace_returns_501(void);
 void test_storage_delete_explicit_backend_selects_correct_backend(void);
 void test_storage_delete_key_not_found_still_returns_200(void);
+
+// Forward declarations from test_bb_storage_http_factory_reset.c
+void test_storage_http_factory_reset_no_body_returns_400(void);
+void test_storage_http_factory_reset_wrong_confirm_returns_400(void);
+void test_storage_http_factory_reset_missing_confirm_field_returns_400(void);
+void test_storage_http_factory_reset_invalid_json_returns_400(void);
+void test_storage_http_factory_reset_oversized_body_returns_400(void);
+void test_storage_http_factory_reset_valid_confirm_returns_202(void);
+void test_storage_http_factory_reset_erase_all_dispatched_to_backend(void);
+void test_storage_http_factory_reset_clears_rtc_creds_mirror(void);
+void test_storage_http_factory_reset_backend_without_erase_all_returns_501(void);
+void test_storage_http_factory_reset_erase_all_generic_failure_returns_500(void);
 
 // Forward declarations from test_dispatch_api.c
 void test_dispatch_api_add_and_lookup_hit(void);
@@ -868,6 +867,9 @@ void test_bb_storage_erase_namespace_null_backend_returns_invalid_arg(void);
 void test_bb_storage_erase_namespace_null_ns_returns_invalid_arg(void);
 void test_bb_storage_erase_namespace_unknown_backend_returns_not_found(void);
 void test_bb_storage_erase_namespace_ram_backend_returns_unsupported(void);
+void test_bb_storage_erase_all_null_backend_returns_invalid_arg(void);
+void test_bb_storage_erase_all_unknown_backend_returns_not_found(void);
+void test_bb_storage_erase_all_ram_backend_returns_unsupported(void);
 void test_bb_storage_get_missing_key_returns_not_found(void);
 void test_bb_storage_get_buffer_too_small_reports_full_len(void);
 void test_bb_storage_get_zero_cap_probes_length(void);
@@ -1036,6 +1038,7 @@ void test_bb_storage_txn_begin_unknown_backend_returns_not_found(void);
 void test_bb_storage_register_backend_partial_txn_group_returns_invalid_arg(void);
 void test_bb_storage_txn_commit_stages_both_keys_in_order(void);
 void test_bb_storage_txn_commit_returns_sticky_error_from_failed_set(void);
+void test_bb_storage_txn_set_after_poisoned_short_circuits_backend_dispatch(void);
 void test_bb_storage_txn_set_on_never_begun_txn_returns_invalid_state(void);
 void test_bb_storage_txn_set_on_already_closed_txn_returns_invalid_state(void);
 void test_bb_storage_txn_abort_on_never_begun_txn_is_safe(void);
@@ -1046,6 +1049,8 @@ void test_bb_storage_txn_commit_null_returns_invalid_arg(void);
 void test_bb_storage_txn_abort_null_returns_invalid_arg(void);
 void test_bb_storage_txn_double_commit_returns_invalid_state(void);
 void test_bb_storage_txn_commit_never_begun_returns_invalid_state(void);
+void test_bb_storage_txn_slot_stage_null_args_return_invalid_arg(void);
+void test_bb_storage_txn_slot_stage_key_too_long_returns_invalid_arg(void);
 
 // Forward declarations from test_bb_storage_ram_txn.c
 void test_bb_storage_ram_txn_commit_makes_both_keys_visible(void);
@@ -5638,19 +5643,6 @@ int main(void) {
     RUN_TEST(test_bb_nv_creds_boot_decide_heal_when_no_live_creds_and_valid_mirror);
     RUN_TEST(test_bb_nv_creds_boot_decide_none_when_both_present);
 
-    // NV factory reset tests (B1-260)
-    RUN_TEST(test_nv_factory_reset_invalidates_rtc_mirror);
-    RUN_TEST(test_nv_factory_reset_returns_ok_after_reinit);
-    RUN_TEST(test_nv_factory_reset_ok_when_rtc_backend_unregistered);
-#if CONFIG_BB_NV_FACTORY_RESET
-    RUN_TEST(test_nv_factory_reset_route_no_body_returns_400);
-    RUN_TEST(test_nv_factory_reset_route_wrong_confirm_returns_400);
-    RUN_TEST(test_nv_factory_reset_route_missing_confirm_field_returns_400);
-    RUN_TEST(test_nv_factory_reset_route_invalid_json_returns_400);
-    RUN_TEST(test_nv_factory_reset_route_valid_confirm_returns_202);
-    RUN_TEST(test_nv_factory_reset_route_oversized_body_returns_400);
-#endif /* CONFIG_BB_NV_FACTORY_RESET */
-
     // bb_nv_erase_namespace tests (B1-290)
     RUN_TEST(test_nv_erase_namespace_null_returns_err);
     RUN_TEST(test_nv_erase_namespace_removes_all_keys);
@@ -5678,6 +5670,18 @@ int main(void) {
     RUN_TEST(test_storage_delete_backend_without_erase_namespace_returns_501);
     RUN_TEST(test_storage_delete_explicit_backend_selects_correct_backend);
     RUN_TEST(test_storage_delete_key_not_found_still_returns_200);
+
+    // POST /api/diag/factory-reset route tests (B1-960, rehomed off bb_nv)
+    RUN_TEST(test_storage_http_factory_reset_no_body_returns_400);
+    RUN_TEST(test_storage_http_factory_reset_wrong_confirm_returns_400);
+    RUN_TEST(test_storage_http_factory_reset_missing_confirm_field_returns_400);
+    RUN_TEST(test_storage_http_factory_reset_invalid_json_returns_400);
+    RUN_TEST(test_storage_http_factory_reset_oversized_body_returns_400);
+    RUN_TEST(test_storage_http_factory_reset_valid_confirm_returns_202);
+    RUN_TEST(test_storage_http_factory_reset_erase_all_dispatched_to_backend);
+    RUN_TEST(test_storage_http_factory_reset_clears_rtc_creds_mirror);
+    RUN_TEST(test_storage_http_factory_reset_backend_without_erase_all_returns_501);
+    RUN_TEST(test_storage_http_factory_reset_erase_all_generic_failure_returns_500);
 
     // NV creds mirror tests
     RUN_TEST(test_bb_storage_rtc_region_pack_valid_roundtrip);
@@ -8091,6 +8095,9 @@ int main(void) {
     RUN_TEST(test_bb_storage_erase_namespace_null_ns_returns_invalid_arg);
     RUN_TEST(test_bb_storage_erase_namespace_unknown_backend_returns_not_found);
     RUN_TEST(test_bb_storage_erase_namespace_ram_backend_returns_unsupported);
+    RUN_TEST(test_bb_storage_erase_all_null_backend_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_erase_all_unknown_backend_returns_not_found);
+    RUN_TEST(test_bb_storage_erase_all_ram_backend_returns_unsupported);
     RUN_TEST(test_bb_storage_get_missing_key_returns_not_found);
     RUN_TEST(test_bb_storage_get_buffer_too_small_reports_full_len);
     RUN_TEST(test_bb_storage_get_zero_cap_probes_length);
@@ -8328,6 +8335,7 @@ int main(void) {
     RUN_TEST(test_bb_storage_register_backend_partial_txn_group_returns_invalid_arg);
     RUN_TEST(test_bb_storage_txn_commit_stages_both_keys_in_order);
     RUN_TEST(test_bb_storage_txn_commit_returns_sticky_error_from_failed_set);
+    RUN_TEST(test_bb_storage_txn_set_after_poisoned_short_circuits_backend_dispatch);
     RUN_TEST(test_bb_storage_txn_set_on_never_begun_txn_returns_invalid_state);
     RUN_TEST(test_bb_storage_txn_set_on_already_closed_txn_returns_invalid_state);
     RUN_TEST(test_bb_storage_txn_abort_on_never_begun_txn_is_safe);
@@ -8338,6 +8346,8 @@ int main(void) {
     RUN_TEST(test_bb_storage_txn_abort_null_returns_invalid_arg);
     RUN_TEST(test_bb_storage_txn_double_commit_returns_invalid_state);
     RUN_TEST(test_bb_storage_txn_commit_never_begun_returns_invalid_state);
+    RUN_TEST(test_bb_storage_txn_slot_stage_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_storage_txn_slot_stage_key_too_long_returns_invalid_arg);
 
     // bb_storage_txn_* tests against the real ram backend
     RUN_TEST(test_bb_storage_ram_txn_commit_makes_both_keys_visible);
