@@ -8,6 +8,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_core/bb_lock_stats.c"
         "${CMAKE_CURRENT_LIST_DIR}/src/bb_reboot_reason.c"
         "${CMAKE_CURRENT_LIST_DIR}/src/bb_lock_cond_waiterlist.c"
+        "${CMAKE_CURRENT_LIST_DIR}/src/bb_format.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_core" "${CMAKE_CURRENT_LIST_DIR}/src"
     PRIV_REQUIRES esp_timer freertos

@@ -5,6 +5,7 @@
 
 #include "bb_serialize_json.h"
 
+#include <assert.h>
 #include <math.h>
 #include <string.h>
 
@@ -222,9 +223,21 @@ static void bb_json_pre_value(bb_serialize_json_ctx_t *ctx, const char *key)
 // bb_serialize_emit_t callbacks
 // ---------------------------------------------------------------------------
 
+// bb_serialize_json_register_format() registers a ctx-less template vtable
+// (ctx == NULL) into the format-dispatch registry -- a lookup caller MUST
+// copy the template and bind a real ctx before walking it (see
+// bb_serialize_format.h). vctx == NULL here means an unbound template was
+// walked directly, a composition bug upstream (fail loud, never NULL-deref
+// into ctx->depth/ctx->stack below).
+static bb_serialize_json_ctx_t *bb_json_cb_ctx(void *vctx)
+{
+    assert(vctx != NULL && "bb_serialize_json emit callback invoked with NULL ctx -- unbound template walked directly");  // LCOV_EXCL_BR_LINE -- abort branch untestable, no death-test harness
+    return (bb_serialize_json_ctx_t *)vctx;
+}
+
 static void bb_json_cb_begin_obj(void *vctx, const char *key)
 {
-    bb_serialize_json_ctx_t *ctx = (bb_serialize_json_ctx_t *)vctx;
+    bb_serialize_json_ctx_t *ctx = bb_json_cb_ctx(vctx);
     bb_json_pre_value(ctx, key);
     bb_json_putc(ctx, '{');
     bb_json_push_level(ctx, false);
@@ -232,14 +245,14 @@ static void bb_json_cb_begin_obj(void *vctx, const char *key)
 
 static void bb_json_cb_end_obj(void *vctx)
 {
-    bb_serialize_json_ctx_t *ctx = (bb_serialize_json_ctx_t *)vctx;
+    bb_serialize_json_ctx_t *ctx = bb_json_cb_ctx(vctx);
     bb_json_putc(ctx, '}');
     bb_json_pop_level(ctx);
 }
 
 static void bb_json_cb_begin_arr(void *vctx, const char *key)
 {
-    bb_serialize_json_ctx_t *ctx = (bb_serialize_json_ctx_t *)vctx;
+    bb_serialize_json_ctx_t *ctx = bb_json_cb_ctx(vctx);
     bb_json_pre_value(ctx, key);
     bb_json_putc(ctx, '[');
     bb_json_push_level(ctx, true);
@@ -247,35 +260,35 @@ static void bb_json_cb_begin_arr(void *vctx, const char *key)
 
 static void bb_json_cb_end_arr(void *vctx)
 {
-    bb_serialize_json_ctx_t *ctx = (bb_serialize_json_ctx_t *)vctx;
+    bb_serialize_json_ctx_t *ctx = bb_json_cb_ctx(vctx);
     bb_json_putc(ctx, ']');
     bb_json_pop_level(ctx);
 }
 
 static void bb_json_cb_emit_i64(void *vctx, const char *key, int64_t v)
 {
-    bb_serialize_json_ctx_t *ctx = (bb_serialize_json_ctx_t *)vctx;
+    bb_serialize_json_ctx_t *ctx = bb_json_cb_ctx(vctx);
     bb_json_pre_value(ctx, key);
     bb_json_write_i64(ctx, v);
 }
 
 static void bb_json_cb_emit_u64(void *vctx, const char *key, uint64_t v)
 {
-    bb_serialize_json_ctx_t *ctx = (bb_serialize_json_ctx_t *)vctx;
+    bb_serialize_json_ctx_t *ctx = bb_json_cb_ctx(vctx);
     bb_json_pre_value(ctx, key);
     bb_json_write_u64(ctx, v);
 }
 
 static void bb_json_cb_emit_f64(void *vctx, const char *key, double v)
 {
-    bb_serialize_json_ctx_t *ctx = (bb_serialize_json_ctx_t *)vctx;
+    bb_serialize_json_ctx_t *ctx = bb_json_cb_ctx(vctx);
     bb_json_pre_value(ctx, key);
     bb_json_write_f64(ctx, v);
 }
 
 static void bb_json_cb_emit_bool(void *vctx, const char *key, bool v)
 {
-    bb_serialize_json_ctx_t *ctx = (bb_serialize_json_ctx_t *)vctx;
+    bb_serialize_json_ctx_t *ctx = bb_json_cb_ctx(vctx);
     bb_json_pre_value(ctx, key);
     if (v) {
         bb_json_put(ctx, "true", 4);
@@ -286,7 +299,7 @@ static void bb_json_cb_emit_bool(void *vctx, const char *key, bool v)
 
 static void bb_json_cb_emit_str(void *vctx, const char *key, const char *s, size_t len)
 {
-    bb_serialize_json_ctx_t *ctx = (bb_serialize_json_ctx_t *)vctx;
+    bb_serialize_json_ctx_t *ctx = bb_json_cb_ctx(vctx);
     bb_json_pre_value(ctx, key);
     bb_json_putc(ctx, '"');
     bb_json_escape_write(ctx, s, len);
@@ -295,7 +308,7 @@ static void bb_json_cb_emit_str(void *vctx, const char *key, const char *s, size
 
 static void bb_json_cb_emit_null(void *vctx, const char *key)
 {
-    bb_serialize_json_ctx_t *ctx = (bb_serialize_json_ctx_t *)vctx;
+    bb_serialize_json_ctx_t *ctx = bb_json_cb_ctx(vctx);
     bb_json_pre_value(ctx, key);
     bb_json_put(ctx, "null", 4);
 }
