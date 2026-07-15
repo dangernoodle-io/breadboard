@@ -35,14 +35,14 @@ extern "C" {
 #endif
 
 /**
- * Load bb_udp_client_cfg_t from NVS namespace "bb_udp", falling back to
- * Kconfig defaults (CONFIG_BB_UDP_PORT / CONFIG_BB_UDP_BROADCAST) for any
- * unset key.
+ * Load bb_udp_client_cfg_t from NVS namespace `ns`, falling back to Kconfig
+ * defaults (CONFIG_BB_UDP_PORT / CONFIG_BB_UDP_BROADCAST) for any unset key.
+ * `ns` is borrowed — used only for the duration of this call.
  */
-void bb_udp_client_priv_load_from_nvs(bb_udp_client_cfg_t *out);
+void bb_udp_client_priv_load_from_nvs(const char *ns, bb_udp_client_cfg_t *out);
 
-/** Persist bb_udp_client_cfg_t to NVS namespace "bb_udp". */
-void bb_udp_client_priv_save_to_nvs(const bb_udp_client_cfg_t *cfg);
+/** Persist bb_udp_client_cfg_t to NVS namespace `ns` (borrowed). */
+void bb_udp_client_priv_save_to_nvs(const char *ns, const bb_udp_client_cfg_t *cfg);
 
 #ifdef __cplusplus
 }
