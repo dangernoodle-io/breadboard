@@ -2,7 +2,24 @@
 #include "bb_nv.h"
 #include "bb_manifest.h"
 #include "bb_json.h"
+#include "bb_settings.h"
+#include "bb_storage.h"
+#include "fake_nvs_backend.h"
 #include <string.h>
+
+// bb_nv no longer caches wifi creds in-RAM (moved to bb_settings' storage
+// layer entirely, B1: bb_nv creds-cluster relocation) -- bb_nv_config_init's
+// host build is now a pure no-op (its whole body is #ifdef ESP_PLATFORM).
+// "empty after init" now means: with no creds ever written, bb_settings'
+// own accessors report none -- register the fake "nvs" backend the same way
+// test_bb_settings.c does, for isolation from whatever backend state a prior
+// test in the suite left registered.
+static void reset_storage(void)
+{
+    bb_storage_test_reset();
+    fake_nvs_reset();
+    bb_storage_register_backend("nvs", &s_fake_nvs_vtable, NULL);
+}
 
 void test_nv_config_init_success(void)
 {
@@ -12,18 +29,22 @@ void test_nv_config_init_success(void)
 
 void test_nv_config_wifi_ssid_empty_after_init(void)
 {
+    reset_storage();
     bb_nv_config_init();
-    const char *ssid = bb_nv_config_wifi_ssid();
-    TEST_ASSERT_NOT_NULL(ssid);
-    TEST_ASSERT_EQUAL_STRING("", ssid);
+    TEST_ASSERT_FALSE(bb_settings_wifi_has_creds());
 }
 
 void test_nv_config_wifi_pass_empty_after_init(void)
 {
+    reset_storage();
     bb_nv_config_init();
-    const char *pass = bb_nv_config_wifi_pass();
-    TEST_ASSERT_NOT_NULL(pass);
-    TEST_ASSERT_EQUAL_STRING("", pass);
+    // The live wifi.pass field has no has_default -- an unset key propagates
+    // bb_storage's own BB_ERR_NOT_FOUND (bb_settings_wifi_has_creds is the
+    // accessor with fail-closed-to-"no creds" semantics; a raw get here
+    // surfaces the underlying not-found instead of masking it).
+    char pass[70] = {0};
+    size_t len = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_settings_wifi_pass_get(pass, sizeof(pass), &len));
 }
 
 void test_nv_config_is_provisioned_stub_returns_false(void)

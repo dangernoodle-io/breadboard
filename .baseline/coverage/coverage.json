@@ -921,72 +921,7 @@
       "type": "uncovered_line"
     },
     {
-      "id": "199",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "229",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "232",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "247",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "257",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "319",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "330",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "332",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "335",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "338",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "341",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "343",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "346",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "348",
+      "id": "256",
       "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
       "type": "uncovered_line"
     },

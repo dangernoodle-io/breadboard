@@ -376,11 +376,12 @@ static const bb_config_field_t s_wifi_rtc_provisioned_field = {
 // Best-effort mirror of the live ssid/pass into the "rtc" bb_storage backend
 // (bb_storage_rtc's keyed contract: string keys "ssid"/"pass", uint8_t key
 // "provisioned") -- a fast warm-reboot recovery cache, NOT the source of
-// truth. NVS (via the bb_config_staged commit both callers already ran) is
-// authoritative; every return here is ignored, including BB_ERR_NOT_FOUND
-// from bb_config_staged_begin when no app has registered a "rtc" backend at
-// all (fail-open: bb_settings_wifi_set/_pending_promote must still return
-// BB_OK in that case).
+// truth. NVS (via the bb_config_staged commit both in-file callers already
+// ran, plus bb_nv's own NVS writes for its init-time mirror-seed/
+// provisioned-flag-repack callers) is authoritative; every return here is
+// ignored, including BB_ERR_NOT_FOUND from bb_config_staged_begin when no
+// app has registered a "rtc" backend at all (fail-open: every caller must
+// still return its own success regardless of this call's outcome).
 //
 // Single atomic bb_config_staged commit -- all 3 keys (ssid/pass/
 // provisioned) land or none do, exactly like the live NVS writes above,
@@ -389,14 +390,28 @@ static const bb_config_field_t s_wifi_rtc_provisioned_field = {
 // mirror at its PRIOR value, never a torn ssid/pass/provisioned mix -- a
 // consumer may now trust provisioned==1 as "ssid/pass are a consistent
 // pair" on this mirror.
-static void settings_wifi_rtc_mirror_write(const char *ssid, const char *pass)
+//
+// Public (declared in bb_settings.h) so bb_nv's init-time mirror-seed and
+// bb_nv_config_set_provisioned's mirror repack (platform/espidf/bb_nv/
+// bb_nv.c) can arm/refresh the mirror without a private bb_storage_rtc
+// dependency of their own or duplicating this component's field
+// descriptors/staging precheck -- see bb_settings.h's doc comment.
+void bb_settings_wifi_rtc_mirror_write(const char *ssid, const char *pass)
 {
+    // NULL pass -> "" (open network), same asymmetry as bb_settings_wifi_set:
+    // bb_config_staged_set_str POISONS the whole staged session on a literal
+    // NULL value (never substitutes), so this substitution must happen here,
+    // not be left to callers -- unlike this fn's original private-only
+    // incarnation, it is now called directly with un-presanitized args (e.g.
+    // bb_nv's mirror-seed/provisioned-repack).
+    const char *p = pass ? pass : "";
+
     bb_config_staged_t h = {0};
     if (bb_config_staged_begin(&h, "rtc", "") != BB_OK) {
         return;  // fail-open -- no "rtc" backend registered, nothing to mirror.
     }
     bb_config_staged_set_str(&h, &s_wifi_rtc_ssid_field, ssid);
-    bb_config_staged_set_str(&h, &s_wifi_rtc_pass_field, pass);
+    bb_config_staged_set_str(&h, &s_wifi_rtc_pass_field, p);
     bb_config_staged_set_u8(&h, &s_wifi_rtc_provisioned_field, 1);
     (void)bb_config_staged_commit(&h);  // best-effort -- see comment above.
 }
@@ -423,7 +438,7 @@ bb_err_t bb_settings_wifi_set(const char *ssid, const char *pass)
     if (err != BB_OK) return err;
 
     // Best-effort -- see settings_wifi_rtc_mirror_write's own comment.
-    settings_wifi_rtc_mirror_write(ssid, p);
+    bb_settings_wifi_rtc_mirror_write(ssid, p);
     return BB_OK;
 }
 
@@ -534,7 +549,7 @@ bb_err_t bb_settings_wifi_pending_promote(void)
     if (err != BB_OK) return err;
 
     // Best-effort -- see settings_wifi_rtc_mirror_write's own comment.
-    settings_wifi_rtc_mirror_write(ssid, pass);
+    bb_settings_wifi_rtc_mirror_write(ssid, pass);
 
     // Best-effort -- return values ignored, see function comment above.
     bb_storage_erase(&s_wifi_ssid_p_field.addr);
@@ -555,4 +570,56 @@ bb_err_t bb_settings_wifi_pending_clear(void)
     bb_storage_erase(&s_wifi_pass_p_field.addr);
 
     return err;
+}
+
+// ---------------------------------------------------------------------------
+// RTC warm-reboot mirror accessors (bb_nv creds-cluster relocation) -- see
+// bb_settings.h for the full contract of each.
+// ---------------------------------------------------------------------------
+
+bool bb_settings_wifi_rtc_mirror_has_creds(void)
+{
+    return bb_storage_exists(&s_wifi_rtc_ssid_field.addr);
+}
+
+// Same NULL-safe out_len guarantee as bb_settings_wifi_ssid_get. bb_config_get_str
+// resolves an empty/invalid/unregistered mirror to BB_ERR_NOT_FOUND, which has
+// no has_default on this field descriptor -- callers (bb_nv's heal) must check
+// bb_settings_wifi_rtc_mirror_has_creds() first, mirroring how bb_nv's old
+// heal gated on bb_storage_rtc_region_valid()+ssid[0]!='\0' before reading.
+bb_err_t bb_settings_wifi_rtc_mirror_ssid_get(char *buf, size_t cap, size_t *out_len)
+{
+    size_t len = 0;
+    return bb_config_get_str(&s_wifi_rtc_ssid_field, buf, cap, out_len ? out_len : &len);
+}
+
+// Never log the returned password value. Same contract as
+// bb_settings_wifi_rtc_mirror_ssid_get.
+bb_err_t bb_settings_wifi_rtc_mirror_pass_get(char *buf, size_t cap, size_t *out_len)
+{
+    size_t len = 0;
+    return bb_config_get_str(&s_wifi_rtc_pass_field, buf, cap, out_len ? out_len : &len);
+}
+
+// Fail-CLOSED (false) on any backend error or an invalid/unregistered mirror
+// -- deliberately the OPPOSITE default direction from
+// bb_settings_display_enabled_get and friends, since this gates whether a
+// heal re-marks a recovered board as provisioned; a storage error must never
+// be silently treated as "yes, provisioned".
+bool bb_settings_wifi_rtc_mirror_provisioned_get(void)
+{
+    uint8_t val = 0;
+    bb_err_t err = bb_config_get_u8(&s_wifi_rtc_provisioned_field, &val);
+    return err == BB_OK && val != 0;
+}
+
+// Whole-region invalidate (rtc_erase ignores which of ssid/pass/provisioned
+// is passed -- any of the three invalidates the entire mirror region, see
+// bb_storage_rtc). Returns bb_storage_erase's own result, including
+// BB_ERR_NOT_FOUND when no "rtc" backend is registered -- callers that want
+// fail-open here (bb_nv's factory-reset/clear paths) ignore the return, same
+// posture as this component's own write paths.
+bb_err_t bb_settings_wifi_rtc_mirror_clear(void)
+{
+    return bb_storage_erase(&s_wifi_rtc_ssid_field.addr);
 }

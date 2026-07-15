@@ -1,7 +1,7 @@
 #include "bb_nv.h"
 #include "bb_log.h"
 #include "bb_manifest.h"
-#include "bb_nv_wifi_pending.h"
+#include "bb_settings.h"
 #include "bb_str.h"
 #include "bb_storage_nvs.h"
 #include <stdbool.h>
@@ -11,28 +11,25 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_attr.h"
-#include "bb_storage_rtc_region.h"
+#include "bb_nv_creds_boot_decide.h"
 #endif
 
 #define BB_NV_KEY_WIFI_SSID         "wifi_ssid"
 #define BB_NV_KEY_WIFI_PASS         "wifi_pass"
 #define BB_NV_KEY_PROVISIONED       "provisioned"
-#define BB_NV_KEY_WIFI_SSID_P       "wifi_ssid_p"
-#define BB_NV_KEY_WIFI_PASS_P       "wifi_pass_p"
-#define BB_NV_KEY_WIFI_TRY          "wifi_try"
 
 static const char *TAG_NV = "bb_nv";
 
 /* RTC creds backup — B1-242.
- * s_creds_mirror survives software reset/panic (RTC_NOINIT_ATTR).
- * s_creds_restored is a plain BSS (per-boot) flag. The "was NVS erased this
- * boot" flag now lives in bb_storage_nvs.c (bb_storage_nvs_flash_was_erased)
- * alongside the erase-and-retry logic it tracks — see B1-840. */
+ * The mirror region itself now lives entirely behind bb_settings' RTC
+ * mirror accessors (bb_settings_wifi_rtc_mirror_*, "rtc" bb_storage
+ * backend) — bb_nv no longer owns a private RTC_NOINIT_ATTR region (B1: bb_nv
+ * creds-cluster relocation). s_creds_restored is a plain BSS (per-boot) flag.
+ * The "was NVS erased this boot" flag lives in bb_storage_nvs.c
+ * (bb_storage_nvs_flash_was_erased) alongside the erase-and-retry logic it
+ * tracks — see B1-840. */
 #ifdef ESP_PLATFORM
 static bool s_creds_restored;
-#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
-static RTC_NOINIT_ATTR bb_storage_rtc_region_t s_creds_mirror;
-#endif
 #endif
 
 static const bb_manifest_nv_t s_bb_cfg_keys[] = {
@@ -67,43 +64,8 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
     },
 };
 
-static struct {
-    char wifi_ssid[32];
-    char wifi_pass[64];
-} s_config;
-
-/* Pending wifi creds — staged separately from live creds.
- * NEVER loaded into s_config.wifi_ssid/wifi_pass; kept isolated so the
- * RTC-restore gate (s_config.wifi_ssid[0]=='\0') is not affected. */
-#ifdef ESP_PLATFORM
-static struct {
-    char ssid[32]; /* BB_WIFI_PENDING_SSID_MAX+1 */
-    char pass[64]; /* BB_WIFI_PENDING_PASS_MAX+1 */
-} s_pending;
-#endif
-
-// Helper to load a string from NVS with fallback (ESP only)
 #ifdef ESP_PLATFORM
 static const char *TAG = "nv_config";
-
-static void load_str(nvs_handle_t handle, const char *key, char *buf, size_t buf_size, const char *fallback)
-{
-    size_t len = buf_size;
-    if (nvs_get_str(handle, key, buf, &len) != ESP_OK) {
-        bb_strlcpy(buf, fallback, buf_size);
-    }
-}
-
-static bb_err_t nv_config_set_str(const char *key, const char *val)
-{
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &handle);
-    if (err != BB_OK) return err;
-    err = nvs_set_str(handle, key, val);
-    if (err == BB_OK) err = nvs_commit(handle);
-    nvs_close(handle);
-    return err;
-}
 #endif
 
 bb_err_t bb_nv_config_init(void)
@@ -111,82 +73,70 @@ bb_err_t bb_nv_config_init(void)
 #ifdef ESP_PLATFORM
     bb_err_t flash_err = bb_storage_nvs_flash_init();
     if (flash_err != BB_OK) return flash_err;
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READONLY, &handle);
-
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        bb_log_i(TAG, "no config in NVS");
-        memset(&s_config, 0, sizeof(s_config));
-        return BB_OK;
-    }
-
-    if (err != BB_OK) {
-        return err;
-    }
-
-    load_str(handle, BB_NV_KEY_WIFI_SSID, s_config.wifi_ssid, sizeof(s_config.wifi_ssid), "");
-    load_str(handle, BB_NV_KEY_WIFI_PASS, s_config.wifi_pass, sizeof(s_config.wifi_pass), "");
 
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
-    /* Restore+heal: if NVS has no creds but the RTC mirror is valid, recover
-     * them. Close the read-only handle and reopen read-write so the heal
-     * write-back goes through the same handle lifecycle as the rest of init.
-     * Avoids a re-entrant bb_nv_config_set_wifi call (which would re-pack the
-     * mirror redundantly) and keeps a single commit for both credential keys. */
-    {
-        bool handle_open = true;
-        if (s_config.wifi_ssid[0] == '\0' &&
-            bb_storage_rtc_region_valid(&s_creds_mirror) &&
-            s_creds_mirror.ssid[0] != '\0') {
-            nvs_close(handle);
-            handle_open = false;
-            bb_err_t rw_err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &handle);
-            if (rw_err == BB_OK) {
-                handle_open = true;
-                bb_strlcpy(s_config.wifi_ssid, s_creds_mirror.ssid, sizeof(s_config.wifi_ssid));
-                bb_strlcpy(s_config.wifi_pass, s_creds_mirror.pass, sizeof(s_config.wifi_pass));
-                nvs_set_str(handle, BB_NV_KEY_WIFI_SSID, s_config.wifi_ssid);
-                nvs_set_str(handle, BB_NV_KEY_WIFI_PASS, s_config.wifi_pass);
-                if (s_creds_mirror.provisioned) {
-                    nvs_set_u8(handle, BB_NV_KEY_PROVISIONED, 1);
+    /* The heal-vs-seed DECISION is a pure function (bb_nv_creds_boot_decide,
+     * components/bb_nv/src/) and is host-tested there -- see
+     * test/test_host/test_bb_nv_creds_boot_decide.c for all 4 input
+     * combinations plus bite-proof (RED-when-inverted) evidence. Everything
+     * below this point is the NVS/RTC-mirror I/O for whichever action came
+     * back; that I/O is espidf-only (B1-943/B1-516, coverage-invisible) and
+     * rides on HW validation, NOT host coverage -- do not read the `make
+     * coverage` gate as proof this I/O is exercised.
+     *
+     * requires=storage_rtc on this fn's // bbtool:init marker (bb_nv.h)
+     * forces bb_storage_rtc's registration to run first in the same EARLY
+     * tier -- without it, bb_settings_wifi_rtc_mirror_has_creds() would
+     * silently read BB_ERR_NOT_FOUND/false and the heal action would never
+     * be decided. */
+    bb_nv_boot_action_t action = bb_nv_creds_boot_decide(bb_settings_wifi_has_creds(),
+                                                          bb_settings_wifi_rtc_mirror_has_creds());
+
+    if (action == BB_NV_BOOT_HEAL) {
+        /* Restore: NVS has no live creds but the shared "rtc" mirror
+         * (bb_settings_wifi_rtc_mirror_*, "rtc" bb_storage backend) does --
+         * recover them by writing straight through bb_settings' live-creds
+         * writer -- a single atomic bb_config_staged commit against the SAME
+         * "bb_cfg"/wifi_ssid/wifi_pass NVS keys bb_nv used to write directly
+         * (byte-compat unaffected by this relocation, see bb_settings.h). */
+        char ssid[32] = {0};
+        char pass[64] = {0};
+        size_t ssid_len = 0, pass_len = 0;
+        bb_err_t sret = bb_settings_wifi_rtc_mirror_ssid_get(ssid, sizeof(ssid), &ssid_len);
+        bb_err_t pret = bb_settings_wifi_rtc_mirror_pass_get(pass, sizeof(pass), &pass_len);
+        if (sret == BB_OK && pret == BB_OK && ssid[0] != '\0') {
+            bb_err_t werr = bb_settings_wifi_set(ssid, pass);
+            if (werr == BB_OK) {
+                s_creds_restored = true;
+                bb_log_w(TAG, "creds restored from RTC backup");
+                if (bb_settings_wifi_rtc_mirror_provisioned_get()) {
+                    bb_nv_config_set_provisioned();
                 }
-                nvs_commit(handle);
             } else {
-                /* Reopen failed — apply creds in-memory; NVS heals on next write. */
-                bb_strlcpy(s_config.wifi_ssid, s_creds_mirror.ssid, sizeof(s_config.wifi_ssid));
-                bb_strlcpy(s_config.wifi_pass, s_creds_mirror.pass, sizeof(s_config.wifi_pass));
+                bb_log_e(TAG, "creds restore from RTC backup failed to persist: %d", (int)werr);
             }
-            s_creds_restored = true;
-            bb_log_w(TAG, "creds restored from RTC backup");
         }
-        /* Close the handle if the restore-heal branch above left it open
-         * (display/mdns/update-check booleans moved to bb_settings, B1-750 --
-         * nothing left to load here). */
-        if (handle_open) {
-            nvs_close(handle);
+    } else if (action == BB_NV_BOOT_SEED) {
+        /* Mirror-seed: proactively arm the recovery net on a freshly-flashed
+         * provisioned board, rather than lazily on the next credential
+         * write. Never overwrites an already-valid mirror (which may hold
+         * in-flight pending-try state written by
+         * bb_settings_wifi_pending_promote), and is idempotent across warm
+         * resets (a valid mirror decides NONE on every subsequent boot; this
+         * fires at most once, right after a cold boot with erased/never-
+         * armed RTC memory). */
+        char ssid[32] = {0};
+        char pass[64] = {0};
+        size_t ssid_len = 0, pass_len = 0;
+        bb_err_t sret = bb_settings_wifi_ssid_get(ssid, sizeof(ssid), &ssid_len);
+        bb_err_t pret = bb_settings_wifi_pass_get(pass, sizeof(pass), &pass_len);
+        if (sret == BB_OK && pret == BB_OK) {
+            bb_settings_wifi_rtc_mirror_write(ssid, pass);
         }
     }
-#else
-    nvs_close(handle);
 #endif
 
-    /* Load pending wifi creds cache — separate from live load; must not affect
-     * the s_config.wifi_ssid[0]=='\0' RTC-restore gate above. */
-    {
-        nvs_handle_t ph;
-        memset(&s_pending, 0, sizeof(s_pending));
-        bb_err_t perr = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READONLY, &ph);
-        if (perr == BB_OK) {
-            load_str(ph, BB_NV_KEY_WIFI_SSID_P, s_pending.ssid, sizeof(s_pending.ssid), "");
-            load_str(ph, BB_NV_KEY_WIFI_PASS_P, s_pending.pass, sizeof(s_pending.pass), "");
-            nvs_close(ph);
-        }
-    }
-
     bb_log_i(TAG, "config loaded");
-#else
-    // Native build: no NVS, all fields empty/zero
-    memset(&s_config, 0, sizeof(s_config));
 #endif
     return BB_OK;
 }
@@ -242,141 +192,22 @@ bb_err_t bb_nv_config_set_provisioned(void)
 
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
     if (err == BB_OK) {
-        bb_storage_rtc_region_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, 1);
+        // Re-stamp the shared RTC mirror with the current live creds and
+        // provisioned=1 (bb_settings_wifi_rtc_mirror_write always sets the
+        // mirror's provisioned key to 1 -- see bb_settings.c) so a later
+        // warm-reboot heal can trust the mirror's provisioned bit. Fail-open
+        // on either read/write here -- same posture as every other mirror
+        // touch in this file.
+        char ssid[32] = {0};
+        char pass[64] = {0};
+        size_t ssid_len = 0, pass_len = 0;
+        if (bb_settings_wifi_ssid_get(ssid, sizeof(ssid), &ssid_len) == BB_OK &&
+            bb_settings_wifi_pass_get(pass, sizeof(pass), &pass_len) == BB_OK) {
+            bb_settings_wifi_rtc_mirror_write(ssid, pass);
+        }
     }
 #endif
 
-    return err;
-}
-
-bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass)
-{
-    bb_err_t err = nv_config_set_str(BB_NV_KEY_WIFI_SSID, ssid);
-    if (err == BB_OK) err = nv_config_set_str(BB_NV_KEY_WIFI_PASS, pass);
-    if (err == BB_OK) {
-        bb_strlcpy(s_config.wifi_ssid, ssid, sizeof(s_config.wifi_ssid));
-        bb_strlcpy(s_config.wifi_pass, pass, sizeof(s_config.wifi_pass));
-#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
-        uint8_t prov = bb_nv_config_is_provisioned() ? 1 : 0;
-        bb_storage_rtc_region_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, prov);
-#endif
-    }
-    return err;
-}
-
-bb_err_t bb_nv_config_set_wifi_pending(const char *ssid, const char *pass)
-{
-    bb_err_t verr = bb_wifi_pending_validate(ssid, pass);
-    if (verr != BB_OK) return verr;
-
-    const char *p = pass ? pass : "";
-    bb_nv_batch_t batch;
-    bb_err_t err = bb_nv_batch_begin(&batch, BB_NV_CONFIG_NVS_NS);
-    if (err != BB_OK) return err;
-    bb_nv_batch_set_str(&batch, BB_NV_KEY_WIFI_SSID_P, ssid);
-    bb_nv_batch_set_str(&batch, BB_NV_KEY_WIFI_PASS_P, p);
-    bb_nv_batch_set_u8(&batch, BB_NV_KEY_WIFI_TRY, 1);
-    err = bb_nv_batch_commit(&batch);
-    if (err == BB_OK) {
-        bb_strlcpy(s_pending.ssid, ssid, sizeof(s_pending.ssid));
-        bb_strlcpy(s_pending.pass, p,    sizeof(s_pending.pass));
-    }
-    return err;
-}
-
-bool bb_nv_config_wifi_pending_active(void)
-{
-    uint8_t try_flag = 0;
-    nvs_handle_t h;
-    if (nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READONLY, &h) == BB_OK) {
-        nvs_get_u8(h, BB_NV_KEY_WIFI_TRY, &try_flag);
-        nvs_close(h);
-    }
-    return bb_wifi_pending_decide(try_flag, s_pending.ssid) == BB_WIFI_PENDING_TRY;
-}
-
-const char *bb_nv_config_wifi_pending_ssid(void)
-{
-    return s_pending.ssid;
-}
-
-const char *bb_nv_config_wifi_pending_pass(void)
-{
-    return s_pending.pass;
-}
-
-bb_err_t bb_nv_config_commit_wifi_pending(void)
-{
-    if (s_pending.ssid[0] == '\0') return BB_ERR_INVALID_STATE;
-
-    /* One batched transaction: promote pending -> live, erase pending keys. */
-    nvs_handle_t h;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &h);
-    if (err != BB_OK) return err;
-
-    err = nvs_set_str(h, BB_NV_KEY_WIFI_SSID, s_pending.ssid);
-    if (err == BB_OK) err = nvs_set_str(h, BB_NV_KEY_WIFI_PASS, s_pending.pass);
-    if (err == BB_OK) {
-        /* erase pending keys — absent key is benign */
-        bb_err_t e;
-        e = nvs_erase_key(h, BB_NV_KEY_WIFI_TRY);
-        if (e == ESP_ERR_NVS_NOT_FOUND) e = BB_OK;
-        if (e != BB_OK) err = e;
-    }
-    if (err == BB_OK) {
-        bb_err_t e;
-        e = nvs_erase_key(h, BB_NV_KEY_WIFI_SSID_P);
-        if (e == ESP_ERR_NVS_NOT_FOUND) e = BB_OK;
-        if (e != BB_OK) err = e;
-    }
-    if (err == BB_OK) {
-        bb_err_t e;
-        e = nvs_erase_key(h, BB_NV_KEY_WIFI_PASS_P);
-        if (e == ESP_ERR_NVS_NOT_FOUND) e = BB_OK;
-        if (e != BB_OK) err = e;
-    }
-    if (err == BB_OK) err = nvs_commit(h);
-    nvs_close(h);
-
-    if (err == BB_OK) {
-        bb_strlcpy(s_config.wifi_ssid, s_pending.ssid, sizeof(s_config.wifi_ssid));
-        bb_strlcpy(s_config.wifi_pass, s_pending.pass, sizeof(s_config.wifi_pass));
-        memset(&s_pending, 0, sizeof(s_pending));
-#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
-        uint8_t prov = bb_nv_config_is_provisioned() ? 1 : 0;
-        bb_storage_rtc_region_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, prov);
-#endif
-    }
-    return err;
-}
-
-bb_err_t bb_nv_config_clear_wifi_pending(void)
-{
-    nvs_handle_t h;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &h);
-    if (err != BB_OK) return err;
-
-    bb_err_t e;
-    e = nvs_erase_key(h, BB_NV_KEY_WIFI_SSID_P);
-    if (e == ESP_ERR_NVS_NOT_FOUND) e = BB_OK;
-    if (e != BB_OK) err = e;
-
-    if (err == BB_OK) {
-        e = nvs_erase_key(h, BB_NV_KEY_WIFI_PASS_P);
-        if (e == ESP_ERR_NVS_NOT_FOUND) e = BB_OK;
-        if (e != BB_OK) err = e;
-    }
-    if (err == BB_OK) {
-        e = nvs_erase_key(h, BB_NV_KEY_WIFI_TRY);
-        if (e == ESP_ERR_NVS_NOT_FOUND) e = BB_OK;
-        if (e != BB_OK) err = e;
-    }
-    if (err == BB_OK) err = nvs_commit(h);
-    nvs_close(h);
-
-    if (err == BB_OK) {
-        memset(&s_pending, 0, sizeof(s_pending));
-    }
     return err;
 }
 
@@ -391,8 +222,10 @@ bb_err_t bb_nv_config_clear_provisioned(void)
     nvs_close(handle);
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
     if (err == BB_OK) {
-        /* Deliberate clear — invalidate mirror so it can't resurrect the creds. */
-        memset(&s_creds_mirror, 0, sizeof(s_creds_mirror));
+        /* Deliberate clear — invalidate the shared mirror so it can't
+         * resurrect the creds (best-effort; an unregistered "rtc" backend is
+         * fail-open here, same posture as bb_settings' own mirror writers). */
+        bb_settings_wifi_rtc_mirror_clear();
     }
 #endif
     return err;
@@ -411,14 +244,14 @@ bb_err_t bb_nv_config_clear_wifi(void)
     }
     if (err == BB_OK) err = nvs_commit(handle);
     nvs_close(handle);
-    if (err == BB_OK) {
-        s_config.wifi_ssid[0] = '\0';
-        s_config.wifi_pass[0] = '\0';
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
-        /* Deliberate factory-reset — invalidate mirror so it can't resurrect the creds. */
-        memset(&s_creds_mirror, 0, sizeof(s_creds_mirror));
-#endif
+    if (err == BB_OK) {
+        /* Deliberate clear — invalidate the shared mirror so it can't
+         * resurrect the creds (best-effort, same posture as
+         * bb_nv_config_clear_provisioned above). */
+        bb_settings_wifi_rtc_mirror_clear();
     }
+#endif
     return err;
 }
 
@@ -587,16 +420,16 @@ bb_err_t bb_nv_config_factory_reset(void)
         bb_log_e(TAG, "factory reset: nvs_flash_erase failed: %d", err);
         return err;
     }
-    /* Invalidate the RTC mirror so the restore-heal path on next boot does NOT
-     * re-populate credentials. Without this, the mirror's valid CRC would cause
-     * bb_nv_config_init to copy creds back into NVS, silently defeating the reset. */
+    /* Invalidate the shared RTC mirror so the restore-heal path in
+     * bb_nv_config_init does NOT re-populate credentials on next boot.
+     * Without this, a still-valid mirror would cause the heal to copy creds
+     * back into NVS, silently defeating the reset. Best-effort -- an
+     * unregistered "rtc" backend (RTC-backup Kconfig-disabled builds, or a
+     * composer that never registered bb_storage_rtc) is fail-open here, same
+     * posture as every other mirror clear in this file. */
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
-    memset(&s_creds_mirror, 0, sizeof(s_creds_mirror));
-    /* magic is now 0 → bb_storage_rtc_region_valid() returns false → no heal. */
+    bb_settings_wifi_rtc_mirror_clear();
 #endif
-    /* Clear in-RAM cache so callers see the wiped state immediately. */
-    memset(&s_config, 0, sizeof(s_config));
-    memset(&s_pending, 0, sizeof(s_pending));
     bb_log_i(TAG, "factory reset: done");
     return BB_OK;
 }
@@ -836,23 +669,16 @@ bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch)
 #ifndef ESP_PLATFORM
 bb_err_t bb_nv_config_factory_reset(void)
 {
-    /* Host implementation: clear in-memory config to defaults. No NVS or RTC
-     * mirror exists on host, so we just zero the cache. This lets host tests
-     * assert that factory reset clears credentials.
-     *
-     * hostname/timezone/wifi creds AND display_en/mdns_en/update_check_en
-     * (B1-750) now live in bb_settings' storage layer, not s_config. On real
-     * hardware, bb_nv_config_factory_reset() (ESP_PLATFORM branch) erases the
-     * WHOLE "bb_cfg" NVS partition via nvs_flash_erase(), which correctly
-     * wipes bb_settings' keys too since they share that namespace -- device
-     * behavior is correct there. This host stub only zeroes bb_nv's own
-     * legacy s_config, so it does NOT clear host-seeded bb_settings state;
-     * factory-reset ownership for bb_settings-owned fields is pending
-     * migration out of bb_nv. */
-    memset(&s_config, 0, sizeof(s_config));
+    /* Host implementation: bb_nv no longer caches wifi creds (or anything
+     * else) in-RAM -- that state moved entirely to bb_settings' storage
+     * layer (B1: bb_nv creds-cluster relocation; hostname/timezone/wifi
+     * creds and display_en/mdns_en/update_check_en moved earlier, B1-750).
+     * There is no NVS partition to erase on host, so the ONE thing left for
+     * this stub to do is the same mirror-invalidate the ESP_PLATFORM branch
+     * performs after its (host-unavailable) nvs_flash_erase() -- best-effort,
+     * same fail-open posture: a test that never registered a "rtc" backend
+     * sees this as a harmless no-op. */
+    bb_settings_wifi_rtc_mirror_clear();
     return BB_OK;
 }
 #endif
-
-const char *bb_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }
-const char *bb_nv_config_wifi_pass(void) { return s_config.wifi_pass; }

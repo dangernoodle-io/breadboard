@@ -3,21 +3,24 @@
 // B1-260: factory reset capability.
 //
 // Tests cover:
-//   1. Core function: clears in-memory config, invalidates mirror (host side).
+//   1. Core function: invalidates the shared RTC mirror (host side).
 //   2. Route handler: 400 for missing confirm, 400 for wrong confirm, 202 for correct confirm.
 //
-// On host, the RTC mirror does not exist; we verify mirror-invalidation by
-// checking that config fields return to defaults (clears ssid). Hostname,
-// timezone, and display/mdns/update-check-enabled all moved to bb_settings
-// (B1-754/B1-750) and are no longer part of bb_nv's own factory-reset scope
-// (bb_nv's host stub only zeroes its own legacy s_config -- see
-// bb_nv_config_factory_reset's comment in platform/espidf/bb_nv/bb_nv.c).
-// The mirror-invalidation logic path for the RTC region is covered by the
-// ESP-IDF impl at compile time; on host the #if CONFIG_BB_NV_CREDS_RTC_BACKUP
-// path does not execute, but the surrounding code is exercised.
+// bb_nv no longer caches wifi creds (or anything else) in-RAM -- that state
+// moved entirely to bb_settings' storage layer (B1: bb_nv creds-cluster
+// relocation; hostname/timezone/wifi creds and display/mdns/update-check-
+// enabled moved earlier, B1-750/B1-754). On host there is no NVS partition
+// to erase, so bb_nv_config_factory_reset()'s host stub does the ONE thing
+// left in its scope: invalidate the shared RTC mirror
+// (bb_settings_wifi_rtc_mirror_clear(), same backend the ESP_PLATFORM branch
+// invalidates after its nvs_flash_erase()) -- see
+// platform/espidf/bb_nv/bb_nv.c's comment.
 
 #include "unity.h"
 #include "bb_nv.h"
+#include "bb_settings.h"
+#include "bb_storage.h"
+#include "bb_storage_rtc.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_http_host.h"
@@ -31,16 +34,27 @@
 // Core function tests
 // ---------------------------------------------------------------------------
 
-void test_nv_factory_reset_clears_wifi_ssid(void)
+// Rollback bite-proof: with the "rtc" backend registered and a live mirror
+// armed, factory_reset must invalidate it -- reverting
+// bb_nv_config_factory_reset's bb_settings_wifi_rtc_mirror_clear() call (the
+// host branch) to a no-op turns this RED.
+void test_nv_factory_reset_invalidates_rtc_mirror(void)
 {
+    bb_storage_test_reset();
+    bb_storage_rtc_test_reset();
+    bb_storage_rtc_register();
+
     bb_nv_config_init();
-    // Host: can't actually set wifi creds via API (ESP-only), but the in-memory
-    // s_config fields are initialised to "" by bb_nv_config_init, and
-    // bb_nv_config_factory_reset re-zeros them.
+    // Seed the mirror directly (bb_settings_wifi_rtc_mirror_write only needs
+    // the "rtc" backend, unlike bb_settings_wifi_set which also needs "nvs"
+    // registered -- irrelevant to what this test is proving).
+    bb_settings_wifi_rtc_mirror_write("MyNetwork", "hunter2");
+    TEST_ASSERT_TRUE(bb_settings_wifi_rtc_mirror_has_creds());
+
     bb_err_t err = bb_nv_config_factory_reset();
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    TEST_ASSERT_EQUAL_STRING("", bb_nv_config_wifi_ssid());
-    TEST_ASSERT_EQUAL_STRING("", bb_nv_config_wifi_pass());
+
+    TEST_ASSERT_FALSE(bb_settings_wifi_rtc_mirror_has_creds());
 }
 
 void test_nv_factory_reset_returns_ok_after_reinit(void)
@@ -48,6 +62,17 @@ void test_nv_factory_reset_returns_ok_after_reinit(void)
     // Idempotent: calling factory_reset twice is safe.
     bb_nv_config_init();
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_nv_config_factory_reset());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_nv_config_factory_reset());
+}
+
+// Fail-open: no "rtc" backend registered at all -- factory_reset must still
+// return BB_OK (the mirror-clear's own error, if any, is swallowed).
+void test_nv_factory_reset_ok_when_rtc_backend_unregistered(void)
+{
+    bb_storage_test_reset();
+    // Deliberately NOT calling bb_storage_rtc_register().
+
+    bb_nv_config_init();
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_nv_config_factory_reset());
 }
 

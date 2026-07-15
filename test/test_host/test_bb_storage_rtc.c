@@ -79,6 +79,46 @@ void test_bb_storage_rtc_pass_set_get_round_trip(void)
     TEST_ASSERT_TRUE(bb_storage_exists(&addr));
 }
 
+/* ---------------------------------------------------------------------------
+ * B1-948: a truncating get() (cap < stored length) must still leave buf
+ * NUL-terminated within cap -- a raw bb_storage_get caller (unlike
+ * bb_config_get_str, which has its own separate B1-947 patch at the config
+ * layer) has NO other termination guarantee. Non-zero prefill so a
+ * zero-initialized buffer can't mask a missing NUL (same technique as
+ * test_bb_settings_wifi_pending.c's B1-947 regression test).
+ * ---------------------------------------------------------------------------*/
+void test_bb_storage_rtc_ssid_get_truncation_nul_terminates(void)
+{
+    reset_all();
+
+    bb_storage_addr_t addr = addr_for("ssid");
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_set(&addr, "LongNetworkName", 15));
+
+    char buf[6];
+    memset(buf, 'A', sizeof(buf));
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_get(&addr, buf, sizeof(buf), &out_len));
+    TEST_ASSERT_EQUAL(15, out_len);  /* full length reported, even though truncated */
+    TEST_ASSERT_EQUAL_STRING_LEN("LongN", buf, 5);
+    TEST_ASSERT_EQUAL('\0', buf[5]); /* last byte of cap sacrificed for the NUL */
+}
+
+void test_bb_storage_rtc_pass_get_truncation_nul_terminates(void)
+{
+    reset_all();
+
+    bb_storage_addr_t addr = addr_for("pass");
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_set(&addr, "hunter2222", 10));
+
+    char buf[4];
+    memset(buf, 'A', sizeof(buf));
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_get(&addr, buf, sizeof(buf), &out_len));
+    TEST_ASSERT_EQUAL(10, out_len);
+    TEST_ASSERT_EQUAL_STRING_LEN("hun", buf, 3);
+    TEST_ASSERT_EQUAL('\0', buf[3]);
+}
+
 void test_bb_storage_rtc_provisioned_set_get_round_trip(void)
 {
     reset_all();

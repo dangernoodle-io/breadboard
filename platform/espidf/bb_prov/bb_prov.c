@@ -1,7 +1,7 @@
 #include "bb_prov.h"
 #include "bb_http_server.h"
 #include "bb_log.h"
-#include "bb_nv.h"
+#include "bb_settings.h"
 #include "bb_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -74,7 +74,13 @@ static bb_err_t prov_save_handler(bb_http_request_t *req)
             break;
     }
 
-    bb_err_t err = bb_nv_config_set_wifi(ssid, pass);
+    // Routes through bb_settings' single atomic commit rather than bb_nv's
+    // now-deleted two-key sequential write (B1-750, bb_nv dissolution epic
+    // B1-708) -- byte-compat with the prior bb_nv_config_set_wifi: same NVS
+    // namespace ("bb_cfg") and keys ("wifi_ssid"/"wifi_pass"), same
+    // nvs_set_str encoding, so a provisioned board's existing creds are
+    // unaffected by this switch.
+    bb_err_t err = bb_settings_wifi_set(ssid, pass);
     if (err != BB_OK) {
         bb_http_resp_set_status(req, 500);
         bb_http_json_obj_stream_t obj;
