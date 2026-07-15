@@ -216,7 +216,7 @@ bb_err_t bb_mqtt_client_stop(bb_mqtt_client_t *handle_p);
  * self-registration (CONFIG_BB_MQTT_CLIENT_AUTOREGISTER=y), or NULL if:
  *   - the feature is compiled out,
  *   - NVS enabled=0 (MQTT disabled by config), or
- *   - bb_mqtt_client_autoregister_init has not yet run.
+ *   - bb_mqtt_client_init_default has not yet run.
  *
  * On the host backend this always returns NULL unless overridden via
  * bb_mqtt_client_default_set (available when BB_MQTT_CLIENT_TESTING is defined).
@@ -231,8 +231,8 @@ bb_mqtt_client_t bb_mqtt_client_default(void);
  * password/enabled and, when enabled=1, creates and (deferred-)starts the
  * auto-registered client returned by bb_mqtt_client_default().
  */
-// bbtool:init tier=early fn=bb_mqtt_client_autoregister_init
-bb_err_t bb_mqtt_client_autoregister_init(void);
+// bbtool:init tier=early fn=bb_mqtt_client_init_default
+bb_err_t bb_mqtt_client_init_default(void);
 #endif /* ESP_PLATFORM && CONFIG_BB_MQTT_CLIENT_AUTOREGISTER */
 
 /**

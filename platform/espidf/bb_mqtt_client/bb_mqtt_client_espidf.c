@@ -770,7 +770,7 @@ static const bb_config_field_t s_mqtt_tls_field = {
 
 // auto_client_create_from_nvs — read NVS config and create the auto-client.
 //
-// Shared by bb_mqtt_client_autoregister_init (boot) and bb_mqtt_client_resume_default (post-
+// Shared by bb_mqtt_client_init_default (boot) and bb_mqtt_client_resume_default (post-
 // suspend recreate).  On success, s_auto_client is set to the new handle but
 // NOT yet started; the caller is responsible for starting appropriately:
 //  - Boot path:   deferred via got-IP callback (handled inside bb_mqtt_client_init).
@@ -823,7 +823,7 @@ static bb_err_t auto_client_create_from_nvs(void)
     return rc;
 }
 
-bb_err_t bb_mqtt_client_autoregister_init(void)
+bb_err_t bb_mqtt_client_init_default(void)
 {
     // Boot init runs on the 8192-byte main task — safe to call directly.
     // auto_client_create_from_nvs also sets up the deferred got-IP start inside
