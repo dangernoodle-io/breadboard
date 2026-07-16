@@ -91,17 +91,11 @@ static wifi_reconn_state_t s_lost_ip_diag;
 static int64_t reconn_now_us(void) { return (int64_t)bb_timer_now_us(); }
 static void    reconn_connect(void) { esp_wifi_connect(); }
 static void    reconn_disconnect(void) { esp_wifi_disconnect(); }
-static bool    reconn_budget_allows(void) { return bb_system_reboot_budget_allows(BB_REBOOT_CAUSE_WIFI_SAFEGUARD); }
-static void    reconn_budget_record(void) { bb_system_reboot_budget_record(BB_REBOOT_CAUSE_WIFI_SAFEGUARD); }
-static bool    reconn_boot_fail_over(void) { return bb_system_boot_fail_over_threshold(); }
-static void    reconn_boot_count_increment(void)
+static bool    reconn_reboot_allowed(void) { return bb_system_safeguard_reboot_allowed(BB_REBOOT_CAUSE_WIFI_SAFEGUARD); }
+static void    reconn_reboot(const char *detail)
 {
-    (void)bb_system_boot_count_increment();
-    bb_log_w(TAG, "wifi safeguard reboot: fail_count=%u threshold=%u",
-              (unsigned)bb_system_boot_count_get(), (unsigned)BB_SYSTEM_BOOT_FAIL_THRESHOLD);
+    bb_system_safeguard_reboot(BB_REBOOT_CAUSE_WIFI_SAFEGUARD, bb_wifi_internal_ota_validated(), detail);
 }
-static bool    reconn_ota_validated(void) { return bb_wifi_internal_ota_validated(); }
-static void    reconn_reboot(const char *detail) { bb_system_restart_reason(BB_RESET_SRC_WIFI_SAFEGUARD, detail); }
 static void    reconn_emit_net_event(bb_wifi_net_event_t evt, bb_wifi_disc_reason_t reason)
 {
     // Bench/production visibility: escalation-denied was previously only
@@ -118,11 +112,7 @@ static const wifi_reconn_adapter_t s_adapter = {
     .now_us                = reconn_now_us,
     .connect_fn             = reconn_connect,
     .disconnect_fn          = reconn_disconnect,
-    .budget_allows_fn       = reconn_budget_allows,
-    .budget_record_fn       = reconn_budget_record,
-    .boot_fail_over_fn      = reconn_boot_fail_over,
-    .boot_count_increment_fn = reconn_boot_count_increment,
-    .ota_validated_fn       = reconn_ota_validated,
+    .reboot_allowed_fn      = reconn_reboot_allowed,
     .reboot_fn              = reconn_reboot,
     .emit_net_event_fn      = reconn_emit_net_event,
 };

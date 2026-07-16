@@ -135,6 +135,22 @@ void bb_system_reboot_budget_record(bb_reboot_cause_t cause)
     bb_system_reboot_budget_record_at(cause, false, 0U);
 }
 
+// WiFi safeguard-reboot facade (B1-790 slice) -- host has no NTP, straight-
+// line unsynced call, same split as bb_system_reboot_budget_allows/record.
+// The synced branch is exercised directly via bb_system_safeguard_reboot_
+// allowed_at/account in host tests.
+//
+// bb_system_safeguard_reboot() itself (the restart-issuing wrapper) is NOT
+// defined here: it is only ever called from the espidf-only
+// platform/espidf/bb_wifi/wifi_reconn.c call site -- host code (including
+// host tests, which exercise _allowed/_allowed_at/_account/_src_for_cause
+// directly) never calls it, so a host stub would be dead code that only
+// exists to be coverage-baselined. See bb_system.h for the declaration.
+bool bb_system_safeguard_reboot_allowed(bb_reboot_cause_t cause)
+{
+    return bb_system_safeguard_reboot_allowed_at(cause, false, 0U);
+}
+
 #ifdef BB_SYSTEM_TESTING
 // Test hook: reset the in-memory boot counter between tests (avoids
 // cross-test leakage since s_boot_count is process-lifetime state).

@@ -244,7 +244,7 @@ static bool guard_disc_escalate_allowed(void *vctx, bb_fsm_event_t event, void *
     (void)event; (void)evt_data;
     wifi_reconn_ctx_t *ctx = vctx;
     if (!wr_disconnect_would_escalate(&ctx->policy, ctx->adapter)) return false;
-    return ctx->adapter->budget_allows_fn() && !ctx->adapter->boot_fail_over_fn();
+    return ctx->adapter->reboot_allowed_fn();
 }
 
 static bool guard_disc_escalate_denied(void *vctx, bb_fsm_event_t event, void *evt_data)
@@ -252,7 +252,7 @@ static bool guard_disc_escalate_denied(void *vctx, bb_fsm_event_t event, void *e
     (void)event; (void)evt_data;
     wifi_reconn_ctx_t *ctx = vctx;
     // Matches only when row 4 (guard_disc_escalate_allowed) already failed --
-    // i.e. would_escalate is true but budget/boot_fail_over denied it.
+    // i.e. would_escalate is true but reboot_allowed_fn denied it.
     return wr_disconnect_would_escalate(&ctx->policy, ctx->adapter);
 }
 
@@ -269,7 +269,7 @@ static bool guard_timeout_escalate_allowed(void *vctx, bb_fsm_event_t event, voi
     (void)event; (void)evt_data;
     wifi_reconn_ctx_t *ctx = vctx;
     if (!wr_timeout_would_escalate(&ctx->policy, ctx->adapter)) return false;
-    return ctx->adapter->budget_allows_fn() && !ctx->adapter->boot_fail_over_fn();
+    return ctx->adapter->reboot_allowed_fn();
 }
 
 static bool guard_timeout_escalate_denied(void *vctx, bb_fsm_event_t event, void *evt_data)
@@ -424,14 +424,12 @@ static void wr_backoff_on_entry(bb_fsm_t *fsm, void *vctx, bb_fsm_state_t state)
 
 // R14 unconditional reboot -- reached ONLY on an allowed escalation (the
 // guard already gated it); no predicate re-check, no deny branch here.
+// Accounting (boot-fail bump + budget record) now lives inside reboot_fn
+// itself (bb_system_safeguard_reboot), not spread across separate hooks.
 static void wr_escalate_on_entry(bb_fsm_t *fsm, void *vctx, bb_fsm_state_t state)
 {
     (void)fsm; (void)state;
     wifi_reconn_ctx_t *ctx = vctx;
-    if (!ctx->adapter->ota_validated_fn()) {
-        ctx->adapter->boot_count_increment_fn();
-    }
-    ctx->adapter->budget_record_fn();
     ctx->adapter->reboot_fn("persistent disconnect");
 }
 

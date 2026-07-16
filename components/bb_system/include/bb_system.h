@@ -366,6 +366,72 @@ bool bb_system_reboot_budget_allows(bb_reboot_cause_t cause);
 /// bb_system_reboot_budget_record_at.
 void bb_system_reboot_budget_record(bb_reboot_cause_t cause);
 
+// ---------------------------------------------------------------------------
+// WiFi safeguard-reboot facade (B1-790 slice) -- collapses the wifi_reconn
+// FSM's reboot adapter from 5 hooks (budget_allows_fn/budget_record_fn/
+// boot_fail_over_fn/boot_count_increment_fn/ota_validated_fn) down to 2
+// (reboot_allowed_fn/reboot_fn) and closes a validated-but-unsynced throttle
+// gap: pre-facade, an unsynced device with a validated OTA image never
+// incremented the boot-fail counter (should_increment looked at
+// ota_validated alone) NOR was throttled by the reboot budget (which no-ops
+// when unsynced) -- an unsynced+validated device could safeguard-reboot
+// forever with nothing counting it (B1-1002, B1-1003, B1-884). The pure
+// _should_increment/_allowed_at below are the fix: _should_increment now
+// depends on BOTH ota_validated and synced (only synced+validated skips the
+// bump), and _allowed_at falls back to the boot-fail counter threshold when
+// unsynced (rather than the budget's always-true unsynced answer) so an
+// unsynced device is still throttled by something.
+// ---------------------------------------------------------------------------
+
+/// Pure: should the boot-fail counter be bumped for this reboot? True unless
+/// BOTH synced and ota_validated hold -- i.e. only a synced+validated device
+/// (already rate-limited by the reboot budget) skips the bump; every other
+/// combination, including the previously-unguarded unsynced+validated case,
+/// increments. No I/O; host-testable.
+bool bb_system_safeguard_reboot_should_increment(bool ota_validated, bool synced);
+
+/// Maps a bb_reboot_cause_t to the bb_reset_source_t bb_system_restart_reason
+/// records it under. Pure; host-testable. Unmapped/out-of-range causes
+/// return BB_RESET_SRC_UNKNOWN.
+bb_reset_source_t bb_system_safeguard_reboot_src_for_cause(bb_reboot_cause_t cause);
+
+/// Pure: is a safeguard reboot allowed right now for `cause`, given an
+/// explicit synced/now_s pair? synced delegates to the shared reboot budget
+/// (bb_system_reboot_budget_allows_at, cooldown+daily-cap); unsynced falls
+/// back to !bb_system_boot_fail_count_over(bb_system_boot_count_get(),
+/// BB_SYSTEM_BOOT_FAIL_THRESHOLD) -- the budget alone would otherwise always
+/// allow an unsynced device (no epoch to rate-limit against), which is the
+/// gap this facade closes. Host-testable via the explicit args (the unsynced
+/// branch reads the real boot-count storage, same as the pre-facade guard
+/// did).
+bool bb_system_safeguard_reboot_allowed_at(bb_reboot_cause_t cause, bool synced, uint32_t now_s);
+
+/// Storage-backed orchestration: conditionally bumps the boot-fail counter
+/// (bb_system_boot_count_increment, per bb_system_safeguard_reboot_should_
+/// increment) and records the shared reboot budget (bb_system_reboot_budget_
+/// record -- no-op when unsynced) -- everything bb_system_safeguard_reboot
+/// does EXCEPT the actual restart. Split out so host tests can assert the
+/// accounting without exercising bb_system_restart_reason's exit(0)/
+/// esp_restart(No-return).
+void bb_system_safeguard_reboot_account(bb_reboot_cause_t cause, bool ota_validated, bool synced);
+
+/// Is a safeguard reboot allowed right now for `cause`? Resolves the real
+/// synced/now_s pair per-platform and delegates to bb_system_safeguard_
+/// reboot_allowed_at -- implemented separately per platform (platform/espidf/
+/// bb_system/bb_system.c resolves bb_ntp_is_synced()+time(NULL);
+/// platform/host/bb_system/bb_system_host.c is a straight-line
+/// `_at(cause, false, 0U)`, same split as bb_system_reboot_budget_allows).
+bool bb_system_safeguard_reboot_allowed(bb_reboot_cause_t cause);
+
+/// Accounts (bb_system_safeguard_reboot_account, with the real per-platform
+/// synced value) then restarts via bb_system_restart_reason(bb_system_
+/// safeguard_reboot_src_for_cause(cause), detail). Does not return.
+/// Defined only in platform/espidf/bb_system/bb_system.c -- its sole call
+/// site is the espidf-only platform/espidf/bb_wifi/wifi_reconn.c, so there
+/// is no host definition/stub (host code never calls it; host tests
+/// exercise _allowed/_allowed_at/_account/_src_for_cause directly instead).
+void bb_system_safeguard_reboot(bb_reboot_cause_t cause, bool ota_validated, const char *detail);
+
 /// Pure parse of POST /api/reboot's optional JSON body: {"ts": <epoch_s>,
 /// "detail": "<string, up to 48 chars>"} — both fields optional. body may be
 /// NULL/empty/non-JSON/oversized; on any parse failure out_ts=0 and

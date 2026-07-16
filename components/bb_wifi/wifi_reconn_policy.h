@@ -81,12 +81,15 @@ typedef struct {
     // recovery restart path (see the CONFIG_BB_WIFI_INACTIVE_TIME_ENABLE and
     // CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE compile-time tripwires in
     // platform/espidf/bb_wifi/wifi_reconn.c).
-    bool    (*budget_allows_fn)(void);        // bb_system_reboot_budget_allows(WIFI_SAFEGUARD)
-    void    (*budget_record_fn)(void);        // bb_system_reboot_budget_record(WIFI_SAFEGUARD)
-    bool    (*boot_fail_over_fn)(void);       // bb_system_boot_fail_over_threshold()
-    void    (*boot_count_increment_fn)(void); // bb_system_boot_count_increment()
-    bool    (*ota_validated_fn)(void);        // bb_wifi_internal_ota_validated()
-    void    (*reboot_fn)(const char *detail); // bb_system_restart_reason(WIFI_SAFEGUARD, detail)
+    // bb_system safeguard-reboot facade (B1-790 slice) -- collapses the
+    // former 5 reboot hooks (budget_allows_fn/budget_record_fn/
+    // boot_fail_over_fn/boot_count_increment_fn/ota_validated_fn) into these
+    // 2. reboot_allowed_fn is the combined budget+boot-fail-throttle
+    // decision (bb_system_safeguard_reboot_allowed); reboot_fn now also owns
+    // the accounting (boot-fail bump + budget record) that used to be
+    // spread across the other 4 hooks (bb_system_safeguard_reboot).
+    bool    (*reboot_allowed_fn)(void);       // bb_system_safeguard_reboot_allowed(WIFI_SAFEGUARD)
+    void    (*reboot_fn)(const char *detail); // bb_system_safeguard_reboot(WIFI_SAFEGUARD, ota_validated, detail)
     // Not part of the architect brief's esp_wifi_*/bb_system_*/reboot
     // enumeration, but required to keep the REBOOT_DENIED emit (R14) pure
     // and host-testable: bb_wifi_publish_net_event() does I/O (builds the ip
