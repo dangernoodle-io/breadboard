@@ -191,6 +191,13 @@ bb_err_t bb_system_boot_count_reset(void)
     return bb_config_set_u8(&s_boot_count_field, 0);
 }
 
+uint8_t bb_system_boot_count_get(void)
+{
+    uint8_t val = 0;
+    bb_config_get_u8(&s_boot_count_field, &val);
+    return val;
+}
+
 // Reboot budget (B1-863) — real epoch resolution. See bb_system_reboot_
 // budget.c's file header for why this split is per-platform, not shared.
 bool bb_system_reboot_budget_allows(bb_reboot_cause_t cause)

@@ -27,6 +27,16 @@ config BB_SYSTEM_REBOOT_BUDGET_DAILY_CAP
         Hard cap on reboots per cause within a rolling 24h window,
         persisted across reboots (ring buffer of reboot timestamps).
 
+config BB_SYSTEM_BOOT_FAIL_THRESHOLD
+    int "Boot-fail count at/above which a caller should treat the device as stuck"
+    default 3
+    range 1 255
+    help
+        Consulted by bb_system_boot_fail_over_threshold() (B1-864). Compared
+        against bb_system_boot_count_get() with >=. Not wired into any
+        reboot call site by this component — a consumer (e.g. the WiFi FSM's
+        anti-brick fallback) decides what to do once the threshold is hit.
+
 config BB_SYSTEM_ROUTES_AUTOREGISTER
     bool "Build bb_system HTTP routes (/api/version, /api/reboot, /api/ping)"
     default y

@@ -158,6 +158,31 @@ bb_err_t bb_system_boot_count_increment(void);
 /// OTA validation to clear the anti-brick window.
 bb_err_t bb_system_boot_count_reset(void);
 
+/// Returns the current boot-fail count (0 on host — no reboot-persistent
+/// storage — and on first ESP-IDF boot / read failure).
+uint8_t bb_system_boot_count_get(void);
+
+/// Boot-count threshold at/above which a caller should treat the device as
+/// stuck (e.g. fall back to AP provisioning). Callers compare with >=.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_SYSTEM_BOOT_FAIL_THRESHOLD
+#    define BB_SYSTEM_BOOT_FAIL_THRESHOLD CONFIG_BB_SYSTEM_BOOT_FAIL_THRESHOLD
+#  endif
+#endif
+#ifndef BB_SYSTEM_BOOT_FAIL_THRESHOLD
+#define BB_SYSTEM_BOOT_FAIL_THRESHOLD 3
+#endif
+
+/// Pure comparator: true iff count >= threshold. No I/O, host-testable in
+/// isolation from bb_system_boot_count_get's NVS/host-stub read — mirrors
+/// the pure-core / wrapper split in bb_system_reboot_budget_should_allow.
+bool bb_system_boot_fail_count_over(uint8_t count, uint8_t threshold);
+
+/// Convenience wrapper: bb_system_boot_fail_count_over(bb_system_boot_count_get(),
+/// BB_SYSTEM_BOOT_FAIL_THRESHOLD). Not wired into any reboot call site yet —
+/// deferred to B1-805 slice 1a's act_request_reboot.
+bool bb_system_boot_fail_over_threshold(void);
+
 // ---------------------------------------------------------------------------
 // Reboot budget (B1-863, WiFi FSM consolidation epic B1-790) — the shared
 // cooldown + daily-cap rate limit for any consumer that wants to escalate to
