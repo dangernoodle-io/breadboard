@@ -50,6 +50,10 @@ typedef enum {
     BB_WIFI_DISC_BB_LOST_IP,        // breadboard-injected: IP lost while associated
     BB_WIFI_DISC_BB_EGRESS_DEAD,    // breadboard-injected: gateway probe declared dead
     BB_WIFI_DISC_BB_NO_IP_WATCHDOG, // breadboard-injected: associated-but-no-IP watchdog
+    BB_WIFI_DISC_ASSOC_LEAVE,       // STA/peer-initiated disassociation (ESP
+                                    // WIFI_REASON_ASSOC_LEAVE=8), distinct from
+                                    // AP-initiated BB_WIFI_DISC_DEAUTH; PR7/B1-994
+                                    // keys a no-auto-reconnect tier on it.
     BB_WIFI_DISC_COUNT,             // sentinel -- not a valid reason value
 } bb_wifi_disc_reason_t;
 

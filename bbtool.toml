@@ -30,7 +30,9 @@ severity = "error"
 severity = "warn"
 # Allowlist: field names (or "path:line" keys) that are intentional diagnostic/log-only fields.
 # Example: allow = ["tls_error_code"]
-allow = []
+# tls_error_code (bb_http_client.h, bb_mqtt_client.h): raw mbedtls error code,
+# diagnostic/log-only, never fed into control flow (B1-899).
+allow = ["tls_error_code"]
 
 [lint.rules.ticket-ref-in-log]
 severity = "error"
