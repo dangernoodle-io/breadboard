@@ -31,16 +31,6 @@
 #define BB_WIFI_INACTIVE_TIME_S 45U
 #endif
 
-// BB_WIFI_RECOVERY_COOLDOWN_S: bridged from Kconfig; falls back to 60 s.
-#ifdef ESP_PLATFORM
-#  ifdef CONFIG_BB_WIFI_RECOVERY_COOLDOWN_S
-#    define BB_WIFI_RECOVERY_COOLDOWN_S CONFIG_BB_WIFI_RECOVERY_COOLDOWN_S
-#  endif
-#endif
-#ifndef BB_WIFI_RECOVERY_COOLDOWN_S
-#define BB_WIFI_RECOVERY_COOLDOWN_S 60U
-#endif
-
 // Start the reconnect manager (FSM + task). Idempotent. Called from
 // bb_wifi_autoinit for BOTH the creds-present and no-creds cases (B1-805
 // slice 1a) -- always-create the task so a later EV_CREDS_ARRIVED (posted by
@@ -80,17 +70,6 @@ int64_t  wifi_reconn_get_lost_ip_age_us(void);
 // without triggering the reconnect FSM. Call before esp_wifi_stop() in a
 // controlled restart to absorb the synthetic disconnect it generates.
 void wifi_reconn_absorb_next_disconnect(void);
-
-// Diagnostic counter: times the egress probe declared the gateway unreachable
-// and called bb_wifi_restart_sta (lock-free read of manager-owned state).
-uint32_t wifi_reconn_get_egress_dead_count(void);
-
-// B1-805 slice 1a (R4): a no-op under the bb_fsm reconn. The egress-recovery
-// tier-2 path (bb_net_health, CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE) is the
-// only caller, and that gate is default-OFF; wifi_reconn.c #errors at
-// compile time if it is ever enabled, so this stays inert (never silently
-// stale) until the FSM integration lands in slice 1b.
-void wifi_reconn_request_recovery(const char *reason);
 
 // Internal accessor (bb_wifi.c) for the injected OTA-image-validated callback
 // (bb_wifi_set_ota_validated_cb, bb_wifi.h). DEFAULT true when no callback is

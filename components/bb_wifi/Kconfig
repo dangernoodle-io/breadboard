@@ -8,6 +8,9 @@ config BB_WIFI_RSSI_GOOD
         RSSI >= this value is classified as GOOD. Moved from bb_net_health
         (net_health teardown PR-B); a saved sdkconfig override of the old
         BB_NET_HEALTH_RSSI_GOOD name silently reverts to this default.
+        NOTE (B1-969): inert -- the bb_net_health evaluator that drove this
+        classifier was deleted; no production caller until a replacement
+        observe-only driver lands (B1-1011).
 
 config BB_WIFI_RSSI_MARGINAL_LO
     int "Lower RSSI threshold for MARGINAL link bucket (dBm)"
@@ -20,6 +23,9 @@ config BB_WIFI_RSSI_MARGINAL_LO
         teardown PR-B); a saved sdkconfig override of the old
         BB_NET_HEALTH_RSSI_MARGINAL_LO name silently reverts to this
         default.
+        NOTE (B1-969): inert -- the bb_net_health evaluator that drove this
+        classifier was deleted; no production caller until a replacement
+        observe-only driver lands (B1-1011).
 
 config BB_WIFI_HYST_DOWN
     int "Hysteresis sample count before downgrading link state"
@@ -31,6 +37,9 @@ config BB_WIFI_HYST_DOWN
         Moved from bb_net_health (net_health teardown PR-B); a saved
         sdkconfig override of the old BB_NET_HEALTH_HYST_DOWN name silently
         reverts to this default.
+        NOTE (B1-969): inert -- the bb_net_health evaluator that drove this
+        classifier was deleted; no production caller until a replacement
+        observe-only driver lands (B1-1011).
 
 config BB_WIFI_HYST_UP
     int "Hysteresis sample count before upgrading link state"
@@ -41,6 +50,9 @@ config BB_WIFI_HYST_UP
         published link state is upgraded. Moved from bb_net_health
         (net_health teardown PR-B); a saved sdkconfig override of the old
         BB_NET_HEALTH_HYST_UP name silently reverts to this default.
+        NOTE (B1-969): inert -- the bb_net_health evaluator that drove this
+        classifier was deleted; no production caller until a replacement
+        observe-only driver lands (B1-1011).
 
 config BB_WIFI_RECONFIGURE
     bool "Enable runtime wifi reconfigure + pending-creds try on boot"
@@ -200,72 +212,5 @@ config BB_WIFI_INACTIVE_TIME_S
         esp_wifi_set_inactive_time(). If the station receives no beacon
         from the AP within this window, the driver emits
         WIFI_EVENT_STA_DISCONNECTED. Minimum 3 (ESP-IDF hard floor).
-
-config BB_WIFI_RECOVERY_COOLDOWN_S
-    int "App-driven recovery request cooldown (seconds)"
-    range 10 3600
-    default 60
-    help
-        Minimum interval between consecutive bb_wifi_request_recovery()
-        actions. Requests within the cooldown window are logged and
-        discarded. The hook API is always compiled.
-
-config BB_WIFI_GW_PROBE_ENABLE
-    bool "Enable gateway-reachability probe worker (observe-only)"
-    default n
-    help
-        When enabled, a dedicated worker task pings the STA default gateway
-        every BB_WIFI_GW_PROBE_PERIOD_S seconds and records the result via
-        bb_wifi_get_gateway_status(). OBSERVE-ONLY (B1-518): the probe never
-        triggers recovery on its own — a bare gateway ping is not sufficient
-        signal that egress is dead (see PR #578). Opt-in (default n): a
-        periodic ping worker + dedicated task is not imposed on every
-        breadboard consumer, matching the opt-in-for-expensive-features
-        convention and the old B1-371 tick-driven probe's opt-in shape.
-        Enable per-board in sdkconfig where fleet-wide egress observability
-        is wanted.
-
-config BB_WIFI_GW_PROBE_PERIOD_S
-    int "Gateway-probe interval (seconds)"
-    range 5 300
-    default 20
-    depends on BB_WIFI_GW_PROBE_ENABLE
-    help
-        How often the dedicated gateway-probe worker pings the STA default
-        gateway.
-
-config BB_WIFI_GW_PROBE_TIMEOUT_MS
-    int "Gateway-probe ICMP timeout (ms)"
-    range 100 5000
-    default 1000
-    depends on BB_WIFI_GW_PROBE_ENABLE
-    help
-        Timeout passed to bb_wifi_gateway_reachable() for each probe.
-
-config BB_WIFI_GW_PROBE_FAILS
-    int "Consecutive gateway-probe failures before fail-streak bump (observe-only)"
-    range 1 20
-    default 3
-    depends on BB_WIFI_GW_PROBE_ENABLE
-    help
-        Fed into wifi_reconn_policy_on_egress_probe() as fail_threshold,
-        using a SEPARATE observe-owned state — does not affect the live
-        reconnect FSM. The resulting action is always discarded; this only
-        sizes gw_fail_streak in bb_wifi_get_gateway_status().
-
-config BB_WIFI_GW_PROBE_STACK
-    int "Gateway-probe worker task stack size (bytes)"
-    default 3072
-    depends on BB_WIFI_GW_PROBE_ENABLE
-    help
-        Matches esp_ping's own task_stack_size (bb_wifi_ping uses 3072 for
-        its lazy ping session).
-
-config BB_WIFI_GW_PROBE_PRIORITY
-    int "Gateway-probe worker task priority"
-    default 3
-    depends on BB_WIFI_GW_PROBE_ENABLE
-    help
-        FreeRTOS priority for the dedicated gateway-probe worker task.
 
 endmenu

@@ -34,8 +34,11 @@ bb_board_heap_state_t bb_board_heap_state(void)
     return s_heap_state;
 }
 
-// Internal setter — called only from platform/espidf/bb_net_health/bb_net_health_espidf.c.
-// Not declared in the public header; the caller forward-declares it with extern.
+// Internal setter — not declared in the public header; a caller forward-
+// declares it with extern. Its former sole caller (bb_net_health's periodic
+// evaluator) was dissolved in B1-969 -- no production caller currently
+// exists, so s_heap_state stays at its zero-init BB_BOARD_HEAP_STATE_OK
+// until a future PR wires a replacement periodic heap-eval call site.
 void bb_board_set_heap_state(bb_board_heap_state_t state)
 {
     s_heap_state = state;

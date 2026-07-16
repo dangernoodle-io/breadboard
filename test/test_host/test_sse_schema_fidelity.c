@@ -1019,83 +1019,10 @@ void test_sse_schema_ota_progress_payload_missing_required_fails(void)
     bb_json_free(obj);
 }
 
-// NetHealth (sse_topic="net.health") — uses flat fields + nested mqtt/http objects
-static const char k_net_health_schema[] =
-    "{\"title\":\"NetHealth\",\"x-sse-topic\":\"net.health\",\"type\":\"object\","
-    "\"properties\":{"
-    "\"rssi\":{\"type\":\"integer\"},"
-    "\"state\":{\"type\":\"string\"},"
-    "\"early_warning\":{\"type\":\"boolean\"},"
-    "\"throttled\":{\"type\":\"boolean\"},"
-    "\"last_disconnect_reason\":{\"type\":\"string\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"lost_ip_recoveries\":{\"type\":\"integer\"},"
-    "\"lost_ip_age_s\":{\"type\":\"integer\"},"
-    "\"egress_dead_recoveries\":{\"type\":\"integer\"},"
-    "\"mqtt\":{\"type\":\"object\",\"properties\":{"
-    "\"connected\":{\"type\":\"boolean\"},"
-    "\"reconnect_count\":{\"type\":\"integer\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"disc_reason\":{\"type\":\"integer\"},"
-    "\"tls_fail\":{\"type\":\"integer\"}}},"
-    "\"http\":{\"type\":\"object\",\"properties\":{"
-    "\"connected\":{\"type\":\"boolean\"},"
-    "\"consec_failures\":{\"type\":\"integer\"},"
-    "\"tls_fail\":{\"type\":\"integer\"},"
-    "\"last_status\":{\"type\":\"integer\"}}}},"
-    "\"required\":[\"rssi\",\"state\",\"early_warning\",\"throttled\"]}";
-
-void test_sse_schema_net_health_payload_valid(void)
-{
-    bb_json_t mqtt = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(mqtt);
-    bb_json_obj_set_bool(mqtt, "connected",      true);
-    bb_json_obj_set_int (mqtt, "reconnect_count", 0);
-    bb_json_obj_set_int (mqtt, "disc_age_s",      0);
-    bb_json_obj_set_int (mqtt, "disc_reason",     0);
-    bb_json_obj_set_int (mqtt, "tls_fail",        0);
-
-    bb_json_t http = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(http);
-    bb_json_obj_set_bool(http, "connected",       true);
-    bb_json_obj_set_int (http, "consec_failures",  0);
-    bb_json_obj_set_int (http, "tls_fail",         0);
-    bb_json_obj_set_int (http, "last_status",      200);
-
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_int (obj, "rssi",                   -70);
-    bb_json_obj_set_string(obj, "state",                "good");
-    bb_json_obj_set_bool(obj, "early_warning",          false);
-    bb_json_obj_set_bool(obj, "throttled",              false);
-    bb_json_obj_set_string(obj, "last_disconnect_reason", "unknown");
-    bb_json_obj_set_int (obj, "disc_age_s",             0);
-    bb_json_obj_set_int (obj, "lost_ip_recoveries",     0);
-    bb_json_obj_set_int (obj, "lost_ip_age_s",          0);
-    bb_json_obj_set_int (obj, "egress_dead_recoveries", 0);
-    bb_json_obj_set_obj(obj, "mqtt", mqtt);
-    bb_json_obj_set_obj(obj, "http", http);
-    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_net_health_schema, obj, NULL));
-    bb_json_free(obj);
-}
-
-void test_sse_schema_net_health_payload_missing_required_fails(void)
-{
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_int(obj, "rssi", -70);
-    // missing state, early_warning, throttled
-    bb_openapi_validate_err_t verr = {0};
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
-                      bb_openapi_validate(k_net_health_schema, obj, &verr));
-    bb_json_free(obj);
-}
-
 // ---------------------------------------------------------------------------
-// oneOf count: all SSE topics registered → 12 refs in /api/events 200 oneOf
+// oneOf count: all SSE topics registered → 11 refs in /api/events 200 oneOf
 // (log + wifi + fan + power + thermal + alert + update.available +
-//  diag.boot + health.display + health.stack + ota.progress +
-//  net.health)
+//  diag.boot + health.display + health.stack + ota.progress)
 // ---------------------------------------------------------------------------
 
 void test_sse_schema_sse_oneof_count_and_topics(void)
@@ -1103,7 +1030,7 @@ void test_sse_schema_sse_oneof_count_and_topics(void)
     bb_http_route_registry_clear();
     bb_http_register_described_route(NULL, &s_sse_route);
 
-    // Register all 13 SSE-facing schemas (sse_topic != NULL).
+    // Register all 11 SSE-facing schemas (sse_topic != NULL).
     bb_openapi_register_schema("LogEvent",        k_log_schema,              "log");
     bb_openapi_register_schema("WifiTelemetry",   k_wifi_telemetry_schema,   "wifi");
     bb_openapi_register_schema("FanTelemetry",    k_fan_telemetry_schema,    "fan");
@@ -1115,13 +1042,12 @@ void test_sse_schema_sse_oneof_count_and_topics(void)
     bb_openapi_register_schema("DisplayInfo",     k_display_info_schema,     "health.display");
     bb_openapi_register_schema("HealthStack",     k_health_stack_schema,     "health.stack");
     bb_openapi_register_schema("OtaProgress",     k_ota_progress_schema,     "ota.progress");
-    bb_openapi_register_schema("NetHealth",       k_net_health_schema,       "net.health");
     // Also register REST-only schemas (must NOT appear in oneOf).
     bb_openapi_register_schema("InfoTelemetry",   k_info_telemetry_schema,   NULL);
     bb_openapi_register_schema("RtosTelemetry",   k_rtos_telemetry_schema,   NULL);
     bb_openapi_register_schema("WifiInfo",        k_wifi_schema,             NULL);
 
-    TEST_ASSERT_EQUAL_size_t(15, bb_openapi_schema_count());
+    TEST_ASSERT_EQUAL_size_t(14, bb_openapi_schema_count());
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
     bb_json_t doc = bb_openapi_emit(&meta);
@@ -1131,7 +1057,7 @@ void test_sse_schema_sse_oneof_count_and_topics(void)
     bb_json_free(doc);
     TEST_ASSERT_NOT_NULL(s);
 
-    // All 12 SSE schemas must appear as $ref entries in oneOf.
+    // All 11 SSE schemas must appear as $ref entries in oneOf.
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/LogEvent\""));
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/WifiTelemetry\""));
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/FanTelemetry\""));
@@ -1143,7 +1069,6 @@ void test_sse_schema_sse_oneof_count_and_topics(void)
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/DisplayInfo\""));
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/HealthStack\""));
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/OtaProgress\""));
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/NetHealth\""));
     // REST-only schemas must NOT appear in oneOf.
     TEST_ASSERT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/InfoTelemetry\""));
     TEST_ASSERT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/RtosTelemetry\""));

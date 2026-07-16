@@ -33,7 +33,7 @@ typedef struct {
 // (ESP-IDF, CC3000, WiFiS3/R4, host) maps its own backend-specific
 // disconnect/status code onto this single enum -- no raw backend-specific
 // numeric code is ever surfaced from bb_wifi's public API or wire format
-// again. Wire consumers (GET /api/wifi, GET /api/diag/net) see only the
+// again. Wire consumers (GET /api/wifi, GET /api/diag/wifi) see only the
 // stable STRING label from bb_wifi_disc_reason_str(); this enum (and its
 // ordinal values) is an internal implementation detail, free to change
 // across releases without a wire break.
@@ -127,15 +127,6 @@ bb_err_t bb_wifi_autoinit(void);
 // explicitly; safe to call from the reconn task context.
 // Only available on ESP-IDF platform.
 void bb_wifi_restart_sta(void);
-
-// App-driven WiFi recovery request.
-// Returns BB_OK immediately (non-blocking). If the STA already has no IP,
-// this is a no-op (BB_OK) — the FSM already owns recovery.
-// Debounced: at most one action per CONFIG_BB_WIFI_RECOVERY_COOLDOWN_S.
-// When triggered, signals the reconn task to call bb_wifi_restart_sta().
-// Bumps bb_wifi_get_egress_dead_count() and logs reason (never silent).
-// Always compiled; safe to call from any task context.
-bb_err_t bb_wifi_request_recovery(const char *reason);
 
 // ---------------------------------------------------------------------------
 // Hostname
@@ -309,11 +300,6 @@ bb_err_t bb_wifi_get_info(bb_wifi_info_t *out);
 uint32_t bb_wifi_get_lost_ip_count(void);
 uint32_t bb_wifi_get_lost_ip_age_s(void);
 
-// Egress-dead recovery counter: times the active gateway-probe found the
-// gateway unreachable and triggered bb_wifi_restart_sta. Returns 0 if the
-// reconnect manager is not active or no egress-dead event has occurred.
-uint32_t bb_wifi_get_egress_dead_count(void);
-
 // Times bb_wifi_restart_sta() has been called as part of any WiFi recovery path.
 // Incremented inside bb_wifi_restart_sta() only — callers must NOT increment it.
 // Returns 0 if bb_wifi_restart_sta() has never been invoked.
@@ -357,7 +343,7 @@ uint32_t bb_wifi_get_last_session_s(void);
 // Human-readable, wire-stable label for a bb_wifi_disc_reason_t value: one
 // static string literal per enum member (e.g. "handshake_timeout",
 // "bb_lost_ip"). This label -- never a raw numeric code -- is what crosses
-// the wire (GET /api/wifi "disc_reason", GET /api/diag/net
+// the wire (GET /api/wifi "disc_reason", GET /api/diag/wifi
 // "last_disconnect_reason"/"reason_histogram" keys/"top_reason"). Never
 // returns NULL; an out-of-range value defensively falls back to "unknown".
 // Pure, host-testable, fully reentrant (every branch returns a static
@@ -491,7 +477,7 @@ const char *bb_wifi_link_state_str(bb_wifi_link_state_t state);
  * Coarse WiFi connectivity discriminator, distinguishing "no IP while
  * associated" (zombie/DHCP failure) from "not associated at all" (out of
  * range, wrong creds, AP down). OBSERVE-ONLY — no recovery action is wired
- * to this classification; it exists purely for /api/diag/net and net.health
+ * to this classification; it exists purely for /api/diag/wifi
  * observability.
  */
 typedef enum {
@@ -525,48 +511,6 @@ bb_err_t bb_wifi_ping(uint32_t target_addr, uint32_t timeout_ms,
 // if no IP/gateway info is available or if the ICMP ping times out.
 bool bb_wifi_gateway_reachable(uint32_t timeout_ms);
 #endif /* ESP_PLATFORM */
-
-// ---------------------------------------------------------------------------
-// Gateway-reachability probe (observe-only, B1-518 PR2)
-// ---------------------------------------------------------------------------
-// Runs on a dedicated worker task (see platform/espidf/bb_wifi/bb_wifi_gw_probe.c),
-// gated by CONFIG_BB_WIFI_GW_PROBE_ENABLE. OBSERVE-ONLY: the worker's policy
-// decision is always discarded — this signal never triggers recovery on its
-// own (#578). bb_net_health (a later PR) pulls this status for correlation.
-
-// Snapshot of the gateway-probe worker's last observed state. Populated by
-// bb_wifi_get_gateway_status.
-typedef struct {
-    bool     gw_reachable;      // result of the most recent gateway ping
-    uint8_t  gw_fail_streak;    // consecutive probe failures (observe-owned state,
-                                 // SEPARATE from the live reconnect FSM's streak)
-    uint32_t gw_probe_count;    // cumulative probes run since boot
-    uint32_t gw_fail_count;     // cumulative probe failures since boot
-    uint32_t gw_dead_count;     // cumulative times the observe-only classifier
-                                 // would have tripped WIFI_RECONN_ACTION_RECONNECT_NOW
-                                 // (action is DISCARDED, never acted on)
-    uint64_t last_gw_probe_ms;  // bb_clock_now_ms64() at the last probe, 0 = never run
-} bb_wifi_gw_status_t;
-
-// Populate out with the gateway-probe worker's last observed state.
-// Returns BB_ERR_INVALID_ARG on NULL out. On ESP-IDF, returns
-// BB_ERR_INVALID_STATE if the probe worker has never started (e.g.
-// CONFIG_BB_WIFI_GW_PROBE_ENABLE=n). Host stub always returns BB_OK with a
-// zeroed status (gw_reachable=false) unless overridden via
-// bb_wifi_host_set_gateway_status (BB_WIFI_TESTING).
-bb_err_t bb_wifi_get_gateway_status(bb_wifi_gw_status_t *out);
-
-#if defined(CONFIG_BB_WIFI_GW_PROBE_ENABLE) && CONFIG_BB_WIFI_GW_PROBE_ENABLE
-// Registry hook — starts the dedicated gateway-probe worker task.
-// bbtool:init tier=pre_http fn=bb_wifi_gw_probe_start
-bb_err_t bb_wifi_gw_probe_start(void);
-#else
-// No-op stub when the gateway-probe worker is compiled out (default) --
-// codegen's `// bbtool:init` marker scan has no preprocessor awareness
-// (grep-time, see wire_parse.py), so bb_app_init.c unconditionally calls
-// this fn; mirrors the bb_cache.h Kconfig-bridge stub pattern.
-static inline bb_err_t bb_wifi_gw_probe_start(void) { return BB_OK; }
-#endif /* defined(CONFIG_BB_WIFI_GW_PROBE_ENABLE) && CONFIG_BB_WIFI_GW_PROBE_ENABLE */
 
 // bb_wifi_emit_section / bb_wifi_emit_status (bb_json_t-based JSON emitters)
 // moved to bb_wifi_http.h (PR1, KB 781) — bb_wifi's public header no longer

@@ -11,16 +11,6 @@
       "type": "sat_sub"
     },
     {
-      "id": "bb_net_health:bb_net_health_should_log:elapsed_us",
-      "path": "components/bb_net_health/src/bb_net_health.c",
-      "type": "sat_sub"
-    },
-    {
-      "id": "bb_net_health:egress_act_elapsed_s:now_s",
-      "path": "components/bb_net_health/src/bb_net_health.c",
-      "type": "sat_sub"
-    },
-    {
       "id": "bb_system:bb_system_elapsed_epoch_s:now_s",
       "path": "components/bb_system/src/bb_system_reboot_budget.c",
       "type": "sat_sub"
@@ -48,11 +38,6 @@
     {
       "id": "bb_meminfo:memreport_collect_cb:total_bytes",
       "path": "platform/espidf/bb_meminfo/bb_meminfo.c",
-      "type": "sat_sub"
-    },
-    {
-      "id": "bb_net_health:build_input:now_ms",
-      "path": "platform/espidf/bb_net_health/bb_net_health_espidf.c",
       "type": "sat_sub"
     },
     {

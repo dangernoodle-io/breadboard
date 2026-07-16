@@ -15,15 +15,6 @@
 #define BB_NV_KEY_TLS_CERT    "tls_cert"
 #define BB_NV_KEY_TLS_KEY     "tls_key"
 
-// bb_net_health egress-recovery ACT gate (components/bb_net_health, B1-518
-// PR4; namespace BB_NET_HEALTH_EGRESS_ACT_NVS_NS). The reboot-rate-limit
-// state (last_reboot_s + ring) is packed into ONE delimited string via
-// bb_net_health_reboot_state_encode/_decode and persisted under a single
-// key — one bb_nv_set_str call = one NVS commit, instead of one commit per
-// scalar field (was: last_reboot_s + ring_head + ring_count + 10 ring_N
-// entries = 13 commits per persist).
-#define BB_NET_HEALTH_EGRESS_ACT_KEY_STATE       "state"
-
 // bb_system reboot-reason SSOT (components/bb_system, B1-527; namespace
 // BB_REBOOT_NVS_NS). Single last-reboot record, cleared on read by bb_diag
 // at boot. One bb_reboot_record_encode/_decode delimited string = one key.

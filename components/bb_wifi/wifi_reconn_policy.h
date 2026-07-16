@@ -118,9 +118,6 @@ typedef struct {
     uint16_t reason_histogram[BB_WIFI_DISC_COUNT];
     uint32_t lost_ip_count;    // times lost IP while associated
     int64_t  last_lost_ip_us;  // timestamp of last lost-IP event
-    uint8_t  egress_fail_streak; // consecutive egress-probe failures below threshold
-    uint32_t egress_dead_count;  // times egress declared dead (streak hit threshold)
-    int64_t  last_egress_dead_us; // timestamp of last egress-dead event
 } wifi_reconn_state_t;
 
 // Adapter (R3, B1-805 slice 1a): every side-effecting call an FSM action or
@@ -136,10 +133,11 @@ typedef struct {
     void    (*disconnect_fn)(void);           // esp_wifi_disconnect()
     // No restart_sta_fn: no FSM row/action calls bb_wifi_restart_sta() in
     // this slice (review fix [MEDIUM], B1-805 slice 1a) -- reserved for
-    // slice 1b, which reintroduces it alongside the inactive-time/egress-
-    // recovery restart path (see the CONFIG_BB_WIFI_INACTIVE_TIME_ENABLE and
-    // CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE compile-time tripwires in
-    // platform/espidf/bb_wifi/wifi_reconn.c).
+    // slice 1b, which reintroduces it alongside the inactive-time restart
+    // path (see the CONFIG_BB_WIFI_INACTIVE_TIME_ENABLE compile-time
+    // tripwire in platform/espidf/bb_wifi/wifi_reconn.c). The egress-
+    // recovery ACT gate this comment used to also reference was dissolved
+    // with bb_net_health (B1-969).
     // bb_system safeguard-reboot facade (B1-790 slice) -- collapses the
     // former 5 reboot hooks (budget_allows_fn/budget_record_fn/
     // boot_fail_over_fn/boot_count_increment_fn/ota_validated_fn) into these
@@ -184,16 +182,6 @@ bool wifi_reconn_should_reconnect_no_ip(bool associated, bool has_ip);
 // Record a lost-IP event in policy state (bumps lost_ip_count, last_lost_ip_us,
 // reason_histogram[WIFI_REASON_BB_LOST_IP]). Guards null args.
 void wifi_reconn_policy_on_lost_ip(wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad);
-
-// Policy decision when the egress probe finds the gateway unreachable.
-// If reachable: resets egress_fail_streak, returns WIFI_RECONN_ACTION_NONE.
-// If unreachable: increments egress_fail_streak; once >= fail_threshold bumps
-// egress_dead_count, arms first_fail_us, records last_egress_dead_us,
-// increments reason_histogram[WIFI_REASON_BB_EGRESS_DEAD], resets streak,
-// returns WIFI_RECONN_ACTION_RECONNECT_NOW. Guards null args.
-wifi_reconn_action_t wifi_reconn_policy_on_egress_probe(
-    wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad,
-    bool reachable, int fail_threshold);
 
 // Policy decision when a connect attempt stalls (no GOT_IP or DISCONNECT
 // within the connecting watchdog window). Mirrors on_disconnect escalation:

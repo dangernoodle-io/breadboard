@@ -266,11 +266,6 @@
       "type": "component"
     },
     {
-      "id": "bb_net_health",
-      "path": "components/bb_net_health",
-      "type": "component"
-    },
-    {
       "id": "bb_ntp",
       "path": "components/bb_ntp",
       "type": "component"

@@ -49,12 +49,11 @@
 #include "bb_settings.h"
 #include "bb_wifi.h"
 #include "bb_wifi_http.h"
+#include "bb_wifi_test.h"
 #include "bb_system.h"
 #include "bb_mdns.h"
 #include "bb_diag.h"
 #include "bb_partition.h"
-#include "bb_net_health.h"
-#include "bb_transport_health.h"
 #include "bb_event.h"
 #include "bb_ota_check.h"
 #include "bb_event_routes.h"
@@ -92,7 +91,7 @@ static const char k_reboot_schema[] =
 
 // GET /api/health — bb_health.c (espidf)
 // TA-505: status bools/enums only. Numeric fields (rssi, disc_reason, etc.)
-// moved to /api/diag/net. mdns KEPT (locked decision B1-269).
+// moved to /api/diag/wifi. mdns KEPT (locked decision B1-269).
 static const char k_health_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
@@ -254,53 +253,33 @@ static const char k_partitions_schema[] =
     "\"next_ota\":{\"type\":\"boolean\"}},"
     "\"required\":[\"label\",\"type\",\"offset\",\"size\"]}}";
 
-// GET /api/diag/net — platform/espidf/bb_net_health/bb_net_health_routes.c (B1-456)
-static const char k_diag_net_schema[] =
+// GET /api/diag/wifi — platform/espidf/bb_wifi_http/bb_wifi_http_routes.c
+// (B1-969; rehomed + reduced from the dissolved bb_net_health's /api/diag/net)
+static const char k_diag_wifi_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
-    "\"uptime_ms\":{\"type\":\"integer\"},"
-    "\"http_handler_count\":{\"type\":\"integer\"},"
-    "\"http_handler_cap\":{\"type\":\"integer\"},"
-    "\"transports\":{\"type\":\"array\",\"items\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"name\":{\"type\":\"string\"},"
-    "\"cls\":{\"type\":\"string\"},"
-    "\"enabled\":{\"type\":\"boolean\"},"
-    "\"failing\":{\"type\":\"boolean\"},"
-    "\"last_ok_ms\":{\"type\":\"integer\"},"
-    "\"fail_count\":{\"type\":\"integer\"},"
-    "\"last_rx_ms\":{\"type\":\"integer\"},"
-    "\"rx_count\":{\"type\":\"integer\"}},"
-    "\"required\":[\"name\",\"cls\",\"enabled\",\"failing\"]}},"
+    "\"ssid\":{\"type\":\"string\"},"
+    "\"bssid\":{\"type\":\"string\"},"
     "\"rssi\":{\"type\":\"integer\"},"
+    "\"ip\":{\"type\":\"string\"},"
+    "\"connected\":{\"type\":\"boolean\"},"
+    "\"disc_reason\":{\"type\":\"string\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"last_disconnect_reason\":{\"type\":\"string\"},"
-    "\"lost_ip_recoveries\":{\"type\":\"integer\"},"
-    "\"lost_ip_age_s\":{\"type\":\"integer\"},"
-    "\"egress_dead_recoveries\":{\"type\":\"integer\"},"
-    "\"recovery_count\":{\"type\":\"integer\"},"
+    "\"retry_count\":{\"type\":\"integer\"},"
+    "\"restart_sta_count\":{\"type\":\"integer\"},"
+    "\"disconnect_rssi\":{\"type\":\"integer\"},"
     "\"roam_count\":{\"type\":\"integer\"},"
     "\"roam_age_s\":{\"type\":\"integer\"},"
+    "\"last_session_s\":{\"type\":\"integer\"},"
     "\"net_mode\":{\"type\":\"string\"},"
     "\"associated\":{\"type\":\"boolean\"},"
     "\"has_ip\":{\"type\":\"boolean\"},"
-    "\"egress_state\":{\"type\":\"string\"},"
-    "\"mqtt\":{\"type\":\"object\",\"properties\":{"
-    "\"reconnect_count\":{\"type\":\"integer\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"disc_reason\":{\"type\":\"integer\"},"
-    "\"tls_fail\":{\"type\":\"integer\"}}},"
-    "\"gw\":{\"type\":\"object\",\"properties\":{"
-    "\"gw_reachable\":{\"type\":\"boolean\"},"
-    "\"gw_fail_streak\":{\"type\":\"integer\"},"
-    "\"gw_dead_count\":{\"type\":\"integer\"},"
-    "\"gw_probe_age_s\":{\"type\":\"integer\"}}},"
     "\"reason_histogram\":{\"type\":\"object\","
     "\"additionalProperties\":{\"type\":\"integer\"},"
     "\"properties\":{"
     "\"top_reason\":{\"type\":\"string\"},"
     "\"top_reason_count\":{\"type\":\"integer\"}}}},"
-    "\"required\":[\"uptime_ms\"]}";
+    "\"required\":[\"ssid\",\"connected\"]}";
 
 // GET /api/log/level — platform/espidf/bb_log_http/bb_log_http.c
 static const char k_log_level_schema[] =
@@ -335,7 +314,7 @@ static bb_err_t h_reboot(bb_http_request_t *req)
 static bb_err_t h_health(bb_http_request_t *req)
 {
     // TA-505: status bools/enums only — no free_heap; numeric network fields
-    // moved to /api/diag/net.  Uses bb_wifi_emit_status (SSOT) so any future
+    // moved to /api/diag/wifi.  Uses bb_wifi_emit_status (SSOT) so any future
     // numeric addition to bb_wifi_emit_status would require an intentional API
     // change, and test_fidelity_health_no_raw_numbers catches it at test time.
     bb_board_info_t b;
@@ -667,176 +646,71 @@ static bb_err_t h_diag_partitions(bb_http_request_t *req)
     return bb_http_resp_json_arr_end(&arr);
 }
 
-// GET /api/diag/net — canned bb_net_health_status_t response.
-// Does NOT call the real diag_net_handler (static in
-// platform/espidf/bb_net_health/bb_net_health_routes.c, whose only
-// ESP-IDF-only dependency is bb_net_health_get_status); mirrors its emit
-// pattern field-for-field to verify schema fidelity (B1-456).
-//
-// B1-518 PR3: the real handler emits a nested "gw" object only when
-// snap.gw_available is true (omitted entirely otherwise). h_diag_net below
-// exercises the gw_available=false (omit) branch; h_diag_net_gw exercises
-// the gw_available=true (present) branch — both validate against the same
-// k_diag_net_schema since "gw" is an optional (non-required) property.
-//
-// B1-518 PR2: the real handler ALWAYS emits a "transports" array (built live
-// from bb_transport_health_snapshot_all(), not part of bb_net_health_status_t)
-// — empty when nothing is registered, populated otherwise. with_transports
-// toggles between the empty-array and populated-array branches; both
-// validate against the same k_diag_net_schema since "transports" items are
-// optional (non-required) properties on the array element.
-static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available, bool with_transports)
+// GET /api/diag/wifi — mirrors the real diag_wifi_handler (static in
+// platform/espidf/bb_wifi_http/bb_wifi_http_routes.c) field-for-field, using
+// the same public getters + the real bb_wifi_emit_section/
+// bb_wifi_reason_histogram_top logic (B1-969; rehomed + reduced from the
+// dissolved bb_net_health's GET /api/diag/net -- no gw/egress/
+// early_warning/bb_transport_health, all dropped not migrated).
+static bb_err_t h_diag_wifi(bb_http_request_t *req)
 {
-    bb_http_json_obj_stream_t obj;
-    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
-    if (err != BB_OK) return err;
+    bb_wifi_test_set_associated(true);
+    bb_wifi_test_set_has_ip(true);
+    bb_wifi_test_set_roam_count(2);
+    bb_wifi_test_set_roam_age_s(45);
+    bb_wifi_test_set_last_session_s(120);
 
-    bb_http_resp_json_obj_set_int(&obj, "uptime_ms",           1000);
-    bb_http_resp_json_obj_set_int(&obj, "http_handler_count",  4);
-    bb_http_resp_json_obj_set_int(&obj, "http_handler_cap",    64);
-
-    {
-        bb_transport_health_snapshot_t th[BB_TRANSPORT_HEALTH_MAX_SLOTS];
-        size_t th_n = 0;
-        if (with_transports) {
-            bb_transport_health_reset_for_test();
-            bb_transport_handle_t h_auth, h_inf;
-            bb_transport_health_register("mqtt", BB_TRANSPORT_AUTHORITATIVE, &h_auth);
-            bb_transport_health_register("subscriber", BB_TRANSPORT_INFERRED, &h_inf);
-            bb_transport_health_report(h_auth, true);
-            bb_transport_health_mark_activity(h_inf);
-            th_n = bb_transport_health_snapshot_all(th, BB_TRANSPORT_HEALTH_MAX_SLOTS);
-        }
-        bb_http_resp_json_obj_set_arr_begin(&obj, "transports");
-        for (size_t i = 0; i < th_n; i++) {
-            bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
-            bb_http_resp_json_obj_set_str (&obj, "name", th[i].name);
-            bb_http_resp_json_obj_set_str (&obj, "cls",
-                th[i].cls == BB_TRANSPORT_AUTHORITATIVE ? "authoritative" : "inferred");
-            bb_http_resp_json_obj_set_bool(&obj, "enabled",    th[i].enabled);
-            bb_http_resp_json_obj_set_bool(&obj, "failing",    th[i].failing);
-            bb_http_resp_json_obj_set_int (&obj, "last_ok_ms", (int64_t)th[i].last_ok_ms);
-            bb_http_resp_json_obj_set_int (&obj, "fail_count", (int64_t)th[i].fail_count);
-            if (th[i].cls == BB_TRANSPORT_INFERRED) {
-                bb_http_resp_json_obj_set_int(&obj, "last_rx_ms", (int64_t)th[i].last_rx_ms);
-                bb_http_resp_json_obj_set_int(&obj, "rx_count",   (int64_t)th[i].rx_count);
-            }
-            bb_http_resp_json_obj_set_obj_end(&obj);
-        }
-        bb_http_resp_json_obj_set_arr_end(&obj);
-    }
-
-    // B1-486: lost_ip/egress_dead_recoveries are folded into the same
-    // evaluator snapshot (non-zero, injected) so recovery_count is exercised
-    // with real point-in-time-consistent operands rather than canned zeros.
-    bb_net_health_status_t snap;
-    memset(&snap, 0, sizeof(snap));
-    snap.rssi                   = -60;
-    snap.disc_age_s             = 0;
-    snap.last_disconnect_reason = 0;
-    snap.lost_ip_recoveries     = 1;
-    snap.lost_ip_age_s          = 30;
-    snap.egress_dead_recoveries = 4;
-    snap.roam_count             = 2;  // B1-497: observe-only, exercised with a non-zero value
-    snap.roam_age_s             = 45;
-    snap.associated             = true;
-    snap.has_ip                 = true;
-    snap.net_mode               = bb_wifi_classify_mode(snap.associated, snap.has_ip);
-    snap.mqtt_reconnect_count   = 2;
-    snap.mqtt_disc_age_s        = 5;
-    snap.mqtt_disc_reason       = 0;
-    snap.mqtt_tls_fail          = 0;
-    snap.gw_available           = gw_available;
-    snap.gw_reachable           = true;
-    snap.gw_fail_streak         = 2;
-    snap.gw_dead_count          = 1;
-    snap.last_gw_probe_ms       = gw_available ? (bb_clock_now_ms64() - 5000ULL) : 0ULL;
-    snap.egress_state           = bb_net_health_classify_egress(snap.net_mode, snap.gw_available,
-                                       snap.gw_reachable, snap.gw_fail_streak, 3, 2, 0);
-
-    bb_http_resp_json_obj_set_int(&obj, "rssi",                   (int64_t)snap.rssi);
-    bb_http_resp_json_obj_set_int(&obj, "disc_age_s",             (int64_t)snap.disc_age_s);
-    bb_http_resp_json_obj_set_str(&obj, "last_disconnect_reason",
-        bb_wifi_disc_reason_str((bb_wifi_disc_reason_t)snap.last_disconnect_reason));
-    bb_http_resp_json_obj_set_int(&obj, "lost_ip_recoveries",     (int64_t)snap.lost_ip_recoveries);
-    bb_http_resp_json_obj_set_int(&obj, "lost_ip_age_s",          (int64_t)snap.lost_ip_age_s);
-    bb_http_resp_json_obj_set_int(&obj, "egress_dead_recoveries", (int64_t)snap.egress_dead_recoveries);
-    bb_http_resp_json_obj_set_int(&obj, "recovery_count",
-        (int64_t)(snap.lost_ip_recoveries + snap.egress_dead_recoveries));
-    bb_http_resp_json_obj_set_int(&obj, "roam_count", (int64_t)snap.roam_count);
-    bb_http_resp_json_obj_set_int(&obj, "roam_age_s", (int64_t)snap.roam_age_s);
-    bb_http_resp_json_obj_set_str (&obj, "net_mode",   bb_wifi_mode_str(snap.net_mode));
-    bb_http_resp_json_obj_set_bool(&obj, "associated", snap.associated);
-    bb_http_resp_json_obj_set_bool(&obj, "has_ip",     snap.has_ip);
-    bb_http_resp_json_obj_set_str (&obj, "egress_state", bb_egress_state_str(snap.egress_state));
-
-    bb_http_resp_json_obj_set_obj_begin(&obj, "mqtt");
-    bb_http_resp_json_obj_set_int(&obj, "reconnect_count", (int64_t)snap.mqtt_reconnect_count);
-    bb_http_resp_json_obj_set_int(&obj, "disc_age_s",      (int64_t)snap.mqtt_disc_age_s);
-    bb_http_resp_json_obj_set_int(&obj, "disc_reason",     (int64_t)snap.mqtt_disc_reason);
-    bb_http_resp_json_obj_set_int(&obj, "tls_fail",        (int64_t)snap.mqtt_tls_fail);
-    bb_http_resp_json_obj_set_obj_end(&obj);
-
-    // Gateway-probe status (B1-518 PR3, OBSERVE-ONLY): omitted entirely when
-    // the probe worker has never completed a probe, mirroring the real
-    // handler's if (snap.gw_available) gate.
-    if (snap.gw_available) {
-        uint64_t now_ms = bb_clock_now_ms64();
-        uint32_t age_s = (snap.last_gw_probe_ms > 0 && now_ms >= snap.last_gw_probe_ms)
-            ? (uint32_t)((now_ms - snap.last_gw_probe_ms) / 1000ULL)
-            : 0;
-        bb_http_resp_json_obj_set_obj_begin(&obj, "gw");
-        bb_http_resp_json_obj_set_bool(&obj, "gw_reachable",   snap.gw_reachable);
-        bb_http_resp_json_obj_set_int (&obj, "gw_fail_streak", (int64_t)snap.gw_fail_streak);
-        bb_http_resp_json_obj_set_int (&obj, "gw_dead_count",  (int64_t)snap.gw_dead_count);
-        bb_http_resp_json_obj_set_int (&obj, "gw_probe_age_s", (int64_t)age_s);
-        bb_http_resp_json_obj_set_obj_end(&obj);
-    }
-
-    // B1-486 finding #2: inject a non-zero standard reason (and non-zero
-    // breadboard-injected buckets) and run the real
-    // bb_wifi_reason_histogram_top logic rather than canned zeros, so the
-    // top-reason branch has host coverage.
     uint16_t hist[BB_WIFI_DISC_COUNT];
     memset(hist, 0, sizeof(hist));
     hist[BB_WIFI_REASON_BB_LOST_IP]        = 1;
     hist[BB_WIFI_REASON_BB_EGRESS_DEAD]    = 4;
     hist[BB_WIFI_REASON_BB_NO_IP_WATCHDOG] = 3;
     hist[BB_WIFI_DISC_INACTIVITY]          = 7; // standard reason, top non-injected count
+    bb_wifi_test_set_reason_histogram(hist, BB_WIFI_DISC_COUNT);
+
+    bb_wifi_info_t info;
+    bb_wifi_get_info(&info);
+
+    bb_json_t root = bb_json_obj_new();
+    if (!root) return BB_ERR_NO_SPACE;
+    bb_wifi_emit_section(root, &info);
+
+    bool associated = bb_wifi_is_associated();
+    bool has_ip     = bb_wifi_has_ip();
+    bb_wifi_mode_t mode = bb_wifi_classify_mode(associated, has_ip);
+
+    bb_json_obj_set_int   (root, "roam_count",     (int64_t)bb_wifi_get_roam_count());
+    bb_json_obj_set_int   (root, "roam_age_s",     (int64_t)bb_wifi_get_roam_age_s());
+    bb_json_obj_set_int   (root, "last_session_s", (int64_t)bb_wifi_get_last_session_s());
+    bb_json_obj_set_string(root, "net_mode",       bb_wifi_mode_str(mode));
+    bb_json_obj_set_bool  (root, "associated",     associated);
+    bb_json_obj_set_bool  (root, "has_ip",         has_ip);
+
+    uint16_t got_hist[BB_WIFI_DISC_COUNT];
+    bb_wifi_get_reason_histogram(got_hist, BB_WIFI_DISC_COUNT);
     uint16_t top_count = 0;
-    bb_wifi_disc_reason_t top_reason = bb_wifi_reason_histogram_top(hist, &top_count);
+    bb_wifi_disc_reason_t top_reason = bb_wifi_reason_histogram_top(got_hist, &top_count);
 
-    bb_http_resp_json_obj_set_obj_begin(&obj, "reason_histogram");
-    for (int i = 0; i < BB_WIFI_DISC_COUNT; i++) {
-        if (hist[i] == 0) continue;
-        bb_http_resp_json_obj_set_int(&obj, bb_wifi_disc_reason_str((bb_wifi_disc_reason_t)i),
-                                       (int64_t)hist[i]);
+    bb_json_t hist_obj = bb_json_obj_new();
+    if (hist_obj) {
+        for (int i = 0; i < BB_WIFI_DISC_COUNT; i++) {
+            if (got_hist[i] == 0) continue;
+            bb_json_obj_set_int(hist_obj, bb_wifi_disc_reason_str((bb_wifi_disc_reason_t)i),
+                                 (int64_t)got_hist[i]);
+        }
+        bb_json_obj_set_string(hist_obj, "top_reason",       bb_wifi_disc_reason_str(top_reason));
+        bb_json_obj_set_int   (hist_obj, "top_reason_count", (int64_t)top_count);
+        bb_json_obj_set_obj(root, "reason_histogram", hist_obj);
     }
-    bb_http_resp_json_obj_set_str(&obj, "top_reason",       bb_wifi_disc_reason_str(top_reason));
-    bb_http_resp_json_obj_set_int(&obj, "top_reason_count", (int64_t)top_count);
-    bb_http_resp_json_obj_set_obj_end(&obj);
 
-    return bb_http_resp_json_obj_end(&obj);
-}
-
-// gw_available=false, no transports registered — the omit-when-unavailable
-// (gw) + empty-array (transports) branches.
-static bb_err_t h_diag_net(bb_http_request_t *req)
-{
-    return diag_net_emit(req, false, false);
-}
-
-// gw_available=true — the "gw" object present branch.
-static bb_err_t h_diag_net_gw(bb_http_request_t *req)
-{
-    return diag_net_emit(req, true, false);
-}
-
-// B1-518 PR2: transports registered — the populated "transports" array
-// branch (one AUTHORITATIVE, one INFERRED entry).
-static bb_err_t h_diag_net_transports(bb_http_request_t *req)
-{
-    return diag_net_emit(req, false, true);
+    char *str = bb_json_serialize(root);
+    bb_json_free(root);
+    if (!str) return BB_ERR_NO_SPACE;
+    bb_http_resp_set_type(req, "application/json");
+    bb_err_t err = bb_http_resp_send_chunk(req, str, -1);
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
+    bb_json_free_str(str);
+    return err;
 }
 
 // PATCH /api/wifi 202 — mirrors wifi_patch_handler success path.
@@ -890,9 +764,7 @@ static const fidelity_entry_t k_audit[] = {
     { "PATCH /api/wifi 202",         h_wifi_patch_202,    202, "application/json", k_wifi_patch_202_schema  },
     { "PATCH /api/wifi 400",         h_wifi_patch_400,    400, "application/json", k_wifi_patch_400_schema  },
     { "/api/diag/partitions",        h_diag_partitions,   200, "application/json", k_partitions_schema      },
-    { "/api/diag/net",               h_diag_net,          200, "application/json", k_diag_net_schema        },
-    { "/api/diag/net (gw)",          h_diag_net_gw,       200, "application/json", k_diag_net_schema        },
-    { "/api/diag/net (transports)",  h_diag_net_transports, 200, "application/json", k_diag_net_schema      },
+    { "/api/diag/wifi",              h_diag_wifi,         200, "application/json", k_diag_wifi_schema       },
     { NULL, NULL, 0, NULL, NULL },
 };
 
@@ -1019,21 +891,23 @@ void test_fidelity_diag_partitions(void)
     run_fidelity(&k_audit[12]);
 }
 
-void test_fidelity_diag_net(void)
+void test_fidelity_diag_wifi(void)
 {
     run_fidelity(&k_audit[13]);
-}
 
-// B1-518 PR3: gw_available=true — "gw" object present with correct fields.
-void test_fidelity_diag_net_gw(void)
-{
-    run_fidelity(&k_audit[14]);
-}
-
-// B1-518 PR2: transports registered — populated "transports" array.
-void test_fidelity_diag_net_transports(void)
-{
-    run_fidelity(&k_audit[15]);
+    // h_diag_wifi drives global BB_WIFI_TESTING hooks (associated/has_ip/
+    // roam_count/roam_age_s/last_session_s/reason_histogram) that persist
+    // across the whole test binary -- restore defaults so later tests that
+    // assume a clean/zeroed bb_wifi test-hook state (e.g. test_bb_wifi.c's
+    // "default zero" fixtures) are not polluted by this fixture's run.
+    bb_wifi_test_set_associated(false);
+    bb_wifi_test_set_has_ip(false);
+    bb_wifi_test_set_roam_count(0);
+    bb_wifi_test_set_roam_age_s(0);
+    bb_wifi_test_set_last_session_s(0);
+    uint16_t empty_hist[BB_WIFI_DISC_COUNT];
+    memset(empty_hist, 0, sizeof(empty_hist));
+    bb_wifi_test_set_reason_histogram(empty_hist, BB_WIFI_DISC_COUNT);
 }
 
 // Routes that require subsystem state setup are tested individually below.
@@ -1365,7 +1239,7 @@ static void assert_no_numbers_recursive(cJSON *node, const char *path)
         char msg[512];
         snprintf(msg, sizeof(msg),
                  "/api/health: numeric value at '%s' (TA-505: health must carry "
-                 "no raw numbers; move them to /api/diag/net)", path);
+                 "no raw numbers; move them to /api/diag/wifi)", path);
         TEST_FAIL_MESSAGE(msg);
     }
     cJSON *child = node->child;

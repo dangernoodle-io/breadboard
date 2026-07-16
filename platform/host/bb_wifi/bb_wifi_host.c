@@ -13,9 +13,6 @@
 #include "bb_wifi_test.h"
 static bool s_test_has_ip = false;
 static bool s_test_associated = false;
-static int s_test_recovery_count = 0;
-static const char *s_test_last_recovery_reason = NULL;
-static bool s_test_recovery_blocked = false;
 static uint32_t s_test_restart_sta_count = 0;
 static int8_t s_test_disconnect_rssi = INT8_MIN;
 static uint16_t s_test_reason_histogram[BB_WIFI_DISC_COUNT];
@@ -31,29 +28,6 @@ void bb_wifi_test_set_has_ip(bool has_ip)
 void bb_wifi_test_set_associated(bool associated)
 {
     s_test_associated = associated;
-}
-
-void bb_wifi_test_set_recovery_blocked(bool blocked)
-{
-    s_test_recovery_blocked = blocked;
-}
-
-int bb_wifi_test_get_recovery_count(void)
-{
-    return s_test_recovery_count;
-}
-
-const char *bb_wifi_test_get_last_recovery_reason(void)
-{
-    return s_test_last_recovery_reason;
-}
-
-void bb_wifi_test_reset_recovery(void)
-{
-    s_test_recovery_count = 0;
-    s_test_last_recovery_reason = NULL;
-    s_test_recovery_blocked = false;
-    memset(s_test_reason_histogram, 0, sizeof(s_test_reason_histogram));
 }
 
 void bb_wifi_test_set_restart_sta_count(uint32_t count)
@@ -226,11 +200,6 @@ uint32_t bb_wifi_get_lost_ip_count(void)
     return 0;
 }
 
-uint32_t bb_wifi_get_egress_dead_count(void)
-{
-    return 0;
-}
-
 uint32_t bb_wifi_get_restart_sta_count(void)
 {
 #ifdef BB_WIFI_TESTING
@@ -285,56 +254,6 @@ void bb_wifi_get_reason_histogram(uint16_t *out, size_t len)
     for (size_t i = 0; i < n; i++) {
         out[i] = s_test_reason_histogram[i];
     }
-#endif
-}
-
-#ifdef BB_WIFI_TESTING
-static bb_wifi_gw_status_t s_test_gw_status;
-static bool s_test_gw_status_set = false;
-
-void bb_wifi_host_set_gateway_status(const bb_wifi_gw_status_t *status)
-{
-    if (!status) {
-        s_test_gw_status_set = false;
-        memset(&s_test_gw_status, 0, sizeof(s_test_gw_status));
-        return;
-    }
-    s_test_gw_status = *status;
-    s_test_gw_status_set = true;
-}
-#endif /* BB_WIFI_TESTING */
-
-// Host stub: always BB_OK with a zeroed status (gw_reachable=false) unless a
-// test has driven bb_wifi_host_set_gateway_status(). No probe worker runs on
-// host — this differs from the ESP-IDF accessor's BB_ERR_INVALID_STATE
-// "never ran" branch, matching the rest of this file's stub convention
-// (host callers get harmless zeroed data, not an error).
-bb_err_t bb_wifi_get_gateway_status(bb_wifi_gw_status_t *out)
-{
-    if (!out) return BB_ERR_INVALID_ARG;
-    memset(out, 0, sizeof(*out));
-#ifdef BB_WIFI_TESTING
-    if (s_test_gw_status_set) {
-        *out = s_test_gw_status;
-    }
-#endif
-    return BB_OK;
-}
-
-bb_err_t bb_wifi_request_recovery(const char *reason)
-{
-#ifdef BB_WIFI_TESTING
-    if (!s_test_has_ip) {
-        return BB_OK; // no-op: no IP, FSM owns recovery
-    }
-    if (!s_test_recovery_blocked) {
-        s_test_recovery_count++;
-        s_test_last_recovery_reason = reason;
-    }
-    return BB_OK;
-#else
-    (void)reason;
-    return BB_OK;
 #endif
 }
 

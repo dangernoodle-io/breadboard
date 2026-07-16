@@ -15,7 +15,6 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
-#include "esp_timer.h"
 #include "bb_timer.h"
 #include "ping/ping_sock.h"
 #include "lwip/ip_addr.h"
@@ -282,11 +281,6 @@ uint32_t bb_wifi_get_lost_ip_age_s(void)
     return (uint32_t)(age_us / 1000000);
 }
 
-uint32_t bb_wifi_get_egress_dead_count(void)
-{
-    return wifi_reconn_is_active() ? wifi_reconn_get_egress_dead_count() : 0;
-}
-
 uint32_t bb_wifi_get_restart_sta_count(void)
 {
     return s_restart_sta_count;
@@ -484,32 +478,6 @@ void bb_wifi_restart_sta(void)
     esp_wifi_set_config(WIFI_IF_STA, &s_sta_config);
     s_sta_restarting = false;
     esp_wifi_connect();
-}
-
-bb_err_t bb_wifi_request_recovery(const char *reason)
-{
-    // No-op if we don't have IP yet — FSM owns recovery in that state.
-    if (!bb_wifi_has_ip()) {
-        bb_log_d(TAG, "request_recovery(%s): no IP, FSM owns recovery", reason ? reason : "");
-        return BB_OK;
-    }
-
-    // Debounce: at most one recovery per cooldown window.
-    static int64_t s_last_recovery_us = 0;
-    int64_t now = (int64_t)esp_timer_get_time();
-    int64_t cooldown_us = (int64_t)BB_WIFI_RECOVERY_COOLDOWN_S * 1000000LL;
-    if (s_last_recovery_us != 0 && (now - s_last_recovery_us) < cooldown_us) {
-        bb_log_i(TAG, "request_recovery(%s): debounced (cooldown %us)",
-                 reason ? reason : "", (unsigned)BB_WIFI_RECOVERY_COOLDOWN_S);
-        return BB_OK;
-    }
-    s_last_recovery_us = now;
-
-    bb_log_i(TAG, "request_recovery: reason='%s', signaling reconn task", reason ? reason : "");
-    if (wifi_reconn_is_active()) {
-        wifi_reconn_request_recovery(reason);
-    }
-    return BB_OK;
 }
 
 bb_err_t bb_wifi_ensure_net_stack(void)
