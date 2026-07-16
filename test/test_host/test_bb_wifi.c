@@ -180,6 +180,24 @@ void test_bb_wifi_reason_histogram_top_injected(void)
     TEST_ASSERT_EQUAL_UINT16(5, top_count);
 }
 
+// BB_WIFI_DISC_ASSOC_LEAVE (B1-899) is a real ESP-sourced reason -- not a
+// breadboard-injected synthetic -- so it must be counted like any other
+// standard reason, not skipped by the injected-bucket skip-list.
+void test_bb_wifi_reason_histogram_top_assoc_leave_counted(void)
+{
+    uint16_t hist[BB_WIFI_DISC_COUNT];
+    memset(hist, 0, sizeof(hist));
+    hist[BB_WIFI_DISC_ASSOC_LEAVE]          = 7;   // real reason, top
+    hist[BB_WIFI_REASON_BB_LOST_IP]         = 100; // breadboard-injected — skipped
+    hist[BB_WIFI_REASON_BB_EGRESS_DEAD]     = 200; // breadboard-injected — skipped
+    hist[BB_WIFI_REASON_BB_NO_IP_WATCHDOG]  = 300; // breadboard-injected — skipped
+
+    uint16_t top_count = 0;
+    bb_wifi_disc_reason_t top_code = bb_wifi_reason_histogram_top(hist, &top_count);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_ASSOC_LEAVE, top_code);
+    TEST_ASSERT_EQUAL_UINT16(7, top_count);
+}
+
 // All-zero histogram reports BB_WIFI_DISC_UNKNOWN / count 0.
 void test_bb_wifi_reason_histogram_top_all_zero(void)
 {
@@ -379,6 +397,11 @@ void test_bb_wifi_disc_reason_str_bb_no_ip_watchdog(void)
     TEST_ASSERT_EQUAL_STRING("bb_no_ip_watchdog", bb_wifi_disc_reason_str(BB_WIFI_REASON_BB_NO_IP_WATCHDOG));
 }
 
+void test_bb_wifi_disc_reason_str_assoc_leave(void)
+{
+    TEST_ASSERT_EQUAL_STRING("assoc_leave", bb_wifi_disc_reason_str(BB_WIFI_DISC_ASSOC_LEAVE));
+}
+
 // Out-of-range value falls through to the default "unknown" arm — every
 // return is a static literal, no shared mutable buffer, never NULL.
 void test_bb_wifi_disc_reason_str_default_out_of_range(void)
@@ -406,9 +429,21 @@ void test_bb_wifi_map_esp_reason_disassoc_inactivity(void)
     TEST_ASSERT_EQUAL(BB_WIFI_DISC_INACTIVITY, bb_wifi_map_esp_reason(4));
 }
 
+void test_bb_wifi_map_esp_reason_assoc_leave(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_ASSOC_LEAVE, bb_wifi_map_esp_reason(8));
+}
+
 void test_bb_wifi_map_esp_reason_4way_handshake_timeout(void)
 {
     TEST_ASSERT_EQUAL(BB_WIFI_DISC_HANDSHAKE_TIMEOUT, bb_wifi_map_esp_reason(15));
+}
+
+// WIFI_REASON_802_1X_AUTH_FAILED joins the existing AUTH_FAIL bucket
+// alongside ESP 202 -- no new bb_wifi_disc_reason_t value needed (B1-899).
+void test_bb_wifi_map_esp_reason_802_1x_auth_failed(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_AUTH_FAIL, bb_wifi_map_esp_reason(23));
 }
 
 void test_bb_wifi_map_esp_reason_beacon_timeout(void)

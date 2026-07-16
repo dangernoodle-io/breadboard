@@ -156,6 +156,7 @@ const char *bb_wifi_disc_reason_str(bb_wifi_disc_reason_t reason)
     case BB_WIFI_DISC_BB_LOST_IP:        return "bb_lost_ip";
     case BB_WIFI_DISC_BB_EGRESS_DEAD:    return "bb_egress_dead";
     case BB_WIFI_DISC_BB_NO_IP_WATCHDOG: return "bb_no_ip_watchdog";
+    case BB_WIFI_DISC_ASSOC_LEAVE:       return "assoc_leave";
     default:                             return "unknown";
     }
 }
@@ -171,7 +172,9 @@ bb_wifi_disc_reason_t bb_wifi_map_esp_reason(uint16_t esp_code)
     case 2:   return BB_WIFI_DISC_AUTH_FAIL;         // WIFI_REASON_AUTH_EXPIRE
     case 3:   return BB_WIFI_DISC_DEAUTH;            // WIFI_REASON_AUTH_LEAVE
     case 4:   return BB_WIFI_DISC_INACTIVITY;        // WIFI_REASON_DISASSOC_DUE_TO_INACTIVITY
+    case 8:   return BB_WIFI_DISC_ASSOC_LEAVE;       // WIFI_REASON_ASSOC_LEAVE
     case 15:  return BB_WIFI_DISC_HANDSHAKE_TIMEOUT; // WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT
+    case 23:  return BB_WIFI_DISC_AUTH_FAIL;         // WIFI_REASON_802_1X_AUTH_FAILED
     case 200: return BB_WIFI_DISC_BEACON_TIMEOUT;    // WIFI_REASON_BEACON_TIMEOUT
     case 201: return BB_WIFI_DISC_NO_AP_FOUND;       // WIFI_REASON_NO_AP_FOUND
     case 202: return BB_WIFI_DISC_AUTH_FAIL;         // WIFI_REASON_AUTH_FAIL
