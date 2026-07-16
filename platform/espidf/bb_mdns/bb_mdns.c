@@ -1051,6 +1051,10 @@ static void wifi_net_handler(bb_event_topic_t topic, int32_t id,
     case BB_WIFI_NET_EVT_LOST_IP:
         bb_mdns_on_disconnect();
         break;
+    case BB_WIFI_NET_EVT_REBOOT_DENIED:
+        // Escalation denied, fell back to backoff -- still associated (or
+        // about to retry); no mDNS lifecycle action needed.
+        break;
     }
 }
 

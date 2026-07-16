@@ -1,6 +1,8 @@
 #include "unity.h"
 #include "wifi_reconn_policy.h"
 
+#include <string.h>
+
 // Fake time for testing
 static int64_t s_fake_now_us = 0;
 
@@ -357,6 +359,28 @@ void test_wifi_reconn_policy_on_lost_ip_histogram_saturates(void)
     TEST_ASSERT_EQUAL(UINT16_MAX, s_state.reason_histogram[WIFI_REASON_BB_LOST_IP]);
 }
 
+// Review fix [MEDIUM] regression guard (B1-805 slice 1a): the device shell
+// (platform/espidf/bb_wifi/wifi_reconn.c) records lost-IP diagnostics into a
+// DEDICATED event-task-owned instance (s_lost_ip_diag), never the reconn-
+// task-owned FSM ctx's policy state (single-writer contract on
+// wifi_reconn_ctx_t) -- verifies wifi_reconn_policy_on_lost_ip only mutates
+// the instance it's handed, so wifi_reconn_get_lost_ip_count()/_age_us()
+// (which read exactly this instance's fields) stay accurate without ever
+// touching a separate FSM ctx's policy.
+void test_wifi_reconn_policy_on_lost_ip_isolated_from_other_instances(void)
+{
+    wifi_reconn_state_t other_ctx_policy;
+    wifi_reconn_state_reset(&other_ctx_policy);
+
+    s_fake_now_us = 5000000;
+    wifi_reconn_policy_on_lost_ip(&s_state, &adapter);
+
+    TEST_ASSERT_EQUAL(1, s_state.lost_ip_count);
+    TEST_ASSERT_EQUAL_INT64(5000000, s_state.last_lost_ip_us);
+    TEST_ASSERT_EQUAL(0, other_ctx_policy.lost_ip_count);
+    TEST_ASSERT_EQUAL_INT64(0, other_ctx_policy.last_lost_ip_us);
+}
+
 void test_wifi_reconn_policy_arms_first_fail_on_inactivity_disconnect(void)
 {
     // Simulates an inactivity (beacon timeout) DISCONNECT flowing into the
@@ -533,4 +557,411 @@ void test_wifi_reconn_on_egress_probe_first_fail_already_armed(void)
 
     // Verify first_fail_us is UNCHANGED (line 163 false branch coverage)
     TEST_ASSERT_EQUAL_INT64(12345, s_state.first_fail_us);
+}
+
+// ===========================================================================
+// bb_fsm rebuild (B1-805 slice 1a) -- reachability tests. Drive the REAL FSM
+// table (wifi_reconn_fsm_init) via a fake adapter recording every
+// side-effecting call. Every fixture starts in WR_CONNECTING (never posts a
+// synthetic GOT_IP first) -- this is the property the two prior wifi_reconn
+// "fixes" silently failed to exercise.
+// ===========================================================================
+
+// esp_wifi WIFI_REASON_* wire values used below (bb_wifi_map_esp_reason,
+// R13): 15 = 4WAY_HANDSHAKE_TIMEOUT (handshake bucket), 4 =
+// DISASSOC_DUE_TO_INACTIVITY (generic bucket).
+#define FSM_HANDSHAKE_ESP_REASON ((uint8_t)15)
+#define FSM_GENERIC_ESP_REASON   ((uint8_t)4)
+
+typedef struct {
+    int64_t now_us;
+    bool    budget_allows;
+    bool    boot_fail_over;
+    bool    ota_validated;
+    int     connect_calls;
+    int     disconnect_calls;
+    int     reboot_calls;
+    int     budget_record_calls;
+    int     boot_count_increment_calls;
+    int     emit_calls;
+    bb_wifi_net_event_t   last_emit_evt;
+    bb_wifi_disc_reason_t last_emit_reason;
+} fsm_fake_t;
+
+static fsm_fake_t s_fake;
+
+static int64_t fsm_fake_now_us(void) { return s_fake.now_us; }
+static void    fsm_fake_connect(void) { s_fake.connect_calls++; }
+static void    fsm_fake_disconnect(void) { s_fake.disconnect_calls++; }
+static bool    fsm_fake_budget_allows(void) { return s_fake.budget_allows; }
+static void    fsm_fake_budget_record(void) { s_fake.budget_record_calls++; }
+static bool    fsm_fake_boot_fail_over(void) { return s_fake.boot_fail_over; }
+static void    fsm_fake_boot_count_increment(void) { s_fake.boot_count_increment_calls++; }
+static bool    fsm_fake_ota_validated(void) { return s_fake.ota_validated; }
+static void    fsm_fake_reboot(const char *detail) { (void)detail; s_fake.reboot_calls++; }
+static void    fsm_fake_emit(bb_wifi_net_event_t evt, bb_wifi_disc_reason_t reason)
+{
+    s_fake.emit_calls++;
+    s_fake.last_emit_evt = evt;
+    s_fake.last_emit_reason = reason;
+}
+
+static const wifi_reconn_adapter_t fsm_adapter = {
+    .now_us                  = fsm_fake_now_us,
+    .connect_fn              = fsm_fake_connect,
+    .disconnect_fn           = fsm_fake_disconnect,
+    .budget_allows_fn        = fsm_fake_budget_allows,
+    .budget_record_fn        = fsm_fake_budget_record,
+    .boot_fail_over_fn       = fsm_fake_boot_fail_over,
+    .boot_count_increment_fn = fsm_fake_boot_count_increment,
+    .ota_validated_fn        = fsm_fake_ota_validated,
+    .reboot_fn               = fsm_fake_reboot,
+    .emit_net_event_fn       = fsm_fake_emit,
+};
+
+// Fresh fixture: fake reset (defaults: budget allows, no boot-fail-over,
+// validated firmware -- the common/allowed case; individual tests flip a
+// field to exercise the denied branches), ctx zeroed, FSM initialized at
+// `initial` (WR_CONNECTING for every reachability test except the no-creds
+// park test, which uses WR_NO_CREDS).
+static void fsm_fixture_init(wifi_reconn_ctx_t *ctx, bb_fsm_state_t initial)
+{
+    memset(&s_fake, 0, sizeof(s_fake));
+    s_fake.now_us = 1000000;
+    s_fake.budget_allows = true;
+    s_fake.boot_fail_over = false;
+    s_fake.ota_validated = true;
+
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->adapter = &fsm_adapter;
+    TEST_ASSERT_EQUAL(BB_OK, wifi_reconn_fsm_init(ctx, initial));
+}
+
+// Row 5: WR_CONNECTING + DISCONNECT, within the fast-retry tier -> SAME,
+// immediate reconnect, CONNECTING watchdog explicitly re-armed (SAME does
+// not re-run on_entry).
+void test_fsm_disconnect_reconnect_now_same_transition_rearms_watchdog(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+
+    uint8_t reason = FSM_GENERIC_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_CONNECTING, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(1, s_fake.connect_calls);
+
+    bb_fsm_event_t tev;
+    uint32_t tms;
+    TEST_ASSERT_TRUE(bb_fsm_timer_at(&ctx.fsm, 0, &tev, &tms));
+    TEST_ASSERT_EQUAL_INT(EV_CONNECTING_TIMEOUT, tev);
+    TEST_ASSERT_EQUAL_UINT32(WIFI_RECONN_CONNECTING_TIMEOUT_MS, tms);
+}
+
+// Row 6 -> WR_BACKOFF.on_entry -> Row 11 back to WR_CONNECTING. Ladder tier2
+// backoff, then elapse -> re-arm CONNECTING watchdog.
+void test_fsm_ladder_reaches_backoff_with_correct_timer(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    ctx.policy.handshake_fail_count = WIFI_RECONN_HANDSHAKE_FAST_RETRY_LIMIT;
+
+    uint8_t reason = FSM_HANDSHAKE_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_BACKOFF, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(0, s_fake.connect_calls);
+
+    bb_fsm_event_t tev;
+    uint32_t tms;
+    TEST_ASSERT_TRUE(bb_fsm_timer_at(&ctx.fsm, 0, &tev, &tms));
+    TEST_ASSERT_EQUAL_INT(EV_BACKOFF_TIMEOUT, tev);
+    TEST_ASSERT_EQUAL_UINT32(WIFI_RECONN_HANDSHAKE_BACKOFF_TIER2_MS, tms);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_BACKOFF_TIMEOUT, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_CONNECTING, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(1, s_fake.connect_calls);
+    TEST_ASSERT_TRUE(bb_fsm_timer_at(&ctx.fsm, 0, &tev, &tms));
+    TEST_ASSERT_EQUAL_INT(EV_CONNECTING_TIMEOUT, tev);
+    TEST_ASSERT_EQUAL_UINT32(WIFI_RECONN_CONNECTING_TIMEOUT_MS, tms);
+}
+
+// Row 4: escalate reached ONLY after the persistent-fail window elapses.
+void test_fsm_escalate_reached_after_persistent_fail_window(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+
+    // First disconnect: not yet past the window -- ordinary tier1 SAME.
+    uint8_t reason = FSM_GENERIC_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_CONNECTING, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(0, s_fake.reboot_calls);
+    int64_t first_fail = ctx.policy.first_fail_us;
+    TEST_ASSERT_NOT_EQUAL(0, first_fail);
+
+    // Advance the fake clock past the window -- next disconnect escalates.
+    s_fake.now_us = first_fail + WIFI_RECONN_PERSISTENT_FAIL_WINDOW_US + 1000000;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_ESCALATE_REBOOT, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(1, s_fake.reboot_calls);
+    TEST_ASSERT_EQUAL(1, s_fake.budget_record_calls);
+}
+
+// Row 4b (R14 guard-placement deny, via budget_allows=false): ONE disconnect
+// step lands in WR_BACKOFF, reboot_fn NOT called, REBOOT_DENIED emitted.
+void test_fsm_disconnect_escalate_denied_via_budget(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    ctx.policy.first_fail_us = 1000000;
+    s_fake.now_us = 1000000 + WIFI_RECONN_PERSISTENT_FAIL_WINDOW_US + 1000000;
+    s_fake.budget_allows = false;
+
+    uint8_t reason = FSM_GENERIC_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_BACKOFF, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(0, s_fake.reboot_calls);
+    TEST_ASSERT_EQUAL(0, s_fake.budget_record_calls);
+    TEST_ASSERT_EQUAL(1, s_fake.emit_calls);
+    TEST_ASSERT_EQUAL(BB_WIFI_NET_EVT_REBOOT_DENIED, s_fake.last_emit_evt);
+
+    bb_fsm_event_t tev;
+    uint32_t tms;
+    TEST_ASSERT_TRUE(bb_fsm_timer_at(&ctx.fsm, 0, &tev, &tms));
+    TEST_ASSERT_EQUAL_INT(EV_BACKOFF_TIMEOUT, tev);
+    TEST_ASSERT_EQUAL_UINT32(WIFI_RECONN_GENERIC_BACKOFF_PAUSE_MS, tms);
+}
+
+// Row 4b, denied via boot_fail_over=true instead (budget_allows stays true)
+// -- covers the guard's second denial branch independently.
+void test_fsm_disconnect_escalate_denied_via_boot_fail_over(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    ctx.policy.first_fail_us = 1000000;
+    s_fake.now_us = 1000000 + WIFI_RECONN_PERSISTENT_FAIL_WINDOW_US + 1000000;
+    s_fake.boot_fail_over = true;
+
+    uint8_t reason = FSM_GENERIC_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_BACKOFF, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(0, s_fake.reboot_calls);
+    TEST_ASSERT_EQUAL(1, s_fake.emit_calls);
+    TEST_ASSERT_EQUAL(BB_WIFI_NET_EVT_REBOOT_DENIED, s_fake.last_emit_evt);
+}
+
+// Row 4, allowed: ota_validated=true -> reboot + budget_record, no boot-count
+// bump.
+void test_fsm_disconnect_escalate_allowed_validated_no_boot_increment(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    ctx.policy.first_fail_us = 1000000;
+    s_fake.now_us = 1000000 + WIFI_RECONN_PERSISTENT_FAIL_WINDOW_US + 1000000;
+    s_fake.ota_validated = true;
+
+    uint8_t reason = FSM_GENERIC_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_ESCALATE_REBOOT, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(1, s_fake.reboot_calls);
+    TEST_ASSERT_EQUAL(1, s_fake.budget_record_calls);
+    TEST_ASSERT_EQUAL(0, s_fake.boot_count_increment_calls);
+}
+
+// Row 4, allowed sub-case: ota_validated=false -> boot-count incremented.
+void test_fsm_disconnect_escalate_allowed_unvalidated_increments_boot_count(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    ctx.policy.first_fail_us = 1000000;
+    s_fake.now_us = 1000000 + WIFI_RECONN_PERSISTENT_FAIL_WINDOW_US + 1000000;
+    s_fake.ota_validated = false;
+
+    uint8_t reason = FSM_GENERIC_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_ESCALATE_REBOOT, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(1, s_fake.reboot_calls);
+    TEST_ASSERT_EQUAL(1, s_fake.boot_count_increment_calls);
+}
+
+// Row 8: connect-timeout stall below the window -- re-attempt via
+// disconnect_fn+connect_fn, stays WR_CONNECTING, watchdog re-armed (no
+// restart_sta_fn adapter slot exists for this row -- removed as dead code,
+// review fix [MEDIUM], B1-805 slice 1a).
+void test_fsm_connecting_timeout_reattempts_without_teardown(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_CONNECTING_TIMEOUT, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_CONNECTING, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(1, s_fake.disconnect_calls);
+    TEST_ASSERT_EQUAL(1, s_fake.connect_calls);
+    TEST_ASSERT_TRUE(ctx.self_disconnect);
+
+    bb_fsm_event_t tev;
+    uint32_t tms;
+    TEST_ASSERT_TRUE(bb_fsm_timer_at(&ctx.fsm, 0, &tev, &tms));
+    TEST_ASSERT_EQUAL_INT(EV_CONNECTING_TIMEOUT, tev);
+    TEST_ASSERT_EQUAL_UINT32(WIFI_RECONN_CONNECTING_TIMEOUT_MS, tms);
+}
+
+// Row 7: timeout-escalate allowed -> reboot.
+void test_fsm_timeout_escalate_allowed_reboots(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    ctx.policy.first_fail_us = 1000000;
+    s_fake.now_us = 1000000 + WIFI_RECONN_PERSISTENT_FAIL_WINDOW_US + 1000000;
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_CONNECTING_TIMEOUT, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_ESCALATE_REBOOT, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(1, s_fake.reboot_calls);
+}
+
+// Row 7b, denied via budget_allows=false.
+void test_fsm_timeout_escalate_denied_via_budget(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    ctx.policy.first_fail_us = 1000000;
+    s_fake.now_us = 1000000 + WIFI_RECONN_PERSISTENT_FAIL_WINDOW_US + 1000000;
+    s_fake.budget_allows = false;
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_CONNECTING_TIMEOUT, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_BACKOFF, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(0, s_fake.reboot_calls);
+    TEST_ASSERT_EQUAL(1, s_fake.emit_calls);
+    TEST_ASSERT_EQUAL(BB_WIFI_NET_EVT_REBOOT_DENIED, s_fake.last_emit_evt);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_UNKNOWN, s_fake.last_emit_reason);
+}
+
+// Row 7b, denied via boot_fail_over=true instead -- covers the guard's
+// second denial branch independently.
+void test_fsm_timeout_escalate_denied_via_boot_fail_over(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    ctx.policy.first_fail_us = 1000000;
+    s_fake.now_us = 1000000 + WIFI_RECONN_PERSISTENT_FAIL_WINDOW_US + 1000000;
+    s_fake.boot_fail_over = true;
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_CONNECTING_TIMEOUT, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_BACKOFF, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(0, s_fake.reboot_calls);
+    TEST_ASSERT_EQUAL(1, s_fake.emit_calls);
+}
+
+// Row 2: GOT_IP resets policy counters, transitions WR_CONNECTED, no timer.
+void test_fsm_got_ip_resets_and_transitions_connected(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    ctx.policy.handshake_fail_count = 3;
+    ctx.policy.first_fail_us = 12345;
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_GOT_IP, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_CONNECTED, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(0, ctx.policy.handshake_fail_count);
+    TEST_ASSERT_EQUAL_INT64(0, ctx.policy.first_fail_us);
+    TEST_ASSERT_EQUAL(0, (int)bb_fsm_timer_count(&ctx.fsm));
+}
+
+// Row 3: STA_CONNECTED is log-only -- SAME, no action side effects.
+void test_fsm_connecting_sta_connected_is_log_only_same(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_CONNECTED, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_CONNECTING, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(0, s_fake.connect_calls);
+}
+
+// Row 9: WR_CONNECTED + DISCONNECT within fast-retry tier -> WR_CONNECTING,
+// watchdog re-armed by WR_CONNECTING's own on_entry (concrete transition).
+void test_fsm_connected_disconnect_reconnect_now_to_connecting(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_GOT_IP, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_CONNECTED, bb_fsm_state(&ctx.fsm));
+
+    uint8_t reason = FSM_GENERIC_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_CONNECTING, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(1, s_fake.connect_calls);
+
+    bb_fsm_event_t tev;
+    uint32_t tms;
+    TEST_ASSERT_TRUE(bb_fsm_timer_at(&ctx.fsm, 0, &tev, &tms));
+    TEST_ASSERT_EQUAL_INT(EV_CONNECTING_TIMEOUT, tev);
+}
+
+// Row 10: WR_CONNECTED + DISCONNECT beyond fast-retry tier -> WR_BACKOFF.
+void test_fsm_connected_disconnect_backoff_to_backoff(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_GOT_IP, NULL));
+    ctx.policy.generic_fail_count = WIFI_RECONN_GENERIC_FAST_RETRY_LIMIT;
+
+    uint8_t reason = FSM_GENERIC_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_BACKOFF, bb_fsm_state(&ctx.fsm));
+
+    bb_fsm_event_t tev;
+    uint32_t tms;
+    TEST_ASSERT_TRUE(bb_fsm_timer_at(&ctx.fsm, 0, &tev, &tms));
+    TEST_ASSERT_EQUAL_INT(EV_BACKOFF_TIMEOUT, tev);
+    TEST_ASSERT_EQUAL_UINT32(WIFI_RECONN_GENERIC_BACKOFF_PAUSE_MS, tms);
+}
+
+// Row 12: WR_BACKOFF absorbs a stray DISCONNECTED (SAME, no-op).
+void test_fsm_backoff_absorbs_stray_disconnect(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    ctx.policy.generic_fail_count = WIFI_RECONN_GENERIC_FAST_RETRY_LIMIT;
+    uint8_t reason = FSM_GENERIC_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_BACKOFF, bb_fsm_state(&ctx.fsm));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_BACKOFF, bb_fsm_state(&ctx.fsm));
+}
+
+// Row 1 + the no-creds safety invariant (BINDING, test #7 in the spec):
+// WR_NO_CREDS is terminal-until-provisioned. Every stray event is a safe
+// no-op (BB_ERR_NOT_FOUND, state unchanged, no side effects, no timer);
+// only EV_CREDS_ARRIVED moves it, to WR_CONNECTING.
+void test_fsm_no_creds_parks_until_creds_arrived(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_NO_CREDS);
+    s_fake.now_us += WIFI_RECONN_PERSISTENT_FAIL_WINDOW_US + 1000000;
+
+    uint8_t reason = FSM_GENERIC_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_NO_CREDS, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_NO_CREDS, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_fsm_step(&ctx.fsm, EV_CONNECTING_TIMEOUT, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_NO_CREDS, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_fsm_step(&ctx.fsm, EV_BACKOFF_TIMEOUT, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_NO_CREDS, bb_fsm_state(&ctx.fsm));
+
+    TEST_ASSERT_EQUAL(0, s_fake.connect_calls);
+    TEST_ASSERT_EQUAL(0, s_fake.reboot_calls);
+    TEST_ASSERT_EQUAL(0, s_fake.budget_record_calls);
+    TEST_ASSERT_EQUAL(0, s_fake.boot_count_increment_calls);
+    TEST_ASSERT_EQUAL(0, (int)bb_fsm_timer_count(&ctx.fsm));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_CREDS_ARRIVED, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_CONNECTING, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(1, s_fake.connect_calls);
+    bb_fsm_event_t tev;
+    uint32_t tms;
+    TEST_ASSERT_TRUE(bb_fsm_timer_at(&ctx.fsm, 0, &tev, &tms));
+    TEST_ASSERT_EQUAL_INT(EV_CONNECTING_TIMEOUT, tev);
+    TEST_ASSERT_EQUAL_UINT32(WIFI_RECONN_CONNECTING_TIMEOUT_MS, tms);
 }

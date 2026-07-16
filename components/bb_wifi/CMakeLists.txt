@@ -9,5 +9,5 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "."
     REQUIRES bb_core
-    PRIV_REQUIRES bb_wdt bb_task bb_str bb_settings esp_wifi esp_event esp_timer esp_system bb_log lwip bb_timer bb_system esp_netif
+    PRIV_REQUIRES bb_task bb_str bb_settings esp_wifi esp_event esp_timer esp_system bb_log lwip bb_timer bb_system esp_netif bb_fsm
 )

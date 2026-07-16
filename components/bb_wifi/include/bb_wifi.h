@@ -170,6 +170,9 @@ typedef enum {
     BB_WIFI_NET_EVT_GOT_IP = 0,
     BB_WIFI_NET_EVT_DISCONNECT,
     BB_WIFI_NET_EVT_LOST_IP,
+    BB_WIFI_NET_EVT_REBOOT_DENIED, // B1-805: reconnect FSM escalation denied
+                                    // (budget/boot-fail-count) -- fell back to
+                                    // backoff instead of rebooting.
 } bb_wifi_net_event_t;
 
 // The reason is passed explicitly as a call argument -- NOT read back via
@@ -181,11 +184,15 @@ typedef enum {
 // through the call closes that race.
 //
 // Per-edge value:
-//   BB_WIFI_NET_EVT_GOT_IP     -> BB_WIFI_DISC_UNKNOWN (not meaningful)
-//   BB_WIFI_NET_EVT_DISCONNECT -> the mapped reason for this disconnect
-//                                 (bb_wifi_map_esp_reason() of the esp_wifi
-//                                 WIFI_REASON_* code)
-//   BB_WIFI_NET_EVT_LOST_IP    -> BB_WIFI_DISC_BB_LOST_IP
+//   BB_WIFI_NET_EVT_GOT_IP        -> BB_WIFI_DISC_UNKNOWN (not meaningful)
+//   BB_WIFI_NET_EVT_DISCONNECT    -> the mapped reason for this disconnect
+//                                    (bb_wifi_map_esp_reason() of the esp_wifi
+//                                    WIFI_REASON_* code)
+//   BB_WIFI_NET_EVT_LOST_IP       -> BB_WIFI_DISC_BB_LOST_IP
+//   BB_WIFI_NET_EVT_REBOOT_DENIED -> the last disconnect reason (mapped),
+//                                    or BB_WIFI_DISC_UNKNOWN when the denial
+//                                    was on a connect-timeout stall (no
+//                                    disconnect reason code applies)
 //
 // `evt` is the discriminator, not `reason` alone: BB_WIFI_DISC_UNKNOWN is
 // overloaded -- on GOT_IP it's a "not applicable" filler (there is no
