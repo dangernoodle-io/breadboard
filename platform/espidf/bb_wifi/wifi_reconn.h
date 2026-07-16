@@ -6,12 +6,17 @@
 
 #include "bb_wifi.h"
 
-// Watchdog for ST_CONNECTING. If neither GOT_IP nor DISCONNECT arrives within
-// this window, the task treats it as a stalled association and re-attempts.
-// 30 s >> normal associate+DHCP (2–8 s), so false positives are rare.
-#define WIFI_RECONN_CONNECTING_TIMEOUT_MS CONFIG_BB_WIFI_RECONN_CONNECTING_TIMEOUT_MS
+// WIFI_RECONN_CONNECTING_TIMEOUT_MS (the WR_CONNECTING watchdog) now lives in
+// components/bb_wifi/wifi_reconn_policy.h -- the host-compilable TU that owns
+// the FSM table's WR_CONNECTING on_entry hook, which is what arms it
+// (B1-805 slice 1a, R8).
 
 // BB_WIFI_NO_IP_WATCHDOG_ENABLE: bridge Kconfig opt-in; default 0 on host.
+// B1-805 slice 1a: the ST_IDLE zombie-watchdog poll that consumed this flag
+// was deleted along with the legacy switch-based reconn_task (the bb_fsm
+// rebuild has no equivalent state-shaped poll yet -- deferred to slice 1b).
+// wifi_reconn.c #errors at compile time if this is ever enabled, so a build
+// can't silently ship the now-nonexistent watchdog.
 #ifdef ESP_PLATFORM
 #  ifdef CONFIG_BB_WIFI_NO_IP_WATCHDOG_ENABLE
 #    define BB_WIFI_NO_IP_WATCHDOG_ENABLE 1
@@ -62,9 +67,14 @@
 #define BB_WIFI_RECOVERY_COOLDOWN_S 60U
 #endif
 
-// Start the reconnect manager task. Call once from wifi_connect_sta()
-// AFTER the initial blocking connect succeeds. Idempotent.
-void wifi_reconn_start(void);
+// Start the reconnect manager (FSM + task). Idempotent. Called from
+// bb_wifi_autoinit for BOTH the creds-present and no-creds cases (B1-805
+// slice 1a) -- always-create the task so a later EV_CREDS_ARRIVED (posted by
+// provisioning) can move a parked WR_NO_CREDS instance to WR_CONNECTING.
+// has_creds selects the FSM's initial state: true -> WR_CONNECTING (the
+// caller issues the actual first esp_wifi_connect() separately -- this only
+// arms the CONNECTING watchdog); false -> WR_NO_CREDS (parked, no timer).
+void wifi_reconn_start(bool has_creds);
 
 // True once the manager task is running. The WiFi event handler uses
 // this to decide whether to delegate disconnect/got-ip events.
@@ -80,11 +90,12 @@ void wifi_reconn_get_disconnect(bb_wifi_disc_reason_t *reason, int64_t *age_us);
 int  wifi_reconn_get_retry_count(void);
 void wifi_reconn_get_histogram(uint16_t *out, size_t len);
 
-// Notify the reconnect manager that the IP was lost while still associated.
-// Calls wifi_reconn_policy_on_lost_ip and issues esp_wifi_disconnect() to
-// drop the stale association, which fires WIFI_EVENT_STA_DISCONNECTED and
-// drives the normal recovery path. Does NOT set s_self_disconnect.
-// Safe to call from the WiFi event task context.
+// LOG-ONLY (B1-805 slice 1a, R11): IP_EVENT_STA_LOST_IP is a 120s-debounced,
+// Espressif-documented "generally ignore, it's a debug event" -- NOT a
+// disconnect signal. Does not mutate policy state, does not force a
+// disconnect/reconnect. WIFI_EVENT_STA_DISCONNECTED (wifi_reconn_on_disconnect)
+// is the SOLE authoritative disconnect trigger. Safe to call from the WiFi
+// event task context.
 void wifi_reconn_on_lost_ip(void);
 
 // Diagnostic counters (lock-free reads of manager-owned state).
@@ -104,8 +115,11 @@ uint32_t wifi_reconn_get_egress_dead_count(void);
 // and called bb_wifi_restart_sta (lock-free read of manager-owned state).
 uint32_t wifi_reconn_get_no_ip_count(void);
 
-// Signal the reconn task to run bb_wifi_restart_sta() from the task context.
-// Called by bb_wifi_request_recovery() after debounce check.
+// B1-805 slice 1a (R4): a no-op under the bb_fsm reconn. The egress-recovery
+// tier-2 path (bb_net_health, CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE) is the
+// only caller, and that gate is default-OFF; wifi_reconn.c #errors at
+// compile time if it is ever enabled, so this stays inert (never silently
+// stale) until the FSM integration lands in slice 1b.
 void wifi_reconn_request_recovery(const char *reason);
 
 // Internal accessor (bb_wifi.c) for the injected OTA-image-validated callback

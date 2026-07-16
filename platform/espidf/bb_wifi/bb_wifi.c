@@ -10,7 +10,6 @@
 #include "bb_log.h"
 #include "esp_netif.h"
 #include "esp_mac.h"
-#include "bb_wdt.h"
 #include "bb_task.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -25,16 +24,13 @@
 
 static const char *TAG = "bb_wifi";
 #define WIFI_CONNECTED_BIT BIT0
-#define WIFI_MAX_RETRY 10
 
 // State tracking
 static bool s_netif_initialized = false;
 static esp_netif_t *s_sta_netif = NULL;
 static EventGroupHandle_t s_wifi_event_group = NULL;
-static atomic_int s_retry_count = 0;
 static esp_event_handler_instance_t s_wifi_handler = NULL;
 static esp_event_handler_instance_t s_ip_handler = NULL;
-static bb_oneshot_timer_t s_reconnect_timer = NULL;
 static volatile bool s_has_ip = false;
 #if CONFIG_BB_WIFI_RECONFIGURE
 static volatile bool s_pending_try = false;
@@ -215,12 +211,6 @@ bool bb_wifi_gateway_reachable(uint32_t timeout_ms)
     return reachable;
 }
 
-static void reconnect_work_fn(void *arg)
-{
-    (void)arg;
-    esp_wifi_connect();
-}
-
 // Getters for diagnostics
 void bb_wifi_get_disconnect(bb_wifi_disc_reason_t *reason, int64_t *age_us)
 {
@@ -234,7 +224,7 @@ void bb_wifi_get_disconnect(bb_wifi_disc_reason_t *reason, int64_t *age_us)
 
 int bb_wifi_get_retry_count(void)
 {
-    return wifi_reconn_is_active() ? wifi_reconn_get_retry_count() : atomic_load(&s_retry_count);
+    return wifi_reconn_is_active() ? wifi_reconn_get_retry_count() : 0;
 }
 
 bb_err_t bb_wifi_get_ip_str(char *out, size_t out_len)
@@ -446,35 +436,16 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 
         bb_wifi_publish_net_event(BB_WIFI_NET_EVT_DISCONNECT, mapped_reason);
 
-        if (wifi_reconn_is_active()) {
-            // Post-boot: manager task owns retry policy
-            wifi_reconn_on_disconnect(disc ? disc->reason : 0);
-            return;
-        }
-
-        // Boot-time connect: legacy inline retry until wifi_connect_sta() hands off
-        if (atomic_load(&s_retry_count) >= WIFI_MAX_RETRY) {
-            bb_log_w(TAG, "max retries reached, delaying 5s before retry");
-            atomic_store(&s_retry_count, 0);
-            if (!s_reconnect_timer) {
-                bb_timer_deferred_oneshot_create(reconnect_work_fn, NULL,
-                                                 "wifi_reconn_boot", &s_reconnect_timer);
-            }
-            bb_timer_oneshot_stop(s_reconnect_timer);
-            bb_timer_oneshot_start(s_reconnect_timer, 5000000);
-            return;
-        }
-        esp_wifi_connect();
-        int rc = atomic_fetch_add(&s_retry_count, 1) + 1;
-        bb_log_w(TAG, "retry %d/%d", rc, WIFI_MAX_RETRY);
+        // The reconnect FSM/task is always seeded before any connect attempt
+        // (bb_wifi_autoinit calls wifi_reconn_start() pre-connect, B1-805
+        // slice 1a), so by the time a real WIFI_EVENT_STA_DISCONNECTED can
+        // fire the manager is already active -- dispatch is unconditional.
+        wifi_reconn_on_disconnect(disc ? disc->reason : 0);
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         bb_log_i(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
-        atomic_store(&s_retry_count, 0);
         s_has_ip = true;
-        if (wifi_reconn_is_active()) {
-            wifi_reconn_on_got_ip();
-        }
+        wifi_reconn_on_got_ip();
 #if CONFIG_BB_WIFI_RECONFIGURE
         if (s_pending_try) {
             s_pending_try = false;
@@ -495,9 +466,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         }
         s_has_ip = false;
         bb_log_w(TAG, "IP lost");
-        if (wifi_reconn_is_active()) {
-            wifi_reconn_on_lost_ip();
-        }
+        wifi_reconn_on_lost_ip();
         bb_wifi_publish_net_event(BB_WIFI_NET_EVT_LOST_IP, BB_WIFI_DISC_BB_LOST_IP);
     }
 }
@@ -690,20 +659,23 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms)
         vEventGroupDelete(s_wifi_event_group);
         s_wifi_event_group = NULL;
 
-        // Stop reconnect timer before deinit to prevent firing on dead driver
-        if (s_reconnect_timer) {
-            bb_timer_oneshot_stop(s_reconnect_timer);
+        // R-brief §11 (B1-805 slice 1a): the reconnect FSM is already seeded
+        // and running by this point (bb_wifi_autoinit calls wifi_reconn_start()
+        // pre-connect) and owns retrying via its own CONNECTING watchdog --
+        // tearing down the WiFi driver here would pull it out from under
+        // that ongoing retry loop. Only the CREDS_PENDING revert-flow (a
+        // one-shot reconfigure try, not the live FSM path) still needs the
+        // full stop/deinit/unregister so a subsequent wifi_connect_sta_ex
+        // call reinitializes cleanly.
+        if (src == CREDS_PENDING) {
+            esp_wifi_stop();
+            esp_wifi_deinit();
+
+            esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, s_wifi_handler);
+            esp_event_handler_instance_unregister(IP_EVENT, ESP_EVENT_ANY_ID, s_ip_handler);
+            s_wifi_handler = NULL;
+            s_ip_handler = NULL;
         }
-
-        // Clean up WiFi so it can be reinitialized
-        esp_wifi_stop();
-        esp_wifi_deinit();
-
-        // Unregister event handlers and clear handles for fresh registration on retry
-        esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, s_wifi_handler);
-        esp_event_handler_instance_unregister(IP_EVENT, ESP_EVENT_ANY_ID, s_ip_handler);
-        s_wifi_handler = NULL;
-        s_ip_handler = NULL;
 
         bb_log_e(TAG, "WiFi connection timeout after %us", (unsigned)(timeout_ms / 1000));
         return ESP_ERR_TIMEOUT;
@@ -711,8 +683,6 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms)
 
     vEventGroupDelete(s_wifi_event_group);
     s_wifi_event_group = NULL;
-
-    wifi_reconn_start();
 
     return ESP_OK;
 }
@@ -883,11 +853,14 @@ bb_err_t bb_wifi_reconfigure(const char *ssid, const char *pass)
 
 bb_err_t bb_wifi_autoinit(void)
 {
-    // No credentials → nothing to connect to. Return immediately so the
-    // EARLY-tier walker continues and the consumer can branch into
+    // No credentials → nothing to connect to. Seed the reconnect FSM parked
+    // (WR_NO_CREDS -- B1-805 slice 1a, R8/§3a) so a later EV_CREDS_ARRIVED
+    // (posted by provisioning) can move it to WR_CONNECTING; then return so
+    // the EARLY-tier walker continues and the consumer can branch into
     // provisioning mode (AP fallback).
     if (!wifi_has_creds()) {
         bb_log_i(TAG, "bb_wifi_autoinit: no ssid configured; skipping connect");
+        wifi_reconn_start(false);
         return BB_OK;
     }
 
@@ -896,12 +869,17 @@ bb_err_t bb_wifi_autoinit(void)
     // to connect with them under a bounded timeout. Success commits them as live;
     // timeout discards them and reboots onto the untouched live creds WITHOUT
     // incrementing boot_count so the device does not drift toward AP-fallback.
+    // The reconnect FSM is seeded only AFTER a successful try (not before, and
+    // not shared with the try's own bounded wait/revert-teardown -- see the
+    // CREDS_PENDING gate in wifi_connect_sta_ex) so its CONNECTING watchdog
+    // never races the pending-try's own timeout.
     if (bb_settings_wifi_pending_active()) {
         s_pending_try = true;
         esp_err_t terr = wifi_connect_sta_ex(CREDS_PENDING,
             (uint32_t)CONFIG_BB_WIFI_PENDING_TRY_TIMEOUT_S * 1000);
         if (terr == ESP_OK) {
             // Commit already happened in the got-IP handler.
+            wifi_reconn_start(true);
             return BB_OK;
         }
         s_pending_try = false;
@@ -912,38 +890,22 @@ bb_err_t bb_wifi_autoinit(void)
     }
 #endif
 
+    // Seed the reconnect FSM (WR_CONNECTING) BEFORE the actual blocking
+    // connect below, so its CONNECTING watchdog covers the cold-boot attempt
+    // too -- closing the "stalled cold-boot connect has no self-heal" gap
+    // (B1-805, R8/§3a). The FSM only arms the watchdog here; this call still
+    // issues the actual first esp_wifi_connect() (via wifi_connect_sta_ex's
+    // own event-driven flow, unchanged).
+    wifi_reconn_start(true);
+
     // Hostname is applied inside wifi_connect_sta_ex() right after the STA netif
     // is created — esp_netif_set_hostname requires the netif to exist.
     bb_err_t err = bb_wifi_init_sta();
 
-#if CONFIG_BB_WIFI_RETRY_FOREVER_WHEN_VALIDATED
-    // Validated firmware should keep trying — a network outage shouldn't wipe
-    // credentials or knock the device into AP mode. Unvalidated firmware
-    // falls through to the existing boot-count / AP-fallback path that
-    // bb_wifi already implements internally.
-    //
-    // main is NOT auto-subscribed to the task WDT in this build (only the
-    // idle tasks are, via CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPUx). Self-
-    // subscribe main for the duration of THIS feed loop only: sleep is
-    // broken into 1 s chunks so the task WDT (default 5 s in ESP-IDF v5.x)
-    // is fed on every iteration and the 30 s backoff doesn't trip it. The
-    // subscription must not span bb_wifi_init_sta() below, which blocks up
-    // to 60 s with no feed and would panic-trip a subscribed task ~5 s in.
-    while (err != BB_OK && bb_wifi_internal_ota_validated()) {
-        bb_log_w(TAG, "wifi cold-boot timeout; retrying in 30s");
-        bb_wdt_task_subscribe();
-        for (int i = 0; i < 30; i++) {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            bb_wdt_task_feed();
-        }
-        bb_wdt_task_unsubscribe();
-        err = bb_wifi_init_sta();
-    }
-#endif
-
     if (err != BB_OK) {
-        // Swallow the error so the EARLY-tier walker continues. Consumers that
-        // need wifi state explicitly call bb_wifi_is_connected().
+        // Swallow the error so the EARLY-tier walker continues -- the
+        // reconnect FSM (already running) owns retrying from here. Consumers
+        // that need wifi state explicitly call bb_wifi_is_connected().
         bb_log_w(TAG, "bb_wifi_autoinit: connect failed (%d); continuing", (int)err);
     }
     return BB_OK;

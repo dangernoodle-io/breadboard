@@ -2917,6 +2917,7 @@ void test_wifi_reconn_should_reconnect_no_ip_not_associated(void);
 void test_wifi_reconn_policy_on_lost_ip_increments(void);
 void test_wifi_reconn_policy_on_lost_ip_null_args(void);
 void test_wifi_reconn_policy_on_lost_ip_histogram_saturates(void);
+void test_wifi_reconn_policy_on_lost_ip_isolated_from_other_instances(void);
 void test_wifi_reconn_policy_arms_first_fail_on_inactivity_disconnect(void);
 void test_wifi_reconn_on_egress_probe_reachable_resets_streak(void);
 void test_wifi_reconn_on_egress_probe_streak_below_threshold(void);
@@ -2929,6 +2930,25 @@ void test_wifi_reconn_policy_on_no_ip_null_args(void);
 void test_wifi_reconn_policy_on_no_ip_arms_first_fail(void);
 void test_wifi_reconn_policy_on_no_ip_first_fail_already_armed(void);
 void test_wifi_reconn_policy_on_no_ip_histogram_saturates(void);
+
+// B1-805 slice 1a: bb_fsm rebuild reachability tests (test_wifi_reconn_policy.c)
+void test_fsm_disconnect_reconnect_now_same_transition_rearms_watchdog(void);
+void test_fsm_ladder_reaches_backoff_with_correct_timer(void);
+void test_fsm_escalate_reached_after_persistent_fail_window(void);
+void test_fsm_disconnect_escalate_denied_via_budget(void);
+void test_fsm_disconnect_escalate_denied_via_boot_fail_over(void);
+void test_fsm_disconnect_escalate_allowed_validated_no_boot_increment(void);
+void test_fsm_disconnect_escalate_allowed_unvalidated_increments_boot_count(void);
+void test_fsm_connecting_timeout_reattempts_without_teardown(void);
+void test_fsm_timeout_escalate_allowed_reboots(void);
+void test_fsm_timeout_escalate_denied_via_budget(void);
+void test_fsm_timeout_escalate_denied_via_boot_fail_over(void);
+void test_fsm_got_ip_resets_and_transitions_connected(void);
+void test_fsm_connecting_sta_connected_is_log_only_same(void);
+void test_fsm_connected_disconnect_reconnect_now_to_connecting(void);
+void test_fsm_connected_disconnect_backoff_to_backoff(void);
+void test_fsm_backoff_absorbs_stray_disconnect(void);
+void test_fsm_no_creds_parks_until_creds_arrived(void);
 
 // Forward declarations from test_bb_mdns_lifecycle.c
 void bb_mdns_lifecycle_test_reset(void);
@@ -7077,6 +7097,7 @@ int main(void) {
     RUN_TEST(test_wifi_reconn_policy_on_lost_ip_increments);
     RUN_TEST(test_wifi_reconn_policy_on_lost_ip_null_args);
     RUN_TEST(test_wifi_reconn_policy_on_lost_ip_histogram_saturates);
+    RUN_TEST(test_wifi_reconn_policy_on_lost_ip_isolated_from_other_instances);
     RUN_TEST(test_wifi_reconn_policy_arms_first_fail_on_inactivity_disconnect);
     RUN_TEST(test_wifi_reconn_on_egress_probe_reachable_resets_streak);
     RUN_TEST(test_wifi_reconn_on_egress_probe_streak_below_threshold);
@@ -7089,6 +7110,25 @@ int main(void) {
     RUN_TEST(test_wifi_reconn_policy_on_no_ip_arms_first_fail);
     RUN_TEST(test_wifi_reconn_policy_on_no_ip_first_fail_already_armed);
     RUN_TEST(test_wifi_reconn_policy_on_no_ip_histogram_saturates);
+
+    // B1-805 slice 1a: bb_fsm rebuild reachability tests
+    RUN_TEST(test_fsm_disconnect_reconnect_now_same_transition_rearms_watchdog);
+    RUN_TEST(test_fsm_ladder_reaches_backoff_with_correct_timer);
+    RUN_TEST(test_fsm_escalate_reached_after_persistent_fail_window);
+    RUN_TEST(test_fsm_disconnect_escalate_denied_via_budget);
+    RUN_TEST(test_fsm_disconnect_escalate_denied_via_boot_fail_over);
+    RUN_TEST(test_fsm_disconnect_escalate_allowed_validated_no_boot_increment);
+    RUN_TEST(test_fsm_disconnect_escalate_allowed_unvalidated_increments_boot_count);
+    RUN_TEST(test_fsm_connecting_timeout_reattempts_without_teardown);
+    RUN_TEST(test_fsm_timeout_escalate_allowed_reboots);
+    RUN_TEST(test_fsm_timeout_escalate_denied_via_budget);
+    RUN_TEST(test_fsm_timeout_escalate_denied_via_boot_fail_over);
+    RUN_TEST(test_fsm_got_ip_resets_and_transitions_connected);
+    RUN_TEST(test_fsm_connecting_sta_connected_is_log_only_same);
+    RUN_TEST(test_fsm_connected_disconnect_reconnect_now_to_connecting);
+    RUN_TEST(test_fsm_connected_disconnect_backoff_to_backoff);
+    RUN_TEST(test_fsm_backoff_absorbs_stray_disconnect);
+    RUN_TEST(test_fsm_no_creds_parks_until_creds_arrived);
 
     // bb_mdns_lifecycle tests
     RUN_TEST(test_bb_mdns_lifecycle_start_when_not_started);

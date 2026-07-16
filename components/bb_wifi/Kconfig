@@ -42,17 +42,6 @@ config BB_WIFI_HYST_UP
         (net_health teardown PR-B); a saved sdkconfig override of the old
         BB_NET_HEALTH_HYST_UP name silently reverts to this default.
 
-config BB_WIFI_RETRY_FOREVER_WHEN_VALIDATED
-    bool "Retry wifi forever when OTA is validated"
-    default y
-    help
-      When the running firmware has been validated (bb_ota_is_validated()
-      is true), bb_wifi_autoinit retries the STA connect indefinitely on
-      cold-boot timeout instead of falling back to AP mode. A network
-      outage shouldn't wipe credentials on a known-good build. Disable
-      this if you want strict timeout-then-AP behavior even for validated
-      firmware.
-
 config BB_WIFI_RECONFIGURE
     bool "Enable runtime wifi reconfigure + pending-creds try on boot"
     default y
