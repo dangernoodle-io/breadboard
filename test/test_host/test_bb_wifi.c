@@ -31,42 +31,76 @@ void test_bb_wifi_set_hostname_valid(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 }
 
-// Test: no-ip no-op
-void test_bb_wifi_request_recovery_no_ip_noop(void)
+// ---------------------------------------------------------------------------
+// Host stubs with no network state available -- B1-969 coverage-baseline
+// closure (deleting bb_wifi_request_recovery/bb_wifi_get_gateway_status from
+// this file shifted line numbers, waking these pre-existing gaps; the house
+// rule requires closing every baseline gap in a touched file).
+// ---------------------------------------------------------------------------
+
+void test_bb_wifi_reconfigure_returns_unsupported(void)
 {
-#ifdef BB_WIFI_TESTING
-    bb_wifi_test_reset_recovery();
-    bb_wifi_test_set_has_ip(false);
-    bb_err_t err = bb_wifi_request_recovery("test");
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_wifi_test_get_recovery_count()); // no-op
-#endif
+    bb_err_t err = bb_wifi_reconfigure("ssid", "pass");
+    TEST_ASSERT_EQUAL_INT(BB_ERR_UNSUPPORTED, err);
 }
 
-// Test: has-ip triggers recovery
-void test_bb_wifi_request_recovery_triggers_restart(void)
+void test_bb_wifi_get_retry_count_default_zero(void)
 {
-#ifdef BB_WIFI_TESTING
-    bb_wifi_test_reset_recovery();
-    bb_wifi_test_set_has_ip(true);
-    bb_err_t err = bb_wifi_request_recovery("stratum_dead");
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_wifi_test_get_recovery_count());
-    TEST_ASSERT_NOT_NULL(bb_wifi_test_get_last_recovery_reason());
-    TEST_ASSERT_EQUAL_STRING("stratum_dead", bb_wifi_test_get_last_recovery_reason());
-#endif
+    TEST_ASSERT_EQUAL_INT(0, bb_wifi_get_retry_count());
 }
 
-// Test: null reason is safe
-void test_bb_wifi_request_recovery_null_reason(void)
+void test_bb_wifi_restart_sta_noop(void)
 {
-#ifdef BB_WIFI_TESTING
-    bb_wifi_test_reset_recovery();
-    bb_wifi_test_set_has_ip(true);
-    bb_err_t err = bb_wifi_request_recovery(NULL);
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_wifi_test_get_recovery_count());
-#endif
+    bb_wifi_restart_sta(); // no crash = pass
+}
+
+void test_bb_wifi_scan_start_async_noop(void)
+{
+    bb_wifi_scan_start_async(); // no crash = pass
+}
+
+void test_bb_wifi_scan_get_cached_returns_zero(void)
+{
+    bb_wifi_ap_t results[4];
+    TEST_ASSERT_EQUAL_INT(0, bb_wifi_scan_get_cached(results, 4));
+}
+
+void test_bb_wifi_listen_returns_invalid_state(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, bb_wifi_listen(80));
+}
+
+void test_bb_wifi_accept_returns_invalid_state(void)
+{
+    bb_conn_t *out = NULL;
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, bb_wifi_accept(&out));
+}
+
+void test_bb_conn_available_returns_zero(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, bb_conn_available(NULL));
+}
+
+void test_bb_conn_read_returns_neg1(void)
+{
+    uint8_t buf[4];
+    TEST_ASSERT_EQUAL_INT(-1, bb_conn_read(NULL, buf, sizeof(buf)));
+}
+
+void test_bb_conn_write_returns_neg1(void)
+{
+    uint8_t buf[4] = {0};
+    TEST_ASSERT_EQUAL_INT(-1, bb_conn_write(NULL, buf, sizeof(buf)));
+}
+
+void test_bb_conn_close_noop(void)
+{
+    bb_conn_close(NULL); // no crash = pass
+}
+
+void test_bb_wifi_get_lost_ip_count_default_zero(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wifi_get_lost_ip_count());
 }
 
 // ---------------------------------------------------------------------------
@@ -525,70 +559,6 @@ void test_bb_wifi_map_wl_status_default_unmapped(void)
 }
 
 // ---------------------------------------------------------------------------
-// B1-518 PR2: bb_wifi_get_gateway_status accessor (observe-only gateway
-// probe). Host stub always returns BB_OK; the "never ran" BB_ERR_INVALID_STATE
-// branch is ESP-IDF-only (before bb_wifi_gw_probe_start runs) and is not
-// reachable from the host build.
-// ---------------------------------------------------------------------------
-
-// NULL out -> BB_ERR_INVALID_ARG.
-void test_bb_wifi_get_gateway_status_null_arg(void)
-{
-    bb_err_t err = bb_wifi_get_gateway_status(NULL);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
-}
-
-// Default (no test hook driven): BB_OK, zeroed status, gw_reachable=false.
-void test_bb_wifi_get_gateway_status_default_zeroed(void)
-{
-#ifdef BB_WIFI_TESTING
-    bb_wifi_host_set_gateway_status(NULL); // ensure clean default
-#endif
-    bb_wifi_gw_status_t st;
-    memset(&st, 0xAA, sizeof(st)); // poison to prove the accessor overwrites it
-    bb_err_t err = bb_wifi_get_gateway_status(&st);
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    TEST_ASSERT_FALSE(st.gw_reachable);
-    TEST_ASSERT_EQUAL_UINT8(0, st.gw_fail_streak);
-    TEST_ASSERT_EQUAL_UINT32(0, st.gw_probe_count);
-    TEST_ASSERT_EQUAL_UINT32(0, st.gw_fail_count);
-    TEST_ASSERT_EQUAL_UINT32(0, st.gw_dead_count);
-    TEST_ASSERT_EQUAL_UINT64(0, st.last_gw_probe_ms);
-}
-
-// bb_wifi_host_set_gateway_status hook roundtrip: set a status, getter
-// returns it verbatim; NULL clears back to the default zeroed status.
-void test_bb_wifi_get_gateway_status_test_hook_roundtrip(void)
-{
-#ifdef BB_WIFI_TESTING
-    bb_wifi_gw_status_t in = {
-        .gw_reachable = true,
-        .gw_fail_streak = 2,
-        .gw_probe_count = 42,
-        .gw_fail_count = 5,
-        .gw_dead_count = 3,
-        .last_gw_probe_ms = 123456789ULL,
-    };
-    bb_wifi_host_set_gateway_status(&in);
-
-    bb_wifi_gw_status_t out;
-    bb_err_t err = bb_wifi_get_gateway_status(&out);
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    TEST_ASSERT_TRUE(out.gw_reachable);
-    TEST_ASSERT_EQUAL_UINT8(2, out.gw_fail_streak);
-    TEST_ASSERT_EQUAL_UINT32(42, out.gw_probe_count);
-    TEST_ASSERT_EQUAL_UINT32(5, out.gw_fail_count);
-    TEST_ASSERT_EQUAL_UINT32(3, out.gw_dead_count);
-    TEST_ASSERT_EQUAL_UINT64(123456789ULL, out.last_gw_probe_ms);
-
-    bb_wifi_host_set_gateway_status(NULL);
-    err = bb_wifi_get_gateway_status(&out);
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    TEST_ASSERT_FALSE(out.gw_reachable);
-#endif
-}
-
-// ---------------------------------------------------------------------------
 // Callback-slot real instantiations (bb_wifi_emit.c) -- the SHIPPED
 // setter/invoke pairs, now host-compiled (components/bb_wifi/CMakeLists.txt
 // puts platform/host/bb_wifi/bb_wifi_emit.c in both the espidf SRCS and the
@@ -868,21 +838,6 @@ void test_bb_wifi_get_rssi_valid(void)
     bb_err_t err = bb_wifi_get_rssi(&rssi);
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
     TEST_ASSERT_EQUAL_INT8(0, rssi);
-}
-
-// bb_wifi_test_set_recovery_blocked's true branch: recovery is suppressed
-// even though has_ip is set (the "blocked" no-op path).
-void test_bb_wifi_request_recovery_blocked_noop(void)
-{
-#ifdef BB_WIFI_TESTING
-    bb_wifi_test_reset_recovery();
-    bb_wifi_test_set_has_ip(true);
-    bb_wifi_test_set_recovery_blocked(true);
-    bb_err_t err = bb_wifi_request_recovery("blocked_reason");
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_wifi_test_get_recovery_count());
-    bb_wifi_test_set_recovery_blocked(false);
-#endif
 }
 
 // ---------------------------------------------------------------------------

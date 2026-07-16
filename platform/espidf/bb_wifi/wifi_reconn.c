@@ -217,11 +217,6 @@ int64_t wifi_reconn_get_lost_ip_age_us(void)
     return (int64_t)bb_timer_now_us() - s_lost_ip_diag.last_lost_ip_us;
 }
 
-uint32_t wifi_reconn_get_egress_dead_count(void)
-{
-    return s_ctx.policy.egress_dead_count;
-}
-
 void wifi_reconn_get_disconnect(bb_wifi_disc_reason_t *reason, int64_t *age_us)
 {
     if (reason) *reason = s_ctx.policy.last_reason;
@@ -248,17 +243,4 @@ void wifi_reconn_get_histogram(uint16_t *out, size_t len)
 void wifi_reconn_absorb_next_disconnect(void)
 {
     s_ctx.self_disconnect = true;
-}
-
-void wifi_reconn_request_recovery(const char *reason)
-{
-    // B1-805 slice 1a (R4): a no-op under the bb_fsm reconn. The only
-    // production caller (bb_net_health tier-2) is gated behind
-    // CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE (default OFF); the #error below
-    // fails the build the moment that gate is flipped on, so this can't
-    // silently ship stale until the FSM integration lands in slice 1b.
-#if CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
-#error "egress-recovery tier-2 request path not yet integrated with the bb_fsm reconn -- see B1-805 slice 1b"
-#endif
-    (void)reason;
 }

@@ -1,9 +1,9 @@
 # bb_wifi_http
 
 Opt-in STA route bundle for `bb_wifi` (PR1 of the bb_wifi split, KB 781/809).
-Registers `GET /api/wifi`, `POST /api/scan`, and — when
-`CONFIG_BB_WIFI_RECONFIGURE=y` (default) — `PATCH /api/wifi` on the shared
-`bb_http_server`. This is a route **bundle**, not a server: there is one
+Registers `GET /api/wifi`, `GET /api/diag/wifi`, `POST /api/scan`, and —
+when `CONFIG_BB_WIFI_RECONFIGURE=y` (default) — `PATCH /api/wifi` on the
+shared `bb_http_server`. This is a route **bundle**, not a server: there is one
 `bb_http_server` per device; `bb_wifi_http` composes on top of it and on top
 of `bb_wifi` (the STA core).
 
@@ -27,6 +27,8 @@ heap.
   `bb_json.h`.
 - The `CONFIG_BB_WIFI_ROUTES_AUTOREGISTER` Kconfig knob (same symbol name,
   relocated ownership — existing sdkconfig files need no changes).
+- `GET /api/diag/wifi` (B1-969) — rehomed from the now-dissolved
+  `bb_net_health`, reduced to `bb_wifi`-native fields only.
 
 ## Composition
 

@@ -29,6 +29,7 @@ static bb_wifi_link_state_t rssi_bucket(int8_t rssi)
 // Public API
 // ---------------------------------------------------------------------------
 
+// NOTE (B1-969): no production caller post-net_health dissolution; see B1-1011.
 bb_wifi_link_state_t bb_wifi_classify_link(bb_wifi_link_hyst_t *st, int8_t rssi)
 {
     bb_wifi_link_state_t raw = rssi_bucket(rssi);

@@ -67,7 +67,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_meminfo](./bb_meminfo/) | Canonical system-heap reader SSOT (KB #698/#699/#693) — the one component that |
 | [bb_mqtt_client](./bb_mqtt_client/) | — |
 | [bb_mqtt_info](./bb_mqtt_info/) | — |
-| [bb_net_health](./bb_net_health/) | — |
 | [bb_ntp](./bb_ntp/) | — |
 | [bb_num](./bb_num/) | — |
 | [bb_openapi](./bb_openapi/) | — |

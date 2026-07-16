@@ -4,9 +4,9 @@
 // bb_cache_serialize_into on a fresh obj) byte-equals REST-side serialization
 // (bb_cache_serialize_into on another fresh obj) for every registered topic.
 //
-// Synthetic topic registered here; real topics (net.health, diag.boot,
-// update.available, health.display) wire in below in the TOPIC TABLE
-// comment with one entry each.
+// Synthetic topic registered here; real topics (diag.boot, update.available,
+// health.display) wire in below in the TOPIC TABLE comment with one entry
+// each. (net.health was removed with the bb_net_health dissolution, B1-969.)
 //
 // EXTENSION POINT: To add a real topic, add a row to the `s_topics[]` table
 // below following the bb_cache_fidelity_topic_t shape.
@@ -19,7 +19,6 @@
 #include "bb_event.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_net_health.h"
 #include "bb_ota_check_internal.h"
 #include "bb_mem_test.h"
 #include "bb_json_test_hooks.h"
@@ -93,23 +92,6 @@ static const synth_snap_t s_synth_initial = {
     .ratio = 0.75,
 };
 
-static const bb_net_health_status_t s_net_health_initial = {
-    .state                  = BB_WIFI_LINK_GOOD,
-    .early_warning          = false,
-    .throttled              = false,
-    .rssi                   = -55,
-    .mqtt_connected         = true,
-    .mqtt_reconnect_count   = 0,
-    .last_disconnect_reason = 0,
-    .disc_age_s             = 0,
-    .mqtt_disc_age_s        = 0,
-    .mqtt_disc_reason       = 0,
-    .mqtt_tls_fail          = 0,
-    .lost_ip_recoveries     = 0,
-    .lost_ip_age_s          = 0,
-    .egress_dead_recoveries = 0,
-};
-
 static const bb_diag_boot_snap_t s_diag_boot_initial = {
     .reset_reason    = "power-on",
     .wdt_resets      = 0,
@@ -146,13 +128,6 @@ static const bb_cache_fidelity_topic_t s_topics[] = {
         .snap_size    = sizeof(synth_snap_t),
         .serialize    = synth_serialize,
         .initial_snap = &s_synth_initial,
-    },
-    {
-        .name         = "net.health",
-        .snapshot     = NULL,
-        .snap_size    = sizeof(bb_net_health_status_t),
-        .serialize    = bb_net_health_emit,
-        .initial_snap = &s_net_health_initial,
     },
     {
         .name         = BB_DIAG_BOOT_TOPIC,

@@ -6,15 +6,15 @@
 // bb_wifi_http_emit.c) so the bb_wifi STA core sheds its bb_json dependency.
 // This file keeps the pure, bb_json-free helpers only.
 //
-// B1-486: the recovery counters (egress_dead_count, lost_ip_count,
-// recovery_count) and reason_histogram have moved to
-// GET /api/diag/net (bb_net_health) — that is now the single source of truth
-// for recovery counters. /api/wifi keeps only connection-state fields plus
+// B1-486: the recovery counters (lost_ip_count, recovery_count) and
+// reason_histogram moved to GET /api/diag/net (bb_net_health) — that was
+// the single source of truth. B1-969 dissolved bb_net_health, rehoming
+// surviving fields onto GET /api/diag/wifi (bb_wifi_http) --
+// egress_dead_count/gw/transport_health/early_warning dropped, not
+// migrated. /api/wifi keeps only connection-state fields plus
 // restart_sta_count/disconnect_rssi (not recovery-count duplicates).
 //
-// roam_count/roam_age_s (B1-497) are likewise consolidated onto the
-// /api/diag/net + net.health discriminator surface only — no longer
-// duplicated here (net-health SSOT, wifi-netmode PR).
+// roam_count/roam_age_s (B1-497) consolidated onto /api/diag/wifi only.
 #include "bb_wifi.h"
 #include "bb_callback_slot.h"
 #include "bb_str.h"
@@ -98,7 +98,7 @@ void bb_wifi_emit_baseline(void)
 
 // Find the top standard (non-breadboard-injected) reason in a
 // BB_WIFI_DISC_COUNT-entry disconnect histogram. Pure; single implementation
-// shared by /api/diag/net (platform/espidf/bb_net_health/bb_net_health_routes.c)
+// shared by /api/diag/wifi (platform/espidf/bb_wifi_http/bb_wifi_http_routes.c)
 // and host tests (B1-486 finding #1/#2 — previously a static-inline copy
 // reached into bb_wifi's private wifi_hist_priv.h from bb_net_health).
 bb_wifi_disc_reason_t bb_wifi_reason_histogram_top(const uint16_t *hist, uint16_t *out_count)

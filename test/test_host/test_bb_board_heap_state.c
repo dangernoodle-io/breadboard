@@ -68,14 +68,15 @@ void test_bb_board_heap_state_str_unknown_returns_ok(void)
 // bb_board_set_heap_state / bb_board_heap_state
 //
 // bb_board_set_heap_state is an internal setter not declared in the public
-// header; the ESP-IDF platform file (bb_net_health_espidf.c) forward-declares
-// it with extern. We use the same pattern here to cover the three lines
-// (signature, body, closing brace) that were the only uncovered lines in the
-// module (moved from bb_net_health_set_heap_state).
+// header; its former sole caller (bb_net_health's periodic evaluator,
+// bb_net_health_espidf.c) forward-declared it with extern and was dissolved
+// in B1-969. We use the same forward-declare pattern here to cover the three
+// lines (signature, body, closing brace) that were the only uncovered lines
+// in the module (moved from bb_net_health_set_heap_state).
 // ---------------------------------------------------------------------------
 
-// Internal setter, matching the forward-declare pattern used by
-// platform/espidf/bb_net_health/bb_net_health_espidf.c.
+// Internal setter, matching the forward-declare pattern its former caller
+// (the now-dissolved bb_net_health_espidf.c) used.
 extern void bb_board_set_heap_state(bb_board_heap_state_t state);
 
 // Round-trip: set each non-default state and read it back via the public getter.

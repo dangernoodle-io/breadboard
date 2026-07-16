@@ -7,7 +7,6 @@
 
 #define BB_NV_CONFIG_NVS_NS   "bb_cfg"
 #define BB_MQTT_NVS_NS        "bb_mqtt"
-#define BB_NET_HEALTH_EGRESS_ACT_NVS_NS "bb_egress_act"
 #define BB_REBOOT_NVS_NS      "bb_reboot"
 #define BB_UDP_NVS_NS         "bb_udp"
 #define BB_TCP_NVS_NS         "bb_tcp"
