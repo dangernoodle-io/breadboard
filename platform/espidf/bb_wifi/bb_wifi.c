@@ -287,11 +287,6 @@ uint32_t bb_wifi_get_egress_dead_count(void)
     return wifi_reconn_is_active() ? wifi_reconn_get_egress_dead_count() : 0;
 }
 
-uint32_t bb_wifi_get_no_ip_count(void)
-{
-    return wifi_reconn_is_active() ? wifi_reconn_get_no_ip_count() : 0;
-}
-
 uint32_t bb_wifi_get_restart_sta_count(void)
 {
     return s_restart_sta_count;

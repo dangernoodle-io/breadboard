@@ -289,9 +289,6 @@ void bb_net_health_emit(bb_json_t obj, const void *snap_v)
     bb_json_obj_set_number(obj, "lost_ip_recoveries",     (double)snap->lost_ip_recoveries);
     bb_json_obj_set_number(obj, "lost_ip_age_s",          (double)snap->lost_ip_age_s);
     bb_json_obj_set_int(obj, "egress_dead_recoveries", (int64_t)snap->egress_dead_recoveries);
-    // B1-486 fix: no_ip_recoveries was captured in the status struct but never
-    // serialized to net.health — add it alongside the roam/net_mode discriminators.
-    bb_json_obj_set_int(obj, "no_ip_recoveries",       (int64_t)snap->no_ip_recoveries);
     bb_json_obj_set_int(obj, "roam_count",             (int64_t)snap->roam_count);
     bb_json_obj_set_int(obj, "roam_age_s",             (int64_t)snap->roam_age_s);
     bb_json_obj_set_int(obj, "last_session_s",         (int64_t)snap->last_session_s);
@@ -378,7 +375,7 @@ int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap
     // is acceptable.
     int n = snprintf(buf, (size_t)cap,
         "nm=%s ip=%s ip_ok=%d assoc=%d rssi=%d sess=%" PRIu32
-        " dr=%" PRIu32 " roam=%" PRIu32 " no_ip=%" PRIu32 " lost_ip=%" PRIu32
+        " dr=%" PRIu32 " roam=%" PRIu32 " lost_ip=%" PRIu32
         " egress=%" PRIu32 " retry=%d restart=%" PRIu32 " up=%" PRIu32
         "%s%s%s",
         bb_wifi_mode_str(s->net_mode),
@@ -389,7 +386,6 @@ int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap
         s->last_session_s,
         s->last_disconnect_reason,
         s->roam_count,
-        s->no_ip_recoveries,
         s->lost_ip_recoveries,
         s->egress_dead_recoveries,
         s->retry_count,

@@ -95,8 +95,6 @@ typedef struct {
     uint8_t  egress_fail_streak; // consecutive egress-probe failures below threshold
     uint32_t egress_dead_count;  // times egress declared dead (streak hit threshold)
     int64_t  last_egress_dead_us; // timestamp of last egress-dead event
-    uint32_t no_ip_count;         // times ST_IDLE watchdog detected associated-but-no-IP
-    int64_t  last_no_ip_us;       // timestamp of last no-IP watchdog event
 } wifi_reconn_state_t;
 
 // Adapter (R3, B1-805 slice 1a): every side-effecting call an FSM action or
@@ -170,12 +168,6 @@ void wifi_reconn_policy_on_lost_ip(wifi_reconn_state_t *st, const wifi_reconn_ad
 wifi_reconn_action_t wifi_reconn_policy_on_egress_probe(
     wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad,
     bool reachable, int fail_threshold);
-
-// Record a no-IP-while-associated watchdog event (ST_IDLE watchdog path).
-// Bumps no_ip_count, last_no_ip_us, and reason_histogram[WIFI_REASON_BB_NO_IP_WATCHDOG].
-// Also arms first_fail_us (for the safeguard-reboot window) if not already set.
-// Guards null args. DISTINCT from on_lost_ip (which is event-driven via IP_EVENT_STA_LOST_IP).
-void wifi_reconn_policy_on_no_ip(wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad);
 
 // Policy decision when a connect attempt stalls (no GOT_IP or DISCONNECT
 // within the connecting watchdog window). Mirrors on_disconnect escalation:

@@ -2943,11 +2943,6 @@ void test_wifi_reconn_on_egress_probe_at_threshold_returns_recover(void);
 void test_wifi_reconn_on_egress_probe_null_args_safe(void);
 void test_wifi_reconn_on_egress_probe_histogram_saturates(void);
 void test_wifi_reconn_on_egress_probe_first_fail_already_armed(void);
-void test_wifi_reconn_policy_on_no_ip_increments(void);
-void test_wifi_reconn_policy_on_no_ip_null_args(void);
-void test_wifi_reconn_policy_on_no_ip_arms_first_fail(void);
-void test_wifi_reconn_policy_on_no_ip_first_fail_already_armed(void);
-void test_wifi_reconn_policy_on_no_ip_histogram_saturates(void);
 
 // B1-805 slice 1a: bb_fsm rebuild reachability tests (test_wifi_reconn_policy.c)
 void test_fsm_disconnect_reconnect_now_same_transition_rearms_watchdog(void);
@@ -7136,11 +7131,6 @@ int main(void) {
     RUN_TEST(test_wifi_reconn_on_egress_probe_null_args_safe);
     RUN_TEST(test_wifi_reconn_on_egress_probe_histogram_saturates);
     RUN_TEST(test_wifi_reconn_on_egress_probe_first_fail_already_armed);
-    RUN_TEST(test_wifi_reconn_policy_on_no_ip_increments);
-    RUN_TEST(test_wifi_reconn_policy_on_no_ip_null_args);
-    RUN_TEST(test_wifi_reconn_policy_on_no_ip_arms_first_fail);
-    RUN_TEST(test_wifi_reconn_policy_on_no_ip_first_fail_already_armed);
-    RUN_TEST(test_wifi_reconn_policy_on_no_ip_histogram_saturates);
 
     // B1-805 slice 1a: bb_fsm rebuild reachability tests
     RUN_TEST(test_fsm_disconnect_reconnect_now_same_transition_rearms_watchdog);

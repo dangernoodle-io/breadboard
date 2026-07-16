@@ -480,60 +480,6 @@ void test_wifi_reconn_on_egress_probe_histogram_saturates(void)
     TEST_ASSERT_EQUAL(UINT16_MAX, s_state.reason_histogram[WIFI_REASON_BB_EGRESS_DEAD]);
 }
 
-// --- no-IP watchdog policy tests (B1-381) ---
-
-void test_wifi_reconn_policy_on_no_ip_increments(void)
-{
-    TEST_ASSERT_EQUAL(0, s_state.no_ip_count);
-    TEST_ASSERT_EQUAL(0, s_state.last_no_ip_us);
-    TEST_ASSERT_EQUAL(0, s_state.reason_histogram[WIFI_REASON_BB_NO_IP_WATCHDOG]);
-
-    s_fake_now_us = 3000000;
-    wifi_reconn_policy_on_no_ip(&s_state, &adapter);
-
-    TEST_ASSERT_EQUAL(1, s_state.no_ip_count);
-    TEST_ASSERT_EQUAL_INT64(3000000, s_state.last_no_ip_us);
-    TEST_ASSERT_EQUAL(1, s_state.reason_histogram[WIFI_REASON_BB_NO_IP_WATCHDOG]);
-
-    s_fake_now_us = 6000000;
-    wifi_reconn_policy_on_no_ip(&s_state, &adapter);
-    TEST_ASSERT_EQUAL(2, s_state.no_ip_count);
-    TEST_ASSERT_EQUAL_INT64(6000000, s_state.last_no_ip_us);
-    TEST_ASSERT_EQUAL(2, s_state.reason_histogram[WIFI_REASON_BB_NO_IP_WATCHDOG]);
-}
-
-void test_wifi_reconn_policy_on_no_ip_null_args(void)
-{
-    // No crash on null args
-    wifi_reconn_policy_on_no_ip(NULL, &adapter);
-    wifi_reconn_policy_on_no_ip(&s_state, NULL);
-}
-
-void test_wifi_reconn_policy_on_no_ip_arms_first_fail(void)
-{
-    TEST_ASSERT_EQUAL(0, s_state.first_fail_us);
-    s_fake_now_us = 4000000;
-    wifi_reconn_policy_on_no_ip(&s_state, &adapter);
-    // first_fail_us should be armed
-    TEST_ASSERT_EQUAL_INT64(4000000, s_state.first_fail_us);
-}
-
-void test_wifi_reconn_policy_on_no_ip_first_fail_already_armed(void)
-{
-    s_state.first_fail_us = 99999;
-    s_fake_now_us = 5000000;
-    wifi_reconn_policy_on_no_ip(&s_state, &adapter);
-    // first_fail_us must NOT change if already set
-    TEST_ASSERT_EQUAL_INT64(99999, s_state.first_fail_us);
-}
-
-void test_wifi_reconn_policy_on_no_ip_histogram_saturates(void)
-{
-    s_state.reason_histogram[WIFI_REASON_BB_NO_IP_WATCHDOG] = UINT16_MAX;
-    wifi_reconn_policy_on_no_ip(&s_state, &adapter);
-    TEST_ASSERT_EQUAL(UINT16_MAX, s_state.reason_histogram[WIFI_REASON_BB_NO_IP_WATCHDOG]);
-}
-
 void test_wifi_reconn_on_egress_probe_first_fail_already_armed(void)
 {
     // Pre-arm first_fail_us with a known value

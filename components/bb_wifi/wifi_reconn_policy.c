@@ -14,8 +14,6 @@ void wifi_reconn_state_reset(wifi_reconn_state_t *st)
     st->egress_fail_streak = 0;
     st->egress_dead_count = 0;
     st->last_egress_dead_us = 0;
-    st->no_ip_count = 0;
-    st->last_no_ip_us = 0;
     for (int i = 0; i < BB_WIFI_DISC_COUNT; i++) {
         st->reason_histogram[i] = 0;
     }
@@ -105,23 +103,6 @@ void wifi_reconn_policy_on_lost_ip(wifi_reconn_state_t *st, const wifi_reconn_ad
     st->last_lost_ip_us = ad->now_us();
     if (st->reason_histogram[WIFI_REASON_BB_LOST_IP] < UINT16_MAX) {
         st->reason_histogram[WIFI_REASON_BB_LOST_IP]++;
-    }
-}
-
-void wifi_reconn_policy_on_no_ip(wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad)
-{
-    if (!st || !ad) return;
-    st->no_ip_count++;
-    st->last_no_ip_us = ad->now_us();
-    if (st->reason_histogram[WIFI_REASON_BB_NO_IP_WATCHDOG] < UINT16_MAX) {
-        st->reason_histogram[WIFI_REASON_BB_NO_IP_WATCHDOG]++;
-    }
-    // Arm the persistent-fail window so this does not compound with the
-    // 5-min safeguard-reboot unexpectedly (B1-353): first_fail_us resets on
-    // GOT_IP via wifi_reconn_policy_on_got_ip, so a successful reconnect
-    // after a no-IP watchdog restart clears the window cleanly.
-    if (st->first_fail_us == 0) {
-        st->first_fail_us = st->last_no_ip_us;
     }
 }
 

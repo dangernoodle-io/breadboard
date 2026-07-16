@@ -6,8 +6,8 @@
 // bb_wifi_http_emit.c) so the bb_wifi STA core sheds its bb_json dependency.
 // This file keeps the pure, bb_json-free helpers only.
 //
-// B1-486: the recovery counters (no_ip_recoveries, egress_dead_count,
-// lost_ip_count, recovery_count) and reason_histogram have moved to
+// B1-486: the recovery counters (egress_dead_count, lost_ip_count,
+// recovery_count) and reason_histogram have moved to
 // GET /api/diag/net (bb_net_health) — that is now the single source of truth
 // for recovery counters. /api/wifi keeps only connection-state fields plus
 // restart_sta_count/disconnect_rssi (not recovery-count duplicates).
