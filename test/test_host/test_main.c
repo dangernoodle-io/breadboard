@@ -2948,6 +2948,12 @@ void test_wifi_reconn_on_egress_probe_null_args_safe(void);
 void test_wifi_reconn_on_egress_probe_histogram_saturates(void);
 void test_wifi_reconn_on_egress_probe_first_fail_already_armed(void);
 
+// PR7 (B1-994/B1-806): SLOW backoff tier pure tests (test_wifi_reconn_policy.c)
+void test_wifi_reconn_slow_tier_no_hot_retry(void);
+void test_wifi_reconn_slow_tier2_escalation(void);
+void test_wifi_reconn_slow_tier_shared_by_auth_and_no_ap_found(void);
+void test_wifi_reconn_handshake_tier_unaffected_by_slow_tier(void);
+
 // B1-805 slice 1a: bb_fsm rebuild reachability tests (test_wifi_reconn_policy.c)
 void test_fsm_disconnect_reconnect_now_same_transition_rearms_watchdog(void);
 void test_fsm_ladder_reaches_backoff_with_correct_timer(void);
@@ -2963,6 +2969,14 @@ void test_fsm_connected_disconnect_reconnect_now_to_connecting(void);
 void test_fsm_connected_disconnect_backoff_to_backoff(void);
 void test_fsm_backoff_absorbs_stray_disconnect(void);
 void test_fsm_no_creds_parks_until_creds_arrived(void);
+
+// PR7 (B1-994/B1-806): ASSOC_LEAVE park (WR_LEFT) + SLOW tier FSM tests
+void test_fsm_assoc_leave_from_connecting_parks_no_reconnect(void);
+void test_fsm_assoc_leave_from_connected_parks_no_reconnect(void);
+void test_fsm_assoc_leave_does_not_escalate_past_fail_window(void);
+void test_fsm_left_parks_all_stray_events(void);
+void test_fsm_left_resumes_on_reconnect_requested(void);
+void test_fsm_slow_tier_disconnect_routes_to_backoff(void);
 
 // Forward declarations from test_bb_mdns_lifecycle.c
 void bb_mdns_lifecycle_test_reset(void);
@@ -7140,6 +7154,12 @@ int main(void) {
     RUN_TEST(test_wifi_reconn_on_egress_probe_histogram_saturates);
     RUN_TEST(test_wifi_reconn_on_egress_probe_first_fail_already_armed);
 
+    // PR7 (B1-994/B1-806): SLOW backoff tier pure tests
+    RUN_TEST(test_wifi_reconn_slow_tier_no_hot_retry);
+    RUN_TEST(test_wifi_reconn_slow_tier2_escalation);
+    RUN_TEST(test_wifi_reconn_slow_tier_shared_by_auth_and_no_ap_found);
+    RUN_TEST(test_wifi_reconn_handshake_tier_unaffected_by_slow_tier);
+
     // B1-805 slice 1a: bb_fsm rebuild reachability tests
     RUN_TEST(test_fsm_disconnect_reconnect_now_same_transition_rearms_watchdog);
     RUN_TEST(test_fsm_ladder_reaches_backoff_with_correct_timer);
@@ -7155,6 +7175,14 @@ int main(void) {
     RUN_TEST(test_fsm_connected_disconnect_backoff_to_backoff);
     RUN_TEST(test_fsm_backoff_absorbs_stray_disconnect);
     RUN_TEST(test_fsm_no_creds_parks_until_creds_arrived);
+
+    // PR7 (B1-994/B1-806): ASSOC_LEAVE park (WR_LEFT) + SLOW tier FSM tests
+    RUN_TEST(test_fsm_assoc_leave_from_connecting_parks_no_reconnect);
+    RUN_TEST(test_fsm_assoc_leave_from_connected_parks_no_reconnect);
+    RUN_TEST(test_fsm_assoc_leave_does_not_escalate_past_fail_window);
+    RUN_TEST(test_fsm_left_parks_all_stray_events);
+    RUN_TEST(test_fsm_left_resumes_on_reconnect_requested);
+    RUN_TEST(test_fsm_slow_tier_disconnect_routes_to_backoff);
 
     // bb_mdns_lifecycle tests
     RUN_TEST(test_bb_mdns_lifecycle_start_when_not_started);

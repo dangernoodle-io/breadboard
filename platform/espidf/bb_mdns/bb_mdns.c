@@ -1055,6 +1055,11 @@ static void wifi_net_handler(bb_event_topic_t topic, int32_t id,
         // Escalation denied, fell back to backoff -- still associated (or
         // about to retry); no mDNS lifecycle action needed.
         break;
+    case BB_WIFI_NET_EVT_RECONNECT_PARKED:
+        // ASSOC_LEAVE parked the reconnect FSM (PR7, B1-994/B1-806) -- no
+        // longer associated, same lifecycle action as a disconnect.
+        bb_mdns_on_disconnect();
+        break;
     }
 }
 

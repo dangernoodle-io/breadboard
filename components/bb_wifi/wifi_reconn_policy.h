@@ -49,6 +49,31 @@
 #define WIFI_RECONN_GENERIC_FAST_RETRY_LIMIT 10
 #endif
 
+// SLOW backoff tier (PR7, B1-994/B1-806): AUTH_FAIL/NO_AP_FOUND disconnects
+// -- bad credentials or an absent AP -- never hot-retry, even on the FIRST
+// occurrence. Two never-decaying steps (counter only resets on got_ip/reset,
+// same shape as the handshake/generic ladders); see compute_backoff_ms.
+#ifdef CONFIG_BB_WIFI_RECONN_SLOW_TIER1_LIMIT
+#define WIFI_RECONN_SLOW_TIER1_LIMIT CONFIG_BB_WIFI_RECONN_SLOW_TIER1_LIMIT
+#endif
+#ifndef WIFI_RECONN_SLOW_TIER1_LIMIT
+#define WIFI_RECONN_SLOW_TIER1_LIMIT 3
+#endif
+
+#ifdef CONFIG_BB_WIFI_RECONN_SLOW_BACKOFF_TIER1_MS
+#define WIFI_RECONN_SLOW_BACKOFF_TIER1_MS CONFIG_BB_WIFI_RECONN_SLOW_BACKOFF_TIER1_MS
+#endif
+#ifndef WIFI_RECONN_SLOW_BACKOFF_TIER1_MS
+#define WIFI_RECONN_SLOW_BACKOFF_TIER1_MS 30000
+#endif
+
+#ifdef CONFIG_BB_WIFI_RECONN_SLOW_BACKOFF_TIER2_MS
+#define WIFI_RECONN_SLOW_BACKOFF_TIER2_MS CONFIG_BB_WIFI_RECONN_SLOW_BACKOFF_TIER2_MS
+#endif
+#ifndef WIFI_RECONN_SLOW_BACKOFF_TIER2_MS
+#define WIFI_RECONN_SLOW_BACKOFF_TIER2_MS 120000
+#endif
+
 #ifdef CONFIG_BB_WIFI_RECONN_HANDSHAKE_FAST_RETRY_LIMIT
 #define WIFI_RECONN_HANDSHAKE_FAST_RETRY_LIMIT CONFIG_BB_WIFI_RECONN_HANDSHAKE_FAST_RETRY_LIMIT
 #endif
@@ -85,6 +110,7 @@
 typedef struct {
     int      handshake_fail_count;
     int      generic_fail_count;
+    int      slow_fail_count; // AUTH_FAIL/NO_AP_FOUND bucket (PR7, B1-994/B1-806)
     int64_t  first_fail_us;
     int      retry_count;
     bb_wifi_disc_reason_t last_reason;
@@ -198,12 +224,22 @@ wifi_reconn_action_t wifi_reconn_policy_on_connect_timeout(
 //   WR_BACKOFF          backoff timer armed; expiry -> WR_CONNECTING.
 //   WR_ESCALATE_REBOOT  reached ONLY on an allowed escalation (R14
 //                       guard-placement) -- on_entry reboots unconditionally.
+//   WR_LEFT             parked on an ASSOC_LEAVE disconnect (PR7, B1-994/
+//                       B1-806) -- no timer armed, only EV_RECONNECT_REQUESTED
+//                       moves it (same terminal-until-resume shape as
+//                       WR_NO_CREDS). ASSOC_LEAVE means "stop auto-retrying,"
+//                       not "reboot" -- a repeated kick/resume/kick loop
+//                       deliberately never reaches the persistent-fail-window
+//                       reboot escalation while parked here; this is an
+//                       intentional scope boundary, revisit only on fleet
+//                       evidence.
 typedef enum {
     WR_NO_CREDS = 0,
     WR_CONNECTING = 1,
     WR_CONNECTED = 2,
     WR_BACKOFF = 3,
     WR_ESCALATE_REBOOT = 4,
+    WR_LEFT = 5,
 } wr_state_t;
 
 // FSM events.
@@ -219,6 +255,10 @@ typedef enum {
 //                          WR_CONNECTING); wiring who posts this is out of
 //                          scope for slice 1a (only the table row is
 //                          required) -- see B1-805.
+//   EV_RECONNECT_REQUESTED resumes from WR_LEFT (PR7, B1-994/B1-806); ships
+//                          UNWIRED, same precedent as EV_CREDS_ARRIVED --
+//                          only the table row is required, no production
+//                          poster in this PR.
 typedef enum {
     EV_STA_CONNECTED = 0,
     EV_GOT_IP = 1,
@@ -226,6 +266,7 @@ typedef enum {
     EV_CONNECTING_TIMEOUT = 3,
     EV_BACKOFF_TIMEOUT = 4,
     EV_CREDS_ARRIVED = 5,
+    EV_RECONNECT_REQUESTED = 6,
 } wr_event_t;
 
 // Embedded-by-value FSM context, zero heap, single-writer (the reconn task
