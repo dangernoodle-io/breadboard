@@ -114,6 +114,11 @@ bb_err_t bb_system_boot_count_reset(void)
     return BB_OK;
 }
 
+uint8_t bb_system_boot_count_get(void)
+{
+    return s_boot_count;
+}
+
 // Reboot budget (B1-863) — host has no NTP; bb_ntp_is_synced() is hardcoded
 // false in platform/host/bb_ntp/bb_ntp_host.c with no seam to force it true,
 // so this is a straight-line unsynced call. See bb_system_reboot_budget.c's

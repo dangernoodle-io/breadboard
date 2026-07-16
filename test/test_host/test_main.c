@@ -2033,6 +2033,13 @@ void test_bb_system_boot_banner_format_truncation(void);
 void test_bb_system_boot_count_increment_returns_ok(void);
 void test_bb_system_boot_count_reset_returns_ok(void);
 void test_bb_system_boot_count_increment_does_not_overflow(void);
+void test_bb_system_boot_count_get_default_zero(void);
+void test_bb_system_boot_fail_count_over_one_under_is_false(void);
+void test_bb_system_boot_fail_count_over_exactly_at_is_true(void);
+void test_bb_system_boot_fail_count_over_one_over_is_true(void);
+void test_bb_system_boot_fail_count_over_threshold_zero_is_true(void);
+void test_bb_system_boot_fail_count_over_count_zero_is_false(void);
+void test_bb_system_boot_fail_over_threshold_default_is_false(void);
 
 // Forward declarations from test_bb_system_reboot_budget.c
 void test_bb_system_elapsed_epoch_s_normal(void);
@@ -6431,6 +6438,13 @@ int main(void) {
     RUN_TEST(test_bb_system_boot_count_increment_returns_ok);
     RUN_TEST(test_bb_system_boot_count_reset_returns_ok);
     RUN_TEST(test_bb_system_boot_count_increment_does_not_overflow);
+    RUN_TEST(test_bb_system_boot_count_get_default_zero);
+    RUN_TEST(test_bb_system_boot_fail_count_over_one_under_is_false);
+    RUN_TEST(test_bb_system_boot_fail_count_over_exactly_at_is_true);
+    RUN_TEST(test_bb_system_boot_fail_count_over_one_over_is_true);
+    RUN_TEST(test_bb_system_boot_fail_count_over_threshold_zero_is_true);
+    RUN_TEST(test_bb_system_boot_fail_count_over_count_zero_is_false);
+    RUN_TEST(test_bb_system_boot_fail_over_threshold_default_is_false);
 
     // bb_system reboot budget tests (B1-863)
     RUN_TEST(test_bb_system_elapsed_epoch_s_normal);

@@ -102,3 +102,8 @@ bb_err_t bb_system_boot_count_reset(void)
     s_boot_count = 0;
     return BB_OK;
 }
+
+uint8_t bb_system_boot_count_get(void)
+{
+    return s_boot_count;
+}

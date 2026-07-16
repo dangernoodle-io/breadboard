@@ -949,12 +949,10 @@ void test_bb_reboot_history_decode_leaves_out_untouched_on_failure(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_system_boot_count_increment/_reset — boot-health counter (B1-753).
-// Host storage is in-memory (s_boot_count); setUp() calls
-// bb_system_boot_count_reset_for_test() so each test starts at 0. The public
-// getter (bb_system_boot_count_get) and BB_SYSTEM_BOOT_FAIL_THRESHOLD were
-// removed as dead code (nothing read them in production), so these tests
-// only exercise the return-code contract of the two functions still in use.
+// bb_system_boot_count_increment/_reset/_get — boot-health counter (B1-753,
+// getter + threshold re-added B1-864). Host storage is in-memory
+// (s_boot_count); setUp() calls bb_system_boot_count_reset_for_test() so
+// each test starts at 0.
 // ---------------------------------------------------------------------------
 
 void test_bb_system_boot_count_increment_returns_ok(void)
@@ -974,6 +972,51 @@ void test_bb_system_boot_count_increment_does_not_overflow(void)
     for (int i = 0; i < 260; i++) {
         TEST_ASSERT_EQUAL_INT(BB_OK, bb_system_boot_count_increment());
     }
+}
+
+void test_bb_system_boot_count_get_default_zero(void)
+{
+    TEST_ASSERT_EQUAL_UINT8(0, bb_system_boot_count_get());
+}
+
+// ---------------------------------------------------------------------------
+// bb_system_boot_fail_count_over — pure comparator (B1-864). No I/O; not
+// coupled to the getter/threshold at all.
+// ---------------------------------------------------------------------------
+
+void test_bb_system_boot_fail_count_over_one_under_is_false(void)
+{
+    TEST_ASSERT_FALSE(bb_system_boot_fail_count_over(2, 3));
+}
+
+void test_bb_system_boot_fail_count_over_exactly_at_is_true(void)
+{
+    TEST_ASSERT_TRUE(bb_system_boot_fail_count_over(3, 3));
+}
+
+void test_bb_system_boot_fail_count_over_one_over_is_true(void)
+{
+    TEST_ASSERT_TRUE(bb_system_boot_fail_count_over(4, 3));
+}
+
+void test_bb_system_boot_fail_count_over_threshold_zero_is_true(void)
+{
+    TEST_ASSERT_TRUE(bb_system_boot_fail_count_over(0, 0));
+}
+
+void test_bb_system_boot_fail_count_over_count_zero_is_false(void)
+{
+    TEST_ASSERT_FALSE(bb_system_boot_fail_count_over(0, 3));
+}
+
+// ---------------------------------------------------------------------------
+// bb_system_boot_fail_over_threshold — convenience wrapper over the host
+// getter (default 0) + default BB_SYSTEM_BOOT_FAIL_THRESHOLD (3).
+// ---------------------------------------------------------------------------
+
+void test_bb_system_boot_fail_over_threshold_default_is_false(void)
+{
+    TEST_ASSERT_FALSE(bb_system_boot_fail_over_threshold());
 }
 
 // ---------------------------------------------------------------------------
