@@ -17,28 +17,6 @@
 
 static const char *TAG = "wifi_reconn";
 
-// B1-805 slice 1a: the ST_IDLE zombie-watchdog poll that consumed this flag
-// lived in the now-deleted switch-based reconn_task. The bb_fsm rebuild has
-// no equivalent state-shaped poll yet (deferred to slice 1b) -- fail the
-// build loudly rather than silently shipping a build where the Kconfig knob
-// is on but nothing implements it.
-#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
-#error "no_ip_watchdog recovery not yet integrated with the bb_fsm reconn -- see B1-805 slice 1b"
-#endif
-
-// Mirrors the tripwire above (review fix [MEDIUM], B1-805 slice 1a): the
-// restart-based recovery half of BB_WIFI_INACTIVE_TIME_ENABLE (the old
-// switch-based reconn_task's ST_IDLE watchdog calling bb_wifi_restart_sta()
-// on beacon-loss) was deleted along with it -- the adapter's restart_sta_fn
-// is gone too (see wifi_reconn_policy.h). What remains
-// (esp_wifi_set_inactive_time in bb_wifi.c) still makes the driver emit a
-// normal WIFI_EVENT_STA_DISCONNECTED, which the FSM does handle -- but fail
-// the build loudly rather than let this knob quietly rely on that as an
-// unreviewed accident of the new design.
-#if BB_WIFI_INACTIVE_TIME_ENABLE
-#error "inactive-time restart-reconnect not yet integrated with the bb_fsm reconn -- see B1-805 slice 1b"
-#endif
-
 #define RECONN_QUEUE_LEN 8
 // 6144 (not 4096): the escalate-reboot path opens NVS + writes the boot-fail
 // count (nvs_open/set/commit) via bb_system_boot_count_increment/
@@ -242,11 +220,6 @@ int64_t wifi_reconn_get_lost_ip_age_us(void)
 uint32_t wifi_reconn_get_egress_dead_count(void)
 {
     return s_ctx.policy.egress_dead_count;
-}
-
-uint32_t wifi_reconn_get_no_ip_count(void)
-{
-    return s_ctx.policy.no_ip_count;
 }
 
 void wifi_reconn_get_disconnect(bb_wifi_disc_reason_t *reason, int64_t *age_us)

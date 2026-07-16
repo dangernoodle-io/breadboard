@@ -272,7 +272,6 @@ static const char k_diag_net_schema[] =
     "\"last_rx_ms\":{\"type\":\"integer\"},"
     "\"rx_count\":{\"type\":\"integer\"}},"
     "\"required\":[\"name\",\"cls\",\"enabled\",\"failing\"]}},"
-    "\"no_ip_recoveries\":{\"type\":\"integer\"},"
     "\"rssi\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"last_disconnect_reason\":{\"type\":\"string\"},"
@@ -727,10 +726,9 @@ static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available, bool wi
         bb_http_resp_json_obj_set_arr_end(&obj);
     }
 
-    // B1-486 finding #4: no_ip_recoveries is folded into the same evaluator
-    // snapshot as lost_ip/egress_dead_recoveries (non-zero, injected) so
-    // recovery_count is exercised with real point-in-time-consistent
-    // operands rather than canned zeros.
+    // B1-486: lost_ip/egress_dead_recoveries are folded into the same
+    // evaluator snapshot (non-zero, injected) so recovery_count is exercised
+    // with real point-in-time-consistent operands rather than canned zeros.
     bb_net_health_status_t snap;
     memset(&snap, 0, sizeof(snap));
     snap.rssi                   = -60;
@@ -739,7 +737,6 @@ static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available, bool wi
     snap.lost_ip_recoveries     = 1;
     snap.lost_ip_age_s          = 30;
     snap.egress_dead_recoveries = 4;
-    snap.no_ip_recoveries       = 3;
     snap.roam_count             = 2;  // B1-497: observe-only, exercised with a non-zero value
     snap.roam_age_s             = 45;
     snap.associated             = true;
@@ -757,7 +754,6 @@ static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available, bool wi
     snap.egress_state           = bb_net_health_classify_egress(snap.net_mode, snap.gw_available,
                                        snap.gw_reachable, snap.gw_fail_streak, 3, 2, 0);
 
-    bb_http_resp_json_obj_set_int(&obj, "no_ip_recoveries",       (int64_t)snap.no_ip_recoveries);
     bb_http_resp_json_obj_set_int(&obj, "rssi",                   (int64_t)snap.rssi);
     bb_http_resp_json_obj_set_int(&obj, "disc_age_s",             (int64_t)snap.disc_age_s);
     bb_http_resp_json_obj_set_str(&obj, "last_disconnect_reason",
@@ -766,7 +762,7 @@ static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available, bool wi
     bb_http_resp_json_obj_set_int(&obj, "lost_ip_age_s",          (int64_t)snap.lost_ip_age_s);
     bb_http_resp_json_obj_set_int(&obj, "egress_dead_recoveries", (int64_t)snap.egress_dead_recoveries);
     bb_http_resp_json_obj_set_int(&obj, "recovery_count",
-        (int64_t)(snap.no_ip_recoveries + snap.lost_ip_recoveries + snap.egress_dead_recoveries));
+        (int64_t)(snap.lost_ip_recoveries + snap.egress_dead_recoveries));
     bb_http_resp_json_obj_set_int(&obj, "roam_count", (int64_t)snap.roam_count);
     bb_http_resp_json_obj_set_int(&obj, "roam_age_s", (int64_t)snap.roam_age_s);
     bb_http_resp_json_obj_set_str (&obj, "net_mode",   bb_wifi_mode_str(snap.net_mode));

@@ -11,32 +11,6 @@
 // the FSM table's WR_CONNECTING on_entry hook, which is what arms it
 // (B1-805 slice 1a, R8).
 
-// BB_WIFI_NO_IP_WATCHDOG_ENABLE: bridge Kconfig opt-in; default 0 on host.
-// B1-805 slice 1a: the ST_IDLE zombie-watchdog poll that consumed this flag
-// was deleted along with the legacy switch-based reconn_task (the bb_fsm
-// rebuild has no equivalent state-shaped poll yet -- deferred to slice 1b).
-// wifi_reconn.c #errors at compile time if this is ever enabled, so a build
-// can't silently ship the now-nonexistent watchdog.
-#ifdef ESP_PLATFORM
-#  ifdef CONFIG_BB_WIFI_NO_IP_WATCHDOG_ENABLE
-#    define BB_WIFI_NO_IP_WATCHDOG_ENABLE 1
-#  endif
-#endif
-#ifndef BB_WIFI_NO_IP_WATCHDOG_ENABLE
-#define BB_WIFI_NO_IP_WATCHDOG_ENABLE 0
-#endif
-
-// WIFI_RECONN_NO_IP_WATCHDOG_MS: how often ST_IDLE polls for the zombie state.
-// Bridged from Kconfig; falls back to 60 s on host/disabled builds.
-#ifdef ESP_PLATFORM
-#  ifdef CONFIG_BB_WIFI_NO_IP_WATCHDOG_S
-#    define WIFI_RECONN_NO_IP_WATCHDOG_MS ((uint32_t)(CONFIG_BB_WIFI_NO_IP_WATCHDOG_S) * 1000U)
-#  endif
-#endif
-#ifndef WIFI_RECONN_NO_IP_WATCHDOG_MS
-#define WIFI_RECONN_NO_IP_WATCHDOG_MS 60000U
-#endif
-
 // BB_WIFI_INACTIVE_TIME_ENABLE: bridge Kconfig opt-in; default 0 on host.
 #ifdef ESP_PLATFORM
 #  ifdef CONFIG_BB_WIFI_INACTIVE_TIME_ENABLE
@@ -110,10 +84,6 @@ void wifi_reconn_absorb_next_disconnect(void);
 // Diagnostic counter: times the egress probe declared the gateway unreachable
 // and called bb_wifi_restart_sta (lock-free read of manager-owned state).
 uint32_t wifi_reconn_get_egress_dead_count(void);
-
-// Diagnostic counter: times the ST_IDLE no-IP watchdog detected associated-but-no-IP
-// and called bb_wifi_restart_sta (lock-free read of manager-owned state).
-uint32_t wifi_reconn_get_no_ip_count(void);
 
 // B1-805 slice 1a (R4): a no-op under the bb_fsm reconn. The egress-recovery
 // tier-2 path (bb_net_health, CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE) is the

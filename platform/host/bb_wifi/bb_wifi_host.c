@@ -231,11 +231,6 @@ uint32_t bb_wifi_get_egress_dead_count(void)
     return 0;
 }
 
-uint32_t bb_wifi_get_no_ip_count(void)
-{
-    return 0;
-}
-
 uint32_t bb_wifi_get_restart_sta_count(void)
 {
 #ifdef BB_WIFI_TESTING
@@ -292,15 +287,6 @@ void bb_wifi_get_reason_histogram(uint16_t *out, size_t len)
     }
 #endif
 }
-
-#ifdef BB_WIFI_TESTING
-static bool s_test_gateway_reachable = true;
-
-void bb_wifi_host_set_gateway_reachable(bool reachable)
-{
-    s_test_gateway_reachable = reachable;
-}
-#endif /* BB_WIFI_TESTING */
 
 #ifdef BB_WIFI_TESTING
 static bb_wifi_gw_status_t s_test_gw_status;

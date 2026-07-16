@@ -7,10 +7,9 @@
 // (TA-505; relocated from bb_diag_routes.c under B1-456).
 //
 // B1-486: /api/diag/net is the single source of truth for wifi recovery
-// counters. no_ip_recoveries, recovery_count (sum of no_ip/lost_ip/egress_dead),
-// and reason_histogram were previously duplicated on GET /api/wifi and the
-// "wifi" telemetry topic; no_ip_recoveries is folded into the same 5s
-// evaluator snapshot as lost_ip_recoveries/egress_dead_recoveries (via
+// counters. recovery_count (sum of lost_ip/egress_dead) and reason_histogram
+// were previously duplicated on GET /api/wifi and the "wifi" telemetry
+// topic; both counters are folded into the same 5s evaluator snapshot (via
 // bb_net_health_status_t) so recovery_count sums point-in-time-consistent
 // operands, and top_reason is computed via bb_wifi's public
 // bb_wifi_reason_histogram_top() (this component already PRIV_REQUIRES
@@ -81,11 +80,6 @@ static bb_err_t diag_net_handler(bb_http_request_t *req)
 
     bb_net_health_status_t snap;
     if (bb_net_health_get_status(&snap) == BB_OK) {
-        // B1-486 finding #4: no_ip_recoveries is folded into the same 5s
-        // evaluator snapshot as lost_ip_recoveries/egress_dead_recoveries
-        // (rather than a separate live bb_wifi_get_no_ip_count() call) so
-        // recovery_count sums point-in-time-consistent operands.
-        bb_http_resp_json_obj_set_int(&obj, "no_ip_recoveries",       (int64_t)snap.no_ip_recoveries);
         bb_http_resp_json_obj_set_int(&obj, "rssi",                   (int64_t)snap.rssi);
         bb_http_resp_json_obj_set_int(&obj, "disc_age_s",             (int64_t)snap.disc_age_s);
         bb_http_resp_json_obj_set_str(&obj, "last_disconnect_reason",
@@ -94,7 +88,7 @@ static bb_err_t diag_net_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_int(&obj, "lost_ip_age_s",          (int64_t)snap.lost_ip_age_s);
         bb_http_resp_json_obj_set_int(&obj, "egress_dead_recoveries", (int64_t)snap.egress_dead_recoveries);
         bb_http_resp_json_obj_set_int(&obj, "recovery_count",
-            (int64_t)(snap.no_ip_recoveries + snap.lost_ip_recoveries + snap.egress_dead_recoveries));
+            (int64_t)(snap.lost_ip_recoveries + snap.egress_dead_recoveries));
         // B1-497: OBSERVE-ONLY roam/BSSID-change counter — not summed into
         // recovery_count (no recovery action is associated with a roam).
         bb_http_resp_json_obj_set_int(&obj, "roam_count", (int64_t)snap.roam_count);
@@ -180,7 +174,6 @@ static const bb_route_response_t s_diag_net_responses[] = {
       "\"last_rx_ms\":{\"type\":\"integer\"},"
       "\"rx_count\":{\"type\":\"integer\"}},"
       "\"required\":[\"name\",\"cls\",\"enabled\",\"failing\"]}},"
-      "\"no_ip_recoveries\":{\"type\":\"integer\"},"
       "\"rssi\":{\"type\":\"integer\"},"
       "\"disc_age_s\":{\"type\":\"integer\"},"
       "\"last_disconnect_reason\":{\"type\":\"string\"},"

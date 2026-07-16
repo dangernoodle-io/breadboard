@@ -360,17 +360,11 @@ typedef struct {
     uint32_t lost_ip_recoveries; // times lost-IP recovery was triggered (bb_wifi_get_lost_ip_count)
     uint32_t lost_ip_age_s;      // seconds since last lost-IP event (0 if never)
     uint32_t egress_dead_recoveries; // times egress-dead recovery was triggered (bb_wifi_get_egress_dead_count)
-    uint32_t no_ip_recoveries;   // times no-IP watchdog recovery was triggered (bb_wifi_get_no_ip_count);
-                                 // captured in the same evaluator snapshot as lost_ip/egress_dead_recoveries
-                                 // (B1-486 finding #4) so GET /api/diag/net's recovery_count sums
-                                 // point-in-time-consistent operands. Not currently serialized by
-                                 // bb_net_health_emit (fixed existing schema).
     uint32_t roam_count;   // times STA roamed to a different BSSID (bb_wifi_get_roam_count);
                             // OBSERVE-ONLY (B1-497) — no recovery action is associated with this
                             // counter. Captured in the same evaluator snapshot as the other
                             // recovery counters. Not serialized by bb_net_health_emit (fixed
-                            // existing schema) — same precedent as no_ip_recoveries; exposed
-                            // via GET /api/diag/net instead.
+                            // existing schema) — exposed via GET /api/diag/net instead.
     uint32_t roam_age_s;   // seconds since the last roam event (bb_wifi_get_roam_age_s); 0 if never
     uint32_t last_session_s; // duration of the most recently ENDED connected session, in
                               // seconds (bb_wifi_get_last_session_s); 0 if no session has
@@ -467,7 +461,7 @@ bool bb_net_health_should_log(int64_t now_us, int64_t last_log_us,
  * Fields (in emitted order): net_mode, ip, has_ip, associated, rssi,
  * session_s (last_session_s), disc_reason (code only — the per-drop log
  * event carries the human-readable name via bb_wifi_disc_reason_str),
- * roam_count, no_ip_recoveries, lost_ip_recoveries, egress_dead_recoveries,
+ * roam_count, lost_ip_recoveries, egress_dead_recoveries,
  * retry_count, restart_sta_count, uptime_s, then — ONLY when
  * s->gw_available — gw (gw_reachable) and gwdead (gw_dead_count), and
  * then — ONLY when s->tx_available — txfail (tx_failing/tx_enabled from

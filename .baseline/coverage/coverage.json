@@ -1176,31 +1176,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "234",
-      "path": "platform/host/bb_wifi/bb_wifi_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "236",
-      "path": "platform/host/bb_wifi/bb_wifi_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "299",
-      "path": "platform/host/bb_wifi/bb_wifi_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "301",
-      "path": "platform/host/bb_wifi/bb_wifi_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "302",
-      "path": "platform/host/bb_wifi/bb_wifi_host.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "13",
       "path": "platform/host/bb_wifi_ap/bb_wifi_ap_host.c",
       "type": "uncovered_line"

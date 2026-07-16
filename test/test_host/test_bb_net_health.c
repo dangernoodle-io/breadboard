@@ -959,7 +959,7 @@ void test_bb_egress_state_str_unknown_returns_nonnull(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_net_health_emit: net_mode/associated/has_ip + the no_ip_recoveries/roam
+// bb_net_health_emit: net_mode/associated/has_ip + the roam
 // serialization-gap fix (they were captured in the status struct but never
 // emitted to the net.health payload).
 // ---------------------------------------------------------------------------
@@ -969,7 +969,6 @@ void test_bb_net_health_emit_has_net_mode_and_discriminator_fields(void)
     bb_net_health_status_t snap = {
         .state           = BB_WIFI_LINK_GOOD,
         .rssi            = -55,
-        .no_ip_recoveries = 3,
         .roam_count       = 2,
         .roam_age_s       = 45,
         .net_mode         = BB_WIFI_MODE_NO_IP,
@@ -987,11 +986,6 @@ void test_bb_net_health_emit_has_net_mode_and_discriminator_fields(void)
     bb_json_t parsed = bb_json_parse(json, strlen(json));
     bb_json_free_str(json);
     TEST_ASSERT_NOT_NULL(parsed);
-
-    double nir = 0.0;
-    TEST_ASSERT_TRUE_MESSAGE(bb_json_obj_get_number(parsed, "no_ip_recoveries", &nir),
-        "no_ip_recoveries must be serialized to net.health (previously a serialization gap)");
-    TEST_ASSERT_EQUAL_INT(3, (int)nir);
 
     double rc = 0.0;
     TEST_ASSERT_TRUE_MESSAGE(bb_json_obj_get_number(parsed, "roam_count", &rc),
@@ -1168,7 +1162,6 @@ static bb_net_health_status_t sample_status_for_log(void)
     s.last_disconnect_reason   = 8; // esp_wifi WIFI_REASON_ASSOC_LEAVE-ish
     s.last_session_s           = 1234;
     s.roam_count                = 3;
-    s.no_ip_recoveries          = 2;
     s.lost_ip_recoveries        = 1;
     s.egress_dead_recoveries    = 0;
     s.retry_count                = 5;
@@ -1215,7 +1208,6 @@ void test_bb_net_health_format_log_fields_present(void)
     TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "dr=8(") == NULL, buf);
     TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "sess=1234") != NULL, buf);
     TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "roam=3") != NULL, buf);
-    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "no_ip=2") != NULL, buf);
     TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "lost_ip=1") != NULL, buf);
     TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "egress=0") != NULL, buf);
     TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "retry=5") != NULL, buf);
@@ -1337,9 +1329,9 @@ void test_bb_net_health_format_log_gw_reachable_true(void)
 }
 
 // Truncation drops gw first: gw_available=true but the buffer cap is sized
-// JUST past the non-gw fields (124 bytes for sample_status_for_log's values
-// + 1 for NUL = 125) and well below the full gw-suffixed line (138 bytes +
-// NUL = 139). snprintf's single format string appends gw_suffix last, so a
+// JUST past the non-gw fields (116 bytes for sample_status_for_log's values
+// + 1 for NUL = 117) and well below the full gw-suffixed line (130 bytes +
+// NUL = 131). snprintf's single format string appends gw_suffix last, so a
 // cap at exactly non-gw-length+1 truncates the gw tokens cleanly (no
 // partial "gw=" token) while leaving every preceding field (nm=/ip=/.../up=)
 // intact and NUL-terminated within cap.
@@ -1350,7 +1342,7 @@ void test_bb_net_health_format_log_truncation_drops_gw_first(void)
     s.gw_reachable   = false;
     s.gw_fail_streak = 2;
     s.gw_dead_count  = 7;
-    char buf[125];
+    char buf[117];
     memset(buf, 0x7F, sizeof(buf)); // sentinel fill to detect any overrun
     int n = bb_net_health_format_log(&s, buf, sizeof(buf));
     TEST_ASSERT_GREATER_OR_EQUAL_INT((int)sizeof(buf), n); // full line exceeds cap
@@ -1430,8 +1422,8 @@ void test_bb_net_health_format_log_txfail_zero_counts(void)
 
 // Truncation drops txfail first, keeping gw intact: gw_available=true AND
 // tx_available=true, but the buffer cap is sized JUST past the base+gw
-// fields (139 bytes: 124 base + 14 gw suffix + 1 NUL) — below the full
-// base+gw+tx line (149 bytes: 124 + 14 + 11 txfail-suffix ("txfail=1/2") +
+// fields (131 bytes: 116 base + 14 gw suffix + 1 NUL) — below the full
+// base+gw+tx line (142 bytes: 116 + 14 + 11 txfail-suffix ("txfail=1/2") +
 // 1 NUL). snprintf's single format string appends gw_suffix before
 // tx_suffix, so a cap at exactly base+gw-length+1 truncates the txfail
 // token cleanly (no partial "txfail=" token) while leaving gw AND every
@@ -1446,7 +1438,7 @@ void test_bb_net_health_format_log_truncation_drops_txfail_first(void)
     s.tx_available   = true;
     s.tx_failing     = 1;
     s.tx_enabled     = 2;
-    char buf[139];
+    char buf[131];
     memset(buf, 0x7F, sizeof(buf)); // sentinel fill to detect any overrun
     int n = bb_net_health_format_log(&s, buf, sizeof(buf));
     TEST_ASSERT_GREATER_OR_EQUAL_INT((int)sizeof(buf), n); // full line exceeds cap
