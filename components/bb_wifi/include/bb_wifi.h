@@ -177,6 +177,10 @@ typedef enum {
     BB_WIFI_NET_EVT_REBOOT_DENIED, // B1-805: reconnect FSM escalation denied
                                     // (budget/boot-fail-count) -- fell back to
                                     // backoff instead of rebooting.
+    BB_WIFI_NET_EVT_RECONNECT_PARKED, // PR7, B1-994/B1-806: ASSOC_LEAVE
+                                    // disconnect parked the reconnect FSM
+                                    // (WR_LEFT) -- no auto-retry until an
+                                    // explicit resume.
 } bb_wifi_net_event_t;
 
 // The reason is passed explicitly as a call argument -- NOT read back via
@@ -197,6 +201,8 @@ typedef enum {
 //                                    or BB_WIFI_DISC_UNKNOWN when the denial
 //                                    was on a connect-timeout stall (no
 //                                    disconnect reason code applies)
+//   BB_WIFI_NET_EVT_RECONNECT_PARKED -> always BB_WIFI_DISC_ASSOC_LEAVE (the
+//                                    only reason that parks the FSM)
 //
 // `evt` is the discriminator, not `reason` alone: BB_WIFI_DISC_UNKNOWN is
 // overloaded -- on GOT_IP it's a "not applicable" filler (there is no

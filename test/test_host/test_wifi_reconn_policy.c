@@ -155,9 +155,11 @@ void test_wifi_reconn_got_ip_resets_counters(void)
     TEST_ASSERT_EQUAL(5, s_state.retry_count);
 
     // Got IP resets everything
+    s_state.slow_fail_count = 2;
     wifi_reconn_policy_on_got_ip(&s_state);
     TEST_ASSERT_EQUAL(0, s_state.handshake_fail_count);
     TEST_ASSERT_EQUAL(0, s_state.generic_fail_count);
+    TEST_ASSERT_EQUAL(0, s_state.slow_fail_count);
     TEST_ASSERT_EQUAL(0, s_state.first_fail_us);
     TEST_ASSERT_EQUAL(0, s_state.retry_count);
 
@@ -187,6 +189,7 @@ void test_wifi_reconn_state_reset(void)
     // Populate state
     s_state.handshake_fail_count = 5;
     s_state.generic_fail_count = 3;
+    s_state.slow_fail_count = 4;
     s_state.first_fail_us = 12345;
     s_state.retry_count = 8;
     s_state.last_reason = BB_WIFI_DISC_BB_LOST_IP;
@@ -199,6 +202,7 @@ void test_wifi_reconn_state_reset(void)
 
     TEST_ASSERT_EQUAL(0, s_state.handshake_fail_count);
     TEST_ASSERT_EQUAL(0, s_state.generic_fail_count);
+    TEST_ASSERT_EQUAL(0, s_state.slow_fail_count);
     TEST_ASSERT_EQUAL(0, s_state.first_fail_us);
     TEST_ASSERT_EQUAL(0, s_state.retry_count);
     TEST_ASSERT_EQUAL(0, s_state.last_reason);
@@ -304,6 +308,73 @@ void test_wifi_reconn_connect_timeout_past_window(void)
     TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_REBOOT, action);
     TEST_ASSERT_EQUAL(2, s_state.generic_fail_count);
     TEST_ASSERT_EQUAL(2, s_state.retry_count);
+}
+
+// --- SLOW backoff tier tests (PR7, B1-994/B1-806) ---
+
+void test_wifi_reconn_slow_tier_no_hot_retry(void)
+{
+    uint32_t backoff_ms = 999;
+    wifi_reconn_action_t action = wifi_reconn_policy_on_disconnect(
+        &s_state, &adapter, BB_WIFI_DISC_AUTH_FAIL, &backoff_ms);
+
+    // Even the FIRST AUTH_FAIL disconnect backs off -- never a hot retry.
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_SCHEDULE_BACKOFF, action);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_SLOW_BACKOFF_TIER1_MS, backoff_ms);
+    TEST_ASSERT_EQUAL(1, s_state.slow_fail_count);
+}
+
+void test_wifi_reconn_slow_tier2_escalation(void)
+{
+    uint32_t backoff_ms = 0;
+
+    for (int i = 0; i < WIFI_RECONN_SLOW_TIER1_LIMIT; i++) {
+        wifi_reconn_action_t action = wifi_reconn_policy_on_disconnect(
+            &s_state, &adapter, BB_WIFI_DISC_NO_AP_FOUND, &backoff_ms);
+        TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_SCHEDULE_BACKOFF, action);
+        TEST_ASSERT_EQUAL(WIFI_RECONN_SLOW_BACKOFF_TIER1_MS, backoff_ms);
+    }
+    TEST_ASSERT_EQUAL(WIFI_RECONN_SLOW_TIER1_LIMIT, s_state.slow_fail_count);
+
+    // Beyond the tier-1 limit, escalate to tier-2.
+    wifi_reconn_action_t action = wifi_reconn_policy_on_disconnect(
+        &s_state, &adapter, BB_WIFI_DISC_NO_AP_FOUND, &backoff_ms);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_SCHEDULE_BACKOFF, action);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_SLOW_BACKOFF_TIER2_MS, backoff_ms);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_SLOW_TIER1_LIMIT + 1, s_state.slow_fail_count);
+}
+
+void test_wifi_reconn_slow_tier_shared_by_auth_and_no_ap_found(void)
+{
+    uint32_t backoff_ms = 0;
+
+    // AUTH_FAIL and NO_AP_FOUND advance the SAME slow_fail_count counter.
+    wifi_reconn_policy_on_disconnect(&s_state, &adapter, BB_WIFI_DISC_AUTH_FAIL, &backoff_ms);
+    TEST_ASSERT_EQUAL(1, s_state.slow_fail_count);
+
+    wifi_reconn_policy_on_disconnect(&s_state, &adapter, BB_WIFI_DISC_NO_AP_FOUND, &backoff_ms);
+    TEST_ASSERT_EQUAL(2, s_state.slow_fail_count);
+
+    wifi_reconn_policy_on_disconnect(&s_state, &adapter, BB_WIFI_DISC_AUTH_FAIL, &backoff_ms);
+    TEST_ASSERT_EQUAL(3, s_state.slow_fail_count);
+}
+
+void test_wifi_reconn_handshake_tier_unaffected_by_slow_tier(void)
+{
+    uint32_t backoff_ms = 0;
+
+    // Prime the slow counter, then confirm the handshake ladder is untouched.
+    wifi_reconn_policy_on_disconnect(&s_state, &adapter, BB_WIFI_DISC_AUTH_FAIL, &backoff_ms);
+    wifi_reconn_policy_on_disconnect(&s_state, &adapter, BB_WIFI_DISC_NO_AP_FOUND, &backoff_ms);
+    TEST_ASSERT_EQUAL(2, s_state.slow_fail_count);
+    TEST_ASSERT_EQUAL(0, s_state.handshake_fail_count);
+
+    wifi_reconn_action_t action = wifi_reconn_policy_on_disconnect(
+        &s_state, &adapter, HANDSHAKE_REASON, &backoff_ms);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_RECONNECT_NOW, action);
+    TEST_ASSERT_EQUAL(0, backoff_ms);
+    TEST_ASSERT_EQUAL(1, s_state.handshake_fail_count);
+    TEST_ASSERT_EQUAL(2, s_state.slow_fail_count);
 }
 
 // --- lost-IP policy tests ---
@@ -839,4 +910,133 @@ void test_fsm_no_creds_parks_until_creds_arrived(void)
     TEST_ASSERT_TRUE(bb_fsm_timer_at(&ctx.fsm, 0, &tev, &tms));
     TEST_ASSERT_EQUAL_INT(EV_CONNECTING_TIMEOUT, tev);
     TEST_ASSERT_EQUAL_UINT32(WIFI_RECONN_CONNECTING_TIMEOUT_MS, tms);
+}
+
+// ===========================================================================
+// PR7 (B1-994/B1-806) -- ASSOC_LEAVE park (WR_LEFT) + SLOW backoff tier FSM
+// reachability. esp reason 8 = WIFI_REASON_ASSOC_LEAVE (bb_wifi_map_esp_reason).
+// ===========================================================================
+
+#define FSM_ASSOC_LEAVE_ESP_REASON ((uint8_t)8)
+#define FSM_AUTH_FAIL_ESP_REASON   ((uint8_t)2)   // WIFI_REASON_AUTH_EXPIRE
+
+// New WR_LEFT row (WR_CONNECTING): ASSOC_LEAVE parks BEFORE any escalate/
+// reconnect-now/backoff row matches -- no connect, no timer, RECONNECT_PARKED
+// emitted.
+void test_fsm_assoc_leave_from_connecting_parks_no_reconnect(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+
+    uint8_t reason = FSM_ASSOC_LEAVE_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_LEFT, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(0, s_fake.connect_calls);
+    TEST_ASSERT_EQUAL(0, (int)bb_fsm_timer_count(&ctx.fsm));
+    TEST_ASSERT_EQUAL(1, s_fake.emit_calls);
+    TEST_ASSERT_EQUAL(BB_WIFI_NET_EVT_RECONNECT_PARKED, s_fake.last_emit_evt);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_ASSOC_LEAVE, s_fake.last_emit_reason);
+}
+
+// Same row on WR_CONNECTED.
+void test_fsm_assoc_leave_from_connected_parks_no_reconnect(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_GOT_IP, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_CONNECTED, bb_fsm_state(&ctx.fsm));
+
+    uint8_t reason = FSM_ASSOC_LEAVE_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_LEFT, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(0, s_fake.connect_calls);
+    TEST_ASSERT_EQUAL(0, (int)bb_fsm_timer_count(&ctx.fsm));
+    TEST_ASSERT_EQUAL(1, s_fake.emit_calls);
+    TEST_ASSERT_EQUAL(BB_WIFI_NET_EVT_RECONNECT_PARKED, s_fake.last_emit_evt);
+}
+
+// REQUIRED negative test: conditions that would escalate ANY other reason
+// (stale first_fail past the persistent-fail window) -- an ASSOC_LEAVE
+// disconnect still parks to WR_LEFT, never WR_ESCALATE_REBOOT. The
+// escalate-allowed row is reason-independent, but the ASSOC_LEAVE row is
+// ordered BEFORE it in the table, so it always wins the match.
+void test_fsm_assoc_leave_does_not_escalate_past_fail_window(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+    ctx.policy.first_fail_us = 1000000;
+    s_fake.now_us = 1000000 + WIFI_RECONN_PERSISTENT_FAIL_WINDOW_US + 1000000;
+
+    uint8_t reason = FSM_ASSOC_LEAVE_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_LEFT, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(0, s_fake.reboot_calls);
+}
+
+// From WR_LEFT, any stray event (other than resume) is a safe no-op:
+// BB_ERR_NOT_FOUND, state unchanged, no side effects, no timer.
+void test_fsm_left_parks_all_stray_events(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_LEFT);
+
+    uint8_t reason = FSM_AUTH_FAIL_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_LEFT, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_fsm_step(&ctx.fsm, EV_GOT_IP, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_LEFT, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_fsm_step(&ctx.fsm, EV_CONNECTING_TIMEOUT, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_LEFT, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_fsm_step(&ctx.fsm, EV_BACKOFF_TIMEOUT, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_LEFT, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_fsm_step(&ctx.fsm, EV_CREDS_ARRIVED, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_LEFT, bb_fsm_state(&ctx.fsm));
+
+    TEST_ASSERT_EQUAL(0, s_fake.connect_calls);
+    TEST_ASSERT_EQUAL(0, s_fake.disconnect_calls);
+    TEST_ASSERT_EQUAL(0, s_fake.reboot_calls);
+    TEST_ASSERT_EQUAL(0, s_fake.emit_calls);
+    TEST_ASSERT_EQUAL(0, (int)bb_fsm_timer_count(&ctx.fsm));
+}
+
+// WR_LEFT resume row: EV_RECONNECT_REQUESTED -> WR_CONNECTING, connect_fn
+// called once, CONNECTING watchdog armed (via WR_CONNECTING's on_entry),
+// counters reset (act_reset_state -- same action as WR_NO_CREDS's resume).
+void test_fsm_left_resumes_on_reconnect_requested(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_LEFT);
+    ctx.policy.slow_fail_count = 3;
+    ctx.policy.generic_fail_count = 2;
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_RECONNECT_REQUESTED, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_CONNECTING, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(1, s_fake.connect_calls);
+    TEST_ASSERT_EQUAL(0, ctx.policy.slow_fail_count);
+    TEST_ASSERT_EQUAL(0, ctx.policy.generic_fail_count);
+
+    bb_fsm_event_t tev;
+    uint32_t tms;
+    TEST_ASSERT_TRUE(bb_fsm_timer_at(&ctx.fsm, 0, &tev, &tms));
+    TEST_ASSERT_EQUAL_INT(EV_CONNECTING_TIMEOUT, tev);
+    TEST_ASSERT_EQUAL_UINT32(WIFI_RECONN_CONNECTING_TIMEOUT_MS, tms);
+}
+
+// SLOW tier drives the FSM to WR_BACKOFF with the tier-1 timer on a fresh
+// AUTH_FAIL disconnect (never hot-retries via guard_disc_reconnect_now).
+void test_fsm_slow_tier_disconnect_routes_to_backoff(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_CONNECTING);
+
+    uint8_t reason = FSM_AUTH_FAIL_ESP_REASON;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_DISCONNECTED, &reason));
+    TEST_ASSERT_EQUAL_INT(WR_BACKOFF, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(0, s_fake.connect_calls);
+
+    bb_fsm_event_t tev;
+    uint32_t tms;
+    TEST_ASSERT_TRUE(bb_fsm_timer_at(&ctx.fsm, 0, &tev, &tms));
+    TEST_ASSERT_EQUAL_INT(EV_BACKOFF_TIMEOUT, tev);
+    TEST_ASSERT_EQUAL_UINT32(WIFI_RECONN_SLOW_BACKOFF_TIER1_MS, tms);
 }

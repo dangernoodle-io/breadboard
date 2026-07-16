@@ -137,6 +137,33 @@ config BB_WIFI_RECONN_GENERIC_BACKOFF_PAUSE_MS
         Backoff delay applied after a non-handshake disconnect once the
         generic fast-retry limit is exceeded.
 
+config BB_WIFI_RECONN_SLOW_TIER1_LIMIT
+    int "WiFi slow-failure tier-1 limit (attempts)"
+    range 0 50
+    default 3
+    help
+        Number of consecutive AUTH_FAIL/NO_AP_FOUND disconnects (bad
+        credentials or an absent AP) that back off at the tier-1 delay
+        before the reconnect manager escalates to the tier-2 delay. Unlike
+        the generic ladder, the SLOW tier never hot-retries -- even the
+        first occurrence backs off.
+
+config BB_WIFI_RECONN_SLOW_BACKOFF_TIER1_MS
+    int "WiFi slow-failure tier-1 backoff delay (ms)"
+    range 1000 120000
+    default 30000
+    help
+        Backoff delay applied after an AUTH_FAIL/NO_AP_FOUND disconnect up
+        to the tier-1 limit.
+
+config BB_WIFI_RECONN_SLOW_BACKOFF_TIER2_MS
+    int "WiFi slow-failure tier-2 backoff delay (ms)"
+    range 1000 300000
+    default 120000
+    help
+        Backoff delay applied after an AUTH_FAIL/NO_AP_FOUND disconnect
+        once the tier-1 limit is exceeded.
+
 choice BB_WIFI_POWER_SAVE
     prompt "WiFi power-save mode"
     default BB_WIFI_PS_MIN_MODEM

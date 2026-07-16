@@ -5,6 +5,7 @@ void wifi_reconn_state_reset(wifi_reconn_state_t *st)
     if (!st) return;
     st->handshake_fail_count = 0;
     st->generic_fail_count = 0;
+    st->slow_fail_count = 0;
     st->first_fail_us = 0;
     st->retry_count = 0;
     st->last_reason = 0;
@@ -28,6 +29,15 @@ static uint32_t compute_backoff_ms(const wifi_reconn_state_t *st, bb_wifi_disc_r
         if (n <= WIFI_RECONN_HANDSHAKE_TIER2_LIMIT)
             return WIFI_RECONN_HANDSHAKE_BACKOFF_TIER2_MS;
         return WIFI_RECONN_HANDSHAKE_BACKOFF_TIER3_MS;
+    }
+    // SLOW tier (PR7, B1-994/B1-806): bad credentials or an absent AP --
+    // NEVER hot-retry, not even on the first occurrence. Two never-decaying
+    // steps; the counter only resets on got_ip/state_reset, same as the
+    // other ladders.
+    if (reason == BB_WIFI_DISC_AUTH_FAIL || reason == BB_WIFI_DISC_NO_AP_FOUND) {
+        return st->slow_fail_count <= WIFI_RECONN_SLOW_TIER1_LIMIT
+            ? WIFI_RECONN_SLOW_BACKOFF_TIER1_MS
+            : WIFI_RECONN_SLOW_BACKOFF_TIER2_MS;
     }
     int n = st->generic_fail_count;
     if (n <= WIFI_RECONN_GENERIC_FAST_RETRY_LIMIT)
@@ -58,9 +68,15 @@ wifi_reconn_action_t wifi_reconn_policy_on_disconnect(
         st->first_fail_us = now;
     }
 
-    // Increment appropriate counter based on reason.
+    // Increment appropriate counter based on reason (PR7, B1-994/B1-806
+    // adds the SLOW bucket -- AUTH_FAIL/NO_AP_FOUND -- between the existing
+    // handshake and generic buckets; ASSOC_LEAVE lands in generic here, but
+    // is inert since it's parked before this call by act_disconnect_park_no_reconnect
+    // on the FSM's WR_CONNECTING/WR_CONNECTED rows).
     if (reason == BB_WIFI_DISC_HANDSHAKE_TIMEOUT) {
         st->handshake_fail_count++;
+    } else if (reason == BB_WIFI_DISC_AUTH_FAIL || reason == BB_WIFI_DISC_NO_AP_FOUND) {
+        st->slow_fail_count++;
     } else {
         st->generic_fail_count++;
     }
@@ -87,6 +103,7 @@ void wifi_reconn_policy_on_got_ip(wifi_reconn_state_t *st)
     if (!st) return;
     st->handshake_fail_count = 0;
     st->generic_fail_count = 0;
+    st->slow_fail_count = 0;
     st->first_fail_us = 0;
     st->retry_count = 0;
 }
@@ -212,6 +229,8 @@ static bool wr_disconnect_would_reconnect_now(const wifi_reconn_state_t *st, bb_
     wifi_reconn_state_t peek = *st;
     if (reason == BB_WIFI_DISC_HANDSHAKE_TIMEOUT) {
         peek.handshake_fail_count++;
+    } else if (reason == BB_WIFI_DISC_AUTH_FAIL || reason == BB_WIFI_DISC_NO_AP_FOUND) {
+        peek.slow_fail_count++;
     } else {
         peek.generic_fail_count++;
     }
@@ -258,6 +277,14 @@ static bool guard_timeout_escalate_denied(void *vctx, bb_fsm_event_t event, void
     (void)event; (void)evt_data;
     wifi_reconn_ctx_t *ctx = vctx;
     return wr_timeout_would_escalate(&ctx->policy, ctx->adapter);
+}
+
+// PR7 (B1-994/B1-806): matches ONLY an ASSOC_LEAVE disconnect -- the
+// STA/peer-initiated disassociation reason. Pure; no mutation, no emit.
+static bool guard_disc_is_assoc_leave(void *vctx, bb_fsm_event_t event, void *evt_data)
+{
+    (void)vctx; (void)event;
+    return bb_wifi_map_esp_reason(wr_evt_reason(evt_data)) == BB_WIFI_DISC_ASSOC_LEAVE;
 }
 
 // --- Actions (own all mutation/side-effects; every esp_wifi_*/bb_system_*/
@@ -309,6 +336,21 @@ static void act_disconnect_denied(bb_fsm_t *fsm, void *vctx, bb_fsm_event_t even
     (void)wifi_reconn_policy_on_disconnect(&ctx->policy, ctx->adapter, reason, &backoff_ms);
     ctx->pending_backoff_ms = WIFI_RECONN_GENERIC_BACKOFF_PAUSE_MS;
     ctx->adapter->emit_net_event_fn(BB_WIFI_NET_EVT_REBOOT_DENIED, reason);
+}
+
+// PR7 (B1-994/B1-806): ASSOC_LEAVE park -- record the disconnect for
+// histogram/last_reason accounting (same as act_note_disconnect/
+// act_disconnect_denied), DISCARD the returned backoff (no timer is armed --
+// WR_LEFT has no on_entry hook), and emit RECONNECT_PARKED. Mirrors
+// act_disconnect_denied's shape exactly.
+static void act_disconnect_park_no_reconnect(bb_fsm_t *fsm, void *vctx, bb_fsm_event_t event, void *evt_data)
+{
+    (void)fsm; (void)event;
+    wifi_reconn_ctx_t *ctx = vctx;
+    bb_wifi_disc_reason_t reason = bb_wifi_map_esp_reason(wr_evt_reason(evt_data));
+    uint32_t backoff_ms = 0;
+    (void)wifi_reconn_policy_on_disconnect(&ctx->policy, ctx->adapter, reason, &backoff_ms);
+    ctx->adapter->emit_net_event_fn(BB_WIFI_NET_EVT_RECONNECT_PARKED, reason);
 }
 
 // Rows 5/9 (SAME on WR_CONNECTING, concrete on WR_CONNECTED->WR_CONNECTING).
@@ -425,6 +467,10 @@ static const bb_fsm_row_t wr_rows[] = {
     // 2-8: WR_CONNECTING
     { WR_CONNECTING, EV_GOT_IP,             NULL,                            act_on_got_ip,                  WR_CONNECTED },
     { WR_CONNECTING, EV_STA_CONNECTED,      NULL,                            NULL,                            BB_FSM_STATE_SAME },
+    // PR7 (B1-994/B1-806): ASSOC_LEAVE parks BEFORE the escalate-allowed row
+    // so it never shadows/is shadowed by escalation for other reasons (the
+    // escalate guards are reason-independent and stay untouched below).
+    { WR_CONNECTING, EV_STA_DISCONNECTED,   guard_disc_is_assoc_leave,       act_disconnect_park_no_reconnect, WR_LEFT },
     { WR_CONNECTING, EV_STA_DISCONNECTED,   guard_disc_escalate_allowed,     act_note_disconnect,            WR_ESCALATE_REBOOT },
     { WR_CONNECTING, EV_STA_DISCONNECTED,   guard_disc_escalate_denied,      act_disconnect_denied,          WR_BACKOFF },
     { WR_CONNECTING, EV_STA_DISCONNECTED,   guard_disc_reconnect_now,        act_disconnect_reconnect_now,   BB_FSM_STATE_SAME },
@@ -434,12 +480,17 @@ static const bb_fsm_row_t wr_rows[] = {
     { WR_CONNECTING, EV_CONNECTING_TIMEOUT, NULL,                            act_timeout_reattempt,          BB_FSM_STATE_SAME },
 
     // 9-10: WR_CONNECTED
+    { WR_CONNECTED,  EV_STA_DISCONNECTED,   guard_disc_is_assoc_leave,       act_disconnect_park_no_reconnect, WR_LEFT },
     { WR_CONNECTED,  EV_STA_DISCONNECTED,   guard_disc_reconnect_now,        act_disconnect_reconnect_now,   WR_CONNECTING },
     { WR_CONNECTED,  EV_STA_DISCONNECTED,   NULL,                            act_disconnect_backoff,         WR_BACKOFF },
 
     // 11-12: WR_BACKOFF
     { WR_BACKOFF,    EV_BACKOFF_TIMEOUT,    NULL,                            act_backoff_elapsed,            WR_CONNECTING },
     { WR_BACKOFF,    EV_STA_DISCONNECTED,   NULL,                            NULL,                            BB_FSM_STATE_SAME },
+
+    // 13: WR_LEFT resume (PR7, B1-994/B1-806) -- terminal-until-resume, same
+    // shape as row 1 (WR_NO_CREDS). No other row targets or leaves WR_LEFT.
+    { WR_LEFT,       EV_RECONNECT_REQUESTED, NULL,                          act_reset_state,                WR_CONNECTING },
 };
 
 static const bb_fsm_state_desc_t wr_states[] = {
