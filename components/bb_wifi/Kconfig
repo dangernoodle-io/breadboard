@@ -86,6 +86,57 @@ config BB_WIFI_RECONN_PERSISTENT_FAIL_WINDOW_S
         matches the legacy hard-coded value. On validated firmware the
         reboot does not increment boot_count.
 
+config BB_WIFI_RECONN_HANDSHAKE_FAST_RETRY_LIMIT
+    int "WiFi handshake-failure fast-retry limit (attempts)"
+    range 0 50
+    default 3
+    help
+        Number of consecutive handshake-timeout disconnects that retry
+        immediately (no backoff) before the reconnect manager escalates to
+        the tier-2 backoff delay.
+
+config BB_WIFI_RECONN_HANDSHAKE_TIER2_LIMIT
+    int "WiFi handshake-failure tier-2 backoff limit (attempts)"
+    range 0 100
+    default 6
+    help
+        Number of consecutive handshake-timeout disconnects, beyond the
+        fast-retry limit, that back off at the tier-2 delay before the
+        reconnect manager escalates to the tier-3 delay.
+
+config BB_WIFI_RECONN_HANDSHAKE_BACKOFF_TIER2_MS
+    int "WiFi handshake-failure tier-2 backoff delay (ms)"
+    range 1000 120000
+    default 10000
+    help
+        Backoff delay applied after a handshake-timeout disconnect once the
+        fast-retry limit is exceeded but the tier-2 limit is not.
+
+config BB_WIFI_RECONN_HANDSHAKE_BACKOFF_TIER3_MS
+    int "WiFi handshake-failure tier-3 backoff delay (ms)"
+    range 1000 300000
+    default 30000
+    help
+        Backoff delay applied after a handshake-timeout disconnect once
+        both the fast-retry and tier-2 limits are exceeded.
+
+config BB_WIFI_RECONN_GENERIC_FAST_RETRY_LIMIT
+    int "WiFi generic-failure fast-retry limit (attempts)"
+    range 0 50
+    default 10
+    help
+        Number of consecutive non-handshake disconnects that retry
+        immediately (no backoff) before the reconnect manager applies the
+        generic backoff pause.
+
+config BB_WIFI_RECONN_GENERIC_BACKOFF_PAUSE_MS
+    int "WiFi generic-failure backoff pause (ms)"
+    range 1000 120000
+    default 5000
+    help
+        Backoff delay applied after a non-handshake disconnect once the
+        generic fast-retry limit is exceeded.
+
 choice BB_WIFI_POWER_SAVE
     prompt "WiFi power-save mode"
     default BB_WIFI_PS_MIN_MODEM
