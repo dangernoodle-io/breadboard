@@ -114,6 +114,22 @@ bb_err_t bb_system_boot_count_reset(void)
     return BB_OK;
 }
 
+// Reboot budget (B1-863) — host has no NTP; bb_ntp_is_synced() is hardcoded
+// false in platform/host/bb_ntp/bb_ntp_host.c with no seam to force it true,
+// so this is a straight-line unsynced call. See bb_system_reboot_budget.c's
+// file header for why this split is per-platform, not shared. The synced
+// branch is exercised directly via bb_system_reboot_budget_allows_at/
+// record_at in host tests.
+bool bb_system_reboot_budget_allows(bb_reboot_cause_t cause)
+{
+    return bb_system_reboot_budget_allows_at(cause, false, 0U);
+}
+
+void bb_system_reboot_budget_record(bb_reboot_cause_t cause)
+{
+    bb_system_reboot_budget_record_at(cause, false, 0U);
+}
+
 #ifdef BB_SYSTEM_TESTING
 // Test hook: reset the in-memory boot counter between tests (avoids
 // cross-test leakage since s_boot_count is process-lifetime state).

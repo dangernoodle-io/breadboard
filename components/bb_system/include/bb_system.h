@@ -158,6 +158,189 @@ bb_err_t bb_system_boot_count_increment(void);
 /// OTA validation to clear the anti-brick window.
 bb_err_t bb_system_boot_count_reset(void);
 
+// ---------------------------------------------------------------------------
+// Reboot budget (B1-863, WiFi FSM consolidation epic B1-790) — the shared
+// cooldown + daily-cap rate limit for any consumer that wants to escalate to
+// a reboot as a recovery action. Lifted out of bb_net_health's tier-3
+// egress-recovery-ACT gate (B1-518 PR4) so a second consumer (the WiFi
+// safeguard reboot, routed here in a later PR — B1-790 slice) can share the
+// same budget machinery without re-hand-rolling it.
+//
+// PER-CAUSE state, SHARED params: each bb_reboot_cause_t gets its own
+// persisted ring (so a flapping cause can never starve another cause's
+// budget — see bb_system_reboot_budget_allows below), but every cause is
+// rate-limited by the SAME two Kconfig knobs (BB_SYSTEM_REBOOT_BUDGET_
+// MIN_INTERVAL_S / _DAILY_CAP) — there is exactly one pair of knobs, not one
+// per cause.
+//
+// A consumer's OWN "has this fault been sustained long enough to consider
+// rebooting" patience window (e.g. bb_net_health's
+// CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_S) is NOT part of this budget and
+// stays owned by that consumer — different causes arm on different fault
+// conditions and gate different sustained-duration windows; this module
+// only answers "is the shared cooldown/cap available right now for this
+// cause".
+// ---------------------------------------------------------------------------
+
+/// Reboot causes sharing the bb_system reboot budget. Each cause is tracked
+/// against its own persisted ring — exhausting one cause's budget never
+/// blocks another's.
+typedef enum {
+    BB_REBOOT_CAUSE_WIFI_SAFEGUARD = 0, // wifi_reconn's persistent-fail safeguard reboot (not yet routed here — B1-790 slice)
+    BB_REBOOT_CAUSE_EGRESS_TIER3,       // bb_net_health's sustained-gw-unreachable tier-3 reboot
+    BB_REBOOT_CAUSE_COUNT,              // sentinel — not a real cause, must stay last
+} bb_reboot_cause_t;
+
+// Kconfig bridge (mirrors bb_net_health.h's own ESP_PLATFORM/CONFIG_ pattern
+// — never a bare #ifndef alongside the CONFIG_ symbol, see kconfig-bridge-
+// shadow).
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_SYSTEM_REBOOT_BUDGET_MIN_INTERVAL_S
+#    define BB_SYSTEM_REBOOT_BUDGET_MIN_INTERVAL_S CONFIG_BB_SYSTEM_REBOOT_BUDGET_MIN_INTERVAL_S
+#  endif
+#endif
+#ifndef BB_SYSTEM_REBOOT_BUDGET_MIN_INTERVAL_S
+#define BB_SYSTEM_REBOOT_BUDGET_MIN_INTERVAL_S 1800  // seconds between rate-limited reboots, per cause
+#endif
+
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_SYSTEM_REBOOT_BUDGET_DAILY_CAP
+#    define BB_SYSTEM_REBOOT_BUDGET_DAILY_CAP CONFIG_BB_SYSTEM_REBOOT_BUDGET_DAILY_CAP
+#  endif
+#endif
+#ifndef BB_SYSTEM_REBOOT_BUDGET_DAILY_CAP
+#define BB_SYSTEM_REBOOT_BUDGET_DAILY_CAP 4  // max rate-limited reboots per rolling 24h, per cause
+#endif
+
+// Maximum ring capacity for reboot-timestamp persistence — must be >= the
+// Kconfig BB_SYSTEM_REBOOT_BUDGET_DAILY_CAP range max (10).
+#define BB_SYSTEM_REBOOT_BUDGET_CAP_MAX 10
+
+/**
+ * Rolling reboot history for one cause, persisted across reboots.
+ * Zero-init is valid (no reboots recorded yet).
+ */
+typedef struct {
+    uint32_t last_reboot_s;                                  // epoch-s of most recent reboot for this cause, 0 = never
+    uint32_t reboot_s_ring[BB_SYSTEM_REBOOT_BUDGET_CAP_MAX];  // ring of past reboot timestamps (epoch-s)
+    uint8_t  ring_head;                                       // next write index
+    uint8_t  ring_count;                                      // valid entries in the ring (saturates at CAP_MAX)
+} bb_system_reboot_budget_state_t;
+
+// Maximum encoded length (including NUL) of bb_system_reboot_budget_state_encode's
+// output: "last_reboot_s|ring_head|ring_count|ts0,ts1,...,ts9" with every
+// field at its worst-case (max uint32 / uint8) digit width.
+#define BB_SYSTEM_REBOOT_BUDGET_STATE_STR_MAX 192
+
+/// Elapsed seconds between two epoch timestamps, clamped to 0 when now_s is
+/// before since_s (clock skew — e.g. an uptime-derived clock reset by a
+/// reboot) rather than wrapping via unsigned underflow. Shared by the
+/// reboot-budget pure core below and by any consumer computing its own
+/// epoch-based patience window (e.g. bb_net_health's tier-3 sustained-
+/// unhealthy check) — never re-hand-roll this subtraction.
+uint32_t bb_system_elapsed_epoch_s(uint32_t now_s, uint32_t since_s);
+
+/**
+ * Pure decision core: should a reboot be allowed right now, given the
+ * shared cooldown/cap and one cause's persisted state? True iff BOTH:
+ *  - st->last_reboot_s == 0 OR now_s - st->last_reboot_s >= min_interval_s
+ *    (cooldown satisfied), AND
+ *  - fewer than daily_cap entries in st->reboot_s_ring fall within the
+ *    trailing 86400 s of now_s (daily cap not exhausted).
+ *
+ * No clock, no storage, no side effects — host-testable with explicit
+ * now_s/params. Clock-skew safety: the cooldown check goes through
+ * bb_system_elapsed_epoch_s, so a skewed clock can only make that check
+ * MORE conservative (fewer reboots), never trigger a spurious one. The
+ * daily-cap ring scan instead excludes any ring entry whose timestamp
+ * appears to be after now_s, rather than clamping it via that helper —
+ * clamping a future entry to 0 would wrongly count it as inside the
+ * trailing 24h window.
+ */
+bool bb_system_reboot_budget_should_allow(uint32_t                                now_s,
+                                           uint32_t                                min_interval_s,
+                                           uint32_t                                daily_cap,
+                                           const bb_system_reboot_budget_state_t *st);
+
+/**
+ * Record a reboot into st: appends now_s to the ring (overwriting the
+ * oldest entry once full), advances ring_head, bumps ring_count (saturating
+ * at BB_SYSTEM_REBOOT_BUDGET_CAP_MAX), and sets last_reboot_s. No side
+ * effects beyond mutating *st; host-testable.
+ */
+void bb_system_reboot_budget_state_record(bb_system_reboot_budget_state_t *st, uint32_t now_s);
+
+/**
+ * Encode a cause's reboot-budget state as a single delimited string:
+ * "<last_reboot_s>|<ring_head>|<ring_count>|<ts0>,<ts1>,...,<tsN-1>" where N
+ * is always BB_SYSTEM_REBOOT_BUDGET_CAP_MAX. Returns true and NUL-terminates
+ * buf on success; false (buf left untouched beyond buf[0] on truncation
+ * risk) if st or buf is NULL, buf_len is too small for the worst case, or
+ * snprintf would have truncated. No side effects; host-testable.
+ */
+bool bb_system_reboot_budget_state_encode(const bb_system_reboot_budget_state_t *st,
+                                           char *buf, size_t buf_len);
+
+/**
+ * Decode a string produced by bb_system_reboot_budget_state_encode back into
+ * *out. Returns true on a well-formed round-trip; false (and *out left
+ * untouched) on a NULL argument or malformed input — the caller's existing
+ * zero-init state is the safe fallback for "never persisted" / corrupt
+ * cases. No side effects; host-testable.
+ */
+bool bb_system_reboot_budget_state_decode(const char *str, bb_system_reboot_budget_state_t *out);
+
+/**
+ * Storage-backed orchestration for `cause`, given an EXPLICIT synced/now_s
+ * pair (portable — compiled on host AND ESP-IDF, no ESP_PLATFORM gate
+ * beyond the bb_storage backend-name pick: "nvs" on device, "ram" on
+ * host). Each cause's state is loaded from storage ONCE (lazily, on first
+ * synced access) and cached in RAM thereafter — an evaluator that re-checks
+ * this every tick while sustained-unhealthy costs one storage read total,
+ * not one per tick. Safe without a lock because each cause has exactly one
+ * writer task; see the cache comment in bb_system_reboot_budget.c before
+ * adding a second writer for the same cause. A missing key / backend
+ * error / corrupt value on that one load all decode-fail safely to a
+ * zero-init "no reboots recorded yet" state, then delegates to
+ * bb_system_reboot_budget_should_allow.
+ *
+ * When synced is false, returns true unconditionally and performs NO
+ * storage I/O (not even the lazy cache load) — the safe direction (a
+ * spurious extra reboot vs. silently defeating the rate limit with bogus
+ * epoch-0 arithmetic), mirrors bb_net_health's existing tier-3 "unsynced =
+ * deferred" precedent. This explicit-args form is what makes the synced
+ * branch host-testable — bb_system_reboot_budget_allows below hardcodes
+ * synced=false on host (no NTP), so its own synced branch is otherwise
+ * unreachable there.
+ */
+bool bb_system_reboot_budget_allows_at(bb_reboot_cause_t cause, bool synced, uint32_t now_s);
+
+/**
+ * Record that a reboot for `cause` is about to happen, given an explicit
+ * synced/now_s pair: updates the cached state and writes it through to
+ * storage (same cache as bb_system_reboot_budget_allows_at). Call
+ * immediately before the actual restart (bb_system_restart_reason /
+ * bb_system_restart) so the record survives the reboot. synced=false is a
+ * no-op (symmetrical with bb_system_reboot_budget_allows_at) — no storage
+ * I/O, not even a cache load.
+ */
+void bb_system_reboot_budget_record_at(bb_reboot_cause_t cause, bool synced, uint32_t now_s);
+
+/**
+ * Should a reboot for `cause` be allowed right now? Resolves the real wall
+ * clock (bb_ntp_is_synced() + time()) per-platform and delegates to
+ * bb_system_reboot_budget_allows_at — implemented separately per platform
+ * (platform/espidf/bb_system/bb_system.c resolves the real clock;
+ * platform/host/bb_system/bb_system_host.c is a straight-line
+ * `_at(cause, false, 0U)`, since host has no NTP and bb_ntp_is_synced()
+ * is hardcoded false there with no seam to force it true).
+ */
+bool bb_system_reboot_budget_allows(bb_reboot_cause_t cause);
+
+/// Same per-platform split as bb_system_reboot_budget_allows, for
+/// bb_system_reboot_budget_record_at.
+void bb_system_reboot_budget_record(bb_reboot_cause_t cause);
+
 /// Pure parse of POST /api/reboot's optional JSON body: {"ts": <epoch_s>,
 /// "detail": "<string, up to 48 chars>"} — both fields optional. body may be
 /// NULL/empty/non-JSON/oversized; on any parse failure out_ts=0 and

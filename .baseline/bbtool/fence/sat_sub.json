@@ -21,6 +21,11 @@
       "type": "sat_sub"
     },
     {
+      "id": "bb_system:bb_system_elapsed_epoch_s:now_s",
+      "path": "components/bb_system/src/bb_system_reboot_budget.c",
+      "type": "sat_sub"
+    },
+    {
       "id": "bb_diag:bb_diag_panic_coredump_read_bytes:addr",
       "path": "platform/espidf/bb_diag/bb_diag_panic.c",
       "type": "sat_sub"
