@@ -210,6 +210,20 @@ void bb_system_reboot_budget_record(bb_reboot_cause_t cause)
     bb_system_reboot_budget_record_at(cause, bb_ntp_is_synced(), (uint32_t)time(NULL));
 }
 
+// WiFi safeguard-reboot facade (B1-790 slice) -- real synced/epoch
+// resolution. See bb_system_safeguard_reboot.c for the orchestration this
+// delegates to.
+bool bb_system_safeguard_reboot_allowed(bb_reboot_cause_t cause)
+{
+    return bb_system_safeguard_reboot_allowed_at(cause, bb_ntp_is_synced(), (uint32_t)time(NULL));
+}
+
+void bb_system_safeguard_reboot(bb_reboot_cause_t cause, bool ota_validated, const char *detail)
+{
+    bb_system_safeguard_reboot_account(cause, ota_validated, bb_ntp_is_synced());
+    bb_system_restart_reason(bb_system_safeguard_reboot_src_for_cause(cause), detail);
+}
+
 // Number of hex chars in the app SHA256 prefix.
 // Bridge pattern (see CLAUDE.md "Kconfig knobs must bridge CONFIG_").
 #ifdef ESP_PLATFORM

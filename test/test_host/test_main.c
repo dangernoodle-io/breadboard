@@ -2089,6 +2089,24 @@ void test_bb_system_reboot_budget_per_cause_isolation(void);
 void test_bb_system_reboot_budget_allows_is_true_on_host(void);
 void test_bb_system_reboot_budget_record_is_noop_on_host(void);
 
+// Forward declarations from test_bb_system_safeguard_reboot.c
+void test_bb_system_safeguard_reboot_should_increment_synced_validated_is_false(void);
+void test_bb_system_safeguard_reboot_should_increment_synced_unvalidated_is_true(void);
+void test_bb_system_safeguard_reboot_should_increment_unsynced_validated_is_true(void);
+void test_bb_system_safeguard_reboot_should_increment_unsynced_unvalidated_is_true(void);
+void test_bb_system_safeguard_reboot_src_for_cause_wifi_safeguard(void);
+void test_bb_system_safeguard_reboot_src_for_cause_egress_tier3(void);
+void test_bb_system_safeguard_reboot_src_for_cause_invalid_is_unknown(void);
+void test_bb_system_safeguard_reboot_allowed_at_unsynced_over_threshold_is_false(void);
+void test_bb_system_safeguard_reboot_allowed_at_unsynced_under_threshold_is_true(void);
+void test_bb_system_safeguard_reboot_allowed_at_synced_ignores_boot_fail_counter(void);
+void test_bb_system_safeguard_reboot_allowed_at_synced_budget_exhausted_is_false(void);
+void test_bb_system_safeguard_reboot_account_unsynced_unvalidated_increments(void);
+void test_bb_system_safeguard_reboot_account_unsynced_validated_increments(void);
+void test_bb_system_safeguard_reboot_account_synced_validated_does_not_increment(void);
+void test_bb_system_safeguard_reboot_account_calls_through_budget_record(void);
+void test_bb_system_safeguard_reboot_allowed_is_true_on_host(void);
+
 // Forward declarations from test_bb_mdns_cache.c
 void test_bb_mdns_cache_build_key_default_prefix(void);
 void test_bb_mdns_cache_build_key_empty_prefix_defaults(void);
@@ -2935,14 +2953,11 @@ void test_wifi_reconn_policy_on_no_ip_histogram_saturates(void);
 void test_fsm_disconnect_reconnect_now_same_transition_rearms_watchdog(void);
 void test_fsm_ladder_reaches_backoff_with_correct_timer(void);
 void test_fsm_escalate_reached_after_persistent_fail_window(void);
-void test_fsm_disconnect_escalate_denied_via_budget(void);
-void test_fsm_disconnect_escalate_denied_via_boot_fail_over(void);
-void test_fsm_disconnect_escalate_allowed_validated_no_boot_increment(void);
-void test_fsm_disconnect_escalate_allowed_unvalidated_increments_boot_count(void);
+void test_fsm_disconnect_escalate_denied(void);
+void test_fsm_disconnect_escalate_allowed(void);
 void test_fsm_connecting_timeout_reattempts_without_teardown(void);
-void test_fsm_timeout_escalate_allowed_reboots(void);
-void test_fsm_timeout_escalate_denied_via_budget(void);
-void test_fsm_timeout_escalate_denied_via_boot_fail_over(void);
+void test_fsm_timeout_escalate_allowed(void);
+void test_fsm_timeout_escalate_denied(void);
 void test_fsm_got_ip_resets_and_transitions_connected(void);
 void test_fsm_connecting_sta_connected_is_log_only_same(void);
 void test_fsm_connected_disconnect_reconnect_now_to_connecting(void);
@@ -6513,6 +6528,22 @@ int main(void) {
     RUN_TEST(test_bb_system_reboot_budget_per_cause_isolation);
     RUN_TEST(test_bb_system_reboot_budget_allows_is_true_on_host);
     RUN_TEST(test_bb_system_reboot_budget_record_is_noop_on_host);
+    RUN_TEST(test_bb_system_safeguard_reboot_should_increment_synced_validated_is_false);
+    RUN_TEST(test_bb_system_safeguard_reboot_should_increment_synced_unvalidated_is_true);
+    RUN_TEST(test_bb_system_safeguard_reboot_should_increment_unsynced_validated_is_true);
+    RUN_TEST(test_bb_system_safeguard_reboot_should_increment_unsynced_unvalidated_is_true);
+    RUN_TEST(test_bb_system_safeguard_reboot_src_for_cause_wifi_safeguard);
+    RUN_TEST(test_bb_system_safeguard_reboot_src_for_cause_egress_tier3);
+    RUN_TEST(test_bb_system_safeguard_reboot_src_for_cause_invalid_is_unknown);
+    RUN_TEST(test_bb_system_safeguard_reboot_allowed_at_unsynced_over_threshold_is_false);
+    RUN_TEST(test_bb_system_safeguard_reboot_allowed_at_unsynced_under_threshold_is_true);
+    RUN_TEST(test_bb_system_safeguard_reboot_allowed_at_synced_ignores_boot_fail_counter);
+    RUN_TEST(test_bb_system_safeguard_reboot_allowed_at_synced_budget_exhausted_is_false);
+    RUN_TEST(test_bb_system_safeguard_reboot_account_unsynced_unvalidated_increments);
+    RUN_TEST(test_bb_system_safeguard_reboot_account_unsynced_validated_increments);
+    RUN_TEST(test_bb_system_safeguard_reboot_account_synced_validated_does_not_increment);
+    RUN_TEST(test_bb_system_safeguard_reboot_account_calls_through_budget_record);
+    RUN_TEST(test_bb_system_safeguard_reboot_allowed_is_true_on_host);
 
     // bb_str tests
     RUN_TEST(test_bb_strlcpy_table_driven);
@@ -7115,14 +7146,11 @@ int main(void) {
     RUN_TEST(test_fsm_disconnect_reconnect_now_same_transition_rearms_watchdog);
     RUN_TEST(test_fsm_ladder_reaches_backoff_with_correct_timer);
     RUN_TEST(test_fsm_escalate_reached_after_persistent_fail_window);
-    RUN_TEST(test_fsm_disconnect_escalate_denied_via_budget);
-    RUN_TEST(test_fsm_disconnect_escalate_denied_via_boot_fail_over);
-    RUN_TEST(test_fsm_disconnect_escalate_allowed_validated_no_boot_increment);
-    RUN_TEST(test_fsm_disconnect_escalate_allowed_unvalidated_increments_boot_count);
+    RUN_TEST(test_fsm_disconnect_escalate_denied);
+    RUN_TEST(test_fsm_disconnect_escalate_allowed);
     RUN_TEST(test_fsm_connecting_timeout_reattempts_without_teardown);
-    RUN_TEST(test_fsm_timeout_escalate_allowed_reboots);
-    RUN_TEST(test_fsm_timeout_escalate_denied_via_budget);
-    RUN_TEST(test_fsm_timeout_escalate_denied_via_boot_fail_over);
+    RUN_TEST(test_fsm_timeout_escalate_allowed);
+    RUN_TEST(test_fsm_timeout_escalate_denied);
     RUN_TEST(test_fsm_got_ip_resets_and_transitions_connected);
     RUN_TEST(test_fsm_connecting_sta_connected_is_log_only_same);
     RUN_TEST(test_fsm_connected_disconnect_reconnect_now_to_connecting);
