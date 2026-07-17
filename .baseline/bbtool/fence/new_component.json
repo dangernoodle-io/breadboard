@@ -66,6 +66,11 @@
       "type": "component"
     },
     {
+      "id": "bb_data",
+      "path": "components/bb_data",
+      "type": "component"
+    },
+    {
       "id": "bb_diag",
       "path": "components/bb_diag",
       "type": "component"
