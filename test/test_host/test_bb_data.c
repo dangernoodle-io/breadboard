@@ -10,7 +10,7 @@
 #include "bb_serialize_format.h"
 #include "bb_serialize_json.h"
 
-#include "../../components/bb_meminfo/bb_meminfo_heap_snap.h"
+#include "../../components/bb_meminfo/include/bb_meminfo_heap_snap.h"
 
 #include <stddef.h>
 #include <stdio.h>

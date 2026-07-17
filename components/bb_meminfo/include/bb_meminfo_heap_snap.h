@@ -1,10 +1,11 @@
 #pragma once
 
-// Private: format-agnostic heap-snapshot descriptor, owned by bb_meminfo
-// (B1-767-family, additive-only -- not wired into any consumer yet). This is
-// the ONE heap snapshot source: any future serializer/emitter (JSON HTTP
-// route, console line, etc.) walks this same descriptor rather than
-// hand-rolling its own subset.
+// Format-agnostic heap-snapshot descriptor, owned by bb_meminfo
+// (B1-767-family, additive-only). Public since B1-1025 (floor's
+// GET /api/diag/meminfo route is its first real consumer via bb_data). This
+// is the ONE heap snapshot source: any serializer/emitter (JSON HTTP route,
+// console line, etc.) walks this same descriptor rather than hand-rolling
+// its own subset.
 //
 // bb_meminfo_snapshot_t (bb_meminfo.h) is NOT reused directly as the
 // snapshot struct: its bb_meminfo_region_t fields are `size_t`, whose width

@@ -11,9 +11,11 @@ set(_sys_srcs
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_safeguard_reboot.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_snap.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system.c")
-# bb_serialize: PRIV_REQUIRES -- bb_system_snap.h (format-agnostic source
-# snapshot, additive-only) is a private header, not exposed under include/.
-set(_sys_priv_reqs bb_log bb_config esp_app_format bb_http esp_driver_tsens esp_system bb_ntp bb_json bb_str bb_storage bb_serialize)
+# bb_serialize: REQUIRES -- bb_system_snap.h is now a public header
+# (B1-1025, floor's diag routes are its first real consumer) that itself
+# includes bb_serialize.h (bb_serialize_desc_t), so bb_serialize must be
+# public here too.
+set(_sys_priv_reqs bb_log bb_config esp_app_format bb_http esp_driver_tsens esp_system bb_ntp bb_json bb_str bb_storage)
 
 if(CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER)
     list(APPEND _sys_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system_routes.c")
@@ -26,7 +28,7 @@ endif()
 idf_component_register(
     SRCS ${_sys_srcs}
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_http_server
+    REQUIRES bb_core bb_http_server bb_serialize
     PRIV_REQUIRES ${_sys_priv_reqs}
 )
 
