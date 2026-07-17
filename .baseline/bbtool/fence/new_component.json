@@ -336,11 +336,6 @@
       "type": "component"
     },
     {
-      "id": "bb_prov",
-      "path": "components/bb_prov",
-      "type": "component"
-    },
-    {
       "id": "bb_prov_default_form",
       "path": "components/bb_prov_default_form",
       "type": "component"
@@ -513,6 +508,11 @@
     {
       "id": "bb_wifi_http",
       "path": "components/bb_wifi_http",
+      "type": "component"
+    },
+    {
+      "id": "bb_wifi_prov",
+      "path": "components/bb_wifi_prov",
       "type": "component"
     },
     {

@@ -10,7 +10,7 @@ Each populated component has a directory here with its `.c` sources:
 - `nv_config/` — NVS-backed config store
 - `http_server/` — esp_http_server integration (body-parsing helpers live in `components/http_server/src/http_utils.c`)
 - `ota_pull/` — esp_https_ota integration
-- `wifi_prov/` — Wi-Fi STA/AP + provisioning state machine
+- `bb_wifi_prov/` — Wi-Fi provisioning HTTP routes (POST /save + captive-portal redirect); no lifecycle state machine yet
 - `display/` — LVGL + MIPI-DSI panel init
 - `board/` — pin maps and board-specific init
 
