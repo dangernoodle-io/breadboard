@@ -1,5 +1,12 @@
 #pragma once
 
+/**
+ * @brief STA WiFi core: connect/reconnect lifecycle, a self-heal reconnect
+ * FSM that recovers from disconnects and no-IP stalls without a reboot, and
+ * portable diagnostics getters (RSSI, disconnect reason, scan results) that
+ * every backend (ESP-IDF, CC3000, WiFiS3/R4, host) maps onto.
+ */
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
