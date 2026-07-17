@@ -16,8 +16,8 @@ extern "C" {
 //
 // GET /api/diag/wifi (B1-969) rehomes the WiFi diagnostic surface from the
 // dissolved bb_net_health component's GET /api/diag/net, reduced to
-// bb_wifi-native fields only (no gw/egress/early_warning/
-// bb_transport_health -- those were dropped, not migrated).
+// bb_wifi-native fields only (no gw/egress/early_warning/transport-health
+// fields -- those were dropped, not migrated).
 //
 // Extracted so the bb_wifi STA core does not carry bb_http/bb_json/
 // bb_openapi in its dependency closure — a minimal STA-only image can omit

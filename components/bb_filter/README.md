@@ -57,7 +57,7 @@ Use in your project → [wiring guide](https://github.com/dangernoodle-io/breadb
 
 `bb_attrs` — the intrusive header this component reads. `bb_collection` is a coming consumer (not yet built).
 
-**Pressure/delivery-class adaptive shed.** `bb_filter_select()` sheds DEFERRABLE elements under pressure before ever touching MUST elements (MUST is never shed by pressure, only ever deferred by `bb_filter_emit_decide()`). `sel->pressure` is a bare input parameter today — nothing wires a live signal (e.g. `bb_transport_health`) into it. That derivation is a documented, deliberately deferred future seam; see the header comment above `bb_filter_selector_t`.
+**Pressure/delivery-class adaptive shed.** `bb_filter_select()` sheds DEFERRABLE elements under pressure before ever touching MUST elements (MUST is never shed by pressure, only ever deferred by `bb_filter_emit_decide()`). `sel->pressure` is a bare input parameter today — nothing wires a live signal into it. That derivation is a documented, deliberately deferred future seam; see the header comment above `bb_filter_selector_t`.
 
 ---
 

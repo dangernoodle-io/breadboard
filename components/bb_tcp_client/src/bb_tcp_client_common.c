@@ -16,8 +16,8 @@
 // B1-951 — the component declares WHAT it stores, the composition decides
 // WHERE; see bb_tls_creds's resolve_one for the reference pattern).
 //
-// B1-1039: bb_transport_health is no longer used by this component (dropped
-// entirely) — health is now per-instance (see bb_tcp_client_priv.h).
+// B1-1039: health is now per-instance (see bb_tcp_client_priv.h); there is
+// no shared/authoritative transport-health component in the loop.
 #include "bb_tcp_client_priv.h"
 #include "bb_config.h"
 #include "bb_clock.h"

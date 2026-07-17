@@ -4825,34 +4825,6 @@ void test_bb_registry_foreach_ptr_visits_all(void);
 void test_bb_registry_foreach_ptr_null_cb_is_noop(void);
 void test_bb_registry_foreach_ptr_empty_registry(void);
 
-// Forward declarations from test_bb_transport_health.c
-void test_bb_transport_health_register_authoritative(void);
-void test_bb_transport_health_register_inferred(void);
-void test_bb_transport_health_register_capacity_exhausted(void);
-void test_bb_transport_health_register_invalid_class_rejected(void);
-void test_bb_transport_health_register_null_args(void);
-void test_bb_transport_health_report_ok_clears_failing(void);
-void test_bb_transport_health_report_fail_sets_failing_and_bumps_count(void);
-void test_bb_transport_health_report_wrong_class_rejected(void);
-void test_bb_transport_health_report_invalid_handle(void);
-void test_bb_transport_health_mark_activity_bumps_rx_count(void);
-void test_bb_transport_health_mark_activity_wrong_class_rejected(void);
-void test_bb_transport_health_mark_activity_invalid_handle_rejected(void);
-void test_bb_transport_health_set_enabled_excludes_from_counts(void);
-void test_bb_transport_health_set_enabled_invalid_handle(void);
-void test_bb_transport_health_authoritative_counts_basic(void);
-void test_bb_transport_health_authoritative_counts_never_counts_inferred(void);
-void test_bb_transport_health_authoritative_counts_null_args(void);
-void test_bb_transport_health_snapshot_all_cap_truncation(void);
-void test_bb_transport_health_snapshot_all_inferred_failing_via_staleness(void);
-void test_bb_transport_health_snapshot_all_null_or_zero_max(void);
-void test_bb_transport_health_is_stale_below_threshold(void);
-void test_bb_transport_health_is_stale_at_threshold(void);
-void test_bb_transport_health_is_stale_above_threshold(void);
-void test_bb_transport_health_is_stale_now_before_last_rx(void);
-void test_bb_transport_health_is_stale_zero_threshold_same_ms(void);
-void test_bb_transport_health_is_stale_zero_threshold_one_ms_elapsed(void);
-
 // Forward declarations from test_bb_tcp_client.c
 void test_bb_tcp_client_init_null_loads_defaults(void);
 void test_bb_tcp_client_init_persists_and_reloads(void);
@@ -9248,34 +9220,6 @@ int main(void) {
     RUN_TEST(test_bb_udp_client_broadcast_cfg_accepted);
     RUN_TEST(test_bb_udp_client_send_null_buf_or_negative_len_returns_invalid_arg);
     RUN_TEST(test_bb_udp_client_host_last_capture_before_any_send_returns_negative);
-
-    // bb_transport_health
-    RUN_TEST(test_bb_transport_health_register_authoritative);
-    RUN_TEST(test_bb_transport_health_register_inferred);
-    RUN_TEST(test_bb_transport_health_register_capacity_exhausted);
-    RUN_TEST(test_bb_transport_health_register_invalid_class_rejected);
-    RUN_TEST(test_bb_transport_health_register_null_args);
-    RUN_TEST(test_bb_transport_health_report_ok_clears_failing);
-    RUN_TEST(test_bb_transport_health_report_fail_sets_failing_and_bumps_count);
-    RUN_TEST(test_bb_transport_health_report_wrong_class_rejected);
-    RUN_TEST(test_bb_transport_health_report_invalid_handle);
-    RUN_TEST(test_bb_transport_health_mark_activity_bumps_rx_count);
-    RUN_TEST(test_bb_transport_health_mark_activity_wrong_class_rejected);
-    RUN_TEST(test_bb_transport_health_mark_activity_invalid_handle_rejected);
-    RUN_TEST(test_bb_transport_health_set_enabled_excludes_from_counts);
-    RUN_TEST(test_bb_transport_health_set_enabled_invalid_handle);
-    RUN_TEST(test_bb_transport_health_authoritative_counts_basic);
-    RUN_TEST(test_bb_transport_health_authoritative_counts_never_counts_inferred);
-    RUN_TEST(test_bb_transport_health_authoritative_counts_null_args);
-    RUN_TEST(test_bb_transport_health_snapshot_all_cap_truncation);
-    RUN_TEST(test_bb_transport_health_snapshot_all_inferred_failing_via_staleness);
-    RUN_TEST(test_bb_transport_health_snapshot_all_null_or_zero_max);
-    RUN_TEST(test_bb_transport_health_is_stale_below_threshold);
-    RUN_TEST(test_bb_transport_health_is_stale_at_threshold);
-    RUN_TEST(test_bb_transport_health_is_stale_above_threshold);
-    RUN_TEST(test_bb_transport_health_is_stale_now_before_last_rx);
-    RUN_TEST(test_bb_transport_health_is_stale_zero_threshold_same_ms);
-    RUN_TEST(test_bb_transport_health_is_stale_zero_threshold_one_ms_elapsed);
 
     // bb_tcp_client
     RUN_TEST(test_bb_tcp_client_init_null_loads_defaults);

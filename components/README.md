@@ -110,7 +110,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_timer](./bb_timer/) | — |
 | [bb_tls](./bb_tls/) | — |
 | [bb_tls_creds](./bb_tls_creds/) | — |
-| [bb_transport_health](./bb_transport_health/) | — |
 | [bb_udp_client](./bb_udp_client/) | Reusable IPv4 UDP datagram transport (ouroboros KB#702/#710) — the datagram peer to bb_tcp_client. |
 | [bb_udp_frame](./bb_udp_frame/) | — |
 | [bb_wdt](./bb_wdt/) | — |

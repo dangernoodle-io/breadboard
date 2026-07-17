@@ -651,7 +651,7 @@ static bb_err_t h_diag_partitions(bb_http_request_t *req)
 // the same public getters + the real bb_wifi_emit_section/
 // bb_wifi_reason_histogram_top logic (B1-969; rehomed + reduced from the
 // dissolved bb_net_health's GET /api/diag/net -- no gw/egress/
-// early_warning/bb_transport_health, all dropped not migrated).
+// early_warning/transport-health fields, all dropped not migrated).
 static bb_err_t h_diag_wifi(bb_http_request_t *req)
 {
     bb_wifi_test_set_associated(true);

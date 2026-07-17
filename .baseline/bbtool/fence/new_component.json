@@ -481,11 +481,6 @@
       "type": "component"
     },
     {
-      "id": "bb_transport_health",
-      "path": "components/bb_transport_health",
-      "type": "component"
-    },
-    {
       "id": "bb_udp_client",
       "path": "components/bb_udp_client",
       "type": "component"
