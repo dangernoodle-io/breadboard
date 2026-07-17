@@ -8,11 +8,11 @@
 // pure, deterministic transform of its inputs.
 //
 // Pressure seam (deliberately unwired): `bb_filter_selector_t.pressure` is a
-// bare input parameter. Nothing in breadboard derives it from
-// bb_transport_health or any other live signal today — that derivation
-// (bb_transport_health_snapshot_all() -> derive_pressure() -> sel.pressure)
-// is a DEFERRED, later integration. The field exists so a future caller can
-// plug a real pressure source in without an API break; do not wire one here.
+// bare input parameter. Nothing in breadboard derives it from a live signal
+// today — that derivation (some future health/pressure source ->
+// derive_pressure() -> sel.pressure) is a DEFERRED, later integration. The
+// field exists so a future caller can plug a real pressure source in
+// without an API break; do not wire one here.
 #pragma once
 
 #include <stddef.h>

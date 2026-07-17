@@ -63,7 +63,7 @@ void bb_tcp_client_priv_save_to_nvs(const char *ns, const bb_tcp_client_cfg_t *c
 // ---------------------------------------------------------------------------
 // Per-instance health (B1-1039). `bb_tcp_client_health_state_t` is embedded
 // directly in each backend's pooled instance struct (host + espidf) -- no
-// shared/authoritative bb_transport_health slot. The report/set-tls-error
+// shared/authoritative transport-health slot. The report/set-tls-error
 // helpers below live here (not per-backend) so the reporting policy (see
 // bb_tcp_client.h) is defined in exactly one place.
 //

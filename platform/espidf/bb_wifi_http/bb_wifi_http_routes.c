@@ -141,7 +141,7 @@ static const bb_route_t s_scan_route = {
 
 // GET /api/diag/wifi — WiFi diagnostic surface (B1-969, rehomed from
 // bb_net_health's dissolved GET /api/diag/net). REDUCED to bb_wifi-native
-// fields only -- no gw/egress/early_warning/bb_transport_health, all of
+// fields only -- no gw/egress/early_warning/transport-health fields, all of
 // which were dropped (not migrated) with bb_net_health. Built request-time
 // from bb_wifi's public getters only; no cache/snapshot layer (the periodic
 // evaluator that used to populate one is gone with bb_net_health).

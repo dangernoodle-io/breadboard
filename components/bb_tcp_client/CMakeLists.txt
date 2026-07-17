@@ -2,8 +2,8 @@
 # longer references bb_nv_namespaces.h's BB_TCP_NVS_NS (or any other bb_nv
 # symbol) -- host/port/tls round-trip through bb_config below only.
 #
-# bb_transport_health dropped (B1-1039): health is now per-instance (see
-# bb_tcp_client_priv.h) -- no shared/authoritative transport-health slot.
+# B1-1039: health is now per-instance (see bb_tcp_client_priv.h) -- no
+# shared/authoritative transport-health slot or component in the loop.
 set(BB_TCP_CLIENT_PRIV_REQUIRES bb_config bb_log)
 
 if(IDF_TARGET)

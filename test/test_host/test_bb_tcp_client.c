@@ -16,8 +16,9 @@
 // meaningless. This local fake is scoped to this file only -- not a change
 // to the shared double, which other components' tests still rely on.
 //
-// B1-1039: bb_transport_health is no longer used by this component -- health
-// is now per-instance (bb_tcp_client_health_fill() / bb_tcp_client_health_desc).
+// B1-1039: health is now per-instance (bb_tcp_client_health_fill() /
+// bb_tcp_client_health_desc) -- no shared/authoritative transport-health
+// component in the loop.
 #include "unity.h"
 #include "bb_tcp_client.h"
 #include "bb_config.h"
@@ -813,8 +814,8 @@ void test_bb_tcp_client_destroy_null_is_noop(void)
 
 // ---------------------------------------------------------------------------
 // per-instance health isolation (B1-1039) — the entire point of the switch
-// away from a single shared bb_transport_health "tcp" slot: two pooled
-// instances must track completely independent counters.
+// away from a single shared authoritative "tcp" transport-health slot: two
+// pooled instances must track completely independent counters.
 // ---------------------------------------------------------------------------
 
 void test_bb_tcp_client_health_is_isolated_per_instance(void)

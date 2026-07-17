@@ -911,16 +911,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "25",
-      "path": "platform/host/bb_system/bb_system_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "27",
-      "path": "platform/host/bb_system/bb_system_host.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "42",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_line"
@@ -1001,11 +991,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "88",
-      "path": "platform/host/bb_tcp_client/bb_tcp_client.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "106",
       "path": "platform/host/bb_timer/bb_timer_host.c",
       "type": "uncovered_line"
@@ -1033,21 +1018,6 @@
     {
       "id": "138",
       "path": "platform/host/bb_tls_creds/bb_tls_creds.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "38",
-      "path": "platform/host/bb_transport_health/bb_transport_health.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "39",
-      "path": "platform/host/bb_transport_health/bb_transport_health.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "40",
-      "path": "platform/host/bb_transport_health/bb_transport_health.c",
       "type": "uncovered_line"
     },
     {

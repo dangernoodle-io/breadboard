@@ -12,8 +12,8 @@
 //
 // Per-instance health (B1-1039): each pooled instance tracks its OWN
 // connected/last_ok_ms/fail_count/tls_error_code — no shared/authoritative
-// slot (bb_transport_health is no longer used by this component). Reporting
-// policy — read this before wiring a consumer FSM off bb_tcp_client_health_fill():
+// slot. Reporting policy — read this before wiring a consumer FSM off
+// bb_tcp_client_health_fill():
 //   - bb_tcp_client_connect() success  -> connected=true, last_ok_ms stamped
 //   - bb_tcp_client_connect() failure  -> connected=false, fail_count++
 //   - bb_tcp_client_read/write() returning a HARD transport error (reset,
