@@ -11,7 +11,7 @@
 // storage_nvs); no route table, no /api surface -- an empty httpd is enough
 // to measure the server's own heap footprint.
 #include "bb_log.h"
-#include "bb_meminfo.h"
+#include "bb_serialize_console.h"
 #include "bb_timer.h"
 #include "bb_lifecycle.h"
 #include "bb_http_server.h"
@@ -40,19 +40,17 @@ static bb_lifecycle_svc_t s_http_svc = BB_LIFECYCLE_SVC_INVALID;
 // register/observe/start return codes -- gates the with-HTTP reading.
 static bool s_httpd_up = false;
 
-// The floor's first telemetry SOURCE (heap): read via bb_meminfo, the
-// canonical heap_caps reader SSOT (KB #698/#699/#693), formatted via
-// bb_meminfo_format (the canonical HEAP-ONLY line). Measured, not
-// published -- serial only, not yet wired to a telemetry sink. Runs as a
-// bb_timer MODE-A job on the shared bb_timer_disp task -- no dedicated task.
+// The floor's first telemetry SOURCE (heap): emitted via
+// bb_serialize_console_heap_report() -- gather (bb_meminfo) -> render
+// (bb_serialize_walk over bb_serialize_console_heap_desc) -> bb_log_i(),
+// all internal to that call. Measured, not published -- serial only, not
+// yet wired to a telemetry sink. Runs as a bb_timer MODE-A job on the
+// shared bb_timer_disp task -- no dedicated task. floor is the first live
+// app call site of the serialization emit stack.
 static void heap_log_tick(void *arg)
 {
     (void)arg;
-    bb_memreport_snapshot_t m;
-    bb_memreport_get(&m);
-    char line[128];
-    bb_memreport_format(&m, line, sizeof(line));
-    bb_log_i(TAG, "%s", line);
+    bb_serialize_console_heap_report("tick");
 }
 
 // bb_lifecycle observer: bb_http_server_start()/stop() are driven purely by
@@ -103,8 +101,7 @@ void app_main(void)
     bb_wifi_autoinit();
 
     // Baseline reading: HTTP stopped.
-    bb_log_i(TAG, "heap baseline (http stopped):");
-    heap_log_tick(NULL);
+    bb_serialize_console_heap_report("baseline-http-stopped");
 
     // Register + wire the "http" service, then start it -- the observer
     // fires synchronously from bb_lifecycle_start(), so httpd is up by the
@@ -137,8 +134,7 @@ void app_main(void)
     // those only confirm the state machine transitioned, not that
     // bb_http_server_start() inside the observer actually succeeded.
     if (s_httpd_up) {
-        bb_log_i(TAG, "heap with-http (http running):");
-        heap_log_tick(NULL);
+        bb_serialize_console_heap_report("with-http-running");
     } else {
         bb_log_w(TAG, "http not started -- with-http reading skipped");
     }
