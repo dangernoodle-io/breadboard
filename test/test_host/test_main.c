@@ -4865,6 +4865,7 @@ void test_bb_tcp_client_init_pool_exhausted_returns_no_space(void);
 void test_bb_tcp_client_init_tls_cfg_captured(void);
 void test_bb_tcp_client_connect_happy_sets_connected_and_reports_health_ok(void);
 void test_bb_tcp_client_connect_is_idempotent_when_already_connected(void);
+void test_bb_tcp_client_connect_forced_ok_sets_connected_and_reports_health_ok(void);
 void test_bb_tcp_client_connect_forced_fail_sets_disconnected_and_reports_health_fail(void);
 void test_bb_tcp_client_connect_null_handle_returns_invalid_arg(void);
 void test_bb_tcp_client_read_before_connect_returns_invalid_state(void);
@@ -4889,10 +4890,15 @@ void test_bb_tcp_client_close_then_reconnect_succeeds(void);
 void test_bb_tcp_client_close_when_already_disconnected_is_safe(void);
 void test_bb_tcp_client_close_null_handle_returns_invalid_arg(void);
 void test_bb_tcp_client_get_state_null_handle_returns_disconnected(void);
+void test_bb_tcp_client_close_clears_connected_without_bumping_fail_count(void);
 void test_bb_tcp_client_destroy_on_connected_handle_frees_pool_slot(void);
 void test_bb_tcp_client_destroy_null_is_noop(void);
-void test_bb_tcp_client_transport_health_registered_once_across_repeated_init(void);
-void test_bb_tcp_client_concurrent_first_connect_registers_health_exactly_once(void);
+void test_bb_tcp_client_health_is_isolated_per_instance(void);
+void test_bb_tcp_client_health_fill_null_args_return_invalid_arg(void);
+void test_bb_tcp_client_health_fill_fresh_instance_is_zeroed(void);
+void test_bb_tcp_client_health_fill_reports_forced_tls_error_code(void);
+void test_bb_tcp_client_health_desc_walks_all_four_keys(void);
+void test_bb_tcp_client_health_fill_concurrent_coherent(void);
 
 // Forward declarations from test_bb_bqueue.c
 void test_bb_bqueue_create_null_cfg_returns_invalid_arg(void);
@@ -9283,6 +9289,7 @@ int main(void) {
     RUN_TEST(test_bb_tcp_client_init_tls_cfg_captured);
     RUN_TEST(test_bb_tcp_client_connect_happy_sets_connected_and_reports_health_ok);
     RUN_TEST(test_bb_tcp_client_connect_is_idempotent_when_already_connected);
+    RUN_TEST(test_bb_tcp_client_connect_forced_ok_sets_connected_and_reports_health_ok);
     RUN_TEST(test_bb_tcp_client_connect_forced_fail_sets_disconnected_and_reports_health_fail);
     RUN_TEST(test_bb_tcp_client_connect_null_handle_returns_invalid_arg);
     RUN_TEST(test_bb_tcp_client_read_before_connect_returns_invalid_state);
@@ -9307,10 +9314,15 @@ int main(void) {
     RUN_TEST(test_bb_tcp_client_close_when_already_disconnected_is_safe);
     RUN_TEST(test_bb_tcp_client_close_null_handle_returns_invalid_arg);
     RUN_TEST(test_bb_tcp_client_get_state_null_handle_returns_disconnected);
+    RUN_TEST(test_bb_tcp_client_close_clears_connected_without_bumping_fail_count);
     RUN_TEST(test_bb_tcp_client_destroy_on_connected_handle_frees_pool_slot);
     RUN_TEST(test_bb_tcp_client_destroy_null_is_noop);
-    RUN_TEST(test_bb_tcp_client_transport_health_registered_once_across_repeated_init);
-    RUN_TEST(test_bb_tcp_client_concurrent_first_connect_registers_health_exactly_once);
+    RUN_TEST(test_bb_tcp_client_health_is_isolated_per_instance);
+    RUN_TEST(test_bb_tcp_client_health_fill_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_tcp_client_health_fill_fresh_instance_is_zeroed);
+    RUN_TEST(test_bb_tcp_client_health_fill_reports_forced_tls_error_code);
+    RUN_TEST(test_bb_tcp_client_health_desc_walks_all_four_keys);
+    RUN_TEST(test_bb_tcp_client_health_fill_concurrent_coherent);
 
     // bb_bqueue
     RUN_TEST(test_bb_bqueue_create_null_cfg_returns_invalid_arg);

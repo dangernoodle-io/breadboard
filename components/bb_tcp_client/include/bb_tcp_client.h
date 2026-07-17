@@ -10,15 +10,25 @@
 // that policy belongs to the consumer's state machine (e.g. bb_fsm driving
 // a stratum client). Do not add retry logic here.
 //
-// bb_transport_health: bb_tcp_client self-registers ONE AUTHORITATIVE slot
-// named "tcp" (lazy-once, on first successful/failed connect). Reporting
-// policy — read this before wiring a consumer FSM off transport_health:
-//   - bb_tcp_client_connect() success  -> report(ok=true)
-//   - bb_tcp_client_connect() failure  -> report(ok=false)
+// Per-instance health (B1-1039): each pooled instance tracks its OWN
+// connected/last_ok_ms/fail_count/tls_error_code — no shared/authoritative
+// slot (bb_transport_health is no longer used by this component). Reporting
+// policy — read this before wiring a consumer FSM off bb_tcp_client_health_fill():
+//   - bb_tcp_client_connect() success  -> connected=true, last_ok_ms stamped
+//   - bb_tcp_client_connect() failure  -> connected=false, fail_count++
 //   - bb_tcp_client_read/write() returning a HARD transport error (reset,
-//     closed, or any error other than a plain timeout) -> report(ok=false)
+//     closed, or any error other than a plain timeout) -> connected=false,
+//     fail_count++
 //   - a plain read timeout (BB_ERR_TIMEOUT, "no data yet") NEVER reports —
-//     it is not a failure signal.
+//     it is not a failure signal
+//   - bb_tcp_client_close() clears connected without touching fail_count —
+//     a clean close is not a transport failure
+//   - tls_error_code is set from the TLS failure path (ESP-IDF backend) and
+//     otherwise left at its last-reported value
+//
+// bb_tcp_client_health_fill() + bb_tcp_client_health_desc give a consumer a
+// format-agnostic snapshot of one instance's health (bb_meminfo_heap_snap
+// pattern) -- bb exposes RAW metrics; the consumer judges (no verdict here).
 //
 // Usage:
 //   bb_tcp_client_cfg_t cfg = { .host = "stratum.example.com", .port = 3333 };
@@ -31,6 +41,7 @@
 #pragma once
 
 #include "bb_core.h"
+#include "bb_serialize.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
@@ -122,7 +133,9 @@ bb_err_t bb_tcp_client_init(const char *ns, const bb_tcp_client_cfg_t *cfg_or_nu
  *
  * @return BB_OK on success; BB_ERR_INVALID_ARG if h is NULL/invalid;
  *         BB_ERR_INVALID_STATE on connect failure (DNS, socket, TLS
- *         handshake). Reports transport_health "tcp" ok=true/false.
+ *         handshake). Updates this instance's health (connected/last_ok_ms
+ *         on success; connected/fail_count on failure) -- see the header
+ *         comment above.
  */
 bb_err_t bb_tcp_client_connect(bb_tcp_client_t h);
 
@@ -131,11 +144,11 @@ bb_err_t bb_tcp_client_connect(bb_tcp_client_t h);
  * transport failure.
  *
  * @return BB_OK with *out_len > 0 on data; BB_ERR_TIMEOUT with *out_len = 0
- *         if no data arrived within cfg.io_timeout_ms (does NOT report
- *         transport_health — a timeout is not a failure signal);
- *         BB_ERR_INVALID_STATE if not connected; BB_ERR_INVALID_ARG for
- *         NULL h/buf/out_len; any other bb_err_t is a hard transport error
- *         (reports transport_health ok=false).
+ *         if no data arrived within cfg.io_timeout_ms (does NOT update
+ *         health — a timeout is not a failure signal); BB_ERR_INVALID_STATE
+ *         if not connected; BB_ERR_INVALID_ARG for NULL h/buf/out_len; any
+ *         other bb_err_t is a hard transport error (sets connected=false,
+ *         bumps fail_count).
  */
 bb_err_t bb_tcp_client_read(bb_tcp_client_t h, uint8_t *buf, size_t len, size_t *out_len);
 
@@ -145,8 +158,8 @@ bb_err_t bb_tcp_client_read(bb_tcp_client_t h, uint8_t *buf, size_t len, size_t 
  *
  * @return BB_OK once all `len` bytes are written; BB_ERR_INVALID_STATE if
  *         not connected; BB_ERR_INVALID_ARG for NULL h/buf; any other
- *         bb_err_t is a hard transport error (reports transport_health
- *         ok=false).
+ *         bb_err_t is a hard transport error (sets connected=false, bumps
+ *         fail_count).
  */
 bb_err_t bb_tcp_client_write(bb_tcp_client_t h, const uint8_t *buf, size_t len);
 
@@ -178,6 +191,31 @@ bb_tcp_client_state_t bb_tcp_client_get_state(bb_tcp_client_t h);
  * Safe to call with NULL.
  */
 bb_err_t bb_tcp_client_destroy(bb_tcp_client_t h);
+
+// ---------------------------------------------------------------------------
+// Per-instance health snapshot (B1-1039) — format-agnostic wire surface,
+// mirroring bb_meminfo_heap_snap's descriptor+fill pattern. Every numeric
+// field is widened to a fixed 64-bit width so bb_serialize_walk()'s
+// BB_TYPE_I64/BB_TYPE_U64 cases (which always memcpy a fixed 8 bytes at the
+// descriptor offset) never read past a narrower platform type.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    bool     connected;
+    int64_t  last_ok_ms;
+    uint64_t fail_count;
+    int64_t  tls_error_code;
+} bb_tcp_client_health_snap_t;
+
+extern const bb_serialize_desc_t bb_tcp_client_health_desc;
+
+/**
+ * Populates `out` from instance `h`'s live health state.
+ *
+ * @return BB_OK on success; BB_ERR_INVALID_ARG if h is NULL/invalid or out
+ *         is NULL.
+ */
+bb_err_t bb_tcp_client_health_fill(bb_tcp_client_t h, bb_tcp_client_health_snap_t *out);
 
 // ---------------------------------------------------------------------------
 // Host test hooks (only when BB_TCP_CLIENT_TESTING is defined)
@@ -216,22 +254,24 @@ void bb_tcp_client_test_force_connect_result(bb_tcp_client_t h, bb_err_t err);
  * Force the result of the NEXT bb_tcp_client_read(h, ...) or
  * bb_tcp_client_write(h, ...) call (whichever comes first) to `err`. Used to
  * simulate a hard transport error (any err other than BB_OK/BB_ERR_TIMEOUT
- * reports transport_health ok=false, matching the real backend). One-shot.
+ * sets connected=false + bumps fail_count, matching the real backend).
+ * One-shot.
  */
 void bb_tcp_client_test_force_io_result(bb_tcp_client_t h, bb_err_t err);
 
 /**
- * Test-only: when `enabled`, the NEXT lazy bb_transport_health "tcp"
- * registration (run once, under bb_once_run, on the first
- * bb_tcp_client_priv_health_report() call after a reset) sleeps ~20ms while
- * still holding bb_once's RUNNING state before it registers. This
- * deterministically widens the guarded region so a concurrent second caller
- * is guaranteed to observe RUNNING (not DONE) and actually enter
- * bb_once_run's wait loop, instead of relying on scheduling luck — mirrors
- * test_bb_once.c's slow_incr idiom. Reset to disabled by
- * bb_tcp_client_test_reset().
+ * Force `h`'s health.tls_error_code directly, without going through a real
+ * TLS failure path (the host backend has no real TLS). Lets a host test
+ * exercise bb_tcp_client_health_fill()'s tls_error_code field.
  */
-void bb_tcp_client_test_set_register_delay(bool enabled);
+void bb_tcp_client_test_force_tls_error_code(bb_tcp_client_t h, int64_t tls_error_code);
+
+/**
+ * Sets the mock clock (BB_TCP_CLIENT_TESTING builds only) used for
+ * last_ok_ms instead of bb_clock_now_ms64(), for deterministic host tests.
+ * Reset to 0 by bb_tcp_client_test_reset().
+ */
+void bb_tcp_client_test_set_mock_time_ms64(int64_t ms);
 
 #endif /* BB_TCP_CLIENT_TESTING */
 

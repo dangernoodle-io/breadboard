@@ -5,6 +5,8 @@
 // precedent.
 #include "bb_tcp_client.h"
 
+#include <string.h>
+
 bb_err_t bb_tcp_client_init(const char *ns, const bb_tcp_client_cfg_t *cfg_or_null, bb_tcp_client_t *out)
 {
     (void)ns; (void)cfg_or_null;
@@ -54,4 +56,11 @@ bb_err_t bb_tcp_client_destroy(bb_tcp_client_t h)
 {
     (void)h;
     return BB_OK;  // NULL/no-op-safe, mirrors every other backend's destroy contract
+}
+
+bb_err_t bb_tcp_client_health_fill(bb_tcp_client_t h, bb_tcp_client_health_snap_t *out)
+{
+    (void)h;
+    if (out) memset(out, 0, sizeof(*out));
+    return BB_ERR_UNSUPPORTED;
 }

@@ -13,9 +13,10 @@
 #endif
 
 typedef struct {
-    bool                   in_use;
-    bb_tcp_client_cfg_t    cfg;
-    bb_tcp_client_state_t  state;
+    bool                          in_use;
+    bb_tcp_client_cfg_t           cfg;
+    bb_tcp_client_state_t         state;
+    bb_tcp_client_health_state_t  health;
 #ifdef BB_TCP_CLIENT_TESTING
     bool     forced_connect_result_set;
     bb_err_t forced_connect_result;
@@ -33,7 +34,9 @@ typedef struct {
 // Single-writer-per-instance invariant: each instance is driven by exactly
 // one caller task from init through destroy (no concurrent handle sharing),
 // matching bb_udp_client / bb_mqtt_client host stub conventions — no lock
-// needed here.
+// needed here. The one exception is inst->health, which IS read from a
+// separate diag/egress task by design -- see health.lock in
+// bb_tcp_client_priv.h.
 static bb_tcp_client_inst_t s_pool[BB_TCP_CLIENT_MAX_INSTANCES];
 
 static bb_tcp_client_inst_t *inst_from_handle(bb_tcp_client_t h)
@@ -60,6 +63,9 @@ bb_err_t bb_tcp_client_init(const char *ns, const bb_tcp_client_cfg_t *cfg_or_nu
 
     bb_tcp_client_inst_t *inst = &s_pool[idx];
     memset(inst, 0, sizeof(*inst));
+    // health.lock is instance-acquire-scoped (see bb_tcp_client_priv.h) --
+    // init here, destroy() tears it down on release.
+    pthread_mutex_init(&inst->health.lock, NULL);
 
     if (cfg_or_null) {
         inst->cfg = *cfg_or_null;
@@ -87,14 +93,14 @@ bb_err_t bb_tcp_client_connect(bb_tcp_client_t h)
         if (rc == BB_OK) {
             inst->state = BB_TCP_CLIENT_CONNECTED;
         }
-        bb_tcp_client_priv_health_report(rc == BB_OK);
+        bb_tcp_client_priv_health_report(&inst->health, rc == BB_OK);
         return rc;
     }
 #endif
 
     // No real socket on host: connect always "succeeds".
     inst->state = BB_TCP_CLIENT_CONNECTED;
-    bb_tcp_client_priv_health_report(true);
+    bb_tcp_client_priv_health_report(&inst->health, true);
     return BB_OK;
 }
 
@@ -112,7 +118,7 @@ bb_err_t bb_tcp_client_read(bb_tcp_client_t h, uint8_t *buf, size_t len, size_t 
         bb_err_t rc = inst->forced_io_result;
         inst->forced_io_result_set = false;
         if (rc != BB_OK && rc != BB_ERR_TIMEOUT) {
-            bb_tcp_client_priv_health_report(false);
+            bb_tcp_client_priv_health_report(&inst->health, false);
         }
         return rc;
     }
@@ -144,7 +150,7 @@ bb_err_t bb_tcp_client_write(bb_tcp_client_t h, const uint8_t *buf, size_t len)
         bb_err_t rc = inst->forced_io_result;
         inst->forced_io_result_set = false;
         if (rc != BB_OK && rc != BB_ERR_TIMEOUT) {
-            bb_tcp_client_priv_health_report(false);
+            bb_tcp_client_priv_health_report(&inst->health, false);
         }
         return rc;
     }
@@ -183,6 +189,7 @@ bb_err_t bb_tcp_client_close(bb_tcp_client_t h)
     if (!inst) return BB_ERR_INVALID_ARG;
 
     inst->state = BB_TCP_CLIENT_DISCONNECTED;
+    bb_tcp_client_priv_health_close(&inst->health);
 #ifdef BB_TCP_CLIENT_TESTING
     inst->readable_len = 0;
     inst->readable_pos = 0;
@@ -203,7 +210,28 @@ bb_err_t bb_tcp_client_destroy(bb_tcp_client_t h)
     if (!inst) return BB_OK;  // NULL-safe / already-released, no-op
 
     bb_tcp_client_close(h);
+    pthread_mutex_destroy(&inst->health.lock);
     memset(inst, 0, sizeof(*inst));
+    return BB_OK;
+}
+
+bb_err_t bb_tcp_client_health_fill(bb_tcp_client_t h, bb_tcp_client_health_snap_t *out)
+{
+    if (!out) return BB_ERR_INVALID_ARG;
+
+    bb_tcp_client_inst_t *inst = inst_from_handle(h);
+    if (!inst) return BB_ERR_INVALID_ARG;
+
+    // Cross-task read: inst->health may be concurrently written by the FSM
+    // task driving connect/read/write/close on this handle (see the
+    // coherency comment on bb_tcp_client_health_state_t) -- copy all 4
+    // fields under health.lock.
+    pthread_mutex_lock(&inst->health.lock);
+    out->connected      = inst->health.connected;
+    out->last_ok_ms      = inst->health.last_ok_ms;
+    out->fail_count      = (uint64_t)inst->health.fail_count;
+    out->tls_error_code  = inst->health.tls_error_code;
+    pthread_mutex_unlock(&inst->health.lock);
     return BB_OK;
 }
 
@@ -211,8 +239,17 @@ bb_err_t bb_tcp_client_destroy(bb_tcp_client_t h)
 
 void bb_tcp_client_test_reset(void)
 {
+    // Destroy every still-in-use slot's mutex before zeroing the pool --
+    // memset-ing over an initialized pthread_mutex_t without destroying it
+    // first is UB, and a subsequent bb_tcp_client_create() re-inits that
+    // same slot's mutex.
+    for (size_t i = 0; i < BB_TCP_CLIENT_MAX_INSTANCES; i++) {
+        if (s_pool[i].in_use) {
+            pthread_mutex_destroy(&s_pool[i].health.lock);
+        }
+    }
     memset(s_pool, 0, sizeof(s_pool));
-    bb_tcp_client_priv_reset_health_for_test();
+    bb_tcp_client_priv_reset_mock_clock_for_test();
 }
 
 void bb_tcp_client_test_inject_readable(bb_tcp_client_t h, const uint8_t *buf, size_t len)
@@ -258,6 +295,13 @@ void bb_tcp_client_test_force_io_result(bb_tcp_client_t h, bb_err_t err)
     if (!inst) return;
     inst->forced_io_result = err;
     inst->forced_io_result_set = true;
+}
+
+void bb_tcp_client_test_force_tls_error_code(bb_tcp_client_t h, int64_t tls_error_code)
+{
+    bb_tcp_client_inst_t *inst = inst_from_handle(h);
+    if (!inst) return;
+    bb_tcp_client_priv_health_set_tls_error(&inst->health, tls_error_code);
 }
 
 #endif /* BB_TCP_CLIENT_TESTING */
