@@ -192,6 +192,8 @@ void test_bb_serialize_populate_str_n_and_ref_are_unsupported(void);
 void test_bb_serialize_populate_ref_alone_is_unsupported(void);
 void test_bb_serialize_populate_str_n_in_nested_obj_is_unsupported(void);
 void test_bb_serialize_populate_str_n_in_arr_of_obj_is_unsupported(void);
+void test_bb_serialize_populate_arr_at_max_depth_returns_no_space_canary_intact(void);
+void test_bb_serialize_populate_arr_below_max_depth_still_succeeds(void);
 void test_bb_serialize_populate_unknown_type_is_noop(void);
 void test_bb_serialize_populate_null_args_returns_invalid_arg(void);
 void test_bb_serialize_populate_walk_roundtrip(void);
@@ -9428,6 +9430,8 @@ int main(void) {
     RUN_TEST(test_bb_serialize_populate_ref_alone_is_unsupported);
     RUN_TEST(test_bb_serialize_populate_str_n_in_nested_obj_is_unsupported);
     RUN_TEST(test_bb_serialize_populate_str_n_in_arr_of_obj_is_unsupported);
+    RUN_TEST(test_bb_serialize_populate_arr_at_max_depth_returns_no_space_canary_intact);
+    RUN_TEST(test_bb_serialize_populate_arr_below_max_depth_still_succeeds);
     RUN_TEST(test_bb_serialize_populate_unknown_type_is_noop);
     RUN_TEST(test_bb_serialize_populate_null_args_returns_invalid_arg);
     RUN_TEST(test_bb_serialize_populate_walk_roundtrip);

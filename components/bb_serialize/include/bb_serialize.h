@@ -360,24 +360,29 @@ typedef struct {
 // Before scattering anything, pre-flight-scans the whole descriptor tree
 // (same depth cap): a BB_TYPE_ARR field with max_items == 0 fails with
 // BB_ERR_INVALID_ARG (see the field doc above -- populate's capacity bound
-// must be nonzero, unlike JSON's 0-means-unbounded), and a BB_TYPE_STR_N or
+// must be nonzero, unlike JSON's 0-means-unbounded), a BB_TYPE_STR_N or
 // BB_TYPE_REF field anywhere in the tree fails with BB_ERR_UNSUPPORTED
-// (neither is scatter-supported yet -- see the populate vtable doc above).
-// This keeps a misconfigured/unsupported descriptor from ever reaching a
-// partial write.
+// (neither is scatter-supported yet -- see the populate vtable doc above),
+// and an OBJ or ARR field sitting at nesting depth >= BB_SERIALIZE_MAX_DEPTH
+// fails with BB_ERR_NO_SPACE (either type costs the source a container
+// frame at that depth, which the runtime depth guard below would otherwise
+// only catch mid-scatter). Depth is purely structural -- a function of the
+// descriptor tree, never of source data -- so this scan is a sound
+// predictor of every depth bb_serialize_populate() could ever reach for the
+// same descriptor: a depth violation always fails here, before any scatter
+// begins, never mid-scatter. This keeps a misconfigured/unsupported/
+// too-deep descriptor from ever reaching a partial write. When a field
+// violates multiple constraints simultaneously (e.g., misconfigured and
+// too-deep), the depth check runs first and BB_ERR_NO_SPACE is reported.
 //
 // Returns BB_ERR_INVALID_ARG if desc, dst, or src is NULL, or if the
 // pre-flight scan above rejects a max_items == 0 array field;
-// BB_ERR_UNSUPPORTED if the pre-flight scan finds a STR_N/REF field; BB_OK
-// otherwise (an individual absent field is not an error -- see the
-// presence contract above). The pre-flight scan runs before any scatter,
-// so those two rejections leave `dst` fully untouched. BB_ERR_NO_SPACE
-// (the depth-guard trip, see below) is different: it fires mid-scatter, so
-// it does NOT imply `dst` is untouched -- fields earlier in table order (or
-// in an already-entered nested OBJ/ARR) may have already been scattered
-// before the guard tripped. Populate is deliberately non-atomic in that
-// case; a caller that needs all-or-nothing semantics must snapshot/restore
-// `dst` itself.
+// BB_ERR_UNSUPPORTED if the pre-flight scan finds a STR_N/REF field;
+// BB_ERR_NO_SPACE if the pre-flight scan finds an OBJ/ARR field at or past
+// the depth cap; BB_OK otherwise (an individual absent field is not an
+// error -- see the presence contract above). All three rejections above run
+// before any scatter, so `dst` stays fully untouched on any non-BB_OK
+// return.
 bb_err_t bb_serialize_populate(const bb_serialize_desc_t *desc, void *dst,
                                 const bb_serialize_populate_t *src);
 
