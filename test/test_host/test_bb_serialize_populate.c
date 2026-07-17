@@ -1001,11 +1001,13 @@ static const bb_serialize_desc_t s_deep_desc = {
 
 void test_bb_serialize_populate_depth_guard_returns_no_space(void)
 {
-    deep_snap_t dst = { 0 };
+    deep_snap_t dst = { .marker = 999 };
 
     bb_err_t rc = bb_serialize_populate(&s_deep_desc, &dst, &s_probe_src);
 
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, rc);
+    // Rejected pre-flight, before any scatter -- dst fully untouched.
+    TEST_ASSERT_EQUAL_INT64(999, dst.marker);
 }
 
 // ---------------------------------------------------------------------------
@@ -1252,6 +1254,208 @@ static const bb_serialize_desc_t s_roundtrip_desc = {
     .n_fields = 3,
     .snap_size = sizeof(roundtrip_snap_t),
 };
+
+// ---------------------------------------------------------------------------
+// 17. depth guard (ARR, CRITICAL regression): a BB_TYPE_ARR field sitting at
+// exactly BB_SERIALIZE_MAX_DEPTH -- reached via 8 nested BB_TYPE_OBJ
+// containers -- must be rejected BEFORE the source's begin_arr() is ever
+// called, matching the BB_TYPE_OBJ guard's before-the-call placement.
+// Calling begin_arr() unconditionally (the bug) drives a bounded populate
+// source's frame stack one past its capacity; this uses a canary-guarded
+// probe source to prove that call never happens.
+//
+// s_depth_lvl0_fields .. s_depth_lvl7_fields each hold a single BB_TYPE_OBJ
+// "child" field (offset 0 -- same dst address at every level, only control
+// flow/depth is under test); s_depth_lvl8_fields holds the terminal
+// BB_TYPE_ARR field. Reused below at two different starting depths: as the
+// descriptor's top-level table (0 remaining OBJ hops to the array => depth
+// BB_SERIALIZE_MAX_DEPTH - 1, must succeed) and one level shallower (8 OBJ
+// hops => depth BB_SERIALIZE_MAX_DEPTH exactly, must fail).
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    bb_serialize_arr_t items;
+} depth_arr_snap_t;
+
+static const bb_serialize_field_t s_depth_lvl8_fields[] = {
+    { .key = "items", .type = BB_TYPE_ARR, .offset = offsetof(depth_arr_snap_t, items),
+      .elem_type = BB_TYPE_STR, .max_len = 8, .max_items = 1 },
+};
+static const bb_serialize_field_t s_depth_lvl7_fields[] = {
+    { .key = "child", .type = BB_TYPE_OBJ, .offset = 0,
+      .children = s_depth_lvl8_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_depth_lvl6_fields[] = {
+    { .key = "child", .type = BB_TYPE_OBJ, .offset = 0,
+      .children = s_depth_lvl7_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_depth_lvl5_fields[] = {
+    { .key = "child", .type = BB_TYPE_OBJ, .offset = 0,
+      .children = s_depth_lvl6_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_depth_lvl4_fields[] = {
+    { .key = "child", .type = BB_TYPE_OBJ, .offset = 0,
+      .children = s_depth_lvl5_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_depth_lvl3_fields[] = {
+    { .key = "child", .type = BB_TYPE_OBJ, .offset = 0,
+      .children = s_depth_lvl4_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_depth_lvl2_fields[] = {
+    { .key = "child", .type = BB_TYPE_OBJ, .offset = 0,
+      .children = s_depth_lvl3_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_depth_lvl1_fields[] = {
+    { .key = "child", .type = BB_TYPE_OBJ, .offset = 0,
+      .children = s_depth_lvl2_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_depth_lvl0_fields[] = {
+    { .key = "child", .type = BB_TYPE_OBJ, .offset = 0,
+      .children = s_depth_lvl1_fields, .n_children = 1 },
+};
+
+// depth BB_SERIALIZE_MAX_DEPTH exactly (8 OBJ hops: lvl0..lvl7, array at
+// depth 8) -- must fail.
+static const bb_serialize_desc_t s_depth_at_max_desc = {
+    .type_name = "depth_arr_snap_t",
+    .fields = s_depth_lvl0_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(depth_arr_snap_t),
+};
+
+// depth BB_SERIALIZE_MAX_DEPTH - 1 (7 OBJ hops: lvl1..lvl7, array at depth
+// 7) -- must still succeed, proving the guard doesn't over-clamp.
+static const bb_serialize_desc_t s_depth_below_max_desc = {
+    .type_name = "depth_arr_snap_t",
+    .fields = s_depth_lvl1_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(depth_arr_snap_t),
+};
+
+// Canary-guarded probe source: `pushed[]` is sized BB_SERIALIZE_MAX_DEPTH +
+// 1 -- indices [0, BB_SERIALIZE_MAX_DEPTH) are the source's real frame
+// capacity, index BB_SERIALIZE_MAX_DEPTH is a canary slot immediately past
+// it. begin_obj()/begin_arr() write `pushed[depth]` with NO bounds check of
+// their own (mirroring a real bounded adapter, e.g. bb_json's fixed-size
+// frame stack, that trusts populate's own depth accounting never to call it
+// out of bounds) -- so if the guard under test ever fails to stop a call at
+// depth == BB_SERIALIZE_MAX_DEPTH, this fixture writes the canary slot
+// instead of corrupting unrelated memory, letting the test detect it safely.
+#define DEPTH_PROBE_CAP (BB_SERIALIZE_MAX_DEPTH + 1)
+
+typedef struct {
+    uint8_t pushed[DEPTH_PROBE_CAP];
+    size_t  depth;
+} depth_canary_t;
+
+static bool canary_get_i64(void *ctx, const char *key, int64_t *out)
+{
+    (void)ctx; (void)key; (void)out;
+    return false;
+}
+static bool canary_get_u64(void *ctx, const char *key, uint64_t *out)
+{
+    (void)ctx; (void)key; (void)out;
+    return false;
+}
+static bool canary_get_f64(void *ctx, const char *key, double *out)
+{
+    (void)ctx; (void)key; (void)out;
+    return false;
+}
+static bool canary_get_bool(void *ctx, const char *key, bool *out)
+{
+    (void)ctx; (void)key; (void)out;
+    return false;
+}
+static bool canary_get_str(void *ctx, const char *key, char *dst, size_t cap, size_t *out_len)
+{
+    (void)ctx; (void)key; (void)dst; (void)cap; (void)out_len;
+    return false;
+}
+static bool canary_begin_obj(void *ctx, const char *key)
+{
+    depth_canary_t *c = ctx;
+    (void)key;
+    c->pushed[c->depth] = 1;  // safe: pushed[] sized DEPTH_PROBE_CAP, index < DEPTH_PROBE_CAP
+    c->depth++;
+    return true;
+}
+static bool canary_end_obj(void *ctx)
+{
+    depth_canary_t *c = ctx;
+    if (c->depth) c->depth--;
+    return true;
+}
+static bool canary_begin_arr(void *ctx, const char *key, size_t *count)
+{
+    depth_canary_t *c = ctx;
+    (void)key;
+    if (count) *count = 1;
+    c->pushed[c->depth] = 1;  // safe: same bound as canary_begin_obj
+    c->depth++;
+    return true;
+}
+static bool canary_end_arr(void *ctx)
+{
+    depth_canary_t *c = ctx;
+    if (c->depth) c->depth--;
+    return true;
+}
+
+static const bb_serialize_populate_t s_canary_src = {
+    .format_id = BB_FORMAT_NONE,
+    .ctx = NULL,
+    .get_i64 = canary_get_i64,
+    .get_u64 = canary_get_u64,
+    .get_f64 = canary_get_f64,
+    .get_bool = canary_get_bool,
+    .get_str = canary_get_str,
+    .begin_obj = canary_begin_obj,
+    .end_obj = canary_end_obj,
+    .begin_arr = canary_begin_arr,
+    .end_arr = canary_end_arr,
+};
+
+void test_bb_serialize_populate_arr_at_max_depth_returns_no_space_canary_intact(void)
+{
+    depth_canary_t canary = { 0 };
+    bb_serialize_populate_t src = s_canary_src;
+    src.ctx = &canary;
+
+    char        buf[8] = { 0 };
+    char       *ptrs[1] = { buf };
+    depth_arr_snap_t dst = { .items = { .items = ptrs, .count = 42 } };
+
+    bb_err_t rc = bb_serialize_populate(&s_depth_at_max_desc, &dst, &src);
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, rc);
+    // Canary slot (index BB_SERIALIZE_MAX_DEPTH) stays untouched -- begin_arr()
+    // was never called at the overflowing depth.
+    TEST_ASSERT_EQUAL_UINT8(0, canary.pushed[BB_SERIALIZE_MAX_DEPTH]);
+    // Rejected pre-flight, before any scatter -- dst fully untouched.
+    TEST_ASSERT_EQUAL_UINT(42, dst.items.count);
+    TEST_ASSERT_EQUAL_PTR(ptrs, dst.items.items);
+}
+
+void test_bb_serialize_populate_arr_below_max_depth_still_succeeds(void)
+{
+    depth_canary_t canary = { 0 };
+    bb_serialize_populate_t src = s_canary_src;
+    src.ctx = &canary;
+
+    char        buf[8] = { 0 };
+    char       *ptrs[1] = { buf };
+    depth_arr_snap_t dst = { .items = { .items = ptrs, .count = 42 } };
+
+    bb_err_t rc = bb_serialize_populate(&s_depth_below_max_desc, &dst, &src);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    // begin_arr() WAS called at depth BB_SERIALIZE_MAX_DEPTH - 1 -- the
+    // guard doesn't over-clamp a descriptor that legitimately fits.
+    TEST_ASSERT_EQUAL_UINT8(1, canary.pushed[BB_SERIALIZE_MAX_DEPTH - 1]);
+    TEST_ASSERT_EQUAL_UINT8(0, canary.pushed[BB_SERIALIZE_MAX_DEPTH]);
+}
 
 void test_bb_serialize_populate_walk_roundtrip(void)
 {
