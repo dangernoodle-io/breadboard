@@ -428,6 +428,25 @@ void test_bb_serialize_json_tok_get_f64_null_out_param(void);
 void test_bb_serialize_json_tok_get_bool_null_out_param(void);
 void test_bb_serialize_json_tok_child_count_wrap_guard(void);
 
+// Forward declarations from test_bb_serialize_json_populate.c
+void test_bb_serialize_json_populate_flat_scalars(void);
+void test_bb_serialize_json_populate_redrivable_two_descriptors(void);
+void test_bb_serialize_json_populate_absent_field_leaves_untouched(void);
+void test_bb_serialize_json_populate_empty_obj(void);
+void test_bb_serialize_json_populate_nested_obj_and_ignored_extra_keys(void);
+void test_bb_serialize_json_populate_nested_obj_wrong_type_leaves_untouched(void);
+void test_bb_serialize_json_populate_nested_obj_partial_scalar_fields_absent(void);
+void test_bb_serialize_json_populate_arr_of_obj(void);
+void test_bb_serialize_json_populate_arr_of_str(void);
+void test_bb_serialize_json_populate_arr_absent_leaves_untouched(void);
+void test_bb_serialize_json_populate_arena_backed_str_value(void);
+void test_bb_serialize_json_populate_depth_boundary_guard_fails_closed(void);
+void test_bb_serialize_json_populate_begin_obj_guard_fails_closed_past_max_depth(void);
+void test_bb_serialize_json_populate_begin_arr_guard_fails_closed_past_max_depth(void);
+void test_bb_serialize_json_populate_get_str_exact_cap_no_overrun(void);
+void test_bb_serialize_json_populate_get_str_over_cap_truncates(void);
+void test_bb_serialize_json_populate_scalar_wrong_type_present_leaves_untouched(void);
+
 void test_v2_golden_ref_resolves_inline(void);
 void test_v2_golden_ref_unregistered_sibling_omits_field(void);
 void test_v2_golden_ref_null_resolver_omits_field(void);
@@ -9702,6 +9721,24 @@ int main(void) {
     RUN_TEST(test_bb_serialize_json_tok_get_f64_null_out_param);
     RUN_TEST(test_bb_serialize_json_tok_get_bool_null_out_param);
     RUN_TEST(test_bb_serialize_json_tok_child_count_wrap_guard);
+
+    RUN_TEST(test_bb_serialize_json_populate_flat_scalars);
+    RUN_TEST(test_bb_serialize_json_populate_redrivable_two_descriptors);
+    RUN_TEST(test_bb_serialize_json_populate_absent_field_leaves_untouched);
+    RUN_TEST(test_bb_serialize_json_populate_empty_obj);
+    RUN_TEST(test_bb_serialize_json_populate_nested_obj_and_ignored_extra_keys);
+    RUN_TEST(test_bb_serialize_json_populate_nested_obj_wrong_type_leaves_untouched);
+    RUN_TEST(test_bb_serialize_json_populate_nested_obj_partial_scalar_fields_absent);
+    RUN_TEST(test_bb_serialize_json_populate_arr_of_obj);
+    RUN_TEST(test_bb_serialize_json_populate_arr_of_str);
+    RUN_TEST(test_bb_serialize_json_populate_arr_absent_leaves_untouched);
+    RUN_TEST(test_bb_serialize_json_populate_arena_backed_str_value);
+    RUN_TEST(test_bb_serialize_json_populate_depth_boundary_guard_fails_closed);
+    RUN_TEST(test_bb_serialize_json_populate_begin_obj_guard_fails_closed_past_max_depth);
+    RUN_TEST(test_bb_serialize_json_populate_begin_arr_guard_fails_closed_past_max_depth);
+    RUN_TEST(test_bb_serialize_json_populate_get_str_exact_cap_no_overrun);
+    RUN_TEST(test_bb_serialize_json_populate_get_str_over_cap_truncates);
+    RUN_TEST(test_bb_serialize_json_populate_scalar_wrong_type_present_leaves_untouched);
 
     RUN_TEST(test_v2_golden_ref_resolves_inline);
     RUN_TEST(test_v2_golden_ref_unregistered_sibling_omits_field);
