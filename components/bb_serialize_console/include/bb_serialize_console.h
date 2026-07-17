@@ -83,6 +83,16 @@ bb_err_t bb_serialize_console_render(const bb_serialize_desc_t *desc, const void
 // (boot, post-httpd-init, ...).
 // ---------------------------------------------------------------------------
 
+// TODO(B1-1024): superseded by bb_meminfo_heap_snap_t (components/bb_meminfo/
+// bb_meminfo_heap_snap.h), the ONE format-agnostic heap snapshot per KB 1432.
+// This console-local subset stays live for now -- bb_serialize_console_render()
+// is flat/scalar-only (see the comment on bb_serialize_console_emit() above)
+// and can't yet render bb_meminfo_heap_snap_t's nested per-region objects
+// (BB_TYPE_OBJ children); that needs nested-key console render support
+// (B1-1024). Retire this struct once that lands and
+// bb_serialize_console_heap_report() walks bb_meminfo_heap_snap_desc
+// directly.
+//
 // One heap snapshot, field-for-field a subset of bb_meminfo_snapshot_t
 // (bb_meminfo.h) -- the fields most relevant to a quick serial glance.
 // uint64_t (not size_t) because BB_TYPE_U64 fields are read as a raw

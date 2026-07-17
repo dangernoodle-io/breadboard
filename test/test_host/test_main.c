@@ -2740,6 +2740,16 @@ void test_bb_memreport_format_no_regions_is_heap_plus_bss(void);
 void test_bb_memreport_format_appends_region_tokens(void);
 void test_bb_memreport_format_truncates_cleanly(void);
 
+// Forward declarations from test_snap_desc.c
+void test_snap_desc_meminfo_render_populated(void);
+void test_snap_desc_meminfo_render_no_space_all_or_nothing(void);
+void test_snap_desc_meminfo_snap_fill_rejects_null(void);
+void test_snap_desc_meminfo_snap_fill_host_zeroes(void);
+void test_snap_desc_system_render_fixed_fixture(void);
+void test_snap_desc_system_render_no_space_all_or_nothing(void);
+void test_snap_desc_system_snap_fill_rejects_null(void);
+void test_snap_desc_system_snap_fill_host_defaults(void);
+
 // Forward declarations from test_bb_health.c
 void test_bb_health_register_section_null_name_returns_err(void);
 void test_bb_health_register_section_null_get_returns_err(void);
@@ -6465,6 +6475,12 @@ int main(void) {
     RUN_TEST(test_bb_system_safeguard_reboot_account_calls_through_budget_record);
     RUN_TEST(test_bb_system_safeguard_reboot_allowed_is_true_on_host);
 
+    // source-owned snapshot descriptors (test_snap_desc.c) -- system half
+    RUN_TEST(test_snap_desc_system_render_fixed_fixture);
+    RUN_TEST(test_snap_desc_system_render_no_space_all_or_nothing);
+    RUN_TEST(test_snap_desc_system_snap_fill_rejects_null);
+    RUN_TEST(test_snap_desc_system_snap_fill_host_defaults);
+
     // bb_str tests
     RUN_TEST(test_bb_strlcpy_table_driven);
     RUN_TEST(test_bb_strlcpy_truncation_is_detected_via_return_value);
@@ -6844,6 +6860,12 @@ int main(void) {
     RUN_TEST(test_bb_memreport_format_no_regions_is_heap_plus_bss);
     RUN_TEST(test_bb_memreport_format_appends_region_tokens);
     RUN_TEST(test_bb_memreport_format_truncates_cleanly);
+
+    // source-owned snapshot descriptors (test_snap_desc.c) -- meminfo half
+    RUN_TEST(test_snap_desc_meminfo_render_populated);
+    RUN_TEST(test_snap_desc_meminfo_render_no_space_all_or_nothing);
+    RUN_TEST(test_snap_desc_meminfo_snap_fill_rejects_null);
+    RUN_TEST(test_snap_desc_meminfo_snap_fill_host_zeroes);
 
     // bb_health tests
     RUN_TEST(test_bb_health_register_section_null_name_returns_err);
