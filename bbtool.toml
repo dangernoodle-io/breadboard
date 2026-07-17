@@ -283,10 +283,18 @@ remove_components = ["bb_wifi_ap"]
 # (bb_serialize_console_heap_report()) is the first live app call site of
 # the serialization emit stack -- pulls in bb_serialize + bb_core
 # transitively via its own REQUIRES.
+#
+# B1-1025: bb_data + bb_serialize_json + bb_system added -- floor's two
+# diag routes (GET /api/diag/meminfo, GET /api/diag/system) bind
+# bb_meminfo_heap_snap_desc/bb_system_snap_desc into bb_data's binding
+# table and render them via the JSON format backend on every request.
+# bb_meminfo is already in this list (floor's heap-log tick); bb_system is
+# new here solely for its snap descriptor/fill fn.
 components = [
     "bb_log", "bb_meminfo", "bb_timer",
     "bb_wifi", "bb_storage_nvs", "bb_storage_rtc", "bb_settings",
     "bb_http", "bb_http_server", "bb_lifecycle",
+    "bb_data", "bb_serialize_json", "bb_system",
     "bb_serialize_console",
 ]
 

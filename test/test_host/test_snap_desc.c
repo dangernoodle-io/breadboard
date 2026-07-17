@@ -1,14 +1,16 @@
 // test_snap_desc — byte-fidelity + assembler coverage for the source-owned,
 // format-agnostic heap and system snapshot descriptors (bb_meminfo,
-// bb_system, B1-767-family). ADDITIVE only -- neither descriptor is
-// consumed by any serializer/route yet; these are the only callers today.
+// bb_system, B1-767-family). Both descriptors now have a real consumer --
+// examples/floor's /api/diag/meminfo and /api/diag/system routes render
+// them via bb_data (see floor_app.c) -- so the JSON field names/types these
+// tests assert on are a consumer-visible wire contract, not free to rename.
 
 #include "unity.h"
 
 #include "bb_serialize_json.h"
 
-#include "../../components/bb_meminfo/bb_meminfo_heap_snap.h"
-#include "../../components/bb_system/bb_system_snap.h"
+#include "../../components/bb_meminfo/include/bb_meminfo_heap_snap.h"
+#include "../../components/bb_system/include/bb_system_snap.h"
 
 #include <string.h>
 

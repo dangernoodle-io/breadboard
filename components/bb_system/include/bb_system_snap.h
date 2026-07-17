@@ -1,7 +1,8 @@
 #pragma once
 
-// Private: format-agnostic system-snapshot descriptor, owned by bb_system
-// (B1-767-family, additive-only -- not wired into any consumer yet).
+// Format-agnostic system-snapshot descriptor, owned by bb_system
+// (B1-767-family, additive-only). Public since B1-1025 (floor's
+// GET /api/diag/system route is its first real consumer via bb_data).
 //
 // bb_system has no existing bundling snapshot struct (only discrete
 // getters) -- bb_system_snap_t is a new, small POD assembled by

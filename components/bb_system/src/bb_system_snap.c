@@ -2,9 +2,12 @@
 // owned by bb_system. See bb_system_snap.h for the snapshot-struct contract.
 // Compiles on both host and ESP-IDF; no platform-specific code
 // (bb_system_snap_fill() draws only from bb_system's already-portable
-// accessors). ADDITIVE only -- not yet consumed by any route/serializer.
+// accessors). examples/floor's GET /api/diag/system route is a real
+// consumer of this descriptor via bb_data (see floor_app.c) -- the JSON
+// field names/types below are now a consumer-visible wire contract;
+// renaming a field is an API break, not a free refactor.
 
-#include "../bb_system_snap.h"
+#include "bb_system_snap.h"
 
 #include "bb_system.h"
 #include "bb_str.h"

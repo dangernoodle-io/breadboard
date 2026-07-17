@@ -72,7 +72,7 @@ line is just heap + bss.
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
 | `bb_mem_arena` | public | — | [bb_mem_arena](../README.md) |
 | `bb_registry` | private | — | [bb_registry](../README.md) |
-| `bb_serialize` | private | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
+| `bb_serialize` | public | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support

@@ -1,9 +1,12 @@
 // bb_meminfo_heap_snap -- the format-agnostic heap-snapshot descriptor SSOT,
 // owned by bb_meminfo. See bb_meminfo_heap_snap.h for the snapshot-struct
 // contract. Compiles on both host and ESP-IDF; no platform-specific code.
-// ADDITIVE only -- not yet consumed by any route/serializer.
+// examples/floor's GET /api/diag/meminfo route is a real consumer of this
+// descriptor via bb_data (see floor_app.c) -- the JSON field names/types
+// below are now a consumer-visible wire contract; renaming a field is an API
+// break, not a free refactor.
 
-#include "../bb_meminfo_heap_snap.h"
+#include "bb_meminfo_heap_snap.h"
 
 #include "bb_meminfo.h"
 

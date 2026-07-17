@@ -6,9 +6,10 @@ idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_meminfo/bb_meminfo.c"
          "${CMAKE_CURRENT_LIST_DIR}/src/bb_meminfo_heap_snap.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_mem_arena
-    # bb_serialize: PRIV_REQUIRES -- bb_meminfo_heap_snap.h (format-agnostic
-    # source snapshot, additive-only) is a private header, not exposed under
-    # include/.
-    PRIV_REQUIRES bb_registry bb_serialize
+    # bb_serialize: REQUIRES -- bb_meminfo_heap_snap.h is now a public header
+    # (B1-1025, floor's diag routes are its first real consumer) that itself
+    # includes bb_serialize.h (bb_serialize_desc_t), so bb_serialize must be
+    # public here too.
+    REQUIRES bb_core bb_mem_arena bb_serialize
+    PRIV_REQUIRES bb_registry
 )
