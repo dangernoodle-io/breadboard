@@ -34,13 +34,10 @@ endif()
 # the stale-fragment guard: hard FATAL_ERROR, never a silent skip, if the
 # fragment is missing or was resolved for a different board than the one
 # actually being built.
-set(BB_SMOKE_GENERATED_REQUIRES "${CMAKE_CURRENT_LIST_DIR}/generated/bb_autowire_components.cmake")
-if(NOT EXISTS "${BB_SMOKE_GENERATED_REQUIRES}")
-    message(FATAL_ERROR
-        "smoke: ${BB_SMOKE_GENERATED_REQUIRES} is missing -- run "
-        "`make smoke-gen-<board>` (see the Makefile) before building.")
-endif()
-include("${BB_SMOKE_GENERATED_REQUIRES}")
+include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/bb_generated.cmake")
+bb_include_generated_or_fail(BB_SMOKE_GENERATED_FRAGMENT
+    "${CMAKE_CURRENT_LIST_DIR}/generated/bb_autowire_components.cmake"
+    "smoke: run `make smoke-gen-<board>` (see the Makefile) before building.")
 # ESP-IDF evaluates this file TWICE: once in a REQUIRES-only early-expansion
 # pass (CMAKE_BUILD_EARLY_EXPANSION) that only guarantees idf_component_
 # register()'s own REQUIRES/PRIV_REQUIRES args -- externally -D'd cache
