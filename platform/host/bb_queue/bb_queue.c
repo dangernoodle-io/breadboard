@@ -16,8 +16,10 @@
 
 #include "bb_queue.h"
 #include "bb_queue_registry.h"
+#include "bb_age.h"
 #include "bb_log.h"
 #include "bb_str.h"
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -84,6 +86,9 @@ struct bb_queue {
     size_t dropped;      // entries dropped due to ring-full (evicted or rejected)
     size_t truncated;    // push() calls rejected (len > max_entry)
 
+    size_t   max_bytes;   // total payload-byte budget; 0 = disabled (B1-1031)
+    uint32_t max_age;     // max entry age (caller-defined unit); 0 = disabled (B1-1031)
+
     bb_queue_full_policy_t policy;  // BB_QUEUE_EVICT_OLDEST or BB_QUEUE_REJECT_NEW
     char name[BB_QUEUE_NAME_MAX];   // diagnostic label (bounded copy, never borrowed)
 };
@@ -92,14 +97,18 @@ struct bb_queue {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_queue_create(size_t capacity_entries, size_t max_entry_bytes,
-                        bb_queue_full_policy_t policy, const char *name,
-                        bb_queue_t *out)
+bb_err_t bb_queue_create_ex(const bb_queue_cfg_t *cfg, bb_queue_t *out)
 {
-    if (!capacity_entries || !max_entry_bytes || !out) {
+    if (!cfg || !cfg->capacity_entries || !cfg->max_entry_bytes || !out) {
         return BB_ERR_INVALID_ARG;
     }
-    if (policy != BB_QUEUE_EVICT_OLDEST && policy != BB_QUEUE_REJECT_NEW) {
+    if (cfg->policy != BB_QUEUE_EVICT_OLDEST && cfg->policy != BB_QUEUE_REJECT_NEW) {
+        return BB_ERR_INVALID_ARG;
+    }
+    // A byte budget smaller than the max single-entry size can never accept
+    // that entry's own max-size push -- reject the config outright rather
+    // than silently NO_SPACE-ing every future max-size push.
+    if (cfg->max_bytes > 0 && cfg->max_bytes < cfg->max_entry_bytes) {
         return BB_ERR_INVALID_ARG;
     }
 
@@ -109,14 +118,14 @@ bb_err_t bb_queue_create(size_t capacity_entries, size_t max_entry_bytes,
         return BB_ERR_NO_SPACE;
     }
 
-    r->entries = (bb_queue_entry_t *)s_calloc(capacity_entries, sizeof(bb_queue_entry_t));
+    r->entries = (bb_queue_entry_t *)s_calloc(cfg->capacity_entries, sizeof(bb_queue_entry_t));
     if (!r->entries) {
         bb_log_e(TAG, "failed to allocate entries array");
         s_free(r);
         return BB_ERR_NO_SPACE;
     }
 
-    r->payload = (uint8_t *)s_calloc(capacity_entries, max_entry_bytes);
+    r->payload = (uint8_t *)s_calloc(cfg->capacity_entries, cfg->max_entry_bytes);
     if (!r->payload) {
         bb_log_e(TAG, "failed to allocate payload buffer");
         s_free(r->entries);
@@ -124,24 +133,26 @@ bb_err_t bb_queue_create(size_t capacity_entries, size_t max_entry_bytes,
         return BB_ERR_NO_SPACE;
     }
 
-    r->capacity  = capacity_entries;
-    r->max_entry = max_entry_bytes;
-    r->policy    = policy;
+    r->capacity  = cfg->capacity_entries;
+    r->max_entry = cfg->max_entry_bytes;
+    r->policy    = cfg->policy;
     r->head      = 0;
     r->tail      = 0;
     r->count     = 0;
     r->bytes_used  = 0;
     r->dropped     = 0;
     r->truncated   = 0;
+    r->max_bytes   = cfg->max_bytes;
+    r->max_age     = cfg->max_age;
 
-    if (name) {
-        bb_strlcpy(r->name, name, sizeof(r->name));
+    if (cfg->name) {
+        bb_strlcpy(r->name, cfg->name, sizeof(r->name));
     } else {
         r->name[0] = '\0';
     }
 
-    bb_log_i(TAG, "created ring '%s': capacity=%zu max_entry=%zu policy=%d",
-             r->name, capacity_entries, max_entry_bytes, (int)policy);
+    bb_log_i(TAG, "created ring '%s': capacity=%zu max_entry=%zu policy=%d max_bytes=%zu max_age=%" PRIu32,
+             r->name, r->capacity, r->max_entry, (int)r->policy, r->max_bytes, r->max_age);
 
     // Best-effort self-registration for GET /api/diag/rings — a full
     // registry or a duplicate name is logged (inside bb_queue_registry) and
@@ -150,6 +161,21 @@ bb_err_t bb_queue_create(size_t capacity_entries, size_t max_entry_bytes,
 
     *out = r;
     return BB_OK;
+}
+
+bb_err_t bb_queue_create(size_t capacity_entries, size_t max_entry_bytes,
+                        bb_queue_full_policy_t policy, const char *name,
+                        bb_queue_t *out)
+{
+    bb_queue_cfg_t cfg = {
+        .capacity_entries = capacity_entries,
+        .max_entry_bytes  = max_entry_bytes,
+        .policy           = policy,
+        .name             = name,
+        .max_bytes        = 0,
+        .max_age          = 0,
+    };
+    return bb_queue_create_ex(&cfg, out);
 }
 
 void bb_queue_destroy(bb_queue_t r)
@@ -165,6 +191,46 @@ void bb_queue_destroy(bb_queue_t r)
 const char *bb_queue_name(bb_queue_t r)
 {
     return r ? r->name : "";
+}
+
+// ---------------------------------------------------------------------------
+// Age eviction (B1-1031)
+// ---------------------------------------------------------------------------
+
+// Evicts (oldest-first) every entry whose age relative to `now` classifies
+// as BB_AGE_EVICT (stale window unused -- age eviction here is a hard cutoff
+// at max_age). No-op if age eviction is disabled or the ring is empty.
+// Assumes entry timestamps are non-decreasing in push order (true for any
+// caller supplying a monotonic clock), so eviction can stop at the first
+// entry that is not yet expired. A backward/out-of-order `now` (earlier
+// than the entry's ts, from clock skew/NTP step/non-monotonic or
+// multi-producer callers) is clamped to age 0 (FRESH) rather than wrapping
+// negative into a huge uint64_t -- never evicts on a backward clock.
+// Returns the number of entries evicted.
+static size_t bb_queue_evict_aged(bb_queue_t r, int64_t now)
+{
+    if (r->max_age == 0) return 0;
+
+    size_t evicted = 0;
+    while (r->count > 0) {
+        int64_t delta = now - r->entries[r->tail].ts;
+        uint64_t age = (delta > 0) ? (uint64_t)delta : 0;
+        if (bb_age_classify(age, 0, r->max_age) != BB_AGE_EVICT) {
+            break;
+        }
+        bb_queue_bytes_used_sub(&r->bytes_used, r->entries[r->tail].len);
+        r->tail = (r->tail + 1) % r->capacity;
+        r->count--;
+        r->dropped++;
+        evicted++;
+    }
+    return evicted;
+}
+
+size_t bb_queue_evict_expired(bb_queue_t r, int64_t now)
+{
+    if (!r) return 0;
+    return bb_queue_evict_aged(r, now);
 }
 
 // ---------------------------------------------------------------------------
@@ -184,22 +250,50 @@ bb_err_t bb_queue_push(bb_queue_t r, const void *data, size_t len,
         return BB_ERR_INVALID_ARG;
     }
 
+    // Age-sweep: evict anything already expired relative to this entry's own
+    // timestamp before considering space for the new entry. Skipped entirely
+    // when age eviction is disabled (mirrors the byte-budget guards below) --
+    // bb_queue_evict_aged() early-returns on max_age==0 anyway, but calling
+    // it unconditionally on every push is a needless hot-path call.
+    if (r->max_age > 0) {
+        bb_queue_evict_aged(r, ts);
+    }
+
+    // NOTE: an entry whose own len alone could never fit under max_bytes is
+    // rejected at CONFIG time, not here -- bb_queue_create_ex() requires
+    // max_bytes >= max_entry_bytes (B1-1031 review), and the truncate check
+    // above already bounds len <= max_entry_bytes, so len <= max_bytes is
+    // guaranteed for every entry that reaches this point. No separate
+    // per-push "outright reject" is reachable/needed.
+
     size_t write_idx = r->head;
 
-    // Handle full ring according to policy
-    if (r->count == r->capacity) {
+    // Space is exhausted if the ring is at entry-count capacity OR (when a
+    // byte budget is configured) this entry would push bytes_used over it.
+    int over_capacity = (r->count == r->capacity);
+    int over_bytes    = (r->max_bytes > 0 && r->bytes_used + len > r->max_bytes);
+
+    if (over_capacity || over_bytes) {
         if (r->policy == BB_QUEUE_REJECT_NEW) {
             r->dropped++;
             bb_log_d(TAG, "push rejected: ring full (reject-new policy)");
             return BB_ERR_NO_SPACE;
         }
-        // BB_QUEUE_EVICT_OLDEST: evict oldest before writing
-        bb_queue_bytes_used_sub(&r->bytes_used, r->entries[r->tail].len);
-        r->tail = (r->tail + 1) % r->capacity;
-        r->dropped++;
-    } else {
-        r->count++;
+        // BB_QUEUE_EVICT_OLDEST: evict oldest entries until both predicates
+        // are false. Bounded by r->count -- an empty ring always satisfies
+        // both (count != capacity>0, bytes_used==0 <= max_bytes since
+        // len <= max_bytes is guaranteed, see the NOTE above).
+        while (r->count > 0 &&
+               (r->count == r->capacity ||
+                (r->max_bytes > 0 && r->bytes_used + len > r->max_bytes))) {
+            bb_queue_bytes_used_sub(&r->bytes_used, r->entries[r->tail].len);
+            r->tail = (r->tail + 1) % r->capacity;
+            r->count--;
+            r->dropped++;
+        }
     }
+
+    r->count++;
 
     // Write metadata
     r->entries[write_idx].id  = id;

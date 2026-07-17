@@ -22,6 +22,25 @@ static bb_queue_t make_ring(size_t cap, size_t max_entry)
     return r;
 }
 
+static bb_queue_t make_ring_ex(size_t cap, size_t max_entry,
+                              bb_queue_full_policy_t policy,
+                              size_t max_bytes, uint32_t max_age)
+{
+    bb_queue_cfg_t cfg = {
+        .capacity_entries = cap,
+        .max_entry_bytes  = max_entry,
+        .policy           = policy,
+        .name             = "test_ex",
+        .max_bytes        = max_bytes,
+        .max_age       = max_age,
+    };
+    bb_queue_t r = NULL;
+    bb_err_t err = bb_queue_create_ex(&cfg, &r);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_NOT_NULL(r);
+    return r;
+}
+
 // ---------------------------------------------------------------------------
 // Creation / argument validation
 // ---------------------------------------------------------------------------
@@ -1165,4 +1184,310 @@ void test_bb_queue_name_truncated_at_limit(void)
     // Stored name must be exactly BB_QUEUE_NAME_MAX - 1 chars, NUL-terminated.
     TEST_ASSERT_EQUAL_size_t(BB_QUEUE_NAME_MAX - 1, strlen(bb_queue_name(r)));
     bb_queue_destroy(r);
+}
+
+// ---------------------------------------------------------------------------
+// bb_queue_create_ex — argument validation (B1-1031)
+// ---------------------------------------------------------------------------
+
+void test_bb_queue_create_ex_null_cfg_returns_invalid_arg(void)
+{
+    bb_queue_t r = NULL;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_queue_create_ex(NULL, &r));
+    TEST_ASSERT_NULL(r);
+}
+
+void test_bb_queue_create_ex_zero_capacity_returns_invalid_arg(void)
+{
+    bb_queue_cfg_t cfg = {
+        .capacity_entries = 0,
+        .max_entry_bytes  = 64,
+        .policy           = BB_QUEUE_EVICT_OLDEST,
+        .name             = "t",
+        .max_bytes        = 0,
+        .max_age       = 0,
+    };
+    bb_queue_t r = NULL;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_queue_create_ex(&cfg, &r));
+    TEST_ASSERT_NULL(r);
+}
+
+void test_bb_queue_create_ex_invalid_policy_returns_invalid_arg(void)
+{
+    bb_queue_cfg_t cfg = {
+        .capacity_entries = 4,
+        .max_entry_bytes  = 32,
+        .policy           = (bb_queue_full_policy_t)99,
+        .name             = "t",
+        .max_bytes        = 0,
+        .max_age       = 0,
+    };
+    bb_queue_t r = NULL;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_queue_create_ex(&cfg, &r));
+    TEST_ASSERT_NULL(r);
+}
+
+// ---------------------------------------------------------------------------
+// Disabled path == legacy bb_queue_create (canary — zero regression)
+// ---------------------------------------------------------------------------
+
+void test_bb_queue_disabled_matches_legacy(void)
+{
+    bb_queue_t legacy = make_ring(3, 8);
+    bb_queue_t ex     = make_ring_ex(3, 8, BB_QUEUE_EVICT_OLDEST, 0, 0);
+
+    // Identical op sequence: fill past capacity, then an oversized push.
+    for (uint32_t i = 0; i < 5; i++) {
+        bb_queue_push(legacy, "x", 1, (int64_t)i, i);
+        bb_queue_push(ex,     "x", 1, (int64_t)i, i);
+    }
+    uint8_t big[32];
+    memset(big, 0xAB, sizeof(big));
+    bb_queue_push(legacy, big, sizeof(big), 5, 5);
+    bb_queue_push(ex,     big, sizeof(big), 5, 5);
+
+    TEST_ASSERT_EQUAL_size_t(bb_queue_count(legacy),     bb_queue_count(ex));
+    TEST_ASSERT_EQUAL_size_t(bb_queue_bytes_used(legacy), bb_queue_bytes_used(ex));
+    TEST_ASSERT_EQUAL_size_t(bb_queue_dropped(legacy),    bb_queue_dropped(ex));
+    TEST_ASSERT_EQUAL_size_t(bb_queue_truncated(legacy),  bb_queue_truncated(ex));
+
+    bb_queue_destroy(legacy);
+    bb_queue_destroy(ex);
+}
+
+// ---------------------------------------------------------------------------
+// Byte budget (max_bytes) — eviction / rejection (B1-1031)
+// ---------------------------------------------------------------------------
+
+void test_bb_queue_budget_evict_oldest(void)
+{
+    bb_queue_t r = make_ring_ex(8, 10, BB_QUEUE_EVICT_OLDEST, 10, 0);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "abcde", 5, 0, 1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "fghij", 5, 0, 2));
+    TEST_ASSERT_EQUAL_size_t(10, bb_queue_bytes_used(r));
+
+    // Pushing 1 more byte exceeds the 10-byte budget -- evicts entry 1.
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "k", 1, 0, 3));
+
+    TEST_ASSERT_EQUAL_size_t(2, bb_queue_count(r));
+    TEST_ASSERT_EQUAL_size_t(6, bb_queue_bytes_used(r));
+    TEST_ASSERT_EQUAL_size_t(1, bb_queue_dropped(r));
+
+    size_t out_len; int64_t out_ts; uint32_t out_id; uint8_t buf[32] = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_peek_oldest(r, buf, sizeof(buf), &out_len, &out_ts, &out_id));
+    TEST_ASSERT_EQUAL_UINT32(2, out_id);
+
+    bb_queue_destroy(r);
+}
+
+void test_bb_queue_budget_evict_multi_entry_to_fit(void)
+{
+    // Three 3-byte entries fill the 10-byte budget's usable region; a
+    // single 8-byte push must evict ALL THREE (N>1 evictions) to fit.
+    bb_queue_t r = make_ring_ex(10, 10, BB_QUEUE_EVICT_OLDEST, 10, 0);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "aaa", 3, 0, 1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "bbb", 3, 0, 2));
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "ccc", 3, 0, 3));
+    TEST_ASSERT_EQUAL_size_t(9, bb_queue_bytes_used(r));
+
+    uint8_t big[8];
+    memset(big, 0xEE, sizeof(big));
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, big, sizeof(big), 0, 4));
+
+    TEST_ASSERT_EQUAL_size_t(1, bb_queue_count(r));
+    TEST_ASSERT_EQUAL_size_t(8, bb_queue_bytes_used(r));
+    TEST_ASSERT_EQUAL_size_t(3, bb_queue_dropped(r));
+
+    size_t out_len; int64_t out_ts; uint32_t out_id; uint8_t buf[32] = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_peek_oldest(r, buf, sizeof(buf), &out_len, &out_ts, &out_id));
+    TEST_ASSERT_EQUAL_UINT32(4, out_id);
+
+    bb_queue_destroy(r);
+}
+
+void test_bb_queue_budget_reject_new(void)
+{
+    bb_queue_t r = make_ring_ex(8, 10, BB_QUEUE_REJECT_NEW, 10, 0);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "abc", 3, 0, 1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "defgh", 5, 0, 2));
+    TEST_ASSERT_EQUAL_size_t(8, bb_queue_bytes_used(r));
+
+    // Would push bytes_used to 13 > 10 -- rejected outright, no eviction.
+    bb_err_t err = bb_queue_push(r, "jklmn", 5, 0, 3);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+
+    TEST_ASSERT_EQUAL_size_t(2, bb_queue_count(r));
+    TEST_ASSERT_EQUAL_size_t(8, bb_queue_bytes_used(r));
+    TEST_ASSERT_EQUAL_size_t(1, bb_queue_dropped(r));
+
+    // Oldest entry preserved intact.
+    size_t out_len; int64_t out_ts; uint32_t out_id; uint8_t buf[32] = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_peek_oldest(r, buf, sizeof(buf), &out_len, &out_ts, &out_id));
+    TEST_ASSERT_EQUAL_UINT32(1, out_id);
+
+    bb_queue_destroy(r);
+}
+
+// NOTE: the former test_bb_queue_budget_reject_len_exceeds_max_bytes_outright
+// (len alone > max_bytes while len <= max_entry_bytes) is no longer
+// constructible: bb_queue_create_ex() now rejects any max_bytes < max_entry
+// _bytes at config time (B1-1031 review, see
+// test_bb_queue_create_ex_max_bytes_below_max_entry_rejected below), so a
+// push can never reach a state where len exceeds max_bytes without having
+// already tripped the max_entry_bytes truncate check first.
+
+// ---------------------------------------------------------------------------
+// Coalescing capacity-one ring under a byte-agnostic evict (sanity for the
+// combined space check with capacity==1)
+// ---------------------------------------------------------------------------
+
+void test_bb_queue_coalesce_via_capacity_one(void)
+{
+    bb_queue_t r = make_ring_ex(1, 8, BB_QUEUE_EVICT_OLDEST, 0, 0);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "a", 1, 0, 1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "b", 1, 0, 2));
+
+    TEST_ASSERT_EQUAL_size_t(1, bb_queue_count(r));
+    TEST_ASSERT_EQUAL_size_t(1, bb_queue_dropped(r));
+
+    size_t out_len; int64_t out_ts; uint32_t out_id; uint8_t buf[8] = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_peek_oldest(r, buf, sizeof(buf), &out_len, &out_ts, &out_id));
+    TEST_ASSERT_EQUAL_UINT32(2, out_id);
+    TEST_ASSERT_EQUAL_STRING("b", (const char *)buf);
+
+    bb_queue_destroy(r);
+}
+
+// ---------------------------------------------------------------------------
+// Age eviction (max_age) — sweep-on-push + explicit sweep (B1-1031)
+// ---------------------------------------------------------------------------
+
+void test_bb_queue_age_evict_on_push(void)
+{
+    bb_queue_t r = make_ring_ex(8, 32, BB_QUEUE_EVICT_OLDEST, 0, 1000);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "a", 1, 0, 1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "b", 1, 500, 2));
+    TEST_ASSERT_EQUAL_size_t(2, bb_queue_count(r));
+
+    // Pushing at ts=2000: entry 1 (age 2000) and entry 2 (age 1500) both
+    // >= max_age=1000 -- both expire before this entry is written.
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "c", 1, 2000, 3));
+
+    TEST_ASSERT_EQUAL_size_t(1, bb_queue_count(r));
+    TEST_ASSERT_EQUAL_size_t(2, bb_queue_dropped(r));
+
+    size_t out_len; int64_t out_ts; uint32_t out_id; uint8_t buf[8] = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_peek_oldest(r, buf, sizeof(buf), &out_len, &out_ts, &out_id));
+    TEST_ASSERT_EQUAL_UINT32(3, out_id);
+
+    bb_queue_destroy(r);
+}
+
+void test_bb_queue_evict_expired_explicit(void)
+{
+    bb_queue_t r = make_ring_ex(8, 32, BB_QUEUE_EVICT_OLDEST, 0, 1000);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "a", 1, 0, 1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "b", 1, 500, 2));
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "c", 1, 900, 3));
+    TEST_ASSERT_EQUAL_size_t(3, bb_queue_count(r));
+
+    // At now=1500: entry 1 (age 1500) and entry 2 (age 1000) expire;
+    // entry 3 (age 600) does not -- PARTIAL sweep.
+    size_t evicted = bb_queue_evict_expired(r, 1500);
+    TEST_ASSERT_EQUAL_size_t(2, evicted);
+
+    TEST_ASSERT_EQUAL_size_t(1, bb_queue_count(r));
+    TEST_ASSERT_EQUAL_size_t(2, bb_queue_dropped(r));
+
+    size_t out_len; int64_t out_ts; uint32_t out_id; uint8_t buf[8] = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_peek_oldest(r, buf, sizeof(buf), &out_len, &out_ts, &out_id));
+    TEST_ASSERT_EQUAL_UINT32(3, out_id);
+
+    bb_queue_destroy(r);
+}
+
+void test_bb_queue_evict_expired_noop_disabled(void)
+{
+    bb_queue_t r = make_ring(4, 8);  // max_age disabled (legacy ctor)
+    bb_queue_push(r, "a", 1, 0, 1);
+
+    TEST_ASSERT_EQUAL_size_t(0, bb_queue_evict_expired(r, 999999));
+    TEST_ASSERT_EQUAL_size_t(1, bb_queue_count(r));
+
+    bb_queue_destroy(r);
+}
+
+void test_bb_queue_evict_expired_noop_empty(void)
+{
+    bb_queue_t r = make_ring_ex(4, 8, BB_QUEUE_EVICT_OLDEST, 0, 1000);
+    TEST_ASSERT_EQUAL_size_t(0, bb_queue_evict_expired(r, 999999));
+    bb_queue_destroy(r);
+}
+
+void test_bb_queue_evict_expired_null_ring_returns_zero(void)
+{
+    TEST_ASSERT_EQUAL_size_t(0, bb_queue_evict_expired(NULL, 0));
+}
+
+// ---------------------------------------------------------------------------
+// Backward/out-of-order timestamps never purge fresh entries (HIGH finding)
+// ---------------------------------------------------------------------------
+
+void test_bb_queue_age_backward_ts_no_purge(void)
+{
+    // max_age=1000; ts deltas between pushes stay well under the eviction
+    // threshold (500 < 1000) so the ordinary sweep-on-push doesn't evict
+    // "a" while pushing "b" -- this test is isolating the BACKWARD-ts
+    // clamp behavior, not the (already-covered) forward sweep-on-push path.
+    bb_queue_t r = make_ring_ex(8, 32, BB_QUEUE_EVICT_OLDEST, 0, 1000);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "a", 1, 1000, 1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "b", 1, 1500, 2));
+
+    // Backward push: ts=500 is earlier than both existing entries' ts. A
+    // naive (unclamped) age computation would wrap negative to ~UINT64_MAX
+    // and wrongly evict the fresh entries. Both must survive.
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r, "c", 1, 500, 3));
+
+    TEST_ASSERT_EQUAL_size_t(3, bb_queue_count(r));
+    TEST_ASSERT_EQUAL_size_t(0, bb_queue_dropped(r));
+
+    // Direct explicit sweep with a backward `now` against ts={1000,1500}
+    // must evict nothing.
+    bb_queue_t r2 = make_ring_ex(8, 32, BB_QUEUE_EVICT_OLDEST, 0, 1000);
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r2, "x", 1, 1000, 10));
+    TEST_ASSERT_EQUAL(BB_OK, bb_queue_push(r2, "y", 1, 1500, 20));
+
+    TEST_ASSERT_EQUAL_size_t(0, bb_queue_evict_expired(r2, 500));
+    TEST_ASSERT_EQUAL_size_t(2, bb_queue_count(r2));
+    TEST_ASSERT_EQUAL_size_t(0, bb_queue_dropped(r2));
+
+    bb_queue_destroy(r);
+    bb_queue_destroy(r2);
+}
+
+// ---------------------------------------------------------------------------
+// bb_queue_create_ex — max_bytes smaller than max_entry_bytes is rejected
+// (LOW finding)
+// ---------------------------------------------------------------------------
+
+void test_bb_queue_create_ex_max_bytes_below_max_entry_rejected(void)
+{
+    bb_queue_cfg_t cfg = {
+        .capacity_entries = 4,
+        .max_entry_bytes  = 32,
+        .policy           = BB_QUEUE_EVICT_OLDEST,
+        .name             = "t",
+        .max_bytes        = 16,  // smaller than max_entry_bytes -- never fits
+        .max_age          = 0,
+    };
+    bb_queue_t r = NULL;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_queue_create_ex(&cfg, &r));
+    TEST_ASSERT_NULL(r);
 }
