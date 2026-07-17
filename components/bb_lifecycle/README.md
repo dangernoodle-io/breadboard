@@ -17,8 +17,10 @@ Public symbols use the `bb_` prefix.
 <!-- BEGIN bbtool:deps -->
 | Component | Kind | Role | Docs |
 |-----------|------|------|------|
+| `bb_bqueue` | private | Blocking mailbox/MPSC queue — capacity==1 selects mailbox mode (overwrite/reset), capacity>1 selects bounded-MPSC mode (send/dropped); peek/receive/count/capacity work in both. | [bb_bqueue](../bb_bqueue/README.md) |
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
 | `bb_log` | private | — | [bb_log](../README.md) |
+| `bb_task` | private | — | [bb_task](../README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support

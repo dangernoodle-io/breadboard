@@ -79,6 +79,17 @@ typedef void (*bb_lifecycle_observer_fn)(const bb_lifecycle_event_t *evt, void *
 // pause_clear/register) from within its callback.
 bb_err_t bb_lifecycle_observe(bb_lifecycle_observer_fn cb, void *user);
 
+// Opt-in ASYNC observer registration (B1-1034): the same append-only table
+// as bb_lifecycle_observe(), but `cb` is invoked on a dedicated drain task
+// instead of inline on the emitter — decoupling a slow/blocking observer
+// from the caller of bb_lifecycle_start()/stop()/pause_assert()/pause_clear().
+// The "observer must not call a lifecycle mutator" rule holds for async
+// callbacks too. Requires CONFIG_BB_LIFECYCLE_ASYNC=y (default n); otherwise
+// always returns BB_ERR_UNSUPPORTED. NULL cb -> BB_ERR_INVALID_ARG. Observer
+// table full -> BB_ERR_NO_SPACE. A bb_bqueue_create()/bb_task_create()
+// failure on the first-ever call (lazy queue/task init) is propagated as-is.
+bb_err_t bb_lifecycle_observe_async(bb_lifecycle_observer_fn cb, void *user);
+
 // bbtool:init tier=early fn=bb_lifecycle_autoinit
 bb_err_t bb_lifecycle_autoinit(void);
 
@@ -155,6 +166,44 @@ void bb_lifecycle_word_set_for_test(uint32_t *words, size_t nwords, uint8_t bit)
 void bb_lifecycle_word_clear_for_test(uint32_t *words, size_t nwords, uint8_t bit);
 bool bb_lifecycle_word_test_for_test(const uint32_t *words, size_t nwords, uint8_t bit);
 bb_lifecycle_state_t bb_lifecycle_compute_state_for_test(bool started, const uint32_t *words, size_t nwords);
+
+// Directly invoke every async-flagged observer slot with `evt` -- a
+// registry-read-only dispatch, no queue/task involved. Exposed for a
+// no-threading unit test of the dispatch step in isolation; the real async
+// drain task (bb_lifecycle_async.c) calls the SAME internal helper this
+// wraps after its own bb_bqueue_receive().
+void bb_lifecycle_async_drain_dispatch_for_test(const bb_lifecycle_event_t *evt);
+
+// Pulls (and dispatches) exactly one event off the shared async queue,
+// blocking up to timeout_ms while empty -- the identical per-iteration body
+// the real drain task's for(;;) loop runs (with BB_BQUEUE_WAIT_FOREVER
+// there); this wrapper takes a caller-supplied timeout instead so a test
+// pthread can run it in a bounded, joinable loop against the REAL host
+// bb_bqueue backend (host's bb_task_create() is a fake no-thread stub --
+// see platform/host/bb_task/bb_task_host.c -- so the production "task"
+// never actually drains on host). Returns BB_ERR_NOT_FOUND/BB_ERR_TIMEOUT on
+// an empty queue (mirrors bb_bqueue_receive()); BB_ERR_UNSUPPORTED if the
+// queue does not exist yet (no bb_lifecycle_observe_async() call has
+// succeeded) or CONFIG_BB_LIFECYCLE_ASYNC=n.
+bb_err_t bb_lifecycle_async_test_drain_once(uint32_t timeout_ms);
+
+// Monotonic count of events dropped by the shared async queue (never
+// enqueued because it was full) since process start -- NOT reset by
+// bb_lifecycle_reset_for_test() (the underlying bb_bqueue instance is a
+// lazily-created, process-lifetime singleton; MPSC mode has no reset()).
+// Tests compare a before/after DELTA rather than an absolute value. Returns
+// 0 if the queue does not exist yet or CONFIG_BB_LIFECYCLE_ASYNC=n.
+size_t bb_lifecycle_async_test_dropped(void);
+
+// Un-latches the async substrate's once-guard (bb_lifecycle_async.c) and
+// resets its lazy-init error/queue-handle state: destroys the shared queue
+// if one exists (nulling the handle) and resets the drop-log rate-limit
+// timestamp. Lets a test that deliberately forces the first-ever
+// bb_lifecycle_observe_async() call to fail (e.g. by pre-exhausting the
+// bb_bqueue static pool) restore a clean slate for every later test in the
+// binary -- otherwise that single once-guarded failure would replay forever.
+// No-op (nothing to reset) when CONFIG_BB_LIFECYCLE_ASYNC=n.
+void bb_lifecycle_async_reset_for_test(void);
 #endif
 
 #ifdef __cplusplus
