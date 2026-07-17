@@ -9,8 +9,11 @@ set(_sys_srcs
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_boot_fail.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_reboot_budget.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_safeguard_reboot.c"
+    "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_snap.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system.c")
-set(_sys_priv_reqs bb_log bb_config esp_app_format bb_http esp_driver_tsens esp_system bb_ntp bb_json bb_str bb_storage)
+# bb_serialize: PRIV_REQUIRES -- bb_system_snap.h (format-agnostic source
+# snapshot, additive-only) is a private header, not exposed under include/.
+set(_sys_priv_reqs bb_log bb_config esp_app_format bb_http esp_driver_tsens esp_system bb_ntp bb_json bb_str bb_storage bb_serialize)
 
 if(CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER)
     list(APPEND _sys_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system_routes.c")
