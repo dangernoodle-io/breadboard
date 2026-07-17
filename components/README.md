@@ -27,6 +27,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_collection](./bb_collection/) | A humble, fixed-capacity, thread-safe ordered collection of caller-owned opaque items. |
 | [bb_config](./bb_config/) | Typed configuration layer over `bb_storage` — gives its blob-only vtable scalar-typed meaning (bool/u8/u16/u32/i32/str/blob) via a caller-owned field descriptor table. |
 | [bb_core](./bb_core/) | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. |
+| [bb_data](./bb_data/) | bb_data core binding table (B1-832) -- OWNS the `key -> (desc, gather)` binding table for the future bidirectional data path (the B1-828 epic replacing bb_pub + bb_sub + all bb_sink_*). DIRECT: bb_data delegates ONLY the wire-format step to the existing bb_serialize format-dispatch registry (bb_serialize_format.h) -- it does NOT wrap bb_cache or bb_cache_serialize, and has no dependency on either. |
 | [bb_diag](./bb_diag/) | — |
 | [bb_dispatch_cmd](./bb_dispatch_cmd/) | — |
 | [bb_display](./bb_display/) | — |

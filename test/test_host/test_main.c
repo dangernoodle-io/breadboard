@@ -150,6 +150,24 @@ void test_bb_serialize_format_render_json_matches_direct_call(void);
 void test_bb_serialize_format_json_render_roundtrip_via_registry(void);
 void test_bb_serialize_json_register_format_idempotent(void);
 
+// Forward declarations from test_bb_data.c
+void test_bb_data_bind_success(void);
+void test_bb_data_bind_override_replaces_binding(void);
+void test_bb_data_bind_null_binding_returns_invalid_arg(void);
+void test_bb_data_bind_null_key_returns_invalid_arg(void);
+void test_bb_data_bind_null_desc_returns_invalid_arg(void);
+void test_bb_data_bind_useless_binding_rejected(void);
+void test_bb_data_bind_key_max_length_boundary(void);
+void test_bb_data_bind_capacity_full_returns_no_space(void);
+void test_bb_data_render_happy_path_with_meminfo_fixture(void);
+void test_bb_data_render_unbound_key_returns_not_found(void);
+void test_bb_data_render_unregistered_format_returns_unsupported(void);
+void test_bb_data_render_gather_failure_propagates(void);
+void test_bb_data_render_buf_too_small_returns_no_space(void);
+void test_bb_data_render_scratch_too_small_returns_no_space(void);
+void test_bb_data_render_unsupported_format_skips_gather(void);
+void test_bb_data_render_null_args_return_invalid_arg(void);
+
 // Forward declarations from test_bb_serialize_console.c
 void test_bb_serialize_console_flat_scalars(void);
 void test_bb_serialize_console_null_str_n_emits_null(void);
@@ -9883,6 +9901,23 @@ int main(void) {
     RUN_TEST(test_bb_fsm_ota_pull_replica_self_loop_retry_then_deterministic_abort);
     RUN_TEST(test_bb_fsm_ota_pull_replica_verifying_to_complete_terminal);
     RUN_TEST(test_bb_fsm_button_replica_periodic_tick_rearmed_across_edges);
+
+    RUN_TEST(test_bb_data_bind_success);
+    RUN_TEST(test_bb_data_bind_override_replaces_binding);
+    RUN_TEST(test_bb_data_bind_null_binding_returns_invalid_arg);
+    RUN_TEST(test_bb_data_bind_null_key_returns_invalid_arg);
+    RUN_TEST(test_bb_data_bind_null_desc_returns_invalid_arg);
+    RUN_TEST(test_bb_data_bind_useless_binding_rejected);
+    RUN_TEST(test_bb_data_bind_key_max_length_boundary);
+    RUN_TEST(test_bb_data_bind_capacity_full_returns_no_space);
+    RUN_TEST(test_bb_data_render_happy_path_with_meminfo_fixture);
+    RUN_TEST(test_bb_data_render_unbound_key_returns_not_found);
+    RUN_TEST(test_bb_data_render_unregistered_format_returns_unsupported);
+    RUN_TEST(test_bb_data_render_gather_failure_propagates);
+    RUN_TEST(test_bb_data_render_buf_too_small_returns_no_space);
+    RUN_TEST(test_bb_data_render_scratch_too_small_returns_no_space);
+    RUN_TEST(test_bb_data_render_unsupported_format_skips_gather);
+    RUN_TEST(test_bb_data_render_null_args_return_invalid_arg);
 
     return UNITY_END();
 }
