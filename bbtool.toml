@@ -278,10 +278,16 @@ remove_components = ["bb_wifi_ap"]
 # codegen resolver needs a storage_rtc provider in the manifest even though
 # floor's handwire path never calls that init fn -- dropping it re-breaks
 # `make floor-codegen`.
+#
+# bb_serialize_console: floor's heap-emit call site
+# (bb_serialize_console_heap_report()) is the first live app call site of
+# the serialization emit stack -- pulls in bb_serialize + bb_core
+# transitively via its own REQUIRES.
 components = [
     "bb_log", "bb_meminfo", "bb_timer",
     "bb_wifi", "bb_storage_nvs", "bb_storage_rtc", "bb_settings",
     "bb_http", "bb_http_server", "bb_lifecycle",
+    "bb_serialize_console",
 ]
 
 [board.floor]
