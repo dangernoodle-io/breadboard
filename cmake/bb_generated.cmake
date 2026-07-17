@@ -18,10 +18,9 @@
 # BB_AUTOWIRE_COMPONENTS, BB_AUTOWIRE_REQUIRES) must land in the CALLER's
 # scope, and a function's own scope would swallow them.
 #
-# Existing pre-PR call sites (examples/floor/main/CMakeLists.txt,
-# examples/smoke/main/CMakeLists.txt) are intentionally NOT migrated here
-# -- that's a separate follow-up, out of scope for this change; only the
-# new top-level examples/floor/CMakeLists.txt guard uses this macro so far.
+# All example call sites (examples/floor/CMakeLists.txt,
+# examples/floor/main/CMakeLists.txt, examples/smoke/main/CMakeLists.txt)
+# now use this macro.
 macro(bb_include_generated_or_fail out_var path context_msg)
     set(${out_var} "${path}")
     if(NOT EXISTS "${${out_var}}")

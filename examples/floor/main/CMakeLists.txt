@@ -34,13 +34,10 @@ endif()
 # (bb_log bb_meminfo bb_timer) -- floor has a single board/env, so unlike
 # smoke there's no board-guard comparison to make (no FIRMWARE_BOARD is
 # defined for this build); a missing fragment is still a hard error.
-set(BB_FLOOR_GENERATED_REQUIRES "${CMAKE_CURRENT_LIST_DIR}/generated/bb_autowire_components.cmake")
-if(NOT EXISTS "${BB_FLOOR_GENERATED_REQUIRES}")
-    message(FATAL_ERROR
-        "floor: ${BB_FLOOR_GENERATED_REQUIRES} is missing -- run "
-        "`make floor-gen` (see the Makefile) before building.")
-endif()
-include("${BB_FLOOR_GENERATED_REQUIRES}")
+include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/bb_generated.cmake")
+bb_include_generated_or_fail(BB_FLOOR_GENERATED_FRAGMENT
+    "${CMAKE_CURRENT_LIST_DIR}/generated/bb_autowire_components.cmake"
+    "floor: run `make floor-gen` (see the Makefile) before building.")
 
 idf_component_register(
     SRCS ${_floor_srcs}
