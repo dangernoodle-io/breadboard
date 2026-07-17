@@ -508,6 +508,52 @@ bool bb_serialize_json_tok_get_f64 (const bb_serialize_json_tok_recorder_t *rec,
 bool bb_serialize_json_tok_get_bool(const bb_serialize_json_tok_recorder_t *rec, bb_serialize_json_tok_idx_t idx,
                                      bool *out);
 
+// ---------------------------------------------------------------------------
+// Populate adapter -- binds a bb_serialize_populate_t source vtable to an
+// already-scanned token recorder, so a caller can drive
+// bb_serialize_populate(desc, dst, src) straight off a
+// bb_serialize_json_tok_recorder_t without hand-rolling the field-lookup
+// glue. Read-only: navigates the recorder's flat token pool, never mutates
+// it (a `const bb_serialize_json_tok_recorder_t *` is bound), no heap.
+//
+// RE-DRIVABLE: bb_serialize_json_populate_from_tok() writes ONLY into the
+// caller-supplied `ctx` -- it never touches the recorder itself -- so N
+// independent calls (each with its own `ctx` storage) bound to the SAME
+// `rec` produce N independent, stateless cursors that can each drive a
+// separate bb_serialize_populate() call (against separate descriptors, or
+// concurrently interleaved) without interfering with one another. This is
+// the property bb_data's multi-descriptor fan-out over one scanned JSON
+// body relies on.
+// ---------------------------------------------------------------------------
+
+// Opaque cursor state -- caller-owned, no heap; same "cast the opaque
+// _state[] to the real internal struct" pattern as
+// bb_serialize_json_scan_ctx_t. Internally, a traversal stack of container
+// tokens (OBJ or ARR) currently in scope, one entry per nesting level, plus
+// (ARR levels only) the next unread element index -- consumed by the
+// key==NULL calls populate makes for BB_TYPE_ARR elements (begin_obj(NULL)
+// for elem_type==BB_TYPE_OBJ, get_str(NULL, ...) for elem_type==BB_TYPE_STR),
+// since populate itself carries no per-element index of its own. Sized to
+// the same BB_SERIALIZE_MAX_DEPTH nesting bound bb_serialize_populate()
+// itself enforces (root frame plus one pushed frame per OBJ/ARR descent);
+// a compile-time _Static_assert in the .c file catches this ever falling
+// short.
+#define BB_SERIALIZE_JSON_POPULATE_CTX_STATE_SIZE (16 * (BB_SERIALIZE_MAX_DEPTH + 1) + 16)
+
+typedef struct bb_serialize_json_populate_ctx bb_serialize_json_populate_ctx_t;
+struct bb_serialize_json_populate_ctx {
+    char _state[BB_SERIALIZE_JSON_POPULATE_CTX_STATE_SIZE];
+};
+
+// Binds a bb_serialize_populate_t to the ROOT OBJECT of `rec` (an
+// already-scanned token recorder -- i.e. bb_serialize_json_scan_bounded()
+// has already run against it). Initializes `*ctx` (caller-owned storage)
+// and returns a vtable bound to it; `rec` is borrowed and must outlive the
+// resulting bb_serialize_populate_t. See the RE-DRIVABLE note above.
+bb_serialize_populate_t bb_serialize_json_populate_from_tok(
+    bb_serialize_json_populate_ctx_t *ctx,
+    const bb_serialize_json_tok_recorder_t *rec);
+
 #ifdef __cplusplus
 }
 #endif
