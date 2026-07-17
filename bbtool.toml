@@ -264,7 +264,25 @@ capabilities = ["smoke"]
 remove_components = ["bb_wifi_ap"]
 
 [capability.floor]
-components = ["bb_log", "bb_meminfo", "bb_timer"]
+# B1-973 slice 1a: bb_lifecycle manages the HTTP server's start/stop (its
+# first real consumer) so floor can take a heap-with-HTTP reading. This is
+# NOT smoke's closure -- floor's runtime path (main/floor_app.c) only calls
+# bb_storage_nvs_register() + bb_wifi_ensure_net_stack()/bb_wifi_autoinit(),
+# never bb_settings_creds_boot_init(), so it never runs smoke's creds-boot
+# shell. The runtime-used set is bb_wifi (net stack + creds-driven connect,
+# PRIV_REQUIRES bb_settings) + bb_storage_nvs (creds read/write) +
+# bb_http + bb_http_server (the server) + bb_lifecycle (start/stop
+# authority). bb_storage_rtc is listed solely to satisfy the codegen
+# closure proof (`make floor-codegen`): bb_settings ships a
+# bb_settings_creds_boot_init init marker with requires=storage_rtc, so the
+# codegen resolver needs a storage_rtc provider in the manifest even though
+# floor's handwire path never calls that init fn -- dropping it re-breaks
+# `make floor-codegen`.
+components = [
+    "bb_log", "bb_meminfo", "bb_timer",
+    "bb_wifi", "bb_storage_nvs", "bb_storage_rtc", "bb_settings",
+    "bb_http", "bb_http_server", "bb_lifecycle",
+]
 
 [board.floor]
 platform = "espidf"
