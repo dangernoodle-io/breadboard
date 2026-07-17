@@ -1,8 +1,10 @@
 // bb_tcp_client — common logic shared by the host and ESP-IDF backends:
-// NVS-backed host/port/tls config load/save, and the shared
-// bb_transport_health "tcp" registration/report. The platform-specific files
-// (platform/{host,espidf}/bb_tcp_client/*.c) implement the instance pool and
-// the actual stream I/O.
+// NVS-backed host/port/tls config load/save, the per-instance health
+// report/set-tls-error helpers, and the health snapshot descriptor. The
+// platform-specific files (platform/{host,espidf}/bb_tcp_client/*.c)
+// implement the instance pool, the actual stream I/O, and
+// bb_tcp_client_health_fill() (which needs each backend's own
+// inst_from_handle()).
 //
 // host/port/tls round-trip through bb_config (typed layer over bb_storage)
 // rather than bb_nv's generic KV forwarder (B1-756, bb_nv dissolution epic
@@ -13,16 +15,15 @@
 // component previously wrote via bb_nv (namespace is now caller-supplied,
 // B1-951 — the component declares WHAT it stores, the composition decides
 // WHERE; see bb_tls_creds's resolve_one for the reference pattern).
+//
+// B1-1039: bb_transport_health is no longer used by this component (dropped
+// entirely) — health is now per-instance (see bb_tcp_client_priv.h).
 #include "bb_tcp_client_priv.h"
 #include "bb_config.h"
-#include "bb_once.h"
-#include "bb_transport_health.h"
+#include "bb_clock.h"
 
+#include <stddef.h>
 #include <string.h>
-#ifdef BB_TCP_CLIENT_TESTING
-#include <stdatomic.h>
-#include <unistd.h>
-#endif
 
 void bb_tcp_client_priv_load_from_nvs(const char *ns, bb_tcp_client_cfg_t *out)
 {
@@ -95,56 +96,87 @@ void bb_tcp_client_priv_save_to_nvs(const char *ns, const bb_tcp_client_cfg_t *c
     bb_config_set_u8(&tls_field, cfg->tls ? 1 : 0);
 }
 
-// Single shared AUTHORITATIVE slot for the whole component (not one per
-// instance). Registered lazily on the first report call. With
-// BB_TCP_CLIENT_MAX_INSTANCES > 1, connect/read/write for DIFFERENT pooled
-// instances can be driven concurrently from different tasks, so the lazy
-// check-then-register below is a genuine race: bb_once guards it so exactly
-// one caller ever runs bb_transport_health_register(), and every other
-// (concurrent or later) caller blocks until that single registration has
-// completed before reading s_th_handle.
-static bb_transport_handle_t s_th_handle = BB_TRANSPORT_HANDLE_INVALID;
-static bb_once_t s_th_once = BB_ONCE_INIT;
+// ---------------------------------------------------------------------------
+// last_ok_ms clock source. bb_tcp_client is a networking client (not a pure
+// primitive), so it may read a clock directly -- bb_clock_now_ms64() is the
+// canonical source (see bb_clock.h). BB_TCP_CLIENT_TESTING builds (native
+// host tests only) get a settable mock instead, keeping last_ok_ms
+// assertions deterministic -- mirrors bb_button_events' local mock-clock
+// guard idiom (bb_clock.h: "components that need a settable mock define
+// their own per-component mock guard").
+// ---------------------------------------------------------------------------
 
 #ifdef BB_TCP_CLIENT_TESTING
-// Test-only widening hook (structurally unreachable outside
-// BB_TCP_CLIENT_TESTING builds — that symbol is defined only in
-// platformio.ini's native test env build_flags, never in any
-// CMakeLists/sdkconfig path). When enabled, register_health() below sleeps
-// while it still holds bb_once's RUNNING state, deterministically forcing a
-// concurrent second caller to observe RUNNING (not DONE) and actually enter
-// bb_once_run's wait loop — mirrors test_bb_once.c's slow_incr idiom, which
-// widens the guarded region instead of relying on scheduling luck.
-static _Atomic bool s_th_register_delay_enabled = false;
+static int64_t s_mock_time_ms64 = 0;
+
+static int64_t now_ms64(void)
+{
+    return s_mock_time_ms64;
+}
+
+void bb_tcp_client_test_set_mock_time_ms64(int64_t ms)
+{
+    s_mock_time_ms64 = ms;
+}
+
+void bb_tcp_client_priv_reset_mock_clock_for_test(void)
+{
+    s_mock_time_ms64 = 0;
+}
+#else
+static int64_t now_ms64(void)
+{
+    return (int64_t)bb_clock_now_ms64();
+}
 #endif
 
-static void bb_tcp_client_priv_register_health(void *ctx)
+void bb_tcp_client_priv_health_report(bb_tcp_client_health_state_t *health, bool ok)
 {
-    (void)ctx;
-#ifdef BB_TCP_CLIENT_TESTING
-    if (atomic_load(&s_th_register_delay_enabled)) {
-        usleep(20000); // hold RUNNING long enough for a racing caller to observe it
+    pthread_mutex_lock(&health->lock);
+    if (ok) {
+        health->connected  = true;
+        health->last_ok_ms = now_ms64();
+    } else {
+        health->connected = false;
+        health->fail_count++;
     }
-#endif
-    bb_transport_health_register("tcp", BB_TRANSPORT_AUTHORITATIVE, &s_th_handle);
+    pthread_mutex_unlock(&health->lock);
 }
 
-void bb_tcp_client_priv_health_report(bool ok)
+void bb_tcp_client_priv_health_set_tls_error(bb_tcp_client_health_state_t *health, int64_t tls_error_code)
 {
-    bb_once_run(&s_th_once, bb_tcp_client_priv_register_health, NULL);
-    bb_transport_health_report(s_th_handle, ok);
+    pthread_mutex_lock(&health->lock);
+    health->tls_error_code = tls_error_code;
+    pthread_mutex_unlock(&health->lock);
 }
 
-#ifdef BB_TCP_CLIENT_TESTING
-void bb_tcp_client_priv_reset_health_for_test(void)
+void bb_tcp_client_priv_health_close(bb_tcp_client_health_state_t *health)
 {
-    s_th_handle = BB_TRANSPORT_HANDLE_INVALID;
-    s_th_once = (bb_once_t)BB_ONCE_INIT;
-    atomic_store(&s_th_register_delay_enabled, false);
+    pthread_mutex_lock(&health->lock);
+    health->connected = false;  // clean close is not a transport failure -- fail_count untouched
+    pthread_mutex_unlock(&health->lock);
 }
 
-void bb_tcp_client_test_set_register_delay(bool enabled)
-{
-    atomic_store(&s_th_register_delay_enabled, enabled);
-}
-#endif
+// ---------------------------------------------------------------------------
+// Health snapshot descriptor -- format-agnostic, portable (no ESP_PLATFORM
+// gate needed). Mirrors bb_meminfo_heap_snap_desc's structure/widening
+// pattern; see bb_tcp_client.h for the snapshot struct contract.
+// ---------------------------------------------------------------------------
+
+static const bb_serialize_field_t s_tcp_client_health_fields[] = {
+    { .key = "connected", .type = BB_TYPE_BOOL,
+      .offset = offsetof(bb_tcp_client_health_snap_t, connected) },
+    { .key = "last_ok_ms", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_tcp_client_health_snap_t, last_ok_ms) },
+    { .key = "fail_count", .type = BB_TYPE_U64,
+      .offset = offsetof(bb_tcp_client_health_snap_t, fail_count) },
+    { .key = "tls_error_code", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_tcp_client_health_snap_t, tls_error_code) },
+};
+
+const bb_serialize_desc_t bb_tcp_client_health_desc = {
+    .type_name = "tcp_client_health",
+    .fields    = s_tcp_client_health_fields,
+    .n_fields  = sizeof(s_tcp_client_health_fields) / sizeof(s_tcp_client_health_fields[0]),
+    .snap_size = sizeof(bb_tcp_client_health_snap_t),
+};

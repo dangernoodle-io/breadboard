@@ -15,16 +15,15 @@
 // "port" entries into the same slot and make the isolation test below
 // meaningless. This local fake is scoped to this file only -- not a change
 // to the shared double, which other components' tests still rely on.
+//
+// B1-1039: bb_transport_health is no longer used by this component -- health
+// is now per-instance (bb_tcp_client_health_fill() / bb_tcp_client_health_desc).
 #include "unity.h"
 #include "bb_tcp_client.h"
-#include "bb_transport_health.h"
 #include "bb_config.h"
 #include "bb_storage.h"
 #include "bb_nv_namespaces.h"
 
-#include <pthread.h>
-#include <sched.h>
-#include <stdatomic.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -149,7 +148,6 @@ static const bb_config_field_t s_test_tcp_tls_field = {
 static void reset_world(void)
 {
     bb_tcp_client_test_reset();
-    bb_transport_health_reset_for_test();
     bb_storage_test_reset();
     tcp_test_nvs_reset();
     bb_storage_register_backend("nvs", &s_tcp_test_nvs_vtable, NULL);
@@ -376,15 +374,17 @@ void test_bb_tcp_client_init_tls_cfg_captured(void)
 void test_bb_tcp_client_connect_happy_sets_connected_and_reports_health_ok(void)
 {
     reset_world();
+    bb_tcp_client_test_set_mock_time_ms64(12345);
     bb_tcp_client_t h = make_instance(NULL);
 
     TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_connect(h));
     TEST_ASSERT_EQUAL(BB_TCP_CLIENT_CONNECTED, bb_tcp_client_get_state(h));
 
-    int enabled = -1, failing = -1;
-    TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
-    TEST_ASSERT_EQUAL_INT(1, enabled);
-    TEST_ASSERT_EQUAL_INT(0, failing);
+    bb_tcp_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_TRUE(snap.connected);
+    TEST_ASSERT_EQUAL_INT64(12345, snap.last_ok_ms);
+    TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
 }
 
 void test_bb_tcp_client_connect_is_idempotent_when_already_connected(void)
@@ -397,6 +397,24 @@ void test_bb_tcp_client_connect_is_idempotent_when_already_connected(void)
     TEST_ASSERT_EQUAL(BB_TCP_CLIENT_CONNECTED, bb_tcp_client_get_state(h));
 }
 
+// forced connect result of BB_OK exercises the forced-success branch (the
+// same real-connect-success path also goes through the unforced branch
+// below it, but this one proves the forced_connect_result_set-and-BB_OK
+// combination itself sets CONNECTED, not just BB_OK's return code).
+void test_bb_tcp_client_connect_forced_ok_sets_connected_and_reports_health_ok(void)
+{
+    reset_world();
+    bb_tcp_client_t h = make_instance(NULL);
+
+    bb_tcp_client_test_force_connect_result(h, BB_OK);
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_connect(h));
+    TEST_ASSERT_EQUAL(BB_TCP_CLIENT_CONNECTED, bb_tcp_client_get_state(h));
+
+    bb_tcp_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_TRUE(snap.connected);
+}
+
 void test_bb_tcp_client_connect_forced_fail_sets_disconnected_and_reports_health_fail(void)
 {
     reset_world();
@@ -406,10 +424,10 @@ void test_bb_tcp_client_connect_forced_fail_sets_disconnected_and_reports_health
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_tcp_client_connect(h));
     TEST_ASSERT_EQUAL(BB_TCP_CLIENT_DISCONNECTED, bb_tcp_client_get_state(h));
 
-    int enabled = -1, failing = -1;
-    TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
-    TEST_ASSERT_EQUAL_INT(1, enabled);
-    TEST_ASSERT_EQUAL_INT(1, failing);
+    bb_tcp_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_FALSE(snap.connected);
+    TEST_ASSERT_EQUAL_UINT64(1, snap.fail_count);
 }
 
 void test_bb_tcp_client_connect_null_handle_returns_invalid_arg(void)
@@ -502,19 +520,20 @@ void test_bb_tcp_client_read_timeout_reports_no_health(void)
 {
     reset_world();
     bb_tcp_client_t h = make_instance(NULL);
-    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_connect(h));
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_connect(h));  // seeds health ok=true
 
-    int enabled_before = -1, failing_before = -1;
-    TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_authoritative_counts(&enabled_before, &failing_before));
+    bb_tcp_client_health_snap_t before;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &before));
 
     uint8_t out[8];
     size_t n = 99;
     TEST_ASSERT_EQUAL(BB_ERR_TIMEOUT, bb_tcp_client_read(h, out, sizeof(out), &n));
     TEST_ASSERT_EQUAL_INT(0, n);
 
-    int enabled_after = -1, failing_after = -1;
-    TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_authoritative_counts(&enabled_after, &failing_after));
-    TEST_ASSERT_EQUAL_INT(failing_before, failing_after);
+    bb_tcp_client_health_snap_t after;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &after));
+    TEST_ASSERT_EQUAL_UINT64(before.fail_count, after.fail_count);
+    TEST_ASSERT_TRUE(after.connected);  // still connected -- a timeout is not a failure
 }
 
 // ---------------------------------------------------------------------------
@@ -594,9 +613,10 @@ void test_bb_tcp_client_read_hard_error_reports_health_fail(void)
     size_t n = 0;
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_tcp_client_read(h, buf, sizeof(buf), &n));
 
-    int enabled = -1, failing = -1;
-    TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
-    TEST_ASSERT_EQUAL_INT(1, failing);
+    bb_tcp_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_FALSE(snap.connected);
+    TEST_ASSERT_EQUAL_UINT64(1, snap.fail_count);
 }
 
 void test_bb_tcp_client_write_hard_error_reports_health_fail(void)
@@ -609,9 +629,10 @@ void test_bb_tcp_client_write_hard_error_reports_health_fail(void)
     const uint8_t buf[] = { 1 };
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_tcp_client_write(h, buf, sizeof(buf)));
 
-    int enabled = -1, failing = -1;
-    TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
-    TEST_ASSERT_EQUAL_INT(1, failing);
+    bb_tcp_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_FALSE(snap.connected);
+    TEST_ASSERT_EQUAL_UINT64(1, snap.fail_count);
 }
 
 // forced io result of BB_ERR_TIMEOUT must NOT report health (mirrors the
@@ -628,14 +649,14 @@ void test_bb_tcp_client_forced_io_timeout_does_not_report_health(void)
     size_t n = 0;
     TEST_ASSERT_EQUAL(BB_ERR_TIMEOUT, bb_tcp_client_read(h, buf, sizeof(buf), &n));
 
-    int enabled = -1, failing = -1;
-    TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
-    TEST_ASSERT_EQUAL_INT(0, failing);
+    bb_tcp_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
 
     bb_tcp_client_test_force_io_result(h, BB_ERR_TIMEOUT);
     TEST_ASSERT_EQUAL(BB_ERR_TIMEOUT, bb_tcp_client_write(h, buf, sizeof(buf)));
-    TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
-    TEST_ASSERT_EQUAL_INT(0, failing);
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
 }
 
 // ---------------------------------------------------------------------------
@@ -706,6 +727,26 @@ void test_bb_tcp_client_close_then_read_write_return_invalid_state(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_tcp_client_write(h, buf, sizeof(buf)));
 }
 
+// close() is a clean disconnect, not a transport failure — it clears
+// connected but must NOT bump fail_count.
+void test_bb_tcp_client_close_clears_connected_without_bumping_fail_count(void)
+{
+    reset_world();
+    bb_tcp_client_t h = make_instance(NULL);
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_connect(h));  // seeds health ok=true
+
+    bb_tcp_client_health_snap_t before;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &before));
+    TEST_ASSERT_TRUE(before.connected);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_close(h));
+
+    bb_tcp_client_health_snap_t after;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &after));
+    TEST_ASSERT_FALSE(after.connected);
+    TEST_ASSERT_EQUAL_UINT64(before.fail_count, after.fail_count);
+}
+
 void test_bb_tcp_client_close_then_reconnect_succeeds(void)
 {
     reset_world();
@@ -723,6 +764,11 @@ void test_bb_tcp_client_close_when_already_disconnected_is_safe(void)
     bb_tcp_client_t h = make_instance(NULL);
     TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_close(h));
     TEST_ASSERT_EQUAL(BB_TCP_CLIENT_DISCONNECTED, bb_tcp_client_get_state(h));
+
+    bb_tcp_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_FALSE(snap.connected);
+    TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
 }
 
 void test_bb_tcp_client_close_null_handle_returns_invalid_arg(void)
@@ -766,123 +812,222 @@ void test_bb_tcp_client_destroy_null_is_noop(void)
 }
 
 // ---------------------------------------------------------------------------
-// transport_health registered exactly once across repeated init
+// per-instance health isolation (B1-1039) — the entire point of the switch
+// away from a single shared bb_transport_health "tcp" slot: two pooled
+// instances must track completely independent counters.
 // ---------------------------------------------------------------------------
 
-void test_bb_tcp_client_transport_health_registered_once_across_repeated_init(void)
+void test_bb_tcp_client_health_is_isolated_per_instance(void)
 {
     reset_world();
 
     bb_tcp_client_t h1 = make_instance(NULL);
-    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_connect(h1));
-    bb_tcp_client_destroy(h1);
-
     bb_tcp_client_t h2 = make_instance(NULL);
+
+    // h1 fails to connect; h2 connects cleanly.
+    bb_tcp_client_test_force_connect_result(h1, BB_ERR_INVALID_STATE);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_tcp_client_connect(h1));
     TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_connect(h2));
+
+    bb_tcp_client_health_snap_t snap1, snap2;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h1, &snap1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h2, &snap2));
+
+    TEST_ASSERT_FALSE(snap1.connected);
+    TEST_ASSERT_EQUAL_UINT64(1, snap1.fail_count);
+
+    TEST_ASSERT_TRUE(snap2.connected);
+    TEST_ASSERT_EQUAL_UINT64(0, snap2.fail_count);
+
+    // A further hard I/O error on h2 must not touch h1's already-recorded
+    // failure count.
+    bb_tcp_client_test_force_io_result(h2, BB_ERR_INVALID_STATE);
+    uint8_t buf[4];
+    size_t n = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_tcp_client_read(h2, buf, sizeof(buf), &n));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h1, &snap1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h2, &snap2));
+    TEST_ASSERT_EQUAL_UINT64(1, snap1.fail_count);  // unchanged
+    TEST_ASSERT_EQUAL_UINT64(1, snap2.fail_count);
+
+    bb_tcp_client_destroy(h1);
     bb_tcp_client_destroy(h2);
-
-    bb_tcp_client_t h3 = make_instance(NULL);
-    bb_tcp_client_test_force_connect_result(h3, BB_ERR_INVALID_STATE);
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_tcp_client_connect(h3));
-    bb_tcp_client_destroy(h3);
-
-    // Exactly one AUTHORITATIVE "tcp" slot exists no matter how many times
-    // init/connect/destroy cycled — never re-registered per instance.
-    bb_transport_health_snapshot_t snaps[8];
-    size_t count = bb_transport_health_snapshot_all(snaps, 8);
-    int tcp_slots = 0;
-    for (size_t i = 0; i < count; i++) {
-        if (snaps[i].name != NULL && strcmp(snaps[i].name, "tcp") == 0) {
-            tcp_slots++;
-        }
-    }
-    TEST_ASSERT_EQUAL_INT(1, tcp_slots);
 }
 
 // ---------------------------------------------------------------------------
-// concurrent lazy registration: two pooled instances, driven from two
-// threads, both racing bb_tcp_client_priv_health_report()'s lazy
-// check-then-register for the very first time. Without bb_once guarding it,
-// two threads can both observe BB_TRANSPORT_HANDLE_INVALID and each register
-// its own "tcp" AUTHORITATIVE slot.
-//
-// The ready/go gate below only makes both threads ENTER connect() together —
-// on its own that is NOT enough to force the interleaving: without widening
-// the guarded region, the winner's registration is fast enough that the
-// loser's very first check almost always already observes DONE, so the
-// pre-fix naive check-then-act bug reproduces standalone only ~3% of the
-// time. bb_tcp_client_test_set_register_delay(true) closes that gap by
-// making bb_tcp_client_priv_register_health() sleep ~20ms while still
-// holding bb_once's RUNNING state (mirrors test_bb_once.c's
-// slow_incr/test_bb_once_run_loser_waits_via_sched_yield idiom), guaranteeing
-// the second thread arrives while the first is still inside the guarded
-// region. This test proves the guard holds deterministically, not just "in
-// this run": with the bb_once fix reverted to a naive check-then-act, it
-// fails reliably; with the fix in place, it passes reliably.
+// health_fill: NULL args, and a fresh instance's zeroed defaults
 // ---------------------------------------------------------------------------
 
-#define TCP_RACE_THREADS 2
-
-static _Atomic int  s_race_ready_count;
-static _Atomic bool s_race_go;
-
-static void *bb_tcp_client_test_race_worker(void *arg)
-{
-    bb_tcp_client_t h = (bb_tcp_client_t)arg;
-
-    atomic_fetch_add(&s_race_ready_count, 1);
-    while (!atomic_load(&s_race_go)) {
-        sched_yield();
-    }
-
-    bb_tcp_client_connect(h);
-    return NULL;
-}
-
-void test_bb_tcp_client_concurrent_first_connect_registers_health_exactly_once(void)
+void test_bb_tcp_client_health_fill_null_args_return_invalid_arg(void)
 {
     reset_world();
-    atomic_store(&s_race_ready_count, 0);
-    atomic_store(&s_race_go, false);
-    bb_tcp_client_test_set_register_delay(true);
+    bb_tcp_client_t h = make_instance(NULL);
 
-    bb_tcp_client_t handles[TCP_RACE_THREADS];
-    for (int i = 0; i < TCP_RACE_THREADS; i++) {
-        handles[i] = make_instance(NULL);
-    }
+    bb_tcp_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_tcp_client_health_fill(h, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_tcp_client_health_fill(NULL, &snap));
+}
 
-    pthread_t threads[TCP_RACE_THREADS];
-    for (int i = 0; i < TCP_RACE_THREADS; i++) {
-        int rc = pthread_create(&threads[i], NULL, bb_tcp_client_test_race_worker, handles[i]);
-        TEST_ASSERT_EQUAL_INT(0, rc);
-    }
+void test_bb_tcp_client_health_fill_fresh_instance_is_zeroed(void)
+{
+    reset_world();
+    bb_tcp_client_t h = make_instance(NULL);
 
-    // Release both threads together only once both have reached the gate,
-    // so they race bb_tcp_client_priv_health_report()'s lazy registration
-    // as close to simultaneously as the scheduler allows. The widened
-    // guarded region (above) then guarantees the loser actually observes
-    // RUNNING rather than DONE.
-    while (atomic_load(&s_race_ready_count) < TCP_RACE_THREADS) {
-        sched_yield();
-    }
-    atomic_store(&s_race_go, true);
+    bb_tcp_client_health_snap_t snap;
+    memset(&snap, 0xAA, sizeof(snap));  // poison, so a no-op fill would be caught
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
 
-    for (int i = 0; i < TCP_RACE_THREADS; i++) {
-        pthread_join(threads[i], NULL);
-    }
-    bb_tcp_client_test_set_register_delay(false);
+    TEST_ASSERT_FALSE(snap.connected);
+    TEST_ASSERT_EQUAL_INT64(0, snap.last_ok_ms);
+    TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
+    TEST_ASSERT_EQUAL_INT64(0, snap.tls_error_code);
+}
 
-    bb_transport_health_snapshot_t snaps[8];
-    size_t count = bb_transport_health_snapshot_all(snaps, 8);
-    int tcp_slots = 0;
-    for (size_t i = 0; i < count; i++) {
-        if (snaps[i].name != NULL && strcmp(snaps[i].name, "tcp") == 0) {
-            tcp_slots++;
-        }
-    }
-    TEST_ASSERT_EQUAL_INT(1, tcp_slots);
+// ---------------------------------------------------------------------------
+// tls_error_code: host-only force hook (no real TLS on host)
+// ---------------------------------------------------------------------------
 
-    for (int i = 0; i < TCP_RACE_THREADS; i++) {
-        bb_tcp_client_destroy(handles[i]);
-    }
+void test_bb_tcp_client_health_fill_reports_forced_tls_error_code(void)
+{
+    reset_world();
+    bb_tcp_client_t h = make_instance(NULL);
+
+    bb_tcp_client_test_force_tls_error_code(h, -9109);
+
+    bb_tcp_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_EQUAL_INT64(-9109, snap.tls_error_code);
+}
+
+// ---------------------------------------------------------------------------
+// bb_tcp_client_health_desc: the descriptor produces exactly the 4 documented
+// wire keys, in order, against a live-filled snapshot.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    char keys[8][32];
+    int  count;
+} tcp_health_desc_capture_t;
+
+static void tcp_health_capture_emit_bool(void *ctx, const char *key, bool v)
+{
+    (void)v;
+    tcp_health_desc_capture_t *cap = (tcp_health_desc_capture_t *)ctx;
+    strncpy(cap->keys[cap->count], key, sizeof(cap->keys[0]) - 1);
+    cap->count++;
+}
+
+static void tcp_health_capture_emit_i64(void *ctx, const char *key, int64_t v)
+{
+    (void)v;
+    tcp_health_desc_capture_t *cap = (tcp_health_desc_capture_t *)ctx;
+    strncpy(cap->keys[cap->count], key, sizeof(cap->keys[0]) - 1);
+    cap->count++;
+}
+
+static void tcp_health_capture_emit_u64(void *ctx, const char *key, uint64_t v)
+{
+    (void)v;
+    tcp_health_desc_capture_t *cap = (tcp_health_desc_capture_t *)ctx;
+    strncpy(cap->keys[cap->count], key, sizeof(cap->keys[0]) - 1);
+    cap->count++;
+}
+
+void test_bb_tcp_client_health_desc_walks_all_four_keys(void)
+{
+    reset_world();
+    bb_tcp_client_test_set_mock_time_ms64(555);
+    bb_tcp_client_t h = make_instance(NULL);
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_connect(h));
+
+    bb_tcp_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+
+    tcp_health_desc_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+
+    bb_serialize_emit_t emit = {
+        .format_id = BB_FORMAT_NONE,
+        .ctx       = &cap,
+        .emit_bool = tcp_health_capture_emit_bool,
+        .emit_i64  = tcp_health_capture_emit_i64,
+        .emit_u64  = tcp_health_capture_emit_u64,
+    };
+    bb_serialize_walk(&bb_tcp_client_health_desc, &snap, &emit);
+
+    TEST_ASSERT_EQUAL_INT(4, cap.count);
+    TEST_ASSERT_EQUAL_STRING("connected", cap.keys[0]);
+    TEST_ASSERT_EQUAL_STRING("last_ok_ms", cap.keys[1]);
+    TEST_ASSERT_EQUAL_STRING("fail_count", cap.keys[2]);
+    TEST_ASSERT_EQUAL_STRING("tls_error_code", cap.keys[3]);
+}
+
+// ---------------------------------------------------------------------------
+// Fill-under-lock contract (firmware-review fix, B1-1039): a deterministic,
+// single-threaded interleaving of report(ok=true)/report(ok=false)/
+// set_tls_error/close, asserting bb_tcp_client_health_fill() always returns
+// a snapshot that is internally consistent with (i.e. matches exactly) the
+// state produced by the immediately preceding mutation -- no partial/stale
+// mix of the 4 fields. This exercises the same lock-protected report/fill/
+// close paths as a pthread race would (so mutex line coverage holds),
+// without racing threads.
+//
+// Cross-task tearing of the 4-field health struct is a 32-bit-target
+// property (a non-atomic multi-word copy can be preempted mid-write on a
+// single-core MCU); it is validated by review + the mutex discipline in
+// bb_tcp_client, not host-reproducible here since a 64-bit CI runner can't
+// exhibit the tearing a pthread race would try to catch -- see B1-1039.
+// ---------------------------------------------------------------------------
+
+void test_bb_tcp_client_health_fill_concurrent_coherent(void)
+{
+    reset_world();
+    bb_tcp_client_t h = make_instance(NULL);
+    bb_tcp_client_health_snap_t snap;
+
+    // Mutation 1: report(ok=true) -- stamps last_ok_ms, sets connected.
+    bb_tcp_client_test_set_mock_time_ms64(1000);
+    bb_tcp_client_test_force_connect_result(h, BB_OK);
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_connect(h));
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_TRUE(snap.connected);
+    TEST_ASSERT_EQUAL_INT64(1000, snap.last_ok_ms);
+    TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
+    TEST_ASSERT_EQUAL_INT64(0, snap.tls_error_code);
+
+    // Mutation 2: close() -- clears connected, leaves last_ok_ms/fail_count.
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_close(h));
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_FALSE(snap.connected);
+    TEST_ASSERT_EQUAL_INT64(1000, snap.last_ok_ms);
+    TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
+
+    // Mutation 3: report(ok=false) -- bumps fail_count, must NOT touch
+    // last_ok_ms, leaves connected false.
+    bb_tcp_client_test_force_connect_result(h, BB_ERR_INVALID_STATE);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_tcp_client_connect(h));
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_FALSE(snap.connected);
+    TEST_ASSERT_EQUAL_INT64(1000, snap.last_ok_ms);
+    TEST_ASSERT_EQUAL_UINT64(1, snap.fail_count);
+
+    // Mutation 4: set_tls_error -- reports forced tls_error_code, all other
+    // fields carried forward unchanged.
+    bb_tcp_client_test_force_tls_error_code(h, -9109);
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_FALSE(snap.connected);
+    TEST_ASSERT_EQUAL_INT64(1000, snap.last_ok_ms);
+    TEST_ASSERT_EQUAL_UINT64(1, snap.fail_count);
+    TEST_ASSERT_EQUAL_INT64(-9109, snap.tls_error_code);
+
+    // Mutation 5: report(ok=true) again -- fresh last_ok_ms, connected set,
+    // fail_count carried forward unchanged.
+    bb_tcp_client_test_set_mock_time_ms64(2000);
+    bb_tcp_client_test_force_connect_result(h, BB_OK);
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_connect(h));
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_TRUE(snap.connected);
+    TEST_ASSERT_EQUAL_INT64(2000, snap.last_ok_ms);
+    TEST_ASSERT_EQUAL_UINT64(1, snap.fail_count);
 }
