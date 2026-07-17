@@ -67,6 +67,20 @@ void test_bb_lifecycle_word_set_test_clear_multi_word_bits(void);
 void test_bb_lifecycle_word_ops_out_of_range_nwords_no_crash(void);
 void test_bb_lifecycle_compute_state_pure(void);
 void test_bb_lifecycle_reason_truncation_equal_prefix_maps_same_bit(void);
+
+// Forward declarations from test_bb_lifecycle_async.c
+void test_bb_lifecycle_async_test_dropped_before_any_init_returns_zero(void);
+void test_bb_lifecycle_async_observe_async_bqueue_exhausted_propagates_error(void);
+void test_bb_lifecycle_async_drain_dispatch_for_test_invokes_only_async_slots(void);
+void test_bb_lifecycle_async_observe_null_cb_invalid_arg(void);
+void test_bb_lifecycle_async_observer_capacity_overflow_no_space(void);
+void test_bb_lifecycle_async_sync_observer_still_fires_inline_unaffected(void);
+void test_bb_lifecycle_async_fifo_order_preserved(void);
+void test_bb_lifecycle_async_full_queue_drops_and_counts(void);
+void test_bb_lifecycle_async_full_queue_second_drop_in_window_suppressed(void);
+void test_bb_lifecycle_async_reset_for_test_destroys_existing_queue(void);
+void test_bb_lifecycle_async_observer_runs_off_enqueuing_thread(void);
+void test_bb_lifecycle_async_observe_during_drain_no_torn_read(void);
 // Forward declarations from test_bb_fsm.c
 void test_bb_fsm_init_sets_initial_and_runs_entry(void);
 void test_bb_fsm_step_transition_runs_exit_before_entry(void);
@@ -9862,6 +9876,20 @@ int main(void) {
     RUN_TEST(test_bb_lifecycle_word_ops_out_of_range_nwords_no_crash);
     RUN_TEST(test_bb_lifecycle_compute_state_pure);
     RUN_TEST(test_bb_lifecycle_reason_truncation_equal_prefix_maps_same_bit);
+
+    // test_bb_lifecycle_async.c
+    RUN_TEST(test_bb_lifecycle_async_test_dropped_before_any_init_returns_zero);
+    RUN_TEST(test_bb_lifecycle_async_observe_async_bqueue_exhausted_propagates_error);
+    RUN_TEST(test_bb_lifecycle_async_drain_dispatch_for_test_invokes_only_async_slots);
+    RUN_TEST(test_bb_lifecycle_async_observe_null_cb_invalid_arg);
+    RUN_TEST(test_bb_lifecycle_async_observer_capacity_overflow_no_space);
+    RUN_TEST(test_bb_lifecycle_async_sync_observer_still_fires_inline_unaffected);
+    RUN_TEST(test_bb_lifecycle_async_fifo_order_preserved);
+    RUN_TEST(test_bb_lifecycle_async_full_queue_drops_and_counts);
+    RUN_TEST(test_bb_lifecycle_async_full_queue_second_drop_in_window_suppressed);
+    RUN_TEST(test_bb_lifecycle_async_reset_for_test_destroys_existing_queue);
+    RUN_TEST(test_bb_lifecycle_async_observer_runs_off_enqueuing_thread);
+    RUN_TEST(test_bb_lifecycle_async_observe_during_drain_no_torn_read);
 
     RUN_TEST(test_bb_fsm_init_sets_initial_and_runs_entry);
     RUN_TEST(test_bb_fsm_step_transition_runs_exit_before_entry);

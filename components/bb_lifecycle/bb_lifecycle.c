@@ -2,6 +2,7 @@
 // the full public contract; this file is the sole implementation (no
 // platform/ split -- pure BSS state machine, no platform calls anywhere).
 #include "bb_lifecycle.h"
+#include "bb_lifecycle_priv.h"
 #include "bb_callback_slot.h"
 #include "bb_lock.h"
 #include "bb_once.h"
@@ -49,6 +50,9 @@ typedef struct {
 typedef struct {
     bb_lifecycle_observer_fn cb;
     void *user;
+    bool  async;  // false: bb_lifecycle_observe() -- fires inline on notify_all().
+                  // true: bb_lifecycle_observe_async() (B1-1034) -- fires on the
+                  // async drain task instead; see bb_lifecycle_async.c.
 } bb_lifecycle_observer_slot_t;
 
 static bb_lifecycle_service_t        s_services[CONFIG_BB_LIFECYCLE_MAX_SERVICES];
@@ -217,14 +221,39 @@ static bool svc_valid(bb_lifecycle_svc_t svc)
 
 static void notify_all(const bb_lifecycle_event_t *evt)
 {
-    // bb_lifecycle_observe() rejects a NULL cb (-> BB_ERR_INVALID_ARG)
-    // before ever appending a slot, so every slot < s_observer_count
-    // carries a real callback -- no defensive NULL check needed here.
+    // bb_lifecycle_observe()/bb_lifecycle_observe_async() both reject a NULL
+    // cb (-> BB_ERR_INVALID_ARG) before ever appending a slot, so every slot
+    // < s_observer_count carries a real callback -- no defensive NULL check
+    // needed here. Async slots are skipped inline and handed to
+    // bb_lifecycle_priv_async_notify() ONCE per transition (never
+    // per-observer, never blocking) -- see bb_lifecycle_async.c.
     size_t n = atomic_load(&s_observer_count);
+    bool any_async = false;
     for (size_t i = 0; i < n; i++) {
+        if (s_observers[i].async) {
+            any_async = true;
+            continue;
+        }
         s_observers[i].cb(evt, s_observers[i].user);
     }
+    if (any_async) {
+        bb_lifecycle_priv_async_notify(evt);
+    }
     bb_lifecycle_emit_invoke(BB_LIFECYCLE_EVENT_TOPIC, evt->svc, evt, sizeof(*evt));
+}
+
+// Registry read only (no lock, no mutator) -- iterates the same slot table
+// notify_all() reads, invoking only async-flagged slots. Called by the
+// async drain task (bb_lifecycle_async.c) after bb_bqueue_receive(), and by
+// bb_lifecycle_async_drain_dispatch_for_test() -- one code path, no mirror.
+void bb_lifecycle_priv_invoke_async_slots(const bb_lifecycle_event_t *evt)
+{
+    size_t n = atomic_load(&s_observer_count);
+    for (size_t i = 0; i < n; i++) {
+        if (s_observers[i].async) {
+            s_observers[i].cb(evt, s_observers[i].user);
+        }
+    }
 }
 
 static uint32_t commit_and_snapshot(bb_lifecycle_svc_t svc, bb_lifecycle_service_t *s,
@@ -501,7 +530,7 @@ const char *bb_lifecycle_reason_name(uint8_t bit)
     return name;
 }
 
-bb_err_t bb_lifecycle_observe(bb_lifecycle_observer_fn cb, void *user)
+bb_err_t bb_lifecycle_priv_observe_slot(bb_lifecycle_observer_fn cb, void *user, bool async)
 {
     if (!cb) return BB_ERR_INVALID_ARG;
 
@@ -516,9 +545,15 @@ bb_err_t bb_lifecycle_observe(bb_lifecycle_observer_fn cb, void *user)
     }
     s_observers[idx].cb = cb;
     s_observers[idx].user = user;
+    s_observers[idx].async = async;
     atomic_fetch_add(&s_observer_count, 1); // bump LAST -- publishes the slot
     bb_lock_unlock(&s_lock);
     return BB_OK;
+}
+
+bb_err_t bb_lifecycle_observe(bb_lifecycle_observer_fn cb, void *user)
+{
+    return bb_lifecycle_priv_observe_slot(cb, user, false);
 }
 
 #ifdef BB_LIFECYCLE_TESTING
