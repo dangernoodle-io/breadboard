@@ -1,13 +1,14 @@
-# bb_wifi_prov
+# bb_wifi
 
 <!-- BEGIN bbtool:brief -->
-bb_wifi_prov — Wi-Fi provisioning HTTP routes: parses a POSTed SSID/password form and a captive-portal redirect. Registers POST /save and a captive GET /* wildcard on the shared HTTP server; does not register /api/version, /api/scan, or /api/reboot (those live in bb_wifi_http / bb_system), and does not itself bring up SoftAP or drive a Wi-Fi lifecycle state machine (see bb_wifi_ap for AP bring-up).
+STA WiFi core: connect/reconnect lifecycle, a self-heal reconnect FSM that recovers from disconnects and no-IP stalls without a reboot, and portable diagnostics getters (RSSI, disconnect reason, scan results) that every backend (ESP-IDF, CC3000, WiFiS3/R4, host) maps onto.
 <!-- END bbtool:brief -->
 
 ## Public API
 
 <!-- BEGIN bbtool:api -->
-- [`bb_wifi_prov.h`](include/bb_wifi_prov.h)
+- [`bb_wifi.h`](include/bb_wifi.h)
+- [`bb_wifi_pending.h`](include/bb_wifi_pending.h)
 
 Public symbols use the `bb_` prefix.
 <!-- END bbtool:api -->
@@ -18,10 +19,18 @@ Public symbols use the `bb_` prefix.
 | Component | Kind | Role | Docs |
 |-----------|------|------|------|
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
-| `bb_http_server` | public | — | [bb_http_server](../README.md) |
+| `bb_fsm` | private | Table-driven finite state machine primitive: consumer-owned rows (state, event, guard, action, next), entry/exit hooks, and a fixed-size timer-arm seam for the shell to reconstruct real OS timers from. | [bb_fsm](../bb_fsm/README.md) |
 | `bb_log` | private | — | [bb_log](../README.md) |
 | `bb_settings` | private | bb's default WiFi-credentials store — a wifi-creds field table over `bb_config`, byte-compatible with the credentials `bb_nv_config` already persists. `bb_settings` is bb's opinionated bb-config authority (KB 805/806); `bb_wifi` reads its accessors directly. | [bb_settings](../bb_settings/README.md) |
-| `bb_wifi` | public | STA WiFi core: connect/reconnect lifecycle, a self-heal reconnect FSM that recovers from disconnects and no-IP stalls without a reboot, and portable diagnostics getters (RSSI, disconnect reason, scan results) that every backend (ESP-IDF, CC3000, WiFiS3/R4, host) maps onto. | [bb_wifi](../bb_wifi/README.md) |
+| `bb_str` | private | — | [bb_str](../README.md) |
+| `bb_system` | private | — | [bb_system](../README.md) |
+| `bb_task` | private | — | [bb_task](../README.md) |
+| `bb_timer` | private | — | [bb_timer](../README.md) |
+| `esp_event` | private | — | esp_event |
+| `esp_netif` | private | — | esp_netif |
+| `esp_system` | private | — | esp_system |
+| `esp_wifi` | private | — | esp_wifi |
+| `lwip` | private | — | lwip |
 <!-- END bbtool:deps -->
 
 ## Platform support
@@ -29,7 +38,7 @@ Public symbols use the `bb_` prefix.
 <!-- BEGIN bbtool:platform -->
 | host | espidf | arduino |
 |------|--------|---------|
-| no | yes | no |
+| yes | yes | yes |
 <!-- END bbtool:platform -->
 
 ## Footprint
@@ -41,14 +50,14 @@ _(no baseline)_
 ## Use in your project
 
 <!-- BEGIN bbtool:wiring -->
-Use in your project → [wiring guide](https://github.com/dangernoodle-io/breadboard/wiki/components/bb_wifi_prov#use).
+Use in your project → [wiring guide](https://github.com/dangernoodle-io/breadboard/wiki/components/bb_wifi#use).
 <!-- END bbtool:wiring -->
 
 ## Links
 
 <!-- BEGIN bbtool:links -->
 - Repository: [https://github.com/dangernoodle-io/breadboard](https://github.com/dangernoodle-io/breadboard)
-- [https://github.com/dangernoodle-io/breadboard/wiki/components/bb_wifi_prov](https://github.com/dangernoodle-io/breadboard/wiki/components/bb_wifi_prov)
+- [https://github.com/dangernoodle-io/breadboard/wiki/components/bb_wifi](https://github.com/dangernoodle-io/breadboard/wiki/components/bb_wifi)
 - [https://github.com/dangernoodle-io/breadboard/wiki/Component-Docs](https://github.com/dangernoodle-io/breadboard/wiki/Component-Docs)
 <!-- END bbtool:links -->
 
