@@ -141,7 +141,7 @@ components = [
     "bb_ntp", "bb_num", "bb_openapi", "bb_ota_boot",
     "bb_ota_check", "bb_ota_hooks", "bb_ota_pull", "bb_ota_push", "bb_ota_validator",
     "bb_partition", "bb_pool", "bb_power", "bb_power_health",
-    "bb_power_tps546", "bb_prov",
+    "bb_power_tps546",
     "bb_queue",
     "bb_registry", "bb_release_manifest", "bb_response",
     "bb_scalar", "bb_sensors", "bb_serialize", "bb_serialize_console", "bb_serialize_json", "bb_settings",
@@ -149,7 +149,7 @@ components = [
     "bb_storage", "bb_storage_http", "bb_storage_ram", "bb_storage_rtc",
     "bb_str", "bb_system", "bb_task", "bb_task_registry",
     "bb_tcp_client", "bb_temp", "bb_thermal", "bb_timer", "bb_tls_creds",
-    "bb_transport_health", "bb_udp_client", "bb_udp_frame", "bb_wdt", "bb_wifi", "bb_wifi_ap", "bb_wifi_http", "bb_ws_server",
+    "bb_transport_health", "bb_udp_client", "bb_udp_frame", "bb_wdt", "bb_wifi", "bb_wifi_ap", "bb_wifi_http", "bb_wifi_prov", "bb_ws_server",
 ]
 
 [board.native]

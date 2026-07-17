@@ -81,7 +81,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_power](./bb_power/) | — |
 | [bb_power_health](./bb_power_health/) | — |
 | [bb_power_tps546](./bb_power_tps546/) | — |
-| [bb_prov](./bb_prov/) | — |
 | [bb_prov_default_form](./bb_prov_default_form/) | — |
 | [bb_queue](./bb_queue/) | — |
 | [bb_registry](./bb_registry/) | — |
@@ -115,8 +114,9 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_udp_frame](./bb_udp_frame/) | — |
 | [bb_wdt](./bb_wdt/) | — |
 | [bb_wifi](./bb_wifi/) | — |
-| [bb_wifi_ap](./bb_wifi_ap/) | bb_wifi_ap — SoftAP + captive-DNS primitive (KB 781): pure AP bring-up and a captive DNS responder, zero HTTP. Extracted from bb_prov's former AP code; bb_prov does not call bb_wifi_ap_start()/stop(). It is a standalone primitive — callers (or the future bb_wifi_prov lifecycle FSM) invoke bb_wifi_ap_start()/stop() themselves; nothing wires it into bb_prov automatically. The AP<->STA lifecycle FSM, net-event topics, and recovery model are out of scope here — see bb_prov (soon bb_wifi_prov) for provisioning orchestration. |
+| [bb_wifi_ap](./bb_wifi_ap/) | bb_wifi_ap — SoftAP + captive-DNS primitive (KB 781): pure AP bring-up and a captive DNS responder, zero HTTP. Extracted from bb_prov's former AP code; bb_prov does not call bb_wifi_ap_start()/stop(). It is a standalone primitive — callers (or the future bb_wifi_prov lifecycle FSM) invoke bb_wifi_ap_start()/stop() themselves; nothing wires it into bb_prov automatically. The AP<->STA lifecycle FSM, net-event topics, and recovery model are out of scope here — see bb_wifi_prov for provisioning orchestration. |
 | [bb_wifi_http](./bb_wifi_http/) | Opt-in STA route bundle for `bb_wifi` (PR1 of the bb_wifi split, KB 781/809). |
+| [bb_wifi_prov](./bb_wifi_prov/) | bb_wifi_prov — Wi-Fi provisioning HTTP routes: parses a POSTed SSID/password form and a captive-portal redirect. Registers POST /save and a captive GET /* wildcard on the shared HTTP server; does not register /api/version, /api/scan, or /api/reboot (those live in bb_wifi_http / bb_system), and does not itself bring up SoftAP or drive a Wi-Fi lifecycle state machine (see bb_wifi_ap for AP bring-up). |
 | [bb_ws_server](./bb_ws_server/) | — |
 
 ---

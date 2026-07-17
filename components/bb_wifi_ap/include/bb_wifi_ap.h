@@ -16,8 +16,8 @@ extern "C" {
  * standalone primitive — callers (or the future bb_wifi_prov lifecycle FSM)
  * invoke bb_wifi_ap_start()/stop() themselves; nothing wires it into
  * bb_prov automatically. The AP<->STA lifecycle FSM, net-event topics, and
- * recovery model are out of scope here — see bb_prov (soon bb_wifi_prov)
- * for provisioning orchestration.
+ * recovery model are out of scope here — see bb_wifi_prov for provisioning
+ * orchestration.
  */
 
 // ---------------------------------------------------------------------------
