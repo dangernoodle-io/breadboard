@@ -194,14 +194,20 @@ def _value_providers(provides_records: List[ProvidesEntry]) -> Dict[str, str]:
 
 def _emit_consumes_call(entry: InitEntry, value_providers: Dict[str, str]) -> str:
     """Setter-injection emission for an entry with `consumes` set: a plain
-    void-shaped `{fn}({symbol});` call (never the `bb_err_t`/`bb_app_rc`
+    void-shaped `{fn}({symbol}, {ctx});` call (never the `bb_err_t`/`bb_app_rc`
     wrapper `_emit_call` uses — setters return void). Empty string (soft-skip,
     never an error) if no matching `// bbtool:provides` declaration is in the
-    resolved composition."""
+    resolved composition.
+
+    `ctx` (B1-1045 PR-1) is the marker's `ctx=<expr>` when present, else the
+    literal `NULL` — every `consumes=` setter now takes (symbol, ctx), so a
+    marker with no `ctx=` still emits a syntactically/semantically complete
+    call (a NULL ctx the provider symbol ignores)."""
     symbol = value_providers.get(entry.consumes)
     if symbol is None:
         return ""
-    return f"    {entry.fn}({symbol});\n"
+    ctx_expr = entry.ctx or "NULL"
+    return f"    {entry.fn}({symbol}, {ctx_expr});\n"
 
 
 def _emit_entry(entry: InitEntry, value_providers: Dict[str, str], handle_var: str = None) -> str:

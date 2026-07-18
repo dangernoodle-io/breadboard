@@ -48,14 +48,19 @@ BB_CALLBACK_SLOT_RET(ota_validated, bb_wifi_ota_validated_fn, bool,
                      bb_wifi_set_ota_validated_cb, bb_wifi_internal_ota_validated, true)
 
 // Generic emit sink (bb_wifi.h bb_wifi_set_emit, PR3 bus-shaping). Bus-
-// shaped (bb_emit_fn, bb_core/bb_emit.h): (topic, id, payload, size), no
-// bb_event types. Fires at the three STA lifecycle edges
+// shaped (bb_emit_fn, bb_core/bb_emit.h): (ctx, topic, id, payload, size),
+// no bb_event types. Fires at the three STA lifecycle edges
 // (got_ip/disconnect/lost_ip) via bb_wifi_publish_net_event below. The
 // generated invoke, bb_wifi_emit_invoke (wifi_reconn.h), is private to this
-// component. Null-safe no-op if unset.
-BB_CALLBACK_SLOT_VOID(emit, bb_emit_fn, bb_wifi_set_emit, bb_wifi_emit_invoke,
-                      (const char *topic, int32_t id, const void *payload, size_t size),
-                      (topic, id, payload, size))
+// component. Null-safe no-op if unset. B1-1045 PR-1: bb_wifi_set_emit now
+// takes (cb, ctx) via BB_CALLBACK_SLOT_VOID_CTX -- a required consequence
+// of bb_emit_fn gaining a leading ctx param, not a repoint (bb_wifi_emit_invoke's
+// own 4-arg shape, and every existing caller of it, stay untouched; ctx is
+// injected internally). Currently always NULL from codegen (PR-1 is inert
+// scaffolding; a real per-consumer ctx binding lands in a later PR).
+BB_CALLBACK_SLOT_VOID_CTX(emit, bb_emit_fn, bb_wifi_set_emit, bb_wifi_emit_invoke,
+                          (const char *topic, int32_t id, const void *payload, size_t size),
+                          (topic, id, payload, size))
 
 // Build the wifi.net payload (bb_wifi_event_payload_build) and fire it on
 // the generic emit slot (bb_wifi_emit_invoke). `reason` is HANDED IN by the
@@ -203,6 +208,26 @@ void bb_wifi_event_payload_build(bb_wifi_event_payload_t *out, bb_wifi_net_event
     out->disc_reason = reason;
     if (evt == BB_WIFI_NET_EVT_GOT_IP && ip) {
         bb_strlcpy(out->ip, ip, sizeof(out->ip));
+    }
+}
+
+// Pure classifier (B1-1045 PR-1, bb_wifi.h bb_wifi_classify_lifecycle):
+// wifi.net edge -> bb_lifecycle_action_t. GOT_IP starts the bound service;
+// DISCONNECT/LOST_IP stop it; every other id (including the
+// REBOOT_DENIED/RECONNECT_PARKED observe-only edges) is NONE. payload/size
+// are accepted for bb_emit_fn-callable shape but unused.
+bb_lifecycle_action_t bb_wifi_classify_lifecycle(uint32_t id, const void *payload, size_t size)
+{
+    (void)payload;
+    (void)size;
+    switch ((bb_wifi_net_event_t)id) {
+    case BB_WIFI_NET_EVT_GOT_IP:
+        return BB_LIFECYCLE_ACTION_START;
+    case BB_WIFI_NET_EVT_DISCONNECT:
+    case BB_WIFI_NET_EVT_LOST_IP:
+        return BB_LIFECYCLE_ACTION_STOP;
+    default:
+        return BB_LIFECYCLE_ACTION_NONE;
     }
 }
 

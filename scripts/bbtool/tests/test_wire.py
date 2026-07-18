@@ -65,11 +65,13 @@ def _fixture_root_with_http(tmp: str) -> Path:
     return root
 
 
-def _fixture_root_with_consumes(tmp: str, provider: bool, consumer: bool) -> Path:
+def _fixture_root_with_consumes(tmp: str, provider: bool, consumer: bool,
+                                ctx: str = None) -> Path:
     """A fake provider (`// bbtool:provides key=demo_sink symbol=bb_example_emit`)
     and/or a fake consumer (`// bbtool:init tier=early fn=bb_example_set_emit
     consumes=demo_sink`), independent of the bb_log/bb_http fixtures above so
-    the two paths can never interact."""
+    the two paths can never interact. `ctx` optionally appends `ctx=<expr>`
+    to the consumer marker (B1-1045 PR-1)."""
     root = Path(tmp)
     if provider:
         _make_component(
@@ -79,10 +81,11 @@ def _fixture_root_with_consumes(tmp: str, provider: bool, consumer: bool) -> Pat
             "void bb_example_emit(int event);\n",
         )
     if consumer:
+        ctx_suffix = f" ctx={ctx}" if ctx else ""
         _make_component(
             root, "bb_example_consumer",
             "#pragma once\n"
-            "// bbtool:init tier=early fn=bb_example_set_emit consumes=demo_sink\n"
+            f"// bbtool:init tier=early fn=bb_example_set_emit consumes=demo_sink{ctx_suffix}\n"
             "void bb_example_set_emit(void (*emit)(int));\n",
         )
     return root
@@ -190,7 +193,8 @@ class TestConsumesSetterInjection(unittest.TestCase):
             entries = collect_entries(str(root), components, "espidf")
             provides = collect_provides_entries(str(root), components, "espidf")
             source = render_source(topo_sort(entries), provides)
-            self.assertIn("bb_example_set_emit(bb_example_emit);", source)
+            # No ctx= on the marker -> NULL default (B1-1045 PR-1).
+            self.assertIn("bb_example_set_emit(bb_example_emit, NULL);", source)
             # never routed through the bb_err_t convention
             self.assertNotIn("bb_app_rc = bb_example_set_emit", source)
 
@@ -231,6 +235,19 @@ class TestConsumesSetterInjection(unittest.TestCase):
             with self.assertRaises(WireError) as ctx:
                 render_source(topo_sort(entries), provides)
             self.assertIn("demo_sink", str(ctx.exception))
+
+    def test_explicit_ctx_expr_emitted_in_place_of_null(self):
+        """A marker with `ctx=<expr>` (B1-1045 PR-1) emits that expression
+        as the setter's second argument instead of the NULL default."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_consumes(tmp, provider=True, consumer=True,
+                                               ctx="&s_binding")
+            components = ["bb_example_provider", "bb_example_consumer"]
+            entries = collect_entries(str(root), components, "espidf")
+            provides = collect_provides_entries(str(root), components, "espidf")
+            source = render_source(topo_sort(entries), provides)
+            self.assertIn("bb_example_set_emit(bb_example_emit, &s_binding);", source)
+            self.assertNotIn("bb_example_set_emit(bb_example_emit, NULL);", source)
 
     def test_http_server_fixtures_unchanged_by_consumes_path(self):
         """Re-run of the pre-existing http_server assertions, byte-for-byte,

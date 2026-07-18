@@ -138,6 +138,22 @@ class TestConsumes(unittest.TestCase):
         with self.assertRaises(ParseError):
             parse_markers("// bbtool:init tier=early fn=bb_x_set consumes=a,b\n")
 
+    def test_ctx_with_consumes_parses(self):
+        text = "// bbtool:init tier=early fn=bb_x_set consumes=demo_sink ctx=&s_binding\n"
+        e = parse_markers(text)[0]
+        self.assertEqual(e.consumes, "demo_sink")
+        self.assertEqual(e.ctx, "&s_binding")
+
+    def test_no_ctx_defaults_to_none(self):
+        text = "// bbtool:init tier=early fn=bb_x_set consumes=demo_sink\n"
+        e = parse_markers(text)[0]
+        self.assertIsNone(e.ctx)
+
+    def test_ctx_without_consumes_is_error(self):
+        """ctx= is meaningless without a consumes= setter to pass it to."""
+        with self.assertRaises(ParseError):
+            parse_markers("// bbtool:init tier=early fn=bb_x_init ctx=&s_binding\n")
+
 
 class TestProvidesMarker(unittest.TestCase):
     def test_minimal_provides_marker(self):

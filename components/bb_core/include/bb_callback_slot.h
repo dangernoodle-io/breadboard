@@ -127,3 +127,51 @@
             cb(BB_CALLBACK_SLOT_EXPAND_ call_args); \
         } \
     }
+
+// ---------------------------------------------------------------------------
+// BB_CALLBACK_SLOT_VOID_CTX — void-fire variant, callback signature MAY take
+// arguments, PLUS a caller-owned opaque `ctx` threaded through from the
+// setter to every invocation (B1-1045 PR-1: lets N producers share one
+// emit-shaped sink, each owning its own ctx, with no hidden static/pool).
+//
+//   slot       base name for the generated file-static slots
+//              (bb_callback_slot_<slot> and bb_callback_slot_<slot>_ctx)
+//   cb_type    the callback function-pointer typedef; its FIRST parameter
+//              MUST be `void *ctx` (e.g. bb_emit_fn)
+//   setter     name of the generated public setter:
+//              void setter(cb_type cb, void *ctx)
+//   invoke     name of the generated public invoke fn:
+//              void invoke(<decl_args>) { if (slot) slot(ctx, <call_args>); }
+//   decl_args  cb's parameter list MINUS ctx, PARENTHESIZED, e.g.
+//              (const char *topic, int32_t id, const void *payload, size_t size)
+//   call_args  the matching argument names to forward to cb (again minus
+//              ctx), PARENTHESIZED, e.g. (topic, id, payload, size)
+//
+// ctx is injected at the call site inside invoke() -- it NEVER appears in
+// invoke()'s own declared argument list, so existing invoke() callers (which
+// only ever supplied decl_args) stay untouched by this macro's addition.
+//
+// Usage:
+//   BB_CALLBACK_SLOT_VOID_CTX(emit, bb_emit_fn, my_set_emit, my_emit_invoke,
+//                             (const char *topic, int32_t id,
+//                              const void *payload, size_t size),
+//                             (topic, id, payload, size))
+//   ...
+//   my_emit_invoke(topic, id, payload, size); // production call site, unchanged
+// ---------------------------------------------------------------------------
+
+#define BB_CALLBACK_SLOT_VOID_CTX(slot, cb_type, setter, invoke, decl_args, call_args) \
+    static cb_type bb_callback_slot_##slot = NULL; \
+    static void *bb_callback_slot_##slot##_ctx = NULL; \
+    void setter(cb_type cb, void *ctx) \
+    { \
+        bb_callback_slot_##slot = cb; \
+        bb_callback_slot_##slot##_ctx = ctx; \
+    } \
+    void invoke(BB_CALLBACK_SLOT_EXPAND_ decl_args) \
+    { \
+        cb_type cb = bb_callback_slot_##slot; \
+        if (cb) { \
+            cb(bb_callback_slot_##slot##_ctx, BB_CALLBACK_SLOT_EXPAND_ call_args); \
+        } \
+    }

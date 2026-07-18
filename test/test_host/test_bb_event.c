@@ -998,7 +998,7 @@ void test_bb_event_emit_delivers_to_subscriber(void)
     TEST_ASSERT_EQUAL(BB_OK, err);
 
     const char *payload = "hello-named";
-    bb_event_emit("test.named", 7, payload, strlen(payload) + 1);
+    bb_event_emit(NULL, "test.named", 7, payload, strlen(payload) + 1);
 
     size_t dispatched = bb_event_pump(0);
     TEST_ASSERT_EQUAL(1, dispatched);
@@ -1026,7 +1026,7 @@ void test_bb_event_emit_reuses_topic_on_repeat(void)
     // First call registers the topic with no subscriber yet -- dropped on
     // dispatch (no subscribers), which is fine; this call only proves the
     // topic gets registered.
-    bb_event_emit("test.named.repeat", 1, NULL, 0);
+    bb_event_emit(NULL, "test.named.repeat", 1, NULL, 0);
     bb_event_pump(0);
 
     bb_event_topic_t topic = NULL;
@@ -1038,7 +1038,7 @@ void test_bb_event_emit_reuses_topic_on_repeat(void)
     err = bb_event_subscribe(topic, record_handler, &g_log, &sub);
     TEST_ASSERT_EQUAL(BB_OK, err);
 
-    bb_event_emit("test.named.repeat", 2, NULL, 0);
+    bb_event_emit(NULL, "test.named.repeat", 2, NULL, 0);
     size_t dispatched = bb_event_pump(0);
     TEST_ASSERT_EQUAL(1, dispatched);
     TEST_ASSERT_EQUAL(1, g_log.call_count);
@@ -1054,7 +1054,7 @@ void test_bb_event_emit_before_init_no_crash(void)
 {
     // No bb_event_init() call -- setUp's bb_event_reset_for_test() leaves
     // the bus uninitialized.
-    bb_event_emit("test.named.uninit", 1, NULL, 0);
+    bb_event_emit(NULL, "test.named.uninit", 1, NULL, 0);
     // Reaching here without a crash is the assertion.
     TEST_ASSERT_TRUE(true);
 }
@@ -1069,7 +1069,7 @@ void test_bb_event_emit_before_init_no_crash(void)
    it. */
 void test_bb_event_emit_null_name_logs_and_returns(void)
 {
-    bb_event_emit(NULL, 1, NULL, 0);
+    bb_event_emit(NULL, NULL, 1, NULL, 0);
     // Reaching here without a crash is the assertion.
     TEST_ASSERT_TRUE(true);
 }
@@ -1095,7 +1095,7 @@ void test_bb_event_emit_post_failure_logs_and_returns(void)
 
     // Queue is full -- bb_event_emit's internal bb_event_post must fail and
     // return without crashing.
-    bb_event_emit("test.named.full", 4, NULL, 0);
+    bb_event_emit(NULL, "test.named.full", 4, NULL, 0);
     TEST_ASSERT_TRUE(true);
 
     bb_event_pump(0);  // drain so this doesn't pollute later tests

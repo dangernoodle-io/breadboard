@@ -607,9 +607,12 @@ static int32_t s_emit_last_id;
 static bb_wifi_event_payload_t s_emit_last_payload;
 static size_t s_emit_last_size;
 
-static void emit_fixture(const char *topic, int32_t id, const void *payload, size_t size)
+static void *s_emit_last_ctx;
+
+static void emit_fixture(void *ctx, const char *topic, int32_t id, const void *payload, size_t size)
 {
     s_emit_calls++;
+    s_emit_last_ctx = ctx;
     strncpy(s_emit_last_topic, topic ? topic : "", sizeof(s_emit_last_topic) - 1);
     s_emit_last_topic[sizeof(s_emit_last_topic) - 1] = '\0';
     s_emit_last_id = id;
@@ -625,12 +628,13 @@ static void reset_emit_fixture(void)
     s_emit_last_topic[0] = '\0';
     s_emit_last_id = 0;
     s_emit_last_size = 0;
+    s_emit_last_ctx = NULL;
     memset(&s_emit_last_payload, 0, sizeof(s_emit_last_payload));
 }
 
 void test_bb_wifi_emit_null_sink_is_noop(void)
 {
-    bb_wifi_set_emit(NULL);
+    bb_wifi_set_emit(NULL, NULL);
     reset_emit_fixture();
     bb_wifi_publish_net_event(BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN);
     TEST_ASSERT_EQUAL_INT(0, s_emit_calls);
@@ -639,7 +643,7 @@ void test_bb_wifi_emit_null_sink_is_noop(void)
 void test_bb_wifi_publish_net_event_got_ip(void)
 {
     bb_wifi_test_set_ip_str_fail(false);
-    bb_wifi_set_emit(emit_fixture);
+    bb_wifi_set_emit(emit_fixture, NULL);
     reset_emit_fixture();
     bb_wifi_publish_net_event(BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN);
     TEST_ASSERT_EQUAL_INT(1, s_emit_calls);
@@ -648,13 +652,17 @@ void test_bb_wifi_publish_net_event_got_ip(void)
     TEST_ASSERT_EQUAL(sizeof(bb_wifi_event_payload_t), s_emit_last_size);
     TEST_ASSERT_EQUAL_STRING("0.0.0.0", s_emit_last_payload.ip);
     TEST_ASSERT_EQUAL(BB_WIFI_DISC_UNKNOWN, s_emit_last_payload.disc_reason);
-    bb_wifi_set_emit(NULL);
+    // B1-1045 PR-1: bb_wifi_set_emit still takes only a bare cb (no ctx
+    // param yet) -- bb_wifi_emit_invoke's internal cb(...) call always
+    // passes a NULL ctx until a later PR wires a real per-consumer binding.
+    TEST_ASSERT_NULL(s_emit_last_ctx);
+    bb_wifi_set_emit(NULL, NULL);
 }
 
 void test_bb_wifi_publish_net_event_got_ip_blanks_ip_on_get_ip_str_error(void)
 {
     bb_wifi_test_set_ip_str_fail(true);
-    bb_wifi_set_emit(emit_fixture);
+    bb_wifi_set_emit(emit_fixture, NULL);
     reset_emit_fixture();
     bb_wifi_publish_net_event(BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN);
     TEST_ASSERT_EQUAL_INT(1, s_emit_calls);
@@ -662,37 +670,37 @@ void test_bb_wifi_publish_net_event_got_ip_blanks_ip_on_get_ip_str_error(void)
     // "0.0.0.0" sentinel it writes on error.
     TEST_ASSERT_EQUAL_STRING("", s_emit_last_payload.ip);
     bb_wifi_test_set_ip_str_fail(false);
-    bb_wifi_set_emit(NULL);
+    bb_wifi_set_emit(NULL, NULL);
 }
 
 void test_bb_wifi_publish_net_event_disconnect(void)
 {
-    bb_wifi_set_emit(emit_fixture);
+    bb_wifi_set_emit(emit_fixture, NULL);
     reset_emit_fixture();
     bb_wifi_publish_net_event(BB_WIFI_NET_EVT_DISCONNECT, BB_WIFI_DISC_AUTH_FAIL);
     TEST_ASSERT_EQUAL_INT(1, s_emit_calls);
     TEST_ASSERT_EQUAL(BB_WIFI_NET_EVT_DISCONNECT, s_emit_last_id);
     TEST_ASSERT_EQUAL_STRING("", s_emit_last_payload.ip);
     TEST_ASSERT_EQUAL(BB_WIFI_DISC_AUTH_FAIL, s_emit_last_payload.disc_reason);
-    bb_wifi_set_emit(NULL);
+    bb_wifi_set_emit(NULL, NULL);
 }
 
 void test_bb_wifi_publish_net_event_lost_ip(void)
 {
-    bb_wifi_set_emit(emit_fixture);
+    bb_wifi_set_emit(emit_fixture, NULL);
     reset_emit_fixture();
     bb_wifi_publish_net_event(BB_WIFI_NET_EVT_LOST_IP, BB_WIFI_DISC_BB_LOST_IP);
     TEST_ASSERT_EQUAL_INT(1, s_emit_calls);
     TEST_ASSERT_EQUAL(BB_WIFI_NET_EVT_LOST_IP, s_emit_last_id);
     TEST_ASSERT_EQUAL_STRING("", s_emit_last_payload.ip);
     TEST_ASSERT_EQUAL(BB_WIFI_DISC_BB_LOST_IP, s_emit_last_payload.disc_reason);
-    bb_wifi_set_emit(NULL);
+    bb_wifi_set_emit(NULL, NULL);
 }
 
 // bb_wifi_emit_baseline: no-op when the generic slot is unset.
 void test_bb_wifi_emit_baseline_null_sink_is_noop(void)
 {
-    bb_wifi_set_emit(NULL);
+    bb_wifi_set_emit(NULL, NULL);
     reset_emit_fixture();
     bb_wifi_emit_baseline();
     TEST_ASSERT_EQUAL_INT(0, s_emit_calls);
@@ -705,13 +713,13 @@ void test_bb_wifi_emit_baseline_null_sink_is_noop(void)
 // disconnected/DISCONNECT synthesis path.
 void test_bb_wifi_emit_baseline_disconnected_synthesizes_disconnect(void)
 {
-    bb_wifi_set_emit(emit_fixture);
+    bb_wifi_set_emit(emit_fixture, NULL);
     reset_emit_fixture();
     bb_wifi_emit_baseline();
     TEST_ASSERT_EQUAL_INT(1, s_emit_calls);
     TEST_ASSERT_EQUAL_STRING(BB_WIFI_EVENT_TOPIC, s_emit_last_topic);
     TEST_ASSERT_EQUAL(BB_WIFI_NET_EVT_DISCONNECT, s_emit_last_id);
-    bb_wifi_set_emit(NULL);
+    bb_wifi_set_emit(NULL, NULL);
 }
 
 // bb_wifi_event_payload_build (KB 820 PR2) -- pure, host-testable builder.
@@ -1104,6 +1112,50 @@ void test_bb_wifi_classify_mode_not_associated(void)
 void test_bb_wifi_classify_mode_not_associated_dominates_has_ip(void)
 {
     TEST_ASSERT_EQUAL_INT(BB_WIFI_MODE_NOT_ASSOCIATED, bb_wifi_classify_mode(false, true));
+}
+
+// ---------------------------------------------------------------------------
+// bb_wifi_classify_lifecycle (B1-1045 PR-1) -- pure id-only truth table.
+// ---------------------------------------------------------------------------
+
+void test_bb_wifi_classify_lifecycle_got_ip_is_start(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_LIFECYCLE_ACTION_START,
+                          bb_wifi_classify_lifecycle(BB_WIFI_NET_EVT_GOT_IP, NULL, 0));
+}
+
+void test_bb_wifi_classify_lifecycle_disconnect_is_stop(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_LIFECYCLE_ACTION_STOP,
+                          bb_wifi_classify_lifecycle(BB_WIFI_NET_EVT_DISCONNECT, NULL, 0));
+}
+
+void test_bb_wifi_classify_lifecycle_lost_ip_is_stop(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_LIFECYCLE_ACTION_STOP,
+                          bb_wifi_classify_lifecycle(BB_WIFI_NET_EVT_LOST_IP, NULL, 0));
+}
+
+// REBOOT_DENIED/RECONNECT_PARKED are observe-only telemetry edges -- neither
+// drives a lifecycle transition.
+void test_bb_wifi_classify_lifecycle_reboot_denied_is_none(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_LIFECYCLE_ACTION_NONE,
+                          bb_wifi_classify_lifecycle(BB_WIFI_NET_EVT_REBOOT_DENIED, NULL, 0));
+}
+
+void test_bb_wifi_classify_lifecycle_reconnect_parked_is_none(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_LIFECYCLE_ACTION_NONE,
+                          bb_wifi_classify_lifecycle(BB_WIFI_NET_EVT_RECONNECT_PARKED, NULL, 0));
+}
+
+// An id outside the known bb_wifi_net_event_t range is NONE, not UB --
+// switch's default arm.
+void test_bb_wifi_classify_lifecycle_unknown_id_is_none(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_LIFECYCLE_ACTION_NONE,
+                          bb_wifi_classify_lifecycle(9999, NULL, 0));
 }
 
 // ---------------------------------------------------------------------------
