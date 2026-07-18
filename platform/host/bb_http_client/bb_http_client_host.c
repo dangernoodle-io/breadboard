@@ -8,6 +8,7 @@
 
 #include "bb_http_client.h"
 #include "bb_http_client_host.h"
+#include "bb_http_client_health.h"  // PRIV_INCLUDE_DIRS "src" (B1-1041 per-session health)
 #include "bb_str.h"
 
 #include <pthread.h>
@@ -181,10 +182,17 @@ bb_http_client_header_record_t bb_http_client_session_find_header(const char *na
     return rec;
 }
 
-// Session handle — opaque struct; on host just holds the url_base string.
+// Session handle — opaque struct; on host holds the url_base string plus
+// the B1-1041 per-session health state (see bb_http_client_health.h).
 typedef struct {
     char url_base[256];
+    bb_http_client_health_state_t health;
 } host_session_t;
+
+void bb_http_client_test_set_mock_time_ms64(int64_t ms)
+{
+    bb_http_client_priv_health_set_mock_time_ms64(ms);
+}
 
 int bb_http_client_session_open_count(void)
 {
@@ -210,6 +218,7 @@ bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
     host_session_t *s = (host_session_t *)s_session_calloc(1, sizeof(host_session_t));
     if (!s) return BB_ERR_NO_SPACE;
     bb_strlcpy(s->url_base, url_base, sizeof(s->url_base));
+    pthread_mutex_init(&s->health.lock, NULL);  // B1-1041
     // Reset header capture for the new session; record open.
     pthread_mutex_lock(&s_mock_lock);
     memset(s_headers, 0, sizeof(s_headers));
@@ -246,13 +255,14 @@ bb_err_t bb_http_client_session_set_header(bb_http_client_session_t s,
     return BB_OK;
 }
 
-bb_err_t bb_http_client_session_post(bb_http_client_session_t s,
+bb_err_t bb_http_client_session_post(bb_http_client_session_t sess,
                                      const char *url,
                                      const char *body, size_t body_len,
                                      const char *content_type,
                                      bb_http_client_result_t *out)
 {
-    if (!s || !url || !out) return BB_ERR_INVALID_ARG;
+    if (!sess || !url || !out) return BB_ERR_INVALID_ARG;
+    host_session_t *s = (host_session_t *)sess;
 
     pthread_mutex_lock(&s_mock_lock);
     session_mock_state_t m = s_session_mock;
@@ -274,6 +284,11 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t s,
         // transport result (bb_http_client_session_set_mock_tls_error_code
         // + bb_http_client_session_set_mock_transport_error together).
         out->tls_error_code = m.tls_error_code;
+        // B1-1041: transport failure -- connected=false, fail_count++.
+        bb_http_client_priv_health_report(&s->health, false, 0);
+        if (m.tls_error_code != 0) {
+            bb_http_client_priv_health_set_tls_error(&s->health, m.tls_error_code);
+        }
         return m.transport_result;
     }
 
@@ -281,12 +296,36 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t s,
     out->body_len     = 0;
     out->truncated    = false;
     out->tls_error_code = m.tls_error_code;
+    // B1-1041: round trip completed -- connected=true, last_ok_ms stamped;
+    // status_code >= 500 also bumps fail_count (see the reporting policy in
+    // bb_http_client.h).
+    bb_http_client_priv_health_report(&s->health, true, m.canned_status);
+    if (m.tls_error_code != 0) {
+        bb_http_client_priv_health_set_tls_error(&s->health, m.tls_error_code);
+    }
     return BB_OK;
 }
 
-void bb_http_client_session_close(bb_http_client_session_t s)
+bb_err_t bb_http_client_session_health_fill(bb_http_client_session_t sess,
+                                            bb_http_client_session_health_snap_t *out)
 {
-    if (!s) return;
+    if (!sess || !out) return BB_ERR_INVALID_ARG;
+    host_session_t *s = (host_session_t *)sess;
+    pthread_mutex_lock(&s->health.lock);
+    out->connected      = s->health.connected;
+    out->last_ok_ms     = s->health.last_ok_ms;
+    out->fail_count     = (uint64_t)s->health.fail_count;
+    out->tls_error_code = s->health.tls_error_code;
+    pthread_mutex_unlock(&s->health.lock);
+    return BB_OK;
+}
+
+void bb_http_client_session_close(bb_http_client_session_t sess)
+{
+    if (!sess) return;
+    host_session_t *s = (host_session_t *)sess;
+    bb_http_client_priv_health_close(&s->health);  // B1-1041: clean close, fail_count untouched
+    pthread_mutex_destroy(&s->health.lock);
     free(s);
 }
 

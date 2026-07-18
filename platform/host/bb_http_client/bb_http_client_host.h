@@ -5,6 +5,7 @@
 // For _get_stream, the mock body is replayed in ~256-byte chunks.
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include "bb_core.h"
 
 #ifdef __cplusplus
@@ -118,6 +119,19 @@ void bb_http_client_session_set_mock_tls_error_code(int code);
 // simulate an allocation failure. Pass NULL to revert to the real calloc
 // (also reverted by bb_http_client_clear_mock()).
 void bb_http_client_host_set_session_calloc(void *(*fn)(size_t, size_t));
+
+// -------------------------------------------------------------------------
+// Per-session health mock clock (B1-1041). This component's existing
+// convention keeps host test hooks in this header rather than the public
+// bb_http_client.h (unlike bb_tcp_client/bb_mqtt_client, which gate theirs
+// behind a BB_*_TESTING block in the public header) -- kept consistent
+// here. Forwards to bb_http_client_health.c's mock clock.
+// -------------------------------------------------------------------------
+
+// Sets the mock clock used for last_ok_ms instead of the real clock, for
+// deterministic host tests. Not reset implicitly by bb_http_client_clear_mock()
+// -- set it explicitly before an operation that stamps last_ok_ms.
+void bb_http_client_test_set_mock_time_ms64(int64_t ms);
 
 #ifdef __cplusplus
 }

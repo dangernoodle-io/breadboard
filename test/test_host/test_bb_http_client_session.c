@@ -9,9 +9,11 @@
 // - clear_mock resets session record
 #include "unity.h"
 #include "bb_http_client.h"
+#include "bb_serialize.h"
 #include "../../platform/host/bb_http_client/bb_http_client_host.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 static void reset(void)
 {
@@ -468,6 +470,261 @@ void test_bb_http_client_host_set_session_calloc_null_reverts_to_real_calloc(voi
     // counting_calloc must NOT have been invoked — the override was reverted.
     TEST_ASSERT_EQUAL(0, s_alloc_calls);
     TEST_ASSERT_NOT_NULL(s);
+
+    bb_http_client_session_close(s);
+}
+
+// -------------------------------------------------------------------------
+// Per-session health (B1-1041) — deterministic single-threaded coverage of
+// bb_http_client_session_health_fill() driven via the existing mock knobs
+// (session_set_mock_status / session_set_mock_transport_error /
+// session_set_mock_tls_error_code). No pthread races — see
+// bb_http_client.h's reporting policy for the contract under test.
+// -------------------------------------------------------------------------
+
+void test_bb_http_client_session_health_fill_null_args_return_invalid_arg(void)
+{
+    reset();
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+    bb_http_client_session_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_http_client_session_health_fill(s, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_http_client_session_health_fill(NULL, &snap));
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_health_fill_fresh_session_is_zeroed(void)
+{
+    reset();
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+
+    bb_http_client_session_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_health_fill(s, &snap));
+    TEST_ASSERT_FALSE(snap.connected);
+    TEST_ASSERT_EQUAL_INT64(0, snap.last_ok_ms);
+    TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
+    TEST_ASSERT_EQUAL_INT64(0, snap.tls_error_code);
+
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_post_2xx_sets_connected_and_stamps_last_ok_ms(void)
+{
+    reset();
+    bb_http_client_test_set_mock_time_ms64(1000);
+    bb_http_client_session_set_mock_status(200);
+
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+
+    bb_http_client_result_t r;
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_http_client_session_post(s, "http://example.com/pub", "{}", 2, NULL, &r));
+
+    bb_http_client_session_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_health_fill(s, &snap));
+    TEST_ASSERT_TRUE(snap.connected);
+    TEST_ASSERT_EQUAL_INT64(1000, snap.last_ok_ms);
+    TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
+
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_post_transport_error_sets_disconnected_and_bumps_fail_count(void)
+{
+    reset();
+    bb_http_client_test_set_mock_time_ms64(2000);
+    bb_http_client_session_set_mock_transport_error(BB_ERR_INVALID_STATE);
+
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+
+    bb_http_client_result_t r;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE,
+        bb_http_client_session_post(s, "http://example.com/pub", "{}", 2, NULL, &r));
+
+    bb_http_client_session_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_health_fill(s, &snap));
+    TEST_ASSERT_FALSE(snap.connected);
+    TEST_ASSERT_EQUAL_UINT64(1, snap.fail_count);
+    // A transport failure never reaches the clock stamp -- last_ok_ms stays
+    // at its zeroed default.
+    TEST_ASSERT_EQUAL_INT64(0, snap.last_ok_ms);
+
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_post_4xx_does_not_bump_fail_count(void)
+{
+    reset();
+    bb_http_client_test_set_mock_time_ms64(3000);
+    bb_http_client_session_set_mock_status(404);
+
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+
+    bb_http_client_result_t r;
+    // The host mock reports a completed round trip regardless of status
+    // code (unlike the ESP-IDF backend, which additionally maps a non-2xx
+    // status to BB_ERR_INVALID_STATE) -- health tracking only cares about
+    // the outcome bb_http_client_result_t carries, so BB_OK here is correct
+    // for this backend.
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_http_client_session_post(s, "http://example.com/pub", "{}", 2, NULL, &r));
+
+    bb_http_client_session_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_health_fill(s, &snap));
+    // A 4xx is a valid server response, not a transport failure: the round
+    // trip completed, so connected/last_ok_ms are still reported, but
+    // fail_count is NOT bumped.
+    TEST_ASSERT_TRUE(snap.connected);
+    TEST_ASSERT_EQUAL_INT64(3000, snap.last_ok_ms);
+    TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
+
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_post_5xx_bumps_fail_count(void)
+{
+    reset();
+    bb_http_client_test_set_mock_time_ms64(4000);
+    bb_http_client_session_set_mock_status(503);
+
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+
+    bb_http_client_result_t r;
+    // See the 4xx test above: the host mock reports BB_OK for any
+    // transport-succeeded status code.
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_http_client_session_post(s, "http://example.com/pub", "{}", 2, NULL, &r));
+
+    bb_http_client_session_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_health_fill(s, &snap));
+    // A 5xx is a server error even though the transport itself succeeded --
+    // the round trip completed (connected/last_ok_ms report as usual) AND
+    // fail_count is bumped.
+    TEST_ASSERT_TRUE(snap.connected);
+    TEST_ASSERT_EQUAL_INT64(4000, snap.last_ok_ms);
+    TEST_ASSERT_EQUAL_UINT64(1, snap.fail_count);
+
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_health_tls_error_code_set_on_failure(void)
+{
+    reset();
+    bb_http_client_session_set_mock_transport_error(BB_ERR_INVALID_STATE);
+    bb_http_client_session_set_mock_tls_error_code(-0x7200);
+
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "https://example.com", &s));
+
+    bb_http_client_result_t r;
+    bb_http_client_session_post(s, "https://example.com/pub", NULL, 0, NULL, &r);
+
+    bb_http_client_session_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_health_fill(s, &snap));
+    TEST_ASSERT_EQUAL_INT64(-0x7200, snap.tls_error_code);
+
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_health_tls_error_code_not_reset_on_later_success(void)
+{
+    reset();
+    bb_http_client_session_set_mock_transport_error(BB_ERR_INVALID_STATE);
+    bb_http_client_session_set_mock_tls_error_code(-0x7200);
+
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "https://example.com", &s));
+
+    bb_http_client_result_t r;
+    bb_http_client_session_post(s, "https://example.com/pub", NULL, 0, NULL, &r);
+
+    // A later successful post carries tls_error_code=0 in its own result,
+    // but health must NOT reset the last-reported nonzero value to 0.
+    bb_http_client_session_set_mock_transport_error(BB_OK);
+    bb_http_client_session_set_mock_tls_error_code(0);
+    bb_http_client_session_set_mock_status(200);
+    bb_http_client_session_post(s, "https://example.com/pub", NULL, 0, NULL, &r);
+
+    bb_http_client_session_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_health_fill(s, &snap));
+    TEST_ASSERT_EQUAL_INT64(-0x7200, snap.tls_error_code);
+    TEST_ASSERT_TRUE(snap.connected);
+
+    bb_http_client_session_close(s);
+}
+
+// Note: bb_http_client_session_close() frees the session handle, so
+// bb_http_client_priv_health_close()'s connected=false/fail_count-untouched
+// contract (documented in bb_http_client.h) is not independently
+// assertable through the public API after a close -- fill-after-close would
+// read freed memory. The close() codepath itself is exercised for coverage
+// by every session_close() call across this file (host + espidf backends
+// both call it unconditionally before freeing).
+
+// -------------------------------------------------------------------------
+// bb_http_client_session_health_desc: the descriptor produces exactly the 4
+// documented wire keys, in order (mirrors bb_tcp_client_health_desc's test).
+// -------------------------------------------------------------------------
+
+typedef struct {
+    int         count;
+    const char *keys[4];
+} http_client_health_desc_capture_t;
+
+static void http_health_capture_emit_bool(void *ctx, const char *key, bool v)
+{
+    (void)v;
+    http_client_health_desc_capture_t *cap = (http_client_health_desc_capture_t *)ctx;
+    cap->keys[cap->count++] = key;
+}
+
+static void http_health_capture_emit_i64(void *ctx, const char *key, int64_t v)
+{
+    (void)v;
+    http_client_health_desc_capture_t *cap = (http_client_health_desc_capture_t *)ctx;
+    cap->keys[cap->count++] = key;
+}
+
+static void http_health_capture_emit_u64(void *ctx, const char *key, uint64_t v)
+{
+    (void)v;
+    http_client_health_desc_capture_t *cap = (http_client_health_desc_capture_t *)ctx;
+    cap->keys[cap->count++] = key;
+}
+
+void test_bb_http_client_session_health_desc_walks_all_four_keys(void)
+{
+    reset();
+    bb_http_client_session_set_mock_status(200);
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+    bb_http_client_result_t r;
+    bb_http_client_session_post(s, "http://example.com/pub", "{}", 2, NULL, &r);
+
+    bb_http_client_session_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_health_fill(s, &snap));
+
+    http_client_health_desc_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+    bb_serialize_emit_t emit = {
+        .format_id = BB_FORMAT_NONE,
+        .ctx       = &cap,
+        .emit_bool = http_health_capture_emit_bool,
+        .emit_i64  = http_health_capture_emit_i64,
+        .emit_u64  = http_health_capture_emit_u64,
+    };
+    bb_serialize_walk(&bb_http_client_session_health_desc, &snap, &emit);
+
+    TEST_ASSERT_EQUAL_INT(4, cap.count);
+    TEST_ASSERT_EQUAL_STRING("connected", cap.keys[0]);
+    TEST_ASSERT_EQUAL_STRING("last_ok_ms", cap.keys[1]);
+    TEST_ASSERT_EQUAL_STRING("fail_count", cap.keys[2]);
+    TEST_ASSERT_EQUAL_STRING("tls_error_code", cap.keys[3]);
 
     bb_http_client_session_close(s);
 }
