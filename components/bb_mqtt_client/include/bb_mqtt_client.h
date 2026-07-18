@@ -8,11 +8,42 @@
 // bb_tls_creds_resolve and keeps them alive for the client's lifetime.
 // bb_tls_creds_free is called only inside bb_mqtt_client_destroy, after the
 // underlying client is torn down.
+//
+// Per-instance health (B1-1040): each handle tracks its OWN
+// connected/last_ok_ms/fail_count/tls_error_code -- no shared/authoritative
+// slot (mirrors bb_tcp_client's B1-1039 per-instance health). Reporting
+// policy -- read this before wiring a consumer FSM off
+// bb_mqtt_client_health_fill():
+//   - MQTT_EVENT_CONNECTED             -> connected=true, last_ok_ms stamped
+//   - MQTT_EVENT_DISCONNECTED          -> connected=false, fail_count++
+//     (esp-mqtt owns reconnect internally, so every DISCONNECTED the event
+//     handler observes is an unexpected network-level drop, not a caller-
+//     requested stop -- bb_mqtt_client_destroy() marks the handle destroyed
+//     BEFORE tearing down the client, so a deliberate stop's own disconnect
+//     is guarded out and never reaches this path)
+//   - bb_mqtt_client_destroy()         -> connected=false, fail_count
+//     untouched (a caller-initiated teardown is not a transport failure)
+//   - tls_error_code is set from the MQTT_EVENT_ERROR TLS path and otherwise
+//     left at its last-reported value
+//
+// fail_count vs reconnect_count: reconnect_count (bb_mqtt_client_stats_t,
+// existing field) is incremented on MQTT_EVENT_DISCONNECTED ONLY when the
+// client had connected at least once before -- it undercounts a broker/
+// network outage that keeps the client from ever completing its FIRST
+// connect. fail_count increments on EVERY MQTT_EVENT_DISCONNECTED
+// regardless of ever_connected, so it also captures failed initial-connect
+// attempts -- a strictly broader, independent counter from reconnect_count.
+//
+// bb_mqtt_client_health_fill() + bb_mqtt_client_health_desc give a consumer
+// a format-agnostic snapshot of one handle's health (bb_tcp_client_health_*
+// pattern) -- bb exposes RAW metrics; the consumer judges (no verdict here).
 #pragma once
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include "bb_core.h"
+#include "bb_serialize.h"
 #include "bb_tls.h"
 
 #ifdef __cplusplus
@@ -307,6 +338,34 @@ bb_err_t bb_mqtt_client_suspend_default(void);
 bb_err_t bb_mqtt_client_resume_default(void);
 
 // ---------------------------------------------------------------------------
+// Per-instance health snapshot (B1-1040) — format-agnostic wire surface,
+// mirroring bb_tcp_client_health_snap_t / bb_meminfo_heap_snap's
+// descriptor+fill pattern. Every numeric field is widened to a fixed 64-bit
+// width so bb_serialize_walk()'s BB_TYPE_I64/BB_TYPE_U64 cases (which always
+// memcpy a fixed 8 bytes at the descriptor offset) never read past a
+// narrower platform type. Deliberately separate from bb_mqtt_client_stats_t
+// (which carries other diagnostic fields at their native, narrower widths,
+// and is not part of the cross-project health wire-key convention).
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    bool     connected;
+    int64_t  last_ok_ms;
+    uint64_t fail_count;
+    int64_t  tls_error_code;
+} bb_mqtt_client_health_snap_t;
+
+extern const bb_serialize_desc_t bb_mqtt_client_health_desc;
+
+/**
+ * Populates `out` from handle `h`'s live health state.
+ *
+ * @return BB_OK on success; BB_ERR_INVALID_ARG if h is NULL/invalid or out
+ *         is NULL.
+ */
+bb_err_t bb_mqtt_client_health_fill(bb_mqtt_client_t h, bb_mqtt_client_health_snap_t *out);
+
+// ---------------------------------------------------------------------------
 // Host test hooks (only when BB_MQTT_CLIENT_TESTING is defined)
 // ---------------------------------------------------------------------------
 
@@ -419,6 +478,45 @@ void bb_mqtt_client_host_inject_fragment(bb_mqtt_client_t h, const char *topic,
  * branch (e.g. an MQTT ingress adapter) without a real broker.
  */
 void bb_mqtt_client_host_set_subscribe_fail(bb_mqtt_client_t h, bool fail);
+
+// ---------------------------------------------------------------------------
+// Per-instance health test hooks (B1-1040)
+// ---------------------------------------------------------------------------
+
+/**
+ * Simulate a successful (re)connect: mirrors MQTT_EVENT_CONNECTED --
+ * connected=true, ever_connected=true, last_ok_ms stamped from the mock
+ * clock. Does not touch fail_count.
+ */
+void bb_mqtt_client_host_simulate_connect_success(bb_mqtt_client_t h);
+
+/**
+ * Simulate an unexpected network-level disconnect: mirrors
+ * MQTT_EVENT_DISCONNECTED -- connected=false, fail_count++ (unconditional,
+ * unlike reconnect_count which requires a prior successful connect -- see
+ * bb_mqtt_client.h's fail_count-vs-reconnect_count comment). Also bumps
+ * reconnect_count when the handle had connected at least once, matching the
+ * ESP-IDF backend's gated increment.
+ */
+void bb_mqtt_client_host_simulate_disconnect_error(bb_mqtt_client_t h);
+
+/**
+ * Simulate a caller-initiated clean close: connected=false, fail_count
+ * untouched -- a deliberate teardown is not a transport failure. A thin
+ * wrapper over the shared bb_mqtt_client_priv_health_close() helper that
+ * bb_mqtt_client_destroy() itself calls on both backends, so this test hook
+ * exercises the real clean-close mutation rather than a divergent stand-in.
+ */
+void bb_mqtt_client_host_simulate_clean_close(bb_mqtt_client_t h);
+
+/**
+ * Sets the mock clock (BB_MQTT_CLIENT_TESTING builds only) used for
+ * last_ok_ms instead of bb_clock_now_ms64(), for deterministic host tests.
+ * The mock clock is a single process-wide value (not per-handle) and is
+ * NOT implicitly reset between tests -- set it explicitly before an
+ * operation that stamps last_ok_ms.
+ */
+void bb_mqtt_client_test_set_mock_time_ms64(int64_t ms);
 
 #endif /* BB_MQTT_CLIENT_TESTING */
 
