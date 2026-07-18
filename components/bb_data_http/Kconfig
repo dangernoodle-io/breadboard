@@ -48,4 +48,64 @@ config BB_DATA_HTTP_EVENT_RING_CAPACITY
         bb_data_http_client_dropped_count()). bb_data_http_cfg_t may only
         shrink this at runtime, never grow it.
 
+# ESP-IDF backend (B1-1033 first bench-flash de-risk, design KB 1447):
+# platform/espidf/bb_data_http/bb_data_http_espidf.c only -- no effect on
+# the pure core or any other platform.
+
+config BB_DATA_HTTP_SEND_TIMEOUT_MS
+    int "SSE client send timeout (ms)"
+    default 20
+    range 1 1000
+    help
+        SO_SNDTIMEO set on a client's socket at connect. Deliberately short:
+        the ONE shared broadcaster task pays this timeout per stalled client
+        per sweep, so BB_DATA_HTTP_MAX_CLIENTS * this value must stay well
+        under BB_DATA_HTTP_SWEEP_INTERVAL_MS (default 2*20ms=40ms < 50ms).
+
+config BB_DATA_HTTP_RECV_TIMEOUT_MS
+    int "SSE client receive timeout (ms)"
+    default 30000
+    range 1000 120000
+    help
+        SO_RCVTIMEO set on a client's socket at connect -- surfaces a dead
+        or half-open peer via the socket layer itself, independent of the
+        broadcaster's own peer-liveness pre-pass.
+
+config BB_DATA_HTTP_SWEEP_INTERVAL_MS
+    int "Broadcaster sweep interval (ms)"
+    default 50
+    range 10 1000
+    help
+        vTaskDelay() cadence of the single broadcaster task between
+        peer-liveness pre-pass + bb_data_http_sweep_step() calls.
+
+config BB_DATA_HTTP_TASK_STACK_BYTES
+    int "Broadcaster task stack (bytes)"
+    default 4096
+    range 2048 16384
+    help
+        Stack budget for the single, process-lifetime broadcaster task
+        (bb_task_create, BB_TASK_BACKING_DYNAMIC).
+
+config BB_DATA_HTTP_TASK_PRIORITY
+    int "Broadcaster task priority"
+    default 4
+    range 1 10
+    help
+        FreeRTOS priority of the broadcaster task -- below lwip's own
+        internal task priority by default.
+
+config BB_DATA_HTTP_RENDER_SCRATCH_BYTES
+    int "Render scratch buffer size (bytes)"
+    default 128
+    range 32 2048
+    help
+        Fixed-size CALLER-OWNED scratch bb_data_render() gathers into before
+        rendering (KB 1447 fork #1: a fixed Kconfig stopgap, not a per-key
+        snap_size getter -- deferred to the B1-1045 cutover). A binding
+        whose desc->snap_size exceeds this returns BB_ERR_NO_SPACE from
+        bb_data_render(); bb_data_http_sweep_step() leaves that key's dirty
+        bit set on any render_fn failure, so it is retried (and logged,
+        rate-limited) every subsequent sweep rather than silently dropped.
+
 endmenu
