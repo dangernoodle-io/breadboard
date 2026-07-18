@@ -294,6 +294,56 @@ void test_bb_data_render_unsupported_format_skips_gather(void)
                                       &out_len));
 }
 
+// ---------------------------------------------------------------------------
+// replay_kind (B1-1032) -- STORED only, not yet consumed by any broadcaster.
+// ---------------------------------------------------------------------------
+
+void test_bb_data_bind_default_replay_kind_is_state(void)
+{
+    dt_reset();
+    int64_t ctx_val = 1;
+    // replay_kind omitted from the struct literal -- must default to
+    // BB_DATA_STATE (0), matching today's fresh-render-only behavior.
+    bb_data_binding_t b = { .key = "dt.replay.default", .desc = &s_dt_desc, .gather = dt_gather_ok, .ctx = &ctx_val };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    bb_data_replay_kind_t kind;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_binding_replay_kind("dt.replay.default", &kind));
+    TEST_ASSERT_EQUAL(BB_DATA_STATE, kind);
+}
+
+void test_bb_data_bind_explicit_event_replay_kind_round_trips(void)
+{
+    dt_reset();
+    int64_t ctx_val = 1;
+    bb_data_binding_t b = { .key = "dt.replay.event", .desc = &s_dt_desc, .gather = dt_gather_ok, .ctx = &ctx_val,
+                            .replay_kind = BB_DATA_EVENT };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    bb_data_replay_kind_t kind;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_binding_replay_kind("dt.replay.event", &kind));
+    TEST_ASSERT_EQUAL(BB_DATA_EVENT, kind);
+}
+
+void test_bb_data_binding_replay_kind_unbound_key_returns_not_found(void)
+{
+    dt_reset();
+    bb_data_replay_kind_t kind;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_data_binding_replay_kind("dt.replay.nope", &kind));
+}
+
+void test_bb_data_binding_replay_kind_null_args_return_invalid_arg(void)
+{
+    dt_reset();
+    int64_t ctx_val = 1;
+    bb_data_binding_t b = { .key = "dt.replay.nullargs", .desc = &s_dt_desc, .gather = dt_gather_ok, .ctx = &ctx_val };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    bb_data_replay_kind_t kind;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_binding_replay_kind(NULL, &kind));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_binding_replay_kind("dt.replay.nullargs", NULL));
+}
+
 void test_bb_data_render_null_args_return_invalid_arg(void)
 {
     dt_reset();

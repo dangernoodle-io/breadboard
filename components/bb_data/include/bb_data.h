@@ -62,16 +62,37 @@ extern "C" {
 // live sources.
 typedef bb_err_t (*bb_data_gather_fn)(void *dst, void *ctx);
 
+// Replay semantics for a binding's future broadcast path (B1-1033) -- STORED
+// only here, not yet consumed by anything in this PR.
+//
+// BB_DATA_STATE (the default -- see bb_data_binding_t.replay_kind below): a
+// fresh render on connect, no backlog ring. Suits a binding whose current
+// value fully describes it (e.g. a heap snapshot) -- a late subscriber just
+// wants "now", not history.
+//
+// BB_DATA_EVENT: a bounded ring of past values, flushed to a subscriber on
+// connect. Suits a binding whose individual values are discrete occurrences
+// a late subscriber still needs (e.g. a log/alert stream) rather than a
+// single current state.
+typedef enum {
+    BB_DATA_STATE = 0,
+    BB_DATA_EVENT = 1,
+} bb_data_replay_kind_t;
+
 // One key's binding. `desc` is BORROWED (typically a static const owned by
 // the source component, e.g. bb_meminfo_heap_snap_desc) -- the caller keeps
 // it alive for the life of the binding; bb_data never copies or frees it.
 // `gather`/`ctx` are the egress path; `gather` MUST be set (a binding with
-// no gather is useless -- see bb_data_bind()).
+// no gather is useless -- see bb_data_bind()). `replay_kind` defaults to
+// BB_DATA_STATE when zero-initialized (e.g. via a partial struct literal
+// that omits the field) -- every existing call site keeps today's
+// fresh-render-only behavior with no change required.
 typedef struct {
     const char                *key;
     const bb_serialize_desc_t *desc;
     bb_data_gather_fn          gather;
     void                      *ctx;
+    bb_data_replay_kind_t      replay_kind;
 } bb_data_binding_t;
 
 // Binds (or re-binds) `binding->key`'s descriptor/gather/ctx. `binding`
@@ -111,6 +132,13 @@ bb_err_t bb_data_bind(const bb_data_binding_t *binding);
 bb_err_t bb_data_render(bb_format_t fmt, const char *key,
                         void *scratch, size_t scratch_cap,
                         char *buf, size_t cap, size_t *out_len);
+
+// Returns `key`'s bound replay_kind via `*out_kind`. Not yet consumed by any
+// broadcaster (B1-1033 will) -- this PR only stores/reads the flag.
+//
+// Returns BB_ERR_INVALID_ARG if `key` or `out_kind` is NULL.
+// Returns BB_ERR_NOT_FOUND if `key` has no binding.
+bb_err_t bb_data_binding_replay_kind(const char *key, bb_data_replay_kind_t *out_kind);
 
 #ifdef BB_DATA_TESTING
 // Test-only: clears the binding table AND the underlying bb_registry

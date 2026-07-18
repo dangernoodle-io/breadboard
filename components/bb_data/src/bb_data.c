@@ -21,6 +21,7 @@ typedef struct {
     const bb_serialize_desc_t *desc;
     bb_data_gather_fn          gather;
     void                      *ctx;
+    bb_data_replay_kind_t      replay_kind;
 } bb_data_slot_t;
 
 static bb_data_slot_t s_slots[BB_DATA_MAX_BINDINGS];
@@ -57,9 +58,10 @@ bb_err_t bb_data_bind(const bb_data_binding_t *binding)
         slot->in_use = true;
     }
 
-    slot->desc   = binding->desc;
-    slot->gather = binding->gather;
-    slot->ctx    = binding->ctx;
+    slot->desc        = binding->desc;
+    slot->gather      = binding->gather;
+    slot->ctx         = binding->ctx;
+    slot->replay_kind = binding->replay_kind;
 
     return BB_OK;
 }
@@ -82,6 +84,17 @@ bb_err_t bb_data_render(bb_format_t fmt, const char *key,
     if (rc != BB_OK) return rc;
 
     return render(slot->desc, scratch, buf, cap, out_len);
+}
+
+bb_err_t bb_data_binding_replay_kind(const char *key, bb_data_replay_kind_t *out_kind)
+{
+    if (!key || !out_kind) return BB_ERR_INVALID_ARG;
+
+    bb_data_slot_t *slot = (bb_data_slot_t *)bb_registry_lookup(&s_bb_data_registry, key);
+    if (!slot) return BB_ERR_NOT_FOUND;
+
+    *out_kind = slot->replay_kind;
+    return BB_OK;
 }
 
 #ifdef BB_DATA_TESTING
