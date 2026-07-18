@@ -1,0 +1,39 @@
+menu "breadboard: bb_data_http"
+
+config BB_DATA_HTTP_MAX_CLIENTS
+    int "Max concurrent SSE/WS clients"
+    default 2
+    range 1 16
+    help
+        Maximum number of simultaneous bb_data_http subscribers (SSE or WS).
+        Sizes the compile-time client-slot pool; bb_data_http_init()'s cfg
+        may only shrink this at runtime, never grow it.
+
+config BB_DATA_HTTP_OUTBOUND_CAPACITY
+    int "Per-client outbound queue entry capacity"
+    default 8
+    range 1 64
+    help
+        Max number of rendered frames a client's outbound bb_queue holds at
+        once (B1-1031 byte/age backpressure extension). On overflow the
+        oldest queued frame is evicted (BB_QUEUE_EVICT_OLDEST).
+
+config BB_DATA_HTTP_OUTBOUND_ENTRY_MAX
+    int "Per-client outbound max rendered frame size (bytes)"
+    default 512
+    range 64 4096
+    help
+        Maximum size of a single rendered frame (one key's value) buffered
+        for a client. A render_fn output larger than this is rejected by
+        bb_queue_push (truncated counter incremented, frame dropped).
+
+config BB_DATA_HTTP_OUTBOUND_MAX_BYTES
+    int "Per-client outbound total byte budget"
+    default 4096
+    range 512 32768
+    help
+        Total payload-byte budget across a client's queued outbound frames
+        (B1-1031). Eviction (oldest first) fires on this budget OR the entry
+        capacity above, whichever is hit first.
+
+endmenu
