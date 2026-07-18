@@ -22,6 +22,24 @@ normally via `--update-baseline`, same as any family. But a NEW component
 not already in the baseline is exactly the case this fence exists to catch
 — it FAILS, by design, until a human deliberately approves it.
 
+**Rename detection (B1-1015).** Unlike `di_legacy` (keyed on SYMBOL, so a
+pure file/path rename never changes identity), this family keys identity on
+the directory NAME itself — a component rename (e.g. `bb_prov` ->
+`bb_wifi_prov`, B1-808) genuinely changes that identity, so the generic
+`_base.diff()` pairing (same identity, different path) never applies across
+the old and new names; it shows up as an ordinary net-new + prune-candidate
+pair, tripping the create-guardrail for what is actually an identity-stable
+rename of an already-approved component. `rename_pairs()` below closes that
+gap with a narrow, deliberately conservative heuristic: when a fence run
+sees EXACTLY one new component and EXACTLY one removed component, treat
+that 1:1 pair as a rename — drop both from the new/removed lists so the run
+passes with zero baseline edit (no `--approve`, no `--update-baseline`
+swap). Any other shape (zero removed, multiple new/removed) is genuinely
+ambiguous and is left untouched, falling back to the normal net-new
+guardrail — a real new component alongside an unrelated deletion in the
+same run still requires `--approve` as long as either side has more than
+one entry.
+
 **Grow-by-approval — the one sanctioned additive baseline path.**
 `--update-baseline` stays shrink-only for every family, this one included —
 that invariant is never broken. Approving a new component instead goes
@@ -37,7 +55,7 @@ mistake-resistant command instead of hand-editing JSON.
 from __future__ import annotations
 import sys
 from pathlib import Path
-from typing import Set
+from typing import List, Set, Tuple
 
 from fence import _base
 from fence._base import Marker
@@ -82,3 +100,19 @@ def _scan_new_component(root: Path) -> Set[Marker]:
 
 def scan_all(root: str) -> Set[Marker]:
     return _base.scan_all(sys.modules[__name__], root)
+
+
+# ---------------------------------------------------------------------------
+# Rename detection (B1-1015) — see module docstring for the full rationale.
+# ---------------------------------------------------------------------------
+
+def rename_pairs(
+    new: List[Marker], removed: List[Marker]
+) -> Tuple[List[Marker], List[Marker]]:
+    """Given the (new, removed) lists from `_base.diff()`, drop an
+    unambiguous 1:1 new/removed pair — treated as an identity-stable
+    directory rename, not a net-new component + a prune candidate. Any
+    other shape is returned unchanged (still net-new + prune-candidate)."""
+    if len(new) == 1 and len(removed) == 1:
+        return [], []
+    return new, removed

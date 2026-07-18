@@ -170,6 +170,29 @@ def _approve(root: str, component: str) -> int:
     return 0
 
 
+def _apply_rename_pairs(module, family, new, removed):
+    """Family-specific hook: a module may define `rename_pairs(new,
+    removed) -> (new, removed)` to fold an unambiguous cross-identity
+    rename (e.g. new_component's directory-rename detection, B1-1015) into
+    a no-op before the generic pass/fail/prune logic below runs. Absent
+    for every family except new_component today; a no-op passthrough
+    otherwise. When the hook collapses an unambiguous 1:1 pair, emit an
+    INFO breadcrumb naming the paired old -> new component so `make
+    fence`/CI output shows the heuristic fired rather than a silent PASS."""
+    hook = getattr(module, "rename_pairs", None)
+    if hook is None:
+        return new, removed
+    after_new, after_removed = hook(new, removed)
+    if len(new) == 1 and len(removed) == 1 and not after_new and not after_removed:
+        old_m, new_m = removed[0], new[0]
+        print(
+            f"INFO [fence:{family}]: rename detected: {old_m.path}:{old_m.id}"
+            f" ({old_m.type}) -> {new_m.path}:{new_m.id} ({new_m.type}) —"
+            " treated as an identity-stable rename (no --approve, no baseline edit)"
+        )
+    return after_new, after_removed
+
+
 def _update_baseline(root: str, family: str) -> int:
     module = fence_pkg.FAMILIES[family]
     identity_fn = fence_pkg.identity_fn_for(module)
@@ -182,6 +205,7 @@ def _update_baseline(root: str, family: str) -> int:
         )
         return 1
     new, removed = fence_pkg.diff(current, baseline, identity_fn)
+    new, removed = _apply_rename_pairs(module, family, new, removed)
     # `removed` names exact baseline entries (not whole identity groups) —
     # diff() ratchets on occurrence count per identity, so a partial
     # shrink (e.g. 2 baselined occurrences -> 1) must prune only the
@@ -208,6 +232,7 @@ def _check(root: str, family: str) -> bool:
     current = fence_pkg.scan_all(module, root)
     baseline = fence_pkg.load_baseline(root, family)
     new, removed = fence_pkg.diff(current, baseline, identity_fn)
+    new, removed = _apply_rename_pairs(module, family, new, removed)
 
     for m in removed:
         print(f"INFO [fence:{family}]: candidate to prune from baseline: {m.path}:{m.id} ({m.type})")
