@@ -401,6 +401,11 @@
       "type": "component"
     },
     {
+      "id": "bb_serialize_logfmt",
+      "path": "components/bb_serialize_logfmt",
+      "type": "component"
+    },
+    {
       "id": "bb_settings",
       "path": "components/bb_settings",
       "type": "component"
