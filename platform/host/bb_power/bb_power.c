@@ -1,19 +1,18 @@
 // bb_power dispatch layer — platform-independent; shared by espidf and host.
-// Mutex approach: pthread_mutex_t on host; on ESP-IDF pthread.h is also
-// available (ESP-IDF ships a POSIX pthread layer), so a single
-// PTHREAD_MUTEX_INITIALIZER works on both targets.
+// Mutex approach: bb_lock_t (bb_core) — its host backend wraps pthread_mutex_t,
+// its ESP-IDF backend a FreeRTOS semaphore; this file never sees either
+// platform type directly.
 #include "bb_power.h"
 #include "bb_power_driver.h"
 #include "bb_json.h"
 #include "bb_lock.h"
 #include <stdlib.h>
-#include <pthread.h>
 
 struct bb_power {
     const bb_power_driver_t *drv;
     void *state;
     bb_power_snapshot_t cache;
-    pthread_mutex_t lock;
+    bb_lock_t lock;
 };
 
 static bb_power_handle_t s_primary = NULL;
@@ -32,7 +31,7 @@ bb_err_t bb_power_handle_create(const bb_power_driver_t *drv, void *state,
     h->cache.pout_mw = -1;
     h->cache.vin_mv  = -1;
     h->cache.temp_c  = -1;
-    pthread_mutex_init(&h->lock, NULL);
+    bb_lock_init(NULL, &h->lock);
     *out = h;
     return BB_OK;
 }

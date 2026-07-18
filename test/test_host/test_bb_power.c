@@ -269,6 +269,23 @@ void test_bb_power_set_vout_mv_no_fn_unsupported(void)
 }
 
 // ---------------------------------------------------------------------------
+// handle_state
+// ---------------------------------------------------------------------------
+
+void test_bb_power_handle_state_null_handle_returns_null(void)
+{
+    TEST_ASSERT_NULL(bb_power_handle_state(NULL));
+}
+
+void test_bb_power_handle_state_returns_state(void)
+{
+    bb_power_handle_t h;
+    bb_power_handle_create(&drv_full, &g_fake, &h);
+    TEST_ASSERT_EQUAL_PTR(&g_fake, bb_power_handle_state(h));
+    free(h);
+}
+
+// ---------------------------------------------------------------------------
 // name
 // ---------------------------------------------------------------------------
 

@@ -1,14 +1,17 @@
 #pragma once
-// Portable typed lock-copy helper — POSIX pthread (host) and ESP-IDF POSIX layer.
-#include <pthread.h>
+// Portable typed lock-copy helper, built on bb_lock_t (below) — no platform
+// mutex header appears in this public header; both the host (pthread) and
+// ESP-IDF (FreeRTOS semaphore) backends hide behind bb_lock_lock()/
+// bb_lock_unlock().
 
-// BB_LOCKED_COPY — acquire mtx_ptr, copy src to dst via typed struct assignment, release.
-// Only for single-assignment critical sections; do not use when multiple operations
+// BB_LOCKED_COPY — acquire lock_ptr (a bb_lock_t*, already bb_lock_init()'d),
+// copy src to dst via typed struct assignment, release. Only for
+// single-assignment critical sections; do not use when multiple operations
 // must run atomically under the same lock.
-#define BB_LOCKED_COPY(mtx_ptr, dst, src) do { \
-    pthread_mutex_lock(mtx_ptr);                \
+#define BB_LOCKED_COPY(lock_ptr, dst, src) do { \
+    bb_lock_lock(lock_ptr);                     \
     (dst) = (src);                              \
-    pthread_mutex_unlock(mtx_ptr);              \
+    bb_lock_unlock(lock_ptr);                   \
 } while (0)
 
 // ---------------------------------------------------------------------------
