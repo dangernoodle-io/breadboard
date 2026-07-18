@@ -270,6 +270,41 @@ uint32_t bb_data_http_client_dropped_count(const bb_data_http_client_t *c);
 void bb_data_http_reset_for_test(void);
 #endif
 
+#ifdef ESP_PLATFORM
+// ---------------------------------------------------------------------------
+// ESP-IDF composition entry points (B1-1033 first bench-flash de-risk,
+// design KB 1447) -- platform/espidf/bb_data_http/bb_data_http_espidf.c.
+// Wires render_fn/generation_fn to bb_data_render()/bb_data_generation()
+// and send_fn to a raw-socket SSE write, and drives
+// bb_data_http_sweep_step() from a single, process-lifetime broadcaster
+// task. bb_http_request_t (bb_core.h, already included above) is an opaque
+// handle -- no platform type leaks through this declaration.
+// ---------------------------------------------------------------------------
+
+// Idempotent: installs the render/generation/send seams and starts the
+// broadcaster task (bb_task_create, BB_TASK_BACKING_DYNAMIC) on first call;
+// a second call returns BB_OK without creating a second task. Single-caller
+// contract: call once from the composition root / lifecycle observer, never
+// concurrently from multiple tasks -- the idempotence check (s_started) is
+// not itself lock-protected.
+// NOTE: there is deliberately no matching stop()/teardown entry point in
+// this de-risk -- the example's "http" service is start-once for its
+// lifetime. Full lifecycle teardown is deferred to the B1-1045 cutover.
+bb_err_t bb_data_http_espidf_start(void);
+
+// Handles one SSE connect on the calling (httpd) task: sets socket
+// hardening (SO_SNDTIMEO/SO_RCVTIMEO/TCP_NODELAY), sends SSE response
+// headers plus a ": connected" comment, begins the async handler, acquires
+// a bb_data_http client slot (is_ws=false), and records the fd -> async
+// request mapping the broadcaster's send_fn and peer-liveness pre-pass use.
+// Returns before any data is drained -- draining happens on the next
+// broadcaster sweep, never on the calling task. bb_data_http_espidf_start()
+// must have been called first (its seams are what the sweep actually
+// drains through).
+bb_err_t bb_data_http_espidf_client_connect(bb_http_request_t *req,
+                                            const char *topic_filter);
+#endif
+
 #ifdef __cplusplus
 }
 #endif
