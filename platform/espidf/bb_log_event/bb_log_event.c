@@ -10,6 +10,7 @@
 #ifdef ESP_PLATFORM
 
 #include "bb_log_event.h"
+#include "bb_log_event_wire.h"
 #include "../../host/bb_log_event/bb_log_event_parse.h"
 #include "../../../components/bb_log/src/bb_log_internal.h"
 #include "bb_log.h"
@@ -20,6 +21,7 @@
 #include "bb_clock.h"
 #include "bb_openapi.h"
 #include "bb_task.h"
+#include "bb_str.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -52,6 +54,14 @@ typedef struct {
 static bb_event_topic_t s_log_topic = NULL;
 static QueueHandle_t    s_q         = NULL;
 static TaskHandle_t     s_task      = NULL;
+
+// B1-1045 PR-2 wire-primitive stash: the most recently forwarded "log"
+// payload, for bb_log_event_gather() (bb_log_event_wire.h). Written ONLY in
+// s_forwarder_task, immediately after the existing bb_event_post() call
+// below -- a pure store, no new branch/early-return/lock/alloc, and
+// s_forwarder_task's control flow (including the alloc-fail `continue`
+// paths above) is unchanged.
+static char s_last_log_json[BB_LOG_EVENT_LOG_TEXT_MAX];
 
 // ---------------------------------------------------------------------------
 // Forwarder task
@@ -89,8 +99,23 @@ static void s_forwarder_task(void *arg)
 
         size_t plen = strlen(payload);
         bb_event_post(s_log_topic, 0, payload, plen + 1);
+        // B1-1045 PR-2 stash (see s_last_log_json banner above) -- pure
+        // store immediately AFTER the existing bb_event_post() call, never
+        // before/replacing it.
+        bb_strlcpy(s_last_log_json, payload, sizeof(s_last_log_json));
         bb_json_free_str(payload);
     }
+}
+
+// ---------------------------------------------------------------------------
+// B1-1045 PR-2 wire-primitive gather -- ESP-IDF only, not host-reproducible
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_log_event_gather(bb_log_event_wire_t *dst)
+{
+    if (!dst) return BB_ERR_INVALID_ARG;
+    bb_strlcpy(dst->log, s_last_log_json, sizeof(dst->log));
+    return BB_OK;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,165 @@
+// bb_diag_boot_wire — the format-agnostic "diag.boot" descriptor SSOT +
+// gather. See bb_diag_boot_wire.h for the wire-struct contract. Compiles on
+// both host and ESP-IDF; no platform-specific code (bb_cache_get_raw() is
+// itself portable).
+
+#include "bb_diag_boot_wire.h"
+
+#include "bb_diag_event_priv.h"
+#include "bb_cache.h"
+#include "bb_str.h"
+
+#include <stddef.h>
+#include <string.h>
+
+// ---------------------------------------------------------------------------
+// Present predicates
+// ---------------------------------------------------------------------------
+
+static bool panic_boots_since_present(const void *snap)
+{
+    const bb_diag_panic_wire_t *p = (const bb_diag_panic_wire_t *)snap;
+    return p->available;
+}
+
+static bool reboot_detail_present(const void *snap)
+{
+    const bb_diag_reboot_reason_wire_t *r = (const bb_diag_reboot_reason_wire_t *)snap;
+    return r->detail[0] != '\0';
+}
+
+static bool reboot_age_s_present(const void *snap)
+{
+    const bb_diag_reboot_reason_wire_t *r = (const bb_diag_reboot_reason_wire_t *)snap;
+    return r->age_s_valid;
+}
+
+// ---------------------------------------------------------------------------
+// Descriptor
+// ---------------------------------------------------------------------------
+
+static const bb_serialize_field_t s_diag_panic_wire_fields[] = {
+    { .key = "available", .type = BB_TYPE_BOOL,
+      .offset = offsetof(bb_diag_panic_wire_t, available) },
+    { .key = "boots_since", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_diag_panic_wire_t, boots_since),
+      .present = panic_boots_since_present },
+};
+
+static const bb_serialize_field_t s_diag_reboot_reason_wire_fields[] = {
+    { .key = "source", .type = BB_TYPE_STR,
+      .offset = offsetof(bb_diag_reboot_reason_wire_t, source),
+      .max_len = sizeof(((bb_diag_reboot_reason_wire_t *)0)->source) },
+    { .key = "detail", .type = BB_TYPE_STR,
+      .offset = offsetof(bb_diag_reboot_reason_wire_t, detail),
+      .max_len = sizeof(((bb_diag_reboot_reason_wire_t *)0)->detail),
+      .present = reboot_detail_present },
+    { .key = "uptime_s", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_diag_reboot_reason_wire_t, uptime_s) },
+    { .key = "epoch_s", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_diag_reboot_reason_wire_t, epoch_s) },
+    { .key = "age_s", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_diag_reboot_reason_wire_t, age_s),
+      .present = reboot_age_s_present },
+};
+
+static const bb_serialize_field_t s_diag_reboot_hist_wire_fields[] = {
+    { .key = "source", .type = BB_TYPE_STR,
+      .offset = offsetof(bb_diag_reboot_hist_wire_t, source),
+      .max_len = sizeof(((bb_diag_reboot_hist_wire_t *)0)->source) },
+    { .key = "epoch_s", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_diag_reboot_hist_wire_t, epoch_s) },
+    { .key = "uptime_s", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_diag_reboot_hist_wire_t, uptime_s) },
+};
+
+static const bb_serialize_field_t s_diag_boot_wire_fields[] = {
+    { .key = "reset_reason", .type = BB_TYPE_STR,
+      .offset = offsetof(bb_diag_boot_wire_t, reset_reason),
+      .max_len = sizeof(((bb_diag_boot_wire_t *)0)->reset_reason) },
+    { .key = "wdt_resets", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_diag_boot_wire_t, wdt_resets) },
+    { .key = "panic", .type = BB_TYPE_OBJ,
+      .offset = offsetof(bb_diag_boot_wire_t, panic),
+      .children = s_diag_panic_wire_fields,
+      .n_children = sizeof(s_diag_panic_wire_fields) / sizeof(s_diag_panic_wire_fields[0]) },
+    { .key = "pending_verify", .type = BB_TYPE_BOOL,
+      .offset = offsetof(bb_diag_boot_wire_t, pending_verify) },
+    { .key = "rolled_back", .type = BB_TYPE_BOOL,
+      .offset = offsetof(bb_diag_boot_wire_t, rolled_back) },
+    { .key = "reboot_reason", .type = BB_TYPE_OBJ,
+      .offset = offsetof(bb_diag_boot_wire_t, reboot_reason),
+      .children = s_diag_reboot_reason_wire_fields,
+      .n_children = sizeof(s_diag_reboot_reason_wire_fields) / sizeof(s_diag_reboot_reason_wire_fields[0]) },
+    { .key = "reboot_history", .type = BB_TYPE_ARR,
+      .offset = offsetof(bb_diag_boot_wire_t, reboot_history),
+      .elem_type = BB_TYPE_OBJ, .elem_size = sizeof(bb_diag_reboot_hist_wire_t),
+      .max_items = BB_REBOOT_HISTORY_CAP,
+      .children = s_diag_reboot_hist_wire_fields,
+      .n_children = sizeof(s_diag_reboot_hist_wire_fields) / sizeof(s_diag_reboot_hist_wire_fields[0]) },
+};
+
+const bb_serialize_desc_t bb_diag_boot_wire_desc = {
+    .type_name = "diag_boot",
+    .fields    = s_diag_boot_wire_fields,
+    .n_fields  = sizeof(s_diag_boot_wire_fields) / sizeof(s_diag_boot_wire_fields[0]),
+    .snap_size = sizeof(bb_diag_boot_wire_t),
+};
+
+// ---------------------------------------------------------------------------
+// Gather
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_diag_boot_gather(bb_diag_boot_wire_t *dst)
+{
+    if (!dst) return BB_ERR_INVALID_ARG;
+
+    bb_diag_boot_snap_t raw;
+    memset(&raw, 0, sizeof(raw));
+    bb_err_t err = bb_cache_get_raw(BB_DIAG_BOOT_TOPIC, &raw, sizeof(raw));
+    if (err != BB_OK) return err;
+
+    memset(dst, 0, sizeof(*dst));
+
+    bb_strlcpy(dst->reset_reason, raw.reset_reason, sizeof(dst->reset_reason));
+    dst->wdt_resets = (int64_t)raw.wdt_resets;
+
+    dst->panic.available   = raw.panic_available;
+    dst->panic.boots_since = (int64_t)raw.panic_boots_since;
+
+    dst->pending_verify = raw.pending_verify;
+    dst->rolled_back    = raw.rolled_back;
+
+    bb_strlcpy(dst->reboot_reason.source,
+               bb_reset_source_str((bb_reset_source_t)raw.reboot_src),
+               sizeof(dst->reboot_reason.source));
+    bb_strlcpy(dst->reboot_reason.detail, raw.reboot_detail, sizeof(dst->reboot_reason.detail));
+    dst->reboot_reason.uptime_s = (int64_t)raw.reboot_uptime_s;
+    dst->reboot_reason.epoch_s  = (int64_t)raw.reboot_epoch_s;
+    // Same 3-way guard as bb_diag_boot_serialize()'s age_s branch (see
+    // bb_diag_event_common.c): both the recorded epoch and the current wall
+    // clock must be known-good, or a not-yet-synced "now" would otherwise
+    // produce a bogus (huge or negative) age.
+    dst->reboot_reason.age_s_valid = raw.reboot_epoch_s > 0 && raw.now_epoch_valid &&
+                                      raw.now_epoch_s >= raw.reboot_epoch_s;
+    dst->reboot_reason.age_s = dst->reboot_reason.age_s_valid
+        ? (int64_t)(raw.now_epoch_s - raw.reboot_epoch_s) : 0;
+
+    // Materialize the ring newest-first -- replicates
+    // bb_diag_boot_serialize()'s exact modular-index walk (bb_diag_event_common.c).
+    uint8_t n = raw.reboot_history.count;
+    if (n > BB_REBOOT_HISTORY_CAP) n = BB_REBOOT_HISTORY_CAP;
+    for (uint8_t i = 0; i < n; i++) {
+        uint8_t idx = (uint8_t)((raw.reboot_history.head + (n - 1U - i)) % BB_REBOOT_HISTORY_CAP);
+        const bb_reboot_hist_entry_t *e = &raw.reboot_history.entries[idx];
+        bb_strlcpy(dst->reboot_history_items[i].source,
+                   bb_reset_source_str((bb_reset_source_t)e->src),
+                   sizeof(dst->reboot_history_items[i].source));
+        dst->reboot_history_items[i].epoch_s  = (int64_t)e->epoch_s;
+        dst->reboot_history_items[i].uptime_s = (int64_t)e->uptime_s;
+    }
+    dst->reboot_history.items = dst->reboot_history_items;
+    dst->reboot_history.count = n;
+
+    return BB_OK;
+}

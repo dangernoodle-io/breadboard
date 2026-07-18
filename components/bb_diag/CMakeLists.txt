@@ -2,6 +2,7 @@ set(_diag_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_reset_decision.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_scrub.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_event_common.c"
+    "${CMAKE_CURRENT_LIST_DIR}/bb_diag_boot_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag/bb_diag_panic.c"
 )
 
@@ -23,10 +24,12 @@ endif()
 # PR-B) -- previously only transitively available via bb_config.h, which the
 # no-transitive-padding rule doesn't permit as the sole justification for a
 # direct-call dependency.
+# bb_serialize: PUBLIC -- include/bb_diag_boot_wire.h (the "diag.boot" wire
+# descriptor, B1-1045 PR-2) includes bb_serialize.h.
 idf_component_register(
     SRCS ${_diag_srcs}
     INCLUDE_DIRS "include" "."
-    REQUIRES bb_core bb_http_server
+    REQUIRES bb_core bb_http_server bb_serialize
     PRIV_REQUIRES bb_log bb_http bb_json bb_cache bb_config bb_storage bb_ntp bb_openapi bb_system bb_ota_validator bb_event bb_event_routes bb_task_registry bb_task espcoredump lwip nvs_flash esp_partition esp_app_format bb_str
 )
 
