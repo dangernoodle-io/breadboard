@@ -40,7 +40,7 @@ bb_err_t bb_collection_add(bb_collection_t *c, const char *name,
     bb_lock_lock(&c->lock);
 
     if (c->count >= c->capacity) {
-        bb_log_e(TAG, "add('%s'): collection full (cap %zu)", name, c->capacity);
+        bb_log_e(TAG, "add('%s'): collection full (cap %u)", name, (unsigned)c->capacity);
         bb_lock_unlock(&c->lock);
         return BB_ERR_NO_SPACE;
     }

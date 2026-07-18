@@ -51,8 +51,8 @@ bb_err_t bb_manifest_register_nv(const char *namespace,
 
     // Check total key count doesn't exceed cap per namespace
     if (n > NV_KEYS_PER_NAMESPACE_CAP) {
-        bb_log_e(TAG, "namespace %s: %zu keys exceeds cap %d",
-                 namespace, n, NV_KEYS_PER_NAMESPACE_CAP);
+        bb_log_e(TAG, "namespace %s: %u keys exceeds cap %d",
+                 namespace, (unsigned)n, NV_KEYS_PER_NAMESPACE_CAP);
         return BB_ERR_NO_SPACE;
     }
 
@@ -86,8 +86,8 @@ bb_err_t bb_manifest_register_mdns(const char *service,
 
     // Check total key count doesn't exceed cap per service
     if (n > MDNS_KEYS_PER_SERVICE_CAP) {
-        bb_log_e(TAG, "service %s: %zu keys exceeds cap %d",
-                 service, n, MDNS_KEYS_PER_SERVICE_CAP);
+        bb_log_e(TAG, "service %s: %u keys exceeds cap %d",
+                 service, (unsigned)n, MDNS_KEYS_PER_SERVICE_CAP);
         return BB_ERR_NO_SPACE;
     }
 

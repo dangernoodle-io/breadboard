@@ -259,7 +259,7 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_mem_arena_t arena,
     size_t need = bb_pool_arena_size_needed(cfg);
     if (!need) return BB_ERR_INVALID_ARG;
     if (bb_mem_arena_free_bytes(arena) < need) {
-        bb_log_e(TAG, "create: arena has %zu B free, need %zu B", bb_mem_arena_free_bytes(arena), need);
+        bb_log_e(TAG, "create: arena has %u B free, need %u B", (unsigned)bb_mem_arena_free_bytes(arena), (unsigned)need);
         return BB_ERR_NO_SPACE;
     }
 
@@ -289,7 +289,7 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_mem_arena_t arena,
         for (size_t i = 0; i < cfg->capacity; i++) {
             p->retained_slots[i].data = (uint8_t *)bb_mem_arena_alloc(arena, cfg->max_slot_bytes);
             if (!p->retained_slots[i].data) {
-                bb_log_e(TAG, "'%s': arena exhausted at retained slot %zu", p->name, i);
+                bb_log_e(TAG, "'%s': arena exhausted at retained slot %u", p->name, (unsigned)i);
                 return BB_ERR_NO_SPACE;
             }
         }
@@ -299,7 +299,7 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_mem_arena_t arena,
 
         p->fifo.entries = (uint8_t *)bb_mem_arena_alloc(arena, ring_bytes);
         if (!p->fifo.entries) {
-            bb_log_e(TAG, "'%s': arena exhausted allocating FIFO ring (%zu B)", p->name, ring_bytes);
+            bb_log_e(TAG, "'%s': arena exhausted allocating FIFO ring (%u B)", p->name, (unsigned)ring_bytes);
             return BB_ERR_NO_SPACE;
         }
         p->fifo.entry_stride = entry_stride;
@@ -312,7 +312,7 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_mem_arena_t arena,
 
         p->slots.storage = (uint8_t *)bb_mem_arena_alloc(arena, storage_bytes);
         if (!p->slots.storage) {
-            bb_log_e(TAG, "'%s': arena exhausted allocating slot storage (%zu B)", p->name, storage_bytes);
+            bb_log_e(TAG, "'%s': arena exhausted allocating slot storage (%u B)", p->name, (unsigned)storage_bytes);
             return BB_ERR_NO_SPACE;
         }
         // Zero the whole slot region up front (not just on release/reacquire)
@@ -366,8 +366,8 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_mem_arena_t arena,
         p->slots.free_top = cfg->capacity;
     }
 
-    bb_log_i(TAG, "created pool '%s': mode=%d cap=%zu slot=%zuB",
-             p->name, (int)cfg->mode, cfg->capacity, cfg->max_slot_bytes);
+    bb_log_i(TAG, "created pool '%s': mode=%d cap=%u slot=%uB",
+             p->name, (int)cfg->mode, (unsigned)cfg->capacity, (unsigned)cfg->max_slot_bytes);
 
     *out = p;
     return BB_OK;
@@ -656,7 +656,7 @@ bb_err_t bb_pool_release(bb_pool_t pool, void *ptr)
     // acquirers (immediately via the free-list, or later via the pending
     // path).
     if (!bitmap_test(pool->slots.acquired_bitmap, idx)) {
-        bb_log_e(TAG, "'%s': double release (or release of unacquired slot) at idx %zu", pool->name, idx);
+        bb_log_e(TAG, "'%s': double release (or release of unacquired slot) at idx %u", pool->name, (unsigned)idx);
         return BB_ERR_INVALID_STATE;
     }
 

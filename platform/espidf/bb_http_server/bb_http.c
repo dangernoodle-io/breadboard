@@ -410,14 +410,14 @@ bb_err_t bb_http_route_audit_init(bb_http_handle_t server)
     size_t reg_count = bb_http_route_registry_count();
     size_t cap = (size_t)CONFIG_BB_HTTP_ROUTE_REGISTRY_CAP;
     if (reg_count >= cap) {
-        bb_log_e(TAG, "route registry FULL: %zu/%zu descriptors registered — increase BB_HTTP_ROUTE_REGISTRY_CAP",
-                 reg_count, cap);
+        bb_log_e(TAG, "route registry FULL: %u/%u descriptors registered — increase BB_HTTP_ROUTE_REGISTRY_CAP",
+                 (unsigned)reg_count, (unsigned)cap);
 #if defined(CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT) && CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT
         assert(reg_count < cap && "route registry overflow — increase BB_HTTP_ROUTE_REGISTRY_CAP");
 #endif
     } else if (reg_count + 8 >= cap) {
-        bb_log_w(TAG, "route registry high-watermark: %zu/%zu descriptors — consider raising BB_HTTP_ROUTE_REGISTRY_CAP",
-                 reg_count, cap);
+        bb_log_w(TAG, "route registry high-watermark: %u/%u descriptors — consider raising BB_HTTP_ROUTE_REGISTRY_CAP",
+                 (unsigned)reg_count, (unsigned)cap);
     }
     return BB_OK;
 }
