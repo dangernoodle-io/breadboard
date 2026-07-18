@@ -98,9 +98,58 @@ void test_bb_lifecycle_async_observe_async_bqueue_exhausted_propagates_error(voi
     TEST_ASSERT_NOT_EQUAL(BB_OK, err);
 
     // Clean up: free every held instance AND un-latch bb_lifecycle_async's
-    // own once-guard/init-error/queue-handle, so every later test's first
+    // own ready-state/init-error/queue-handle, so every later test's first
     // bb_lifecycle_observe_async() call gets a genuine (re-)attempt against a
     // freshly-freed pool instead of replaying this failure forever.
+    bb_bqueue_test_reset();
+    bb_lifecycle_async_reset_for_test();
+}
+
+// ---------------------------------------------------------------------------
+// (j) B1-1044: a TRANSIENT bb_bqueue_create() failure must be retryable by a
+// LATER bb_lifecycle_observe_async() call, WITHOUT the test-only reset hook
+// -- proves the fix is in the production init state machine itself, not
+// merely in the test scaffolding. Forces the exact same deterministic
+// pool-exhaustion failure as the test above, then frees exactly ONE held
+// instance (clearing the transient condition) and retries in-line.
+// ---------------------------------------------------------------------------
+
+void test_bb_lifecycle_async_observe_async_retries_after_transient_failure(void)
+{
+    reset_world();
+    // Force a clean UNINIT starting point regardless of any earlier test's
+    // successful init, so the pool-exhaustion trick below can actually reach
+    // async_init()'s bb_bqueue_create() call (a READY singleton would
+    // short-circuit ensure_async_started() before ever touching the pool).
+    bb_lifecycle_async_reset_for_test();
+
+    bb_bqueue_cfg_t cfg = { .capacity = 1, .item_bytes = 1, .name = "exhaust" };
+    bb_bqueue_t held[POOL_EXHAUST_MAX_HELD];
+    int held_count = 0;
+    while (held_count < POOL_EXHAUST_MAX_HELD &&
+           bb_bqueue_create(&cfg, &held[held_count]) == BB_OK) {
+        held_count++;
+    }
+    TEST_ASSERT_TRUE(held_count > 0); // pool is finite -- must have exhausted it
+
+    bb_err_t err = bb_lifecycle_observe_async(pool_exhaust_observer, NULL);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err); // transient failure -- NOT latched permanently
+
+    // Clear the transient condition: free exactly one held pool instance.
+    bb_bqueue_destroy(held[--held_count]);
+
+    // Retry WITHOUT calling bb_lifecycle_async_reset_for_test() again -- this
+    // is the crux of the fix: the init state machine itself re-attempts
+    // async_init() because the prior failed attempt left it UNINIT rather
+    // than latching a permanent DONE.
+    err = bb_lifecycle_observe_async(pool_exhaust_observer, NULL);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    // Clean up: free every remaining held instance plus this test's own
+    // successfully-created singleton, so later tests get a fresh pool/state.
+    for (int i = 0; i < held_count; i++) {
+        bb_bqueue_destroy(held[i]);
+    }
     bb_bqueue_test_reset();
     bb_lifecycle_async_reset_for_test();
 }
