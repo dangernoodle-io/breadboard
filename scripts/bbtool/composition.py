@@ -26,22 +26,133 @@ was removed.
 """
 from __future__ import annotations
 import os
+import re
+from pathlib import Path
 
 from boards import discover_components, derive_component, resolve_transitive
 
 DEFAULT_PLATFORM = "espidf"
 DEFAULT_OUT_REL = os.path.join("examples", "smoke", "main", "generated", "bb_autowire_components.cmake")
 
+# B1-985: the format registry itself (bb_serialize) deliberately carries no
+# privileged default backend (decided in B1-981) -- a component that walks
+# through it (e.g. bb_cache_serialize_get()/bb_data's render path) compiles
+# fine with zero bb_serialize_* backends composed alongside it, then fails
+# every format lookup at RUNTIME with no build-time signal. See
+# check_format_registry_backends below.
+FORMAT_REGISTRY_COMPONENT = "bb_serialize"
 
-def resolve_composition(root: str, names, platform: str = DEFAULT_PLATFORM):
-    """Compute the transitive closure over `names` by deriving each named
-    component's {includes,sources,depends} lazily (BFS over `depends`),
-    exactly mirroring `boards.build_graph()`'s derive loop — but `names` is
-    the requested set directly, with no capability/board manifest resolution
-    step. Raises `ManifestError` for any name (requested or transitively
-    depended-on) not found under `components/` or `platform/{host,espidf,
-    arduino}/` — `resolve_transitive` performs this check for every name,
-    requested or transitive, so no separate pre-check is needed here."""
+# Real call-site detection (reworked per B1-985 author decision): a component
+# merely REQUIRES-ing bb_serialize (e.g. for the bb_serialize_desc_t TYPE --
+# bb_tcp_client, bb_mqtt_client, bb_http_client, bb_meminfo, bb_system) is
+# NOT a format-registry consumer. Only a component whose C sources actually
+# call the registry's lookup/dispatch entry points is a consumer -- matches
+# how bb_data.c and platform/espidf/bb_cache_serialize's render path invoke
+# it (bb_serialize_format_get_render()/bb_serialize_format_render(), per
+# components/bb_serialize/include/bb_serialize_format.h). The pattern set
+# covers BOTH sides of the registry lookup: render (bb_serialize_format_
+# render()/bb_serialize_format_get_render()) and parse (bb_serialize_format_
+# get_parse()) -- a parse-only consumer fails the same silent way at
+# runtime, even though no in-tree component calls it yet. Likewise, a
+# `bb_serialize_*`-prefixed component is only a BACKEND if it actually calls
+# bb_serialize_format_register() -- a future non-registering bb_serialize_*
+# helper must not count.
+_CONSUMER_CALL_PATTERNS = (
+    re.compile(r"\bbb_serialize_format_render\s*\("),
+    re.compile(r"\bbb_serialize_format_get_render\s*\("),
+    re.compile(r"\bbb_serialize_format_get_parse\s*\("),
+)
+_BACKEND_CALL_PATTERN = re.compile(r"\bbb_serialize_format_register\s*\(")
+
+_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+_LINE_COMMENT_RE = re.compile(r"//[^\n]*")
+
+
+def _strip_c_comments(text: str) -> str:
+    """Strip `//` line comments and `/* ... */` block comments before regex
+    scanning -- a call-site pattern MENTIONED in a comment (e.g. a docstring
+    referencing `bb_serialize_format_register()` alongside an actual
+    `bb_serialize_format_get_render()` call in the same file, as
+    platform/espidf/bb_cache_serialize's render path does) must not
+    misclassify the component. Does not special-case comment markers inside
+    string literals -- these function names never appear in string literals
+    in this codebase."""
+    text = _BLOCK_COMMENT_RE.sub(" ", text)
+    return _LINE_COMMENT_RE.sub(" ", text)
+
+
+def _read_component_sources(root: str, sources) -> str:
+    """Concatenated, comment-stripped text of a component's already-derived
+    `sources` list (repo-root-relative paths, as returned by
+    `derive_component`/the composition graph) -- read once per component, no
+    re-derivation."""
+    root_p = Path(root)
+    chunks = []
+    for rel in sources:
+        path = root_p / rel
+        if path.is_file():
+            chunks.append(_strip_c_comments(path.read_text(encoding="utf-8")))
+    return "\n".join(chunks)
+
+
+def check_format_registry_backends(root: str, components, graph):
+    """Composition-time mis-wiring check (B1-985, precedent B1-981): given a
+    resolved composition (`components`, as returned by `resolve_composition`)
+    and its already-built `{name: {includes,sources,depends}}` component
+    graph (as built internally by `resolve_composition`/
+    `resolve_composition_with_graph` -- never re-derived here), return a
+    warning string when the set contains a *format-registry consumer* --
+    a component whose C sources actually call the registry's render
+    lookup/dispatch entry points -- while composing ZERO components whose C
+    sources call `bb_serialize_format_register()`. Returns `None` when
+    there's nothing to warn about (registry not composed at all, at least one
+    real backend present, or no real consumer reachable).
+
+    Non-fatal by design (WARN, not a hard error) -- a composition missing a
+    backend is a legitimate host/scaffold subset in some cases; the point is
+    to surface the silent BB_ERR_UNSUPPORTED trap at build time instead of
+    leaving it purely a runtime surprise."""
+    names = set(components)
+    if FORMAT_REGISTRY_COMPONENT not in names:
+        return None
+
+    backends = []
+    consumers = []
+    for name in sorted(names):
+        if name == FORMAT_REGISTRY_COMPONENT:
+            continue
+        entry = graph.get(name) or {}
+        text = _read_component_sources(root, entry.get("sources", []))
+        # Backend and consumer are detected INDEPENDENTLY -- a component can
+        # legitimately be both (e.g. a format backend that also looks up
+        # another format's render fn). A backend match must never suppress
+        # consumer detection, and vice versa.
+        if _BACKEND_CALL_PATTERN.search(text):
+            backends.append(name)
+        if any(pattern.search(text) for pattern in _CONSUMER_CALL_PATTERNS):
+            consumers.append(name)
+
+    if backends or not consumers:
+        return None
+
+    return (
+        "bbtool: warning: format-registry consumer(s) ["
+        + ", ".join(consumers)
+        + "] composed with zero bb_serialize_* backends -- format lookups "
+        "(e.g. bb_cache_serialize_get()) will return BB_ERR_UNSUPPORTED for "
+        "every format at runtime; compose a bb_serialize_* backend (e.g. "
+        "bb_serialize_json) alongside it"
+    )
+
+
+def _build_composition_graph(root: str, names, platform: str = DEFAULT_PLATFORM):
+    """Shared BFS derive loop behind `resolve_composition`/
+    `resolve_composition_with_graph` -- derives each named component's
+    {includes,sources,depends} lazily over `depends`, exactly mirroring
+    `boards.build_graph()`'s derive loop, but for an explicit requested set
+    with no capability/board manifest resolution step. Returns
+    `(graph, universe)`; callers combine with `resolve_transitive` for the
+    ordered closure."""
     universe = discover_components(root)
 
     graph = {}
@@ -64,7 +175,28 @@ def resolve_composition(root: str, names, platform: str = DEFAULT_PLATFORM):
     for entry in graph.values():
         entry["depends"] = sorted(d for d in entry["depends"] if d in universe)
 
+    return graph, universe
+
+
+def resolve_composition(root: str, names, platform: str = DEFAULT_PLATFORM):
+    """Compute the transitive closure over `names` — Raises `ManifestError`
+    for any name (requested or transitively depended-on) not found under
+    `components/` or `platform/{host,espidf,arduino}/` — `resolve_transitive`
+    performs this check for every name, requested or transitive, so no
+    separate pre-check is needed here."""
+    graph, universe = _build_composition_graph(root, names, platform)
     return resolve_transitive(names, graph, universe)
+
+
+def resolve_composition_with_graph(root: str, names, platform: str = DEFAULT_PLATFORM):
+    """Same computation as `resolve_composition`, but also returns the
+    already-built `{name: {includes,sources,depends}}` component graph so a
+    caller needing per-component source lists (e.g. B1-985's
+    `check_format_registry_backends`) reuses it instead of re-deriving each
+    component from scratch. Returns `(components, graph)`."""
+    graph, universe = _build_composition_graph(root, names, platform)
+    components = resolve_transitive(names, graph, universe)
+    return components, graph
 
 
 def render_cmake_fragment(components, board=None) -> str:

@@ -24,7 +24,7 @@ def _write(path: Path, content: str = "") -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _make_component(root: Path, name: str, header_body: str, requires=None) -> None:
+def _make_component(root: Path, name: str, header_body: str, requires=None, src: str = None) -> None:
     body = "idf_component_register(\n"
     if requires:
         body += f"    REQUIRES {' '.join(requires)}\n"
@@ -32,6 +32,8 @@ def _make_component(root: Path, name: str, header_body: str, requires=None) -> N
     comp = root / "components" / name
     _write(comp / "CMakeLists.txt", body)
     _write(comp / "include" / f"{name}.h", header_body)
+    if src is not None:
+        _write(comp / "src" / f"{name}.c", src)
 
 
 def _fixture_root(tmp: str) -> Path:
@@ -177,6 +179,66 @@ class TestRunCli(unittest.TestCase):
             ))
             self.assertTrue(os.path.isfile(root / "main" / "generated" / "bb_app_init.c"))
             self.assertTrue(os.path.isfile(root / "main" / "generated" / "bb_app_init.cmake"))
+
+
+class TestFormatRegistryBackendWarning(unittest.TestCase):
+    """B1-985: `bbtool codegen` warns to stderr (non-fatal) when the resolved
+    composition pulls a format-registry consumer with zero bb_serialize_*
+    backends composed alongside it."""
+
+    def _fixture_root(self, tmp: str, with_backend: bool) -> Path:
+        root = Path(tmp)
+        _make_component(root, "bb_serialize", "#pragma once\n")
+        if with_backend:
+            _make_component(
+                root, "bb_serialize_json", "#pragma once\n", requires=["bb_serialize"],
+                src=(
+                    "#include \"bb_serialize_format.h\"\n"
+                    "void bb_serialize_json_register_format(void) { "
+                    "bb_serialize_format_register(0, 0); }\n"
+                ),
+            )
+        _make_component(
+            root, "bb_consumer", "#pragma once\nbb_err_t bb_consumer_get(void);\n",
+            requires=["bb_serialize"],
+            src=(
+                "#include \"bb_serialize_format.h\"\n"
+                "bb_err_t bb_consumer_get(void) { "
+                "return bb_serialize_format_get_render(0) ? 0 : -1; }\n"
+            ),
+        )
+        return root
+
+    def test_consumer_without_backend_warns_on_stderr(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_root(tmp, with_backend=False)
+            components_out = str(root / "out" / "bb_autowire_components.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components="bb_consumer",
+                platform="espidf", components_out=components_out, wire_out=wire_out,
+            )
+            out_buf, err_buf = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+            self.assertIn("bb_consumer", err_buf.getvalue())
+            self.assertIn("bb_serialize_*", err_buf.getvalue())
+
+    def test_consumer_with_backend_does_not_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_root(tmp, with_backend=True)
+            components_out = str(root / "out" / "bb_autowire_components.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components="bb_consumer,bb_serialize_json",
+                platform="espidf", components_out=components_out, wire_out=wire_out,
+            )
+            out_buf, err_buf = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+            self.assertEqual(err_buf.getvalue(), "")
 
 
 def _write_toml(root: Path, text: str) -> None:
