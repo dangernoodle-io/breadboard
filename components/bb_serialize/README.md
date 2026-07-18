@@ -8,6 +8,7 @@ Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the b
 
 <!-- BEGIN bbtool:api -->
 - [`bb_serialize.h`](include/bb_serialize.h)
+- [`bb_serialize_compose.h`](include/bb_serialize_compose.h)
 - [`bb_serialize_format.h`](include/bb_serialize_format.h)
 
 Public symbols use the `bb_` prefix.

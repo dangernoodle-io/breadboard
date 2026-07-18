@@ -589,6 +589,19 @@ void test_bb_serialize_nested_arr_populate_roundtrip_matches_fixture(void);
 void test_bb_serialize_nested_arr_at_max_depth_render_populate_roundtrip(void);
 void test_bb_serialize_nested_arr_over_max_depth_populate_fails_closed(void);
 
+// Forward declarations from test_bb_serialize_compose.c (B1-1055)
+void test_bb_serialize_compose_object_shape_json_golden(void);
+void test_bb_serialize_compose_peak_depth_independent_of_entry_count(void);
+void test_bb_serialize_compose_empty_returns_ok_zero_calls(void);
+void test_bb_serialize_compose_single_entry_object_shape(void);
+void test_bb_serialize_compose_single_entry_array_shape(void);
+void test_bb_serialize_compose_single_entry_raw_shape_matches_direct_walk(void);
+void test_bb_serialize_compose_raw_shape_no_wrapper_calls(void);
+void test_bb_serialize_compose_null_emit_returns_invalid_arg(void);
+void test_bb_serialize_compose_null_entries_with_nonzero_n_returns_invalid_arg(void);
+void test_bb_serialize_compose_entry_null_desc_returns_invalid_arg(void);
+void test_bb_serialize_compose_gather_failure_aborts_whole_walk(void);
+
 // Forward declarations from test_v2_golden.c
 void test_v2_golden_widget_fixture_populated(void);
 void test_v2_golden_widget_fixture_null(void);
@@ -10072,6 +10085,18 @@ int main(void) {
     RUN_TEST(test_bb_serialize_nested_arr_populate_roundtrip_matches_fixture);
     RUN_TEST(test_bb_serialize_nested_arr_at_max_depth_render_populate_roundtrip);
     RUN_TEST(test_bb_serialize_nested_arr_over_max_depth_populate_fails_closed);
+
+    RUN_TEST(test_bb_serialize_compose_object_shape_json_golden);
+    RUN_TEST(test_bb_serialize_compose_peak_depth_independent_of_entry_count);
+    RUN_TEST(test_bb_serialize_compose_empty_returns_ok_zero_calls);
+    RUN_TEST(test_bb_serialize_compose_single_entry_object_shape);
+    RUN_TEST(test_bb_serialize_compose_single_entry_array_shape);
+    RUN_TEST(test_bb_serialize_compose_single_entry_raw_shape_matches_direct_walk);
+    RUN_TEST(test_bb_serialize_compose_raw_shape_no_wrapper_calls);
+    RUN_TEST(test_bb_serialize_compose_null_emit_returns_invalid_arg);
+    RUN_TEST(test_bb_serialize_compose_null_entries_with_nonzero_n_returns_invalid_arg);
+    RUN_TEST(test_bb_serialize_compose_entry_null_desc_returns_invalid_arg);
+    RUN_TEST(test_bb_serialize_compose_gather_failure_aborts_whole_walk);
 
     // v2 wire golden byte-fidelity harness (B1-767 PR-6)
     RUN_TEST(test_v2_golden_widget_fixture_populated);
