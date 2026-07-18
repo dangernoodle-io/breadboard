@@ -583,6 +583,12 @@ void test_v2_golden_ref_resolves_inline(void);
 void test_v2_golden_ref_unregistered_sibling_omits_field(void);
 void test_v2_golden_ref_null_resolver_omits_field(void);
 
+// Forward declarations from test_bb_serialize_nested_arr.c (B1-1056)
+void test_bb_serialize_nested_arr_render_matches_golden(void);
+void test_bb_serialize_nested_arr_populate_roundtrip_matches_fixture(void);
+void test_bb_serialize_nested_arr_at_max_depth_render_populate_roundtrip(void);
+void test_bb_serialize_nested_arr_over_max_depth_populate_fails_closed(void);
+
 // Forward declarations from test_v2_golden.c
 void test_v2_golden_widget_fixture_populated(void);
 void test_v2_golden_widget_fixture_null(void);
@@ -10061,6 +10067,11 @@ int main(void) {
     RUN_TEST(test_v2_golden_ref_resolves_inline);
     RUN_TEST(test_v2_golden_ref_unregistered_sibling_omits_field);
     RUN_TEST(test_v2_golden_ref_null_resolver_omits_field);
+
+    RUN_TEST(test_bb_serialize_nested_arr_render_matches_golden);
+    RUN_TEST(test_bb_serialize_nested_arr_populate_roundtrip_matches_fixture);
+    RUN_TEST(test_bb_serialize_nested_arr_at_max_depth_render_populate_roundtrip);
+    RUN_TEST(test_bb_serialize_nested_arr_over_max_depth_populate_fails_closed);
 
     // v2 wire golden byte-fidelity harness (B1-767 PR-6)
     RUN_TEST(test_v2_golden_widget_fixture_populated);
