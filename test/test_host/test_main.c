@@ -3098,6 +3098,8 @@ void test_bb_power_snapshot_null_out_is_safe(void);
 void test_bb_power_set_vout_mv_delegates(void);
 void test_bb_power_set_vout_mv_null_handle(void);
 void test_bb_power_set_vout_mv_no_fn_unsupported(void);
+void test_bb_power_handle_state_null_handle_returns_null(void);
+void test_bb_power_handle_state_returns_state(void);
 void test_bb_power_name_returns_driver_name(void);
 void test_bb_power_name_null_handle_returns_null(void);
 void test_bb_power_name_null_driver_name_returns_null(void);
@@ -7214,6 +7216,8 @@ int main(void) {
     RUN_TEST(test_bb_power_set_vout_mv_delegates);
     RUN_TEST(test_bb_power_set_vout_mv_null_handle);
     RUN_TEST(test_bb_power_set_vout_mv_no_fn_unsupported);
+    RUN_TEST(test_bb_power_handle_state_null_handle_returns_null);
+    RUN_TEST(test_bb_power_handle_state_returns_state);
     RUN_TEST(test_bb_power_name_returns_driver_name);
     RUN_TEST(test_bb_power_name_null_handle_returns_null);
     RUN_TEST(test_bb_power_name_null_driver_name_returns_null);

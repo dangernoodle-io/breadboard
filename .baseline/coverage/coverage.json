@@ -856,21 +856,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "91",
-      "path": "platform/host/bb_power/bb_power.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "93",
-      "path": "platform/host/bb_power/bb_power.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "94",
-      "path": "platform/host/bb_power/bb_power.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "101",
       "path": "platform/host/bb_sensors/bb_sensors_host.c",
       "type": "uncovered_line"

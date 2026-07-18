@@ -1,7 +1,7 @@
 // bb_fan dispatch layer — platform-independent; shared by espidf and host.
-// Mutex approach: pthread_mutex_t on host; on ESP-IDF pthread.h is also
-// available (ESP-IDF ships a POSIX pthread layer), so a single
-// PTHREAD_MUTEX_INITIALIZER works on both targets.
+// Mutex approach: bb_lock_t (bb_core) — its host backend wraps pthread_mutex_t,
+// its ESP-IDF backend a FreeRTOS semaphore; this file never sees either
+// platform type directly.
 #include "bb_fan.h"
 #include "bb_fan_driver.h"
 #include "bb_json.h"
@@ -9,7 +9,6 @@
 #include "bb_lock.h"
 #include <stdlib.h>
 #include <math.h>
-#include <pthread.h>
 
 #ifdef CONFIG_BB_FAN_AUTOFAN
 #include "../../../components/bb_fan/src/bb_fan_pid.h"
@@ -21,7 +20,7 @@ struct bb_fan {
     const bb_fan_driver_t *drv;
     void *state;
     bb_fan_snapshot_t cache;
-    pthread_mutex_t lock;
+    bb_lock_t lock;
 #ifdef CONFIG_BB_FAN_AUTOFAN
     // Autofan config (protected by lock)
     bb_fan_autofan_cfg_t autofan_cfg;
@@ -72,7 +71,7 @@ bb_err_t bb_fan_handle_create(const bb_fan_driver_t *drv, void *state,
     h->cache.duty_pct = -1;
     h->cache.die_c    = NAN;
     h->cache.board_c  = NAN;
-    pthread_mutex_init(&h->lock, NULL);
+    bb_lock_init(NULL, &h->lock);
 #ifdef CONFIG_BB_FAN_AUTOFAN
     // Autofan defaults (matching TM config defaults)
     h->autofan_cfg.enabled      = false;
@@ -127,10 +126,10 @@ bb_err_t bb_fan_poll(bb_fan_handle_t h)
 #ifdef CONFIG_BB_FAN_AUTOFAN
     // Read a local copy of autofan config under lock, then run PID outside lock
     // (pid_compute only touches h->pid* fields; we serialize with the full lock).
-    pthread_mutex_lock(&h->lock);
+    bb_lock_lock(&h->lock);
     bb_fan_autofan_cfg_t cfg  = h->autofan_cfg;
     float aux_raw             = h->aux_temp_raw;
-    pthread_mutex_unlock(&h->lock);
+    bb_lock_unlock(&h->lock);
 
     bool temp_ok = !isnan(s.die_c);
     int fan_duty = -1; // -1 = let existing duty stand
@@ -152,7 +151,7 @@ bb_err_t bb_fan_poll(bb_fan_handle_t h)
         float new_min    = (float)cfg.min_pct;
 
         // Update die EMA (alpha=0.2, faithful to TM)
-        pthread_mutex_lock(&h->lock);
+        bb_lock_lock(&h->lock);
         if (h->die_ema < 0.0f) {
             h->die_ema = s.die_c;
         } else {
@@ -205,7 +204,7 @@ bb_err_t bb_fan_poll(bb_fan_handle_t h)
         h->tel_die_ema = die_ema;
         h->tel_aux_ema = aux_ema;
 
-        pthread_mutex_unlock(&h->lock);
+        bb_lock_unlock(&h->lock);
     }
 
     if (fan_duty >= 0 && h->drv->set_duty_pct) {
@@ -261,14 +260,14 @@ bb_fan_handle_t bb_fan_primary(void)        { return s_primary; }
 bb_err_t bb_fan_set_autofan(bb_fan_handle_t h, const bb_fan_autofan_cfg_t *cfg)
 {
     if (!h || !cfg) return BB_ERR_INVALID_ARG;
-    pthread_mutex_lock(&h->lock);
+    bb_lock_lock(&h->lock);
     h->autofan_cfg = *cfg;
     // Disarm PID when switching enabled state so it re-initializes cleanly
     if (!cfg->enabled) {
         h->pid_armed = false;
         bb_fan_pid_set_mode(&h->pid, BB_FAN_PID_MANUAL);
     }
-    pthread_mutex_unlock(&h->lock);
+    bb_lock_unlock(&h->lock);
     return BB_OK;
 }
 
@@ -282,13 +281,13 @@ bb_err_t bb_fan_get_autofan_cfg(bb_fan_handle_t h, bb_fan_autofan_cfg_t *out)
 void bb_fan_autofan_set_clock(bb_fan_handle_t h, unsigned long (*fn)(void))
 {
     if (!h) return;
-    pthread_mutex_lock(&h->lock);
+    bb_lock_lock(&h->lock);
     bb_fan_pid_set_clock(&h->pid, fn);
     // Seed lastTime so sample gate fires promptly on first poll
     if (fn) {
         h->pid.lastTime = fn() - h->pid.sampleTime;
     }
-    pthread_mutex_unlock(&h->lock);
+    bb_lock_unlock(&h->lock);
 }
 
 bb_err_t bb_fan_set_aux_temp(bb_fan_handle_t h, float aux_c)
@@ -308,12 +307,12 @@ void bb_fan_get_autofan_telemetry(bb_fan_handle_t h, bb_fan_autofan_telemetry_t 
         out->pid_input_src  = "";
         return;
     }
-    pthread_mutex_lock(&h->lock);
+    bb_lock_lock(&h->lock);
     out->die_ema_c     = h->tel_die_ema;
     out->aux_ema_c     = h->tel_aux_ema;
     out->pid_input_c   = h->tel_pid_input_c;
     out->pid_input_src = h->tel_pid_input_src;
-    pthread_mutex_unlock(&h->lock);
+    bb_lock_unlock(&h->lock);
 }
 
 #endif /* CONFIG_BB_FAN_AUTOFAN */
