@@ -1,0 +1,14 @@
+menu "breadboard: bb_serialize_logfmt"
+
+config BB_SERIALIZE_LOGFMT_F64_DECIMALS
+    int "Fixed fractional digits for f64 logfmt output"
+    default 6
+    range 1 15
+    help
+        Number of fractional digits emitted for double values
+        (deterministic fixed-decimal, e.g. 3.5 -> "3.500000" at the
+        default of 6). No snprintf/locale involved -- purely a scale-
+        and-round hand-rolled formatter, same algorithm as
+        BB_SERIALIZE_JSON_F64_DECIMALS.
+
+endmenu

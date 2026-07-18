@@ -19,6 +19,7 @@
 #include "bb_fsm.h"
 #include "bb_serialize_json.h"
 #include "bb_serialize_console.h"
+#include "bb_serialize_logfmt.h"
 // Forward declarations from test_bb_lifecycle.c
 void test_bb_lifecycle_autoinit_returns_ok(void);
 void test_bb_lifecycle_register_starts_stopped(void);
@@ -254,6 +255,37 @@ void test_bb_serialize_console_heap_desc_matches_snap_layout(void);
 void test_bb_serialize_console_heap_report_renders_via_desc(void);
 void test_bb_serialize_console_heap_report_smoke(void);
 void test_bb_format_name_console_returns_console(void);
+
+// Forward declarations from test_bb_serialize_logfmt.c
+void test_bb_serialize_logfmt_flat_scalars(void);
+void test_bb_serialize_logfmt_null_str_n_emits_null(void);
+void test_bb_serialize_logfmt_empty_str_n_is_quoted(void);
+void test_bb_serialize_logfmt_f64_nan_emits_null(void);
+void test_bb_serialize_logfmt_f64_pos_inf_emits_null(void);
+void test_bb_serialize_logfmt_f64_neg_inf_emits_null(void);
+void test_bb_serialize_logfmt_f64_out_of_u64_range_emits_null(void);
+void test_bb_serialize_logfmt_f64_rounding_carry_into_integer_part(void);
+void test_bb_serialize_logfmt_f64_negative_value(void);
+void test_bb_serialize_logfmt_plain_value_unquoted(void);
+void test_bb_serialize_logfmt_value_with_space_is_quoted(void);
+void test_bb_serialize_logfmt_value_with_equals_is_quoted(void);
+void test_bb_serialize_logfmt_value_with_quote_is_escaped(void);
+void test_bb_serialize_logfmt_value_with_quote_only_no_space_is_escaped(void);
+void test_bb_serialize_logfmt_value_with_backslash_is_escaped(void);
+void test_bb_serialize_logfmt_value_with_newline_tab_cr_escaped(void);
+void test_bb_serialize_logfmt_value_with_other_control_byte_hex_escaped(void);
+void test_bb_serialize_logfmt_nested_obj_no_crash(void);
+void test_bb_serialize_logfmt_array_of_strings_no_crash(void);
+void test_bb_serialize_logfmt_render_overflow_fails_all_or_nothing(void);
+void test_bb_serialize_logfmt_render_overflow_null_out_len(void);
+void test_bb_serialize_logfmt_render_rejects_null_buf(void);
+void test_bb_serialize_logfmt_render_rejects_zero_cap(void);
+void test_bb_serialize_logfmt_render_rejects_zero_cap_null_out_len(void);
+void test_bb_serialize_logfmt_render_success_null_out_len(void);
+void test_bb_serialize_logfmt_ctx_init_empty(void);
+void test_bb_serialize_logfmt_emit_direct_drive(void);
+void test_bb_serialize_logfmt_register_format_idempotent(void);
+void test_bb_format_name_logfmt_returns_logfmt(void);
 
 // Forward declarations from test_bb_serialize_populate.c
 void test_bb_serialize_populate_flat_scalars(void);
@@ -9649,6 +9681,36 @@ int main(void) {
     RUN_TEST(test_bb_serialize_console_heap_desc_matches_snap_layout);
     RUN_TEST(test_bb_serialize_console_heap_report_renders_via_desc);
     RUN_TEST(test_bb_serialize_console_heap_report_smoke);
+
+    RUN_TEST(test_bb_serialize_logfmt_flat_scalars);
+    RUN_TEST(test_bb_serialize_logfmt_null_str_n_emits_null);
+    RUN_TEST(test_bb_serialize_logfmt_empty_str_n_is_quoted);
+    RUN_TEST(test_bb_serialize_logfmt_f64_nan_emits_null);
+    RUN_TEST(test_bb_serialize_logfmt_f64_pos_inf_emits_null);
+    RUN_TEST(test_bb_serialize_logfmt_f64_neg_inf_emits_null);
+    RUN_TEST(test_bb_serialize_logfmt_f64_out_of_u64_range_emits_null);
+    RUN_TEST(test_bb_serialize_logfmt_f64_rounding_carry_into_integer_part);
+    RUN_TEST(test_bb_serialize_logfmt_f64_negative_value);
+    RUN_TEST(test_bb_serialize_logfmt_plain_value_unquoted);
+    RUN_TEST(test_bb_serialize_logfmt_value_with_space_is_quoted);
+    RUN_TEST(test_bb_serialize_logfmt_value_with_equals_is_quoted);
+    RUN_TEST(test_bb_serialize_logfmt_value_with_quote_is_escaped);
+    RUN_TEST(test_bb_serialize_logfmt_value_with_quote_only_no_space_is_escaped);
+    RUN_TEST(test_bb_serialize_logfmt_value_with_backslash_is_escaped);
+    RUN_TEST(test_bb_serialize_logfmt_value_with_newline_tab_cr_escaped);
+    RUN_TEST(test_bb_serialize_logfmt_value_with_other_control_byte_hex_escaped);
+    RUN_TEST(test_bb_serialize_logfmt_nested_obj_no_crash);
+    RUN_TEST(test_bb_serialize_logfmt_array_of_strings_no_crash);
+    RUN_TEST(test_bb_serialize_logfmt_render_overflow_fails_all_or_nothing);
+    RUN_TEST(test_bb_serialize_logfmt_render_overflow_null_out_len);
+    RUN_TEST(test_bb_serialize_logfmt_render_rejects_null_buf);
+    RUN_TEST(test_bb_serialize_logfmt_render_rejects_zero_cap);
+    RUN_TEST(test_bb_serialize_logfmt_render_rejects_zero_cap_null_out_len);
+    RUN_TEST(test_bb_serialize_logfmt_render_success_null_out_len);
+    RUN_TEST(test_bb_serialize_logfmt_ctx_init_empty);
+    RUN_TEST(test_bb_serialize_logfmt_emit_direct_drive);
+    RUN_TEST(test_bb_serialize_logfmt_register_format_idempotent);
+    RUN_TEST(test_bb_format_name_logfmt_returns_logfmt);
     RUN_TEST(test_bb_serialize_json_register_format_idempotent);
 
     RUN_TEST(test_bb_serialize_ref_happy_path_resolves_inline);
