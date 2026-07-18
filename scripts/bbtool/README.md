@@ -285,6 +285,19 @@ python3 scripts/bbtool.py fence --approve bb_new_thing
 See `scripts/bbtool/fence/new_component.py` (scanner) and
 `scripts/bbtool/commands/fence_cmd.py` (`--approve` wiring).
 
+**Rename detection.** A fence run that sees exactly one new component and
+exactly one removed component in the same pass treats that 1:1 pair as an
+identity-stable directory rename (e.g. `bb_prov` -> `bb_wifi_prov`,
+B1-808) — no `--approve`, no baseline edit; the run passes, and an
+`INFO [fence:new_component]: rename detected: ...` line names the paired
+old -> new component so `make fence`/CI output shows the heuristic fired
+rather than a silent PASS. This is deliberately count-based, not
+identity-based: a coincidental delete-X + add-unrelated-Y in the same
+commit is also treated as a rename (and passes) — a genuinely new,
+unapproved component alongside an unrelated deletion only stays guarded
+as long as either side has more than one entry. See `rename_pairs()` in
+`scripts/bbtool/fence/new_component.py`.
+
 ### `di-fence` command (back-compat alias)
 
 `python3 scripts/bbtool.py di-fence [--root DIR] [--update-baseline]` is a

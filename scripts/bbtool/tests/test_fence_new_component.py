@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
 import fence as fence_pkg  # noqa: E402
 from fence import Marker  # noqa: E402
-from fence.new_component import scan_all, counts_by_bucket  # noqa: E402
+from fence.new_component import scan_all, counts_by_bucket, rename_pairs  # noqa: E402
 from commands import fence_cmd  # noqa: E402
 
 
@@ -79,6 +79,42 @@ class TestScanNewComponent(unittest.TestCase):
             self.assertEqual(
                 found, {Marker("component", "components/bb_example", "bb_example")}
             )
+
+
+class TestRenamePairs(unittest.TestCase):
+    """Unit tests for the B1-1015 rename-detection heuristic in isolation
+    from the CLI plumbing."""
+
+    def test_1to1_pair_is_dropped_as_a_rename(self):
+        new = [Marker("component", "components/bb_wifi_prov", "bb_wifi_prov")]
+        removed = [Marker("component", "components/bb_prov", "bb_prov")]
+        got_new, got_removed = rename_pairs(new, removed)
+        self.assertEqual(got_new, [])
+        self.assertEqual(got_removed, [])
+
+    def test_new_with_no_removed_is_left_untouched(self):
+        new = [Marker("component", "components/bb_speculative", "bb_speculative")]
+        removed = []
+        got_new, got_removed = rename_pairs(new, removed)
+        self.assertEqual(got_new, new)
+        self.assertEqual(got_removed, removed)
+
+    def test_removed_with_no_new_is_left_untouched(self):
+        new = []
+        removed = [Marker("component", "components/bb_old", "bb_old")]
+        got_new, got_removed = rename_pairs(new, removed)
+        self.assertEqual(got_new, new)
+        self.assertEqual(got_removed, removed)
+
+    def test_multiple_new_and_removed_is_ambiguous_and_left_untouched(self):
+        new = [
+            Marker("component", "components/bb_speculative_1", "bb_speculative_1"),
+            Marker("component", "components/bb_speculative_2", "bb_speculative_2"),
+        ]
+        removed = [Marker("component", "components/bb_example_a", "bb_example_a")]
+        got_new, got_removed = rename_pairs(new, removed)
+        self.assertEqual(got_new, new)
+        self.assertEqual(got_removed, removed)
 
 
 class TestCountsByBucket(unittest.TestCase):
@@ -225,15 +261,19 @@ class TestFenceCliNewComponent(unittest.TestCase):
     def test_update_baseline_does_not_bless_an_unapproved_new_component(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            src_component = "bb_example_a"
-            _mkcomponent(root, src_component)
+            _mkcomponent(root, "bb_example_a")
+            _mkcomponent(root, "bb_example_b")
             _run_fence_cli(str(root), seed="new_component")
 
-            # Simultaneously: remove the seeded component AND add a new,
-            # unapproved one — the shrink-only invariant must still hold.
+            # Simultaneously: remove ONE seeded component AND add TWO new,
+            # unapproved ones — a 2-new-for-1-removed shape is NOT the
+            # unambiguous 1:1 rename pairing (B1-1015), so it stays
+            # net-new + prune-candidate and the shrink-only invariant must
+            # still hold.
             import shutil
-            shutil.rmtree(root / "components" / src_component)
-            _mkcomponent(root, "bb_speculative")
+            shutil.rmtree(root / "components" / "bb_example_a")
+            _mkcomponent(root, "bb_speculative_1")
+            _mkcomponent(root, "bb_speculative_2")
 
             rc, out, _ = _run_fence_cli(str(root), family=["new_component"], update_baseline=True)
             self.assertEqual(rc, 0)
@@ -242,11 +282,78 @@ class TestFenceCliNewComponent(unittest.TestCase):
 
             baseline = fence_pkg.load_baseline(str(root), "new_component")
             baseline_ids = {m.id for m in baseline}
-            self.assertNotIn("bb_speculative", baseline_ids, "net-new component must never be blessed by --update-baseline")
+            self.assertNotIn("bb_speculative_1", baseline_ids, "net-new component must never be blessed by --update-baseline")
+            self.assertNotIn("bb_speculative_2", baseline_ids, "net-new component must never be blessed by --update-baseline")
 
             rc2, _, err2 = _run_fence_cli(str(root), family=["new_component"])
             self.assertEqual(rc2, 1)
-            self.assertIn("bb_speculative", err2)
+            self.assertIn("bb_speculative_1", err2)
+            self.assertIn("bb_speculative_2", err2)
+
+    def test_directory_rename_is_identity_stable_without_approve(self):
+        """B1-1015: renaming an already-approved component's directory
+        (e.g. bb_prov -> bb_wifi_prov, B1-808) is a paired remove+add of
+        exactly one component each — detected as an identity-stable
+        rename, no --approve or baseline edit needed."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _mkcomponent(root, "bb_example_a")
+            _mkcomponent(root, "bb_prov")
+            _run_fence_cli(str(root), seed="new_component")
+
+            import shutil
+            shutil.rmtree(root / "components" / "bb_prov")
+            _mkcomponent(root, "bb_wifi_prov")
+
+            rc, out, _ = _run_fence_cli(str(root), family=["new_component"])
+            self.assertEqual(rc, 0, "a paired 1:1 rename must pass without --approve")
+            self.assertIn("PASS", out)
+            # The heuristic firing is not a silent PASS — an INFO breadcrumb
+            # names the paired old -> new component so `make fence`/CI
+            # output shows a rename was collapsed.
+            self.assertIn("INFO [fence:new_component]: rename detected:", out)
+            self.assertIn("bb_prov", out)
+            self.assertIn("bb_wifi_prov", out)
+
+            # Zero baseline edit needed — the baseline still names the OLD
+            # component; the rename keeps passing on every subsequent run
+            # purely from the 1:1 pairing, no --update-baseline swap
+            # required.
+            baseline = fence_pkg.load_baseline(str(root), "new_component")
+            baseline_ids = {m.id for m in baseline}
+            self.assertIn("bb_prov", baseline_ids)
+            self.assertNotIn("bb_wifi_prov", baseline_ids)
+
+            rc2, out2, _ = _run_fence_cli(str(root), family=["new_component"])
+            self.assertEqual(rc2, 0, "the rename keeps passing on repeat runs with no baseline edit")
+            self.assertIn("PASS", out2)
+
+    def test_directory_rename_update_baseline_is_a_noop_for_the_pair(self):
+        """--update-baseline must not prune the renamed-away old entry (it
+        is not a genuine removal) nor bless the new one (still shrink-only
+        for everything outside the paired rename)."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _mkcomponent(root, "bb_prov")
+            _run_fence_cli(str(root), seed="new_component")
+
+            import shutil
+            shutil.rmtree(root / "components" / "bb_prov")
+            _mkcomponent(root, "bb_wifi_prov")
+
+            rc, out, _ = _run_fence_cli(str(root), family=["new_component"], update_baseline=True)
+            self.assertEqual(rc, 0)
+            self.assertIn("baseline pruned (0 removed", out)
+            self.assertNotIn("NOT added to the", out, "the paired rename is not reported as an unblessed new marker")
+            # The --update-baseline path emits the same breadcrumb as
+            # --check when the rename heuristic fires.
+            self.assertIn("INFO [fence:new_component]: rename detected:", out)
+            self.assertIn("bb_prov", out)
+            self.assertIn("bb_wifi_prov", out)
+
+            baseline = fence_pkg.load_baseline(str(root), "new_component")
+            baseline_ids = {m.id for m in baseline}
+            self.assertEqual(baseline_ids, {"bb_prov"})
 
     def test_approve_mutually_exclusive_with_seed_and_family(self):
         with tempfile.TemporaryDirectory() as td:
