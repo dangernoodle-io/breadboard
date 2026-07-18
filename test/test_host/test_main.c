@@ -2034,6 +2034,12 @@ void test_bb_wdt_feed_increments_counter(void);
 void test_bb_wdt_subscribe_increments_counter(void);
 void test_bb_wdt_unsubscribe_increments_counter(void);
 void test_bb_wdt_set_timeout_noop_on_host(void);
+void test_bb_wdt_subscribe_handle_increments_counter(void);
+void test_bb_wdt_unsubscribe_handle_increments_counter(void);
+void test_bb_wdt_subscribe_handle_null_is_self_subscribe(void);
+void test_bb_wdt_unsubscribe_handle_null_is_self_unsubscribe(void);
+void test_bb_wdt_task_subscribe_routes_through_handle_api(void);
+void test_bb_wdt_subscribe_handle_distinguishes_from_null(void);
 
 // Forward declarations from test_bb_system.c
 void test_bb_system_get_version_returns_nonnull(void);
@@ -8546,6 +8552,12 @@ int main(void) {
     RUN_TEST(test_bb_wdt_subscribe_increments_counter);
     RUN_TEST(test_bb_wdt_unsubscribe_increments_counter);
     RUN_TEST(test_bb_wdt_set_timeout_noop_on_host);
+    RUN_TEST(test_bb_wdt_subscribe_handle_increments_counter);
+    RUN_TEST(test_bb_wdt_unsubscribe_handle_increments_counter);
+    RUN_TEST(test_bb_wdt_subscribe_handle_null_is_self_subscribe);
+    RUN_TEST(test_bb_wdt_unsubscribe_handle_null_is_self_unsubscribe);
+    RUN_TEST(test_bb_wdt_task_subscribe_routes_through_handle_api);
+    RUN_TEST(test_bb_wdt_subscribe_handle_distinguishes_from_null);
 
     // bb_mqtt_client tests
     RUN_TEST(test_bb_mqtt_publish_captures_topic);

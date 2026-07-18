@@ -43,13 +43,23 @@ void bb_wdt_extend_end(void)
 
 bb_err_t bb_wdt_task_subscribe(void)
 {
-    esp_err_t err = esp_task_wdt_add(NULL);
-    return (bb_err_t)err;
+    return bb_wdt_task_subscribe_handle(NULL);
 }
 
 bb_err_t bb_wdt_task_unsubscribe(void)
 {
-    esp_err_t err = esp_task_wdt_delete(NULL);
+    return bb_wdt_task_unsubscribe_handle(NULL);
+}
+
+bb_err_t bb_wdt_task_subscribe_handle(void *handle)
+{
+    esp_err_t err = esp_task_wdt_add((TaskHandle_t)handle);
+    return (bb_err_t)err;
+}
+
+bb_err_t bb_wdt_task_unsubscribe_handle(void *handle)
+{
+    esp_err_t err = esp_task_wdt_delete((TaskHandle_t)handle);
     if (err == ESP_ERR_NOT_FOUND) {
         return BB_OK;
     }

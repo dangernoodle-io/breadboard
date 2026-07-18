@@ -106,3 +106,81 @@ void test_bb_wdt_set_timeout_noop_on_host(void)
     bb_wdt_extend_end();
     TEST_PASS();
 }
+
+/* -------------------------------------------------------------------------
+ * bb_wdt_task_subscribe_handle / bb_wdt_task_unsubscribe_handle
+ * (B1-1043: arbitrary-task-handle subscribe API)
+ * ---------------------------------------------------------------------- */
+
+void test_bb_wdt_subscribe_handle_increments_counter(void)
+{
+    bb_wdt_test_reset();
+    int fake_handle;
+    bb_err_t rc = bb_wdt_task_subscribe_handle(&fake_handle);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_subscribe_count());
+    /* the exact handle pointer must be routed through, not dropped */
+    TEST_ASSERT_EQUAL_PTR(&fake_handle, bb_wdt_test_last_subscribe_handle());
+}
+
+void test_bb_wdt_unsubscribe_handle_increments_counter(void)
+{
+    bb_wdt_test_reset();
+    int fake_handle;
+    bb_err_t rc = bb_wdt_task_unsubscribe_handle(&fake_handle);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_unsubscribe_count());
+    TEST_ASSERT_EQUAL_PTR(&fake_handle, bb_wdt_test_last_unsubscribe_handle());
+}
+
+void test_bb_wdt_subscribe_handle_null_is_self_subscribe(void)
+{
+    /* NULL handle routes through the same counter as the self API — this
+     * is the "thin wrapper" contract: bb_wdt_task_subscribe() ==
+     * bb_wdt_task_subscribe_handle(NULL). */
+    bb_wdt_test_reset();
+    bb_err_t rc = bb_wdt_task_subscribe_handle(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_subscribe_count());
+    TEST_ASSERT_NULL(bb_wdt_test_last_subscribe_handle());
+}
+
+void test_bb_wdt_unsubscribe_handle_null_is_self_unsubscribe(void)
+{
+    bb_wdt_test_reset();
+    bb_err_t rc = bb_wdt_task_unsubscribe_handle(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_unsubscribe_count());
+    TEST_ASSERT_NULL(bb_wdt_test_last_unsubscribe_handle());
+}
+
+void test_bb_wdt_task_subscribe_routes_through_handle_api(void)
+{
+    /* bb_wdt_task_subscribe()/unsubscribe() are thin wrappers over the
+     * handle API passing NULL — same observable counters either way. */
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_task_subscribe());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_task_unsubscribe());
+    TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_subscribe_count());
+    TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_unsubscribe_count());
+    /* a regression that ignored the caller's handle and always
+     * self-subscribed would still pass the counter-only assertions above;
+     * this pins the NULL-routing explicitly. */
+    TEST_ASSERT_NULL(bb_wdt_test_last_subscribe_handle());
+    TEST_ASSERT_NULL(bb_wdt_test_last_unsubscribe_handle());
+}
+
+void test_bb_wdt_subscribe_handle_distinguishes_from_null(void)
+{
+    /* real regression guard: a non-NULL handle call must record THAT
+     * pointer, not silently collapse to the self (NULL) path. */
+    bb_wdt_test_reset();
+    int fake_handle;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_task_subscribe_handle(&fake_handle));
+    TEST_ASSERT_NOT_NULL(bb_wdt_test_last_subscribe_handle());
+    TEST_ASSERT_EQUAL_PTR(&fake_handle, bb_wdt_test_last_subscribe_handle());
+
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_task_subscribe_handle(NULL));
+    TEST_ASSERT_NULL(bb_wdt_test_last_subscribe_handle());
+}

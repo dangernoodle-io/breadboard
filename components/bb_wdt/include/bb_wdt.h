@@ -41,6 +41,8 @@ void bb_wdt_extend_end(void);
  * Subscribe the calling task to the Task WDT (esp_task_wdt_add(NULL)).
  * Returns BB_OK on success, or a platform error code on failure.
  * No-op / returns BB_OK on host.
+ *
+ * Thin wrapper over bb_wdt_task_subscribe_handle(NULL).
  */
 bb_err_t bb_wdt_task_subscribe(void);
 
@@ -48,8 +50,32 @@ bb_err_t bb_wdt_task_subscribe(void);
  * Unsubscribe the calling task from the Task WDT (esp_task_wdt_delete(NULL)).
  * Returns BB_OK on success, BB_OK if not subscribed, or a platform error.
  * No-op / returns BB_OK on host.
+ *
+ * Thin wrapper over bb_wdt_task_unsubscribe_handle(NULL).
  */
 bb_err_t bb_wdt_task_unsubscribe(void);
+
+/*
+ * Subscribe an arbitrary task handle to the Task WDT (esp_task_wdt_add(handle)).
+ * `handle` is an opaque platform task handle (TaskHandle_t on ESP-IDF); pass
+ * NULL to subscribe the calling task, equivalent to bb_wdt_task_subscribe().
+ * Single wrapper over esp_task_wdt_add — callers must not call the raw
+ * ESP-IDF API directly.
+ * Returns BB_OK on success, or a platform error code on failure.
+ * No-op / returns BB_OK on host.
+ */
+bb_err_t bb_wdt_task_subscribe_handle(void *handle);
+
+/*
+ * Unsubscribe an arbitrary task handle from the Task WDT
+ * (esp_task_wdt_delete(handle)). `handle` is an opaque platform task handle
+ * (TaskHandle_t on ESP-IDF); pass NULL to unsubscribe the calling task,
+ * equivalent to bb_wdt_task_unsubscribe(). Single wrapper over
+ * esp_task_wdt_delete — callers must not call the raw ESP-IDF API directly.
+ * Returns BB_OK on success, BB_OK if not subscribed, or a platform error.
+ * No-op / returns BB_OK on host.
+ */
+bb_err_t bb_wdt_task_unsubscribe_handle(void *handle);
 
 /*
  * Feed the Task WDT for the calling task (esp_task_wdt_reset(NULL)).

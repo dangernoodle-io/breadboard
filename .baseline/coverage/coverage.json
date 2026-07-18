@@ -986,7 +986,7 @@
       "type": "uncovered_line"
     },
     {
-      "id": "458",
+      "id": "457",
       "path": "platform/host/bb_task_registry/bb_task_registry.c",
       "type": "uncovered_line"
     },
