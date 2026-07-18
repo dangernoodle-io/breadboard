@@ -16,28 +16,44 @@
 
 static const char *TAG = "bb_claim";
 
+// Lazily bb_lock_init() c->lock exactly once (bb_once_run) — mirrors
+// BB_CLAIM_INIT's "no explicit init call needed" contract while keeping the
+// platform mutex type out of bb_claim.h.
+static void claim_init_lock(void *ctx)
+{
+    bb_claim_t *c = ctx;
+    bb_lock_config_t cfg = { .name = "bb_claim" };
+    bb_lock_init(&cfg, &c->lock);
+}
+
+static inline void claim_ensure_lock(bb_claim_t *c)
+{
+    bb_once_run(&c->lock_once, claim_init_lock, c);
+}
+
 bb_err_t bb_claim_acquire(bb_claim_t *c, const char *id)
 {
     if (!c || !id) return BB_ERR_INVALID_ARG;
 
-    pthread_mutex_lock(&c->lock);
+    claim_ensure_lock(c);
+    bb_lock_lock(&c->lock);
 
     if (c->holder == NULL) {
         // Slot free — take it.
         c->holder = id;
-        pthread_mutex_unlock(&c->lock);
+        bb_lock_unlock(&c->lock);
         return BB_OK;
     }
 
     // Idempotent: same id (pointer equality OR strcmp).
     if (c->holder == id || strcmp(c->holder, id) == 0) {
-        pthread_mutex_unlock(&c->lock);
+        bb_lock_unlock(&c->lock);
         return BB_OK;
     }
 
     // Held by a different id — conflict.
     BB_CLAIM_LOGW(TAG, "claim conflict: '%s' holds slot, '%s' rejected", c->holder, id);
-    pthread_mutex_unlock(&c->lock);
+    bb_lock_unlock(&c->lock);
     return BB_ERR_CONFLICT;
 }
 
@@ -45,7 +61,8 @@ void bb_claim_release(bb_claim_t *c, const char *id)
 {
     if (!c || !id) return;
 
-    pthread_mutex_lock(&c->lock);
+    claim_ensure_lock(c);
+    bb_lock_lock(&c->lock);
 
     if (c->holder != NULL &&
         (c->holder == id || strcmp(c->holder, id) == 0)) {
@@ -53,16 +70,17 @@ void bb_claim_release(bb_claim_t *c, const char *id)
     }
     // No-op if free or held by someone else.
 
-    pthread_mutex_unlock(&c->lock);
+    bb_lock_unlock(&c->lock);
 }
 
 const char *bb_claim_holder(bb_claim_t *c)
 {
     if (!c) return NULL;
 
-    pthread_mutex_lock(&c->lock);
+    claim_ensure_lock(c);
+    bb_lock_lock(&c->lock);
     const char *h = c->holder;
-    pthread_mutex_unlock(&c->lock);
+    bb_lock_unlock(&c->lock);
     return h;
 }
 
@@ -70,8 +88,9 @@ const char *bb_claim_holder(bb_claim_t *c)
 void bb_claim_reset(bb_claim_t *c)
 {
     if (!c) return;
-    pthread_mutex_lock(&c->lock);
+    claim_ensure_lock(c);
+    bb_lock_lock(&c->lock);
     c->holder = NULL;
-    pthread_mutex_unlock(&c->lock);
+    bb_lock_unlock(&c->lock);
 }
 #endif

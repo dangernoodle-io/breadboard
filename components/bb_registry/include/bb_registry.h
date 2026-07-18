@@ -2,7 +2,9 @@
 // bb_registry — generic name→handle object registry.
 //
 // A bb_registry_t is a fixed-capacity map from const char* name to void* value.
-// All operations are lock-guarded (pthread_mutex_t, POSIX on host and ESP-IDF).
+// All operations are lock-guarded via bb_lock_t (bb_core) — its host backend
+// wraps pthread_mutex_t, its ESP-IDF backend a FreeRTOS semaphore; this
+// header never sees either platform type directly.
 //
 // Declare a registry in file scope using the macro:
 //
@@ -23,9 +25,10 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <pthread.h>  // ESP-IDF + POSIX host only; no Arduino/AVR backend
 
 #include "bb_core.h"
+#include "bb_lock.h"
+#include "bb_once.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,7 +56,8 @@ typedef struct {
     uint16_t             count;
     bool                 frozen;
     bool                 hwm_warned;
-    pthread_mutex_t      lock;
+    bb_lock_t            lock;
+    bb_once_t            lock_once;
     const char          *tag;
 } bb_registry_t;
 
@@ -67,9 +71,9 @@ typedef struct {
                    "bb_registry capacity exceeds BB_REGISTRY_SNAPSHOT_MAX");   \
     static bb_registry_entry_t _##var_##_entries[(cap_)];                      \
     static bb_registry_t var_ = {                                              \
-        .entries  = _##var_##_entries,                                         \
-        .capacity = (cap_),                                                    \
-        .lock     = PTHREAD_MUTEX_INITIALIZER,                                 \
+        .entries    = _##var_##_entries,                                       \
+        .capacity   = (cap_),                                                  \
+        .lock_once  = BB_ONCE_INIT,                                            \
     }
 
 #define BB_REGISTRY_DEFINE_TAGGED(var_, cap_, tag_)                            \
@@ -77,10 +81,10 @@ typedef struct {
                    "bb_registry capacity exceeds BB_REGISTRY_SNAPSHOT_MAX");   \
     static bb_registry_entry_t _##var_##_entries[(cap_)];                      \
     static bb_registry_t var_ = {                                              \
-        .entries  = _##var_##_entries,                                         \
-        .capacity = (cap_),                                                    \
-        .lock     = PTHREAD_MUTEX_INITIALIZER,                                 \
-        .tag      = (tag_),                                                    \
+        .entries    = _##var_##_entries,                                       \
+        .capacity   = (cap_),                                                  \
+        .lock_once  = BB_ONCE_INIT,                                            \
+        .tag        = (tag_),                                                  \
     }
 
 // ---------------------------------------------------------------------------

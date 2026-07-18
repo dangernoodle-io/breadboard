@@ -4,8 +4,9 @@
 // A bb_collection_t stores {name, item, order} entries in a fixed-capacity
 // BSS array (no heap). `item` is a CALLER-OWNED pointer — bb_collection
 // never dereferences it, only stores and hands it back. Thread-safe: one
-// pthread_mutex_t per collection (same primitive as bb_registry, ESP-IDF +
-// POSIX host only; no Arduino/AVR backend).
+// bb_lock_t per collection (bb_core; same primitive as bb_registry) — its
+// host backend wraps pthread_mutex_t, its ESP-IDF backend a FreeRTOS
+// semaphore; this header never sees either platform type directly.
 //
 // Ordering semantics: enumeration is order-agnostic from the collection's
 // own perspective — it is a store, not a scheduler. Ordering is a
@@ -29,9 +30,10 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <pthread.h>  // ESP-IDF + POSIX host only; no Arduino/AVR backend
 
 #include "bb_core.h"
+#include "bb_lock.h"
+#include "bb_once.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,7 +62,8 @@ typedef struct {
     bb_collection_entry_t *entries;
     size_t                 capacity;
     size_t                 count;
-    pthread_mutex_t        lock;
+    bb_lock_t              lock;
+    bb_once_t              lock_once;
 } bb_collection_t;
 
 // Callback invoked once per entry by bb_collection_foreach(), in
@@ -76,9 +79,9 @@ typedef void (*bb_collection_cb_t)(const bb_collection_entry_t *entry, void *ctx
                    "bb_collection capacity exceeds BB_COLLECTION_SNAPSHOT_MAX"); \
     static bb_collection_entry_t _##var_##_entries[(cap_)];                \
     static bb_collection_t var_ = {                                        \
-        .entries  = _##var_##_entries,                                     \
-        .capacity = (cap_),                                                \
-        .lock     = PTHREAD_MUTEX_INITIALIZER,                             \
+        .entries    = _##var_##_entries,                                   \
+        .capacity   = (cap_),                                              \
+        .lock_once  = BB_ONCE_INIT,                                        \
     }
 
 // ---------------------------------------------------------------------------

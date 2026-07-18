@@ -1,9 +1,11 @@
 // bb_collection — humble ordered collection of caller-owned opaque items.
 //
 // Compiled on both host (tests) and ESP-IDF (via bb_collection CMakeLists
-// SRCS). All operations are guarded by a per-collection pthread_mutex_t.
-// foreach uses a fixed-size stack copy-out so the callback runs without the
-// lock held — same shape as bb_registry_foreach.
+// SRCS). All operations are guarded by a per-collection bb_lock_t (bb_core)
+// — its host backend wraps pthread_mutex_t, its ESP-IDF backend a FreeRTOS
+// semaphore; this file never sees either platform type directly. foreach
+// uses a fixed-size stack copy-out so the callback runs without the lock
+// held — same shape as bb_registry_foreach.
 
 #include "bb_collection.h"
 #include "bb_log.h"
@@ -12,6 +14,21 @@
 
 static const char *TAG = "bb_collection";
 
+// Lazily bb_lock_init() c->lock exactly once (bb_once_run) — mirrors
+// BB_COLLECTION_DEFINE's "no explicit init call needed" contract while
+// keeping the platform mutex type out of bb_collection.h.
+static void collection_init_lock(void *ctx)
+{
+    bb_collection_t *c = ctx;
+    bb_lock_config_t cfg = { .name = "bb_collection" };
+    bb_lock_init(&cfg, &c->lock);
+}
+
+static inline void collection_ensure_lock(bb_collection_t *c)
+{
+    bb_once_run(&c->lock_once, collection_init_lock, c);
+}
+
 bb_err_t bb_collection_add(bb_collection_t *c, const char *name,
                             const void *item, int order)
 {
@@ -19,11 +36,12 @@ bb_err_t bb_collection_add(bb_collection_t *c, const char *name,
         return BB_ERR_INVALID_ARG;
     }
 
-    pthread_mutex_lock(&c->lock);
+    collection_ensure_lock(c);
+    bb_lock_lock(&c->lock);
 
     if (c->count >= c->capacity) {
         bb_log_e(TAG, "add('%s'): collection full (cap %zu)", name, c->capacity);
-        pthread_mutex_unlock(&c->lock);
+        bb_lock_unlock(&c->lock);
         return BB_ERR_NO_SPACE;
     }
 
@@ -32,7 +50,7 @@ bb_err_t bb_collection_add(bb_collection_t *c, const char *name,
     c->entries[c->count].order = order;
     c->count++;
 
-    pthread_mutex_unlock(&c->lock);
+    bb_lock_unlock(&c->lock);
     return BB_OK;
 }
 
@@ -41,7 +59,8 @@ bb_err_t bb_collection_add(bb_collection_t *c, const char *name,
 static size_t collection_snapshot(bb_collection_t *c,
                                    bb_collection_entry_t snapshot[BB_COLLECTION_SNAPSHOT_MAX])
 {
-    pthread_mutex_lock(&c->lock);
+    collection_ensure_lock(c);
+    bb_lock_lock(&c->lock);
     size_t count = c->count;
 
     // Fixed-size stack buffer bounded by BB_COLLECTION_SNAPSHOT_MAX.
@@ -51,7 +70,7 @@ static size_t collection_snapshot(bb_collection_t *c,
     for (size_t i = 0; i < count; i++) {
         snapshot[i] = c->entries[i];
     }
-    pthread_mutex_unlock(&c->lock);
+    bb_lock_unlock(&c->lock);
     return count;
 }
 
@@ -96,17 +115,18 @@ size_t bb_collection_count(bb_collection_t *c)
         return 0;
     }
 
-    pthread_mutex_lock(&c->lock);
+    collection_ensure_lock(c);
+    bb_lock_lock(&c->lock);
     size_t count = c->count;
-    pthread_mutex_unlock(&c->lock);
+    bb_lock_unlock(&c->lock);
     return count;
 }
 
 #ifdef BB_COLLECTION_TESTING
 void bb_collection_reset(bb_collection_t *c)
 {
-    pthread_mutex_destroy(&c->lock);
-    c->count = 0;
-    pthread_mutex_init(&c->lock, NULL);
+    bb_lock_destroy(&c->lock);
+    c->count     = 0;
+    c->lock_once = (bb_once_t)BB_ONCE_INIT;
 }
 #endif
