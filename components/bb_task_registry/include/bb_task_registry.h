@@ -46,7 +46,7 @@ extern "C" {
 
 // Per-registration options.
 typedef struct {
-    bool hw_wdt_subscribe;       // true: register() calls esp_task_wdt_add(handle)
+    bool hw_wdt_subscribe;       // true: register() subscribes handle via bb_wdt_task_subscribe_handle()
     uint32_t sw_wdt_timeout_ms;  // 0 = software watchdog off for this task
 } bb_task_registry_opts_t;
 

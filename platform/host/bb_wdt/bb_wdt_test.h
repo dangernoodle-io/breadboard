@@ -23,6 +23,14 @@ int bb_wdt_test_subscribe_count(void);
 /* Returns the number of times bb_wdt_task_unsubscribe() was called. */
 int bb_wdt_test_unsubscribe_count(void);
 
+/* Returns the handle passed to the most recent
+ * bb_wdt_task_subscribe_handle() call (NULL for a self-subscribe). */
+void *bb_wdt_test_last_subscribe_handle(void);
+
+/* Returns the handle passed to the most recent
+ * bb_wdt_task_unsubscribe_handle() call (NULL for a self-unsubscribe). */
+void *bb_wdt_test_last_unsubscribe_handle(void);
+
 #ifdef __cplusplus
 }
 #endif

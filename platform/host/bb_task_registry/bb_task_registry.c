@@ -22,7 +22,6 @@
 #ifdef CONFIG_BB_TASK_REGISTRY_WDT_SUPPORT
 #define BB_TASK_REGISTRY_WDT_SUPPORT CONFIG_BB_TASK_REGISTRY_WDT_SUPPORT
 #endif
-#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #endif
@@ -176,10 +175,10 @@ static void pool_free_locked(bb_task_entry_t *entry)
 // Returns true on success. Never fails registration on error — the caller
 // logs and leaves wdt_subscribed=false.
 //
-// ESP-IDF has no handle-taking bb_wdt API (only the SELF-subscribe
-// esp_task_wdt_add(NULL) wrapped by bb_wdt_task_subscribe/unsubscribe), so
-// the parent-context handle-taking calls are made directly here via
-// esp_task_wdt_add/delete, gated by BB_TASK_REGISTRY_WDT_SUPPORT.
+// Routed through bb_wdt_task_subscribe_handle/unsubscribe_handle
+// (arbitrary-handle bb_wdt API, B1-1043) rather than calling
+// esp_task_wdt_add/delete directly — bb_wdt is the SINGLE wrapper over the
+// ESP-IDF Task WDT API, gated by BB_TASK_REGISTRY_WDT_SUPPORT.
 //
 // On host there is no real handle or Task WDT to subscribe; the existing
 // bb_wdt self-subscribe host stub is reused as the observable stand-in so
@@ -188,9 +187,9 @@ static void pool_free_locked(bb_task_entry_t *entry)
 #if defined(ESP_PLATFORM) && BB_TASK_REGISTRY_WDT_SUPPORT
 static bool hw_wdt_subscribe(void *handle)
 {
-    esp_err_t err = esp_task_wdt_add((TaskHandle_t)handle);
-    if (err != ESP_OK) {
-        bb_log_w(TAG, "esp_task_wdt_add failed: %s", esp_err_to_name(err));
+    bb_err_t err = bb_wdt_task_subscribe_handle(handle);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "bb_wdt_task_subscribe_handle failed: %d", (int)err);
         return false;
     }
     return true;
@@ -198,9 +197,9 @@ static bool hw_wdt_subscribe(void *handle)
 
 static void hw_wdt_unsubscribe(void *handle)
 {
-    esp_err_t err = esp_task_wdt_delete((TaskHandle_t)handle);
-    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
-        bb_log_w(TAG, "esp_task_wdt_delete failed: %s", esp_err_to_name(err));
+    bb_err_t err = bb_wdt_task_unsubscribe_handle(handle);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "bb_wdt_task_unsubscribe_handle failed: %d", (int)err);
     }
 }
 #elif defined(ESP_PLATFORM)
