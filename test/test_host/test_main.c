@@ -199,6 +199,8 @@ void test_bb_data_render_null_args_return_invalid_arg(void);
 // Forward declarations from test_bb_data_http.c
 void test_bb_data_http_init_idempotent(void);
 void test_bb_data_http_init_max_clients_over_cap_returns_invalid_arg(void);
+void test_bb_data_http_init_event_ring_capacity_over_cap_returns_invalid_arg(void);
+void test_bb_data_http_init_event_ring_alloc_failure_returns_error(void);
 void test_bb_data_http_init_cfg_non_null_zero_max_clients_uses_default(void);
 void test_bb_data_http_attach_round_trip(void);
 void test_bb_data_http_attach_null_or_empty_args_return_invalid_arg(void);
@@ -219,7 +221,16 @@ void test_bb_data_http_client_acquire_ex_topic_filter_too_long_returns_invalid_a
 void test_bb_data_http_sweep_step_renders_dirty_state_key(void);
 void test_bb_data_http_sweep_step_coalesces_multiple_bumps_into_one_render(void);
 void test_bb_data_http_sweep_step_multiple_dirty_keys_all_rendered(void);
-void test_bb_data_http_sweep_step_skips_event_kind_keys(void);
+void test_bb_data_http_sweep_step_event_kind_key_delivers_via_shared_ring(void);
+void test_bb_data_http_sweep_step_event_kind_key_without_render_fn_advances_gen(void);
+void test_bb_data_http_sweep_step_event_render_failure_retries_on_next_sweep(void);
+void test_bb_data_http_event_cursor_advances_across_sweeps(void);
+void test_bb_data_http_event_multiple_clients_independent_cursors(void);
+void test_bb_data_http_event_topic_filter_excludes_non_matching_topic(void);
+void test_bb_data_http_event_ring_wrap_drops_evicted_gap_with_marker(void);
+void test_bb_data_http_event_client_outbound_full_drops_with_marker(void);
+void test_bb_data_http_event_pending_marker_flushes_on_quiet_sweep(void);
+void test_bb_data_http_event_slow_client_does_not_affect_other_clients(void);
 void test_bb_data_http_sweep_step_without_render_fn_still_clears_dirty(void);
 void test_bb_data_http_sweep_step_without_generation_fn_still_drains_connect_dirty(void);
 void test_bb_data_http_sweep_step_render_failure_skips_frame_without_crash(void);
@@ -10124,6 +10135,8 @@ int main(void) {
 
     RUN_TEST(test_bb_data_http_init_idempotent);
     RUN_TEST(test_bb_data_http_init_max_clients_over_cap_returns_invalid_arg);
+    RUN_TEST(test_bb_data_http_init_event_ring_capacity_over_cap_returns_invalid_arg);
+    RUN_TEST(test_bb_data_http_init_event_ring_alloc_failure_returns_error);
     RUN_TEST(test_bb_data_http_init_cfg_non_null_zero_max_clients_uses_default);
     RUN_TEST(test_bb_data_http_attach_round_trip);
     RUN_TEST(test_bb_data_http_attach_null_or_empty_args_return_invalid_arg);
@@ -10144,7 +10157,16 @@ int main(void) {
     RUN_TEST(test_bb_data_http_sweep_step_renders_dirty_state_key);
     RUN_TEST(test_bb_data_http_sweep_step_coalesces_multiple_bumps_into_one_render);
     RUN_TEST(test_bb_data_http_sweep_step_multiple_dirty_keys_all_rendered);
-    RUN_TEST(test_bb_data_http_sweep_step_skips_event_kind_keys);
+    RUN_TEST(test_bb_data_http_sweep_step_event_kind_key_delivers_via_shared_ring);
+    RUN_TEST(test_bb_data_http_sweep_step_event_kind_key_without_render_fn_advances_gen);
+    RUN_TEST(test_bb_data_http_sweep_step_event_render_failure_retries_on_next_sweep);
+    RUN_TEST(test_bb_data_http_event_cursor_advances_across_sweeps);
+    RUN_TEST(test_bb_data_http_event_multiple_clients_independent_cursors);
+    RUN_TEST(test_bb_data_http_event_topic_filter_excludes_non_matching_topic);
+    RUN_TEST(test_bb_data_http_event_ring_wrap_drops_evicted_gap_with_marker);
+    RUN_TEST(test_bb_data_http_event_client_outbound_full_drops_with_marker);
+    RUN_TEST(test_bb_data_http_event_pending_marker_flushes_on_quiet_sweep);
+    RUN_TEST(test_bb_data_http_event_slow_client_does_not_affect_other_clients);
     RUN_TEST(test_bb_data_http_sweep_step_without_render_fn_still_clears_dirty);
     RUN_TEST(test_bb_data_http_sweep_step_without_generation_fn_still_drains_connect_dirty);
     RUN_TEST(test_bb_data_http_sweep_step_render_failure_skips_frame_without_crash);

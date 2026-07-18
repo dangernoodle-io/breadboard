@@ -36,4 +36,16 @@ config BB_DATA_HTTP_OUTBOUND_MAX_BYTES
         (B1-1031). Eviction (oldest first) fires on this budget OR the entry
         capacity above, whichever is hit first.
 
+config BB_DATA_HTTP_EVENT_RING_CAPACITY
+    int "Shared EVENT ring entry capacity"
+    default 16
+    range 1 64
+    help
+        Max number of rendered EVENT frames held at once in the single
+        shared ring fed by every EVENT-kind attached key (B1-1032). On
+        overflow the oldest entry is evicted; any client whose own cursor
+        had not yet drained an evicted entry counts it as dropped (see
+        bb_data_http_client_dropped_count()). bb_data_http_cfg_t may only
+        shrink this at runtime, never grow it.
+
 endmenu

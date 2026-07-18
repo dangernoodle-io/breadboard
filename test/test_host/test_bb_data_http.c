@@ -163,6 +163,28 @@ void test_bb_data_http_init_max_clients_over_cap_returns_invalid_arg(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_init(&cfg));
 }
 
+// Mirrors max_clients's own shrink-only-override bound: event_ring_capacity
+// may only shrink CONFIG_BB_DATA_HTTP_EVENT_RING_CAPACITY at runtime, never
+// grow it.
+void test_bb_data_http_init_event_ring_capacity_over_cap_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_data_http_cfg_t cfg = { .event_ring_capacity = 1000 };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_init(&cfg));
+}
+
+// A shared-EVENT-ring allocation failure at init time must propagate as an
+// error rather than leaving bb_data_http half-initialized.
+void test_bb_data_http_init_event_ring_alloc_failure_returns_error(void)
+{
+    reset_all();
+    bb_queue_set_allocator(failing_calloc, free);
+    bb_err_t rc = bb_data_http_init(NULL);
+    bb_queue_reset_allocator();
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
+}
+
 // A non-NULL cfg with max_clients == 0 falls back to the Kconfig default
 // (see bb_data_http_cfg_t's doc comment: "0 -> CONFIG_BB_DATA_HTTP_MAX_
 // CLIENTS"), the same as cfg == NULL -- exercises the `cfg && cfg->
@@ -473,7 +495,12 @@ void test_bb_data_http_sweep_step_multiple_dirty_keys_all_rendered(void)
     TEST_ASSERT_EQUAL_UINT(2, bb_data_http_host_frame_count());
 }
 
-void test_bb_data_http_sweep_step_skips_event_kind_keys(void)
+// EVENT-kind keys no longer skip the sweep entirely (B1-1033 PR-3): a
+// generation bump on an EVENT key pushes into the shared ring and a
+// subscribed client drains it on the SAME sweep_step() call, distinctly
+// from STATE's dirty-mask path (fresh-render-on-connect still never marks
+// an EVENT key dirty -- that mechanism is STATE-only).
+void test_bb_data_http_sweep_step_event_kind_key_delivers_via_shared_ring(void)
 {
     reset_all();
     bb_data_http_init(NULL);
@@ -491,7 +518,396 @@ void test_bb_data_http_sweep_step_skips_event_kind_keys(void)
     fake_gen_bump("ev1");
     bb_data_http_sweep_step();
 
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_event_cursor_for_test(c));
+}
+
+// ---------------------------------------------------------------------------
+// EVENT push path (B1-1033 PR-3, design KB 1443/1444): shared ring + per-
+// client cursor + topic_filter + backpressure/dropped:N. No pthread/threads
+// -- every scenario below is a single-threaded, deterministic call sequence.
+// ---------------------------------------------------------------------------
+
+// A no-render_fn EVENT bump must still advance the module's own last-seen
+// generation for that key (degrade-gracefully, mirrors STATE's identical
+// no-render_fn drain path) -- otherwise a later render_fn install would
+// spuriously re-fire on a generation this sweep already saw.
+void test_bb_data_http_sweep_step_event_kind_key_without_render_fn_advances_gen(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    // no render_fn installed
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    fake_gen_set("ev1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&c, 1, false);
+
+    bb_data_http_sweep_step();
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
+
+    // Now install a render_fn and re-sweep with NO further generation bump:
+    // if the module-level last-seen generation had not advanced above, this
+    // would spuriously fire now.
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
+}
+
+// A failing render_fn on an EVENT key must be retried next sweep (the
+// module's last-seen generation is left unchanged on failure), exactly
+// mirroring STATE's clear-only-on-success invariant -- never silently
+// skipping the event.
+void test_bb_data_http_sweep_step_event_render_failure_retries_on_next_sweep(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    fake_gen_set("ev1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&c, 1, false);
+
+    size_t fails_before = bb_data_http_render_fail_count();
+
+    bb_data_http_set_render_fn(failing_render_fn, NULL);
+    bb_data_http_sweep_step();
+    // A second consecutive failure too, so the rate-limit modulo check's
+    // `fail_count != 1` operand is actually exercised (mirrors the STATE
+    // drain path's identical rate-limit coverage rationale).
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT(fails_before + 2, bb_data_http_render_fail_count());
+
+    // No further generation change -- the ONLY reason this is re-attempted
+    // is that the module-level last-seen generation was never advanced.
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());  // retried and sent -- NOT lost
+}
+
+// Cursor advance: a client's event_cursor tracks the next undrained global
+// sequence number, advancing by exactly one per drained ring entry across
+// successive sweeps.
+void test_bb_data_http_event_cursor_advances_across_sweeps(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&c, 1, false);
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_event_cursor_for_test(c));
+
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_event_cursor_for_test(c));
+
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_client_event_cursor_for_test(c));
+
+    // A sweep with no generation change must not advance the cursor further
+    // -- there is nothing new in the ring to drain.
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_client_event_cursor_for_test(c));
+
+    TEST_ASSERT_EQUAL_UINT(2, bb_data_http_host_frame_count());
+}
+
+// Multi-client independent cursors: a client that acquires AFTER an event
+// has already been pushed starts at the ring's CURRENT head (no backlog
+// replay), while an earlier client keeps draining from where it left off --
+// each client's own event_cursor advances independently.
+void test_bb_data_http_event_multiple_clients_independent_cursors(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+
+    bb_data_http_client_t *a = NULL, *b = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&a, 1, false));
+
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();  // delivered to `a` only -- `b` doesn't exist yet
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_event_cursor_for_test(a));
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&b, 2, false));
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_event_cursor_for_test(b));  // no backlog
+
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();  // delivered to BOTH `a` and `b`
+
+    TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_client_event_cursor_for_test(a));
+    TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_client_event_cursor_for_test(b));
+    TEST_ASSERT_EQUAL_UINT(3, bb_data_http_host_frame_count());  // 1 (a only) + 2 (a and b)
+
+    int fd_a1 = -1, fd_a2 = -1, fd_b1 = -1;
+    bb_data_http_host_frame_at(0, &fd_a1, NULL, NULL, 0, NULL);
+    bb_data_http_host_frame_at(1, &fd_a2, NULL, NULL, 0, NULL);
+    bb_data_http_host_frame_at(2, &fd_b1, NULL, NULL, 0, NULL);
+    TEST_ASSERT_EQUAL_INT(1, fd_a1);
+    TEST_ASSERT_TRUE(fd_a2 == 1 || fd_a2 == 2);
+    TEST_ASSERT_TRUE(fd_b1 == 1 || fd_b1 == 2);
+    TEST_ASSERT_NOT_EQUAL(fd_a2, fd_b1);  // second event fanned out to BOTH fds
+}
+
+// topic_filter on events: a client filtered to a topic other than the one an
+// EVENT key is attached under must NOT receive it, while still correctly
+// receiving an event under its own subscribed topic.
+void test_bb_data_http_event_topic_filter_excludes_non_matching_topic(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach_ex("ev2", "topic.b", BB_DATA_HTTP_EVENT);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire_ex(&c, 1, "topic.a", false));
+
+    fake_gen_bump("ev2");  // topic.b -- not subscribed
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
+    // Cursor still advances past the filtered-out entry -- it was examined
+    // and correctly skipped, not left stuck.
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_event_cursor_for_test(c));
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dropped_count(c));  // filtered != dropped
+
+    fake_gen_bump("ev1");  // topic.a -- subscribed
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_client_event_cursor_for_test(c));
+    int fd = -1;
+    char buf[128];
+    size_t len = 0;
+    bb_data_http_host_frame_at(0, &fd, NULL, buf, sizeof(buf), &len);
+    buf[len] = '\0';
+    TEST_ASSERT_EQUAL_STRING("{\"key\":\"ev1\",\"gen\":1}", buf);
+}
+
+// Ring wrap: when more EVENT entries are pushed within a single sweep_step()
+// than the shared ring's own capacity holds, a client whose cursor had not
+// yet drained the evicted entries counts the whole gap as dropped, fast-
+// forwards past it, and gets a "dropped:N" marker frame queued ahead of the
+// next entry it CAN still see.
+void test_bb_data_http_event_ring_wrap_drops_evicted_gap_with_marker(void)
+{
+    reset_all();
+    bb_data_http_cfg_t cfg = { .event_ring_capacity = 2 };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(&cfg));
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach_ex("ev0", "t", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach_ex("ev1", "t", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach_ex("ev2", "t", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach_ex("ev3", "t", BB_DATA_HTTP_EVENT);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&c, 1, false));
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_event_cursor_for_test(c));
+
+    // All four keys bump BEFORE this single sweep_step() call -- the ring
+    // (capacity 2) can only hold the last two of the four pushes this one
+    // detect phase produces, evicting the first two before the client's
+    // drain (which only runs once, at the end of this same call) ever sees
+    // them.
+    fake_gen_bump("ev0");
+    fake_gen_bump("ev1");
+    fake_gen_bump("ev2");
+    fake_gen_bump("ev3");
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_client_dropped_count(c));
+    TEST_ASSERT_EQUAL_UINT32(4u, bb_data_http_client_event_cursor_for_test(c));  // caught up to head
+
+    // 3 frames: the "dropped:2" marker, then ev2, then ev3 (the two ring
+    // entries that survived the eviction).
+    TEST_ASSERT_EQUAL_UINT(3, bb_data_http_host_frame_count());
+    char   buf[128];
+    size_t len = 0;
+    bb_data_http_host_frame_at(0, NULL, NULL, buf, sizeof(buf), &len);
+    buf[len] = '\0';
+    TEST_ASSERT_EQUAL_STRING("{\"dropped\":2}", buf);
+    bb_data_http_host_frame_at(1, NULL, NULL, buf, sizeof(buf), &len);
+    buf[len] = '\0';
+    TEST_ASSERT_EQUAL_STRING("{\"key\":\"ev2\",\"gen\":1}", buf);
+    bb_data_http_host_frame_at(2, NULL, NULL, buf, sizeof(buf), &len);
+    buf[len] = '\0';
+    TEST_ASSERT_EQUAL_STRING("{\"key\":\"ev3\",\"gen\":1}", buf);
+}
+
+// Backpressure: a client's own outbound queue filling up (independent of
+// the shared ring's own capacity, which stays generous here) must drop
+// EVENTs for that client only, never block/evict for anyone else, and
+// surface a "dropped:N" marker as soon as room frees up.
+void test_bb_data_http_event_client_outbound_full_drops_with_marker(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);  // event_ring_capacity default (16) -- generous
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    // no send_fn yet -- outbound is never drained, so it fills up
+    bb_data_http_attach_ex("ev1", "t", BB_DATA_HTTP_EVENT);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&c, 1, false));
+
+    // CONFIG_BB_DATA_HTTP_OUTBOUND_CAPACITY's C default is 8 (bb_data_http_
+    // common.c's Kconfig bridge) -- not exposed via the public header, so
+    // hardcoded here rather than referencing the private macro from a test
+    // (mirrors test_bb_data_http_init_cfg_non_null_zero_max_clients_uses_
+    // default's identical rationale for CONFIG_BB_DATA_HTTP_MAX_CLIENTS).
+    for (int i = 0; i < 8; i++) {
+        fake_gen_bump("ev1");
+        bb_data_http_sweep_step();
+    }
+    TEST_ASSERT_EQUAL_UINT(8, bb_data_http_client_outbound_count_for_test(c));
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dropped_count(c));
+
+    // The 9th event finds outbound full -- dropped for `c`, NOT evicted from
+    // the shared ring (a 2nd client would still see every one of these).
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_dropped_count(c));
+    TEST_ASSERT_EQUAL_UINT(8, bb_data_http_client_outbound_count_for_test(c));  // unchanged -- still full
+
+    // The 10th event: outbound is STILL full, so even the "dropped:1" marker
+    // itself has no room to be queued yet -- it must stay pending (neither
+    // the marker nor this event gets queued) rather than ever being force-
+    // pushed past the outbound's own room check.
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_client_dropped_count(c));
+    TEST_ASSERT_EQUAL_UINT(8, bb_data_http_client_outbound_count_for_test(c));  // still unchanged
+
+    // Now drain the backlog via send_fn and push one more event: the queued
+    // "dropped:2" marker must be delivered ahead of the fresh event, as soon
+    // as outbound has room again.
+    bb_data_http_host_install_send();
+    bb_data_http_sweep_step();  // no new bump -- just flushes the 8 backlog frames
+    TEST_ASSERT_EQUAL_UINT(8, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_client_outbound_count_for_test(c));
+
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(10, bb_data_http_host_frame_count());  // +marker, +event
+    char   buf[64];
+    size_t len = 0;
+    bb_data_http_host_frame_at(8, NULL, NULL, buf, sizeof(buf), &len);
+    buf[len] = '\0';
+    TEST_ASSERT_EQUAL_STRING("{\"dropped\":2}", buf);
+}
+
+// A pending "dropped:N" marker must reach the wire even when the EVENT feed
+// goes quiet afterward -- drain_client_events() attempts the flush every
+// sweep, not only when a new ring entry happens to piggyback the check (see
+// bb_data_http_sweep_step()'s EVENT drain doc). Client outbound fills to
+// capacity (dropping the next event and leaving a marker pending), then a
+// sweep with NO further generation bump -- nothing new in the ring -- must
+// still deliver the marker as soon as outbound has room.
+void test_bb_data_http_event_pending_marker_flushes_on_quiet_sweep(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);  // event_ring_capacity default (16) -- generous
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    // no send_fn yet -- outbound is never drained, so it fills up
+    bb_data_http_attach_ex("ev1", "t", BB_DATA_HTTP_EVENT);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&c, 1, false));
+
+    // Saturate outbound (capacity 8), then drop one more to leave a marker
+    // pending (mirrors test_bb_data_http_event_client_outbound_full_drops_
+    // with_marker's own setup).
+    for (int i = 0; i < 8; i++) {
+        fake_gen_bump("ev1");
+        bb_data_http_sweep_step();
+    }
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_dropped_count(c));
+
+    // Drain the backlog via send_fn -- outbound now has room -- but issue NO
+    // further generation bump before the next sweep: the ring has nothing
+    // new for this client to drain, yet the pending marker must still flush.
+    bb_data_http_host_install_send();
+    bb_data_http_sweep_step();  // flushes the 8 backlog frames
+    TEST_ASSERT_EQUAL_UINT(8, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_client_outbound_count_for_test(c));
+
+    bb_data_http_sweep_step();  // no new event -- must still flush the marker
+
+    TEST_ASSERT_EQUAL_UINT(9, bb_data_http_host_frame_count());
+    char   buf[64];
+    size_t len = 0;
+    bb_data_http_host_frame_at(8, NULL, NULL, buf, sizeof(buf), &len);
+    buf[len] = '\0';
+    TEST_ASSERT_EQUAL_STRING("{\"dropped\":1}", buf);
+}
+
+// A client whose OWN outbound is already saturated by unrelated STATE
+// traffic must drop an EVENT for itself only -- a second client subscribed
+// only to the EVENT topic (never touched by that STATE traffic) must
+// receive the same event with zero drops, proving the shared ring/drain
+// never lets one client's backpressure affect another's.
+void test_bb_data_http_event_slow_client_does_not_affect_other_clients(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    // no send_fn -- nothing is ever flushed, so outbound only ever grows.
+    bb_data_http_attach("s1", "state.only");
+    bb_data_http_attach_ex("ev1", "event.only", BB_DATA_HTTP_EVENT);
+
+    bb_data_http_client_t *slow = NULL, *fast = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire_ex(&slow, 1, NULL, false));            // all topics
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire_ex(&fast, 2, "event.only", false));    // events only
+
+    // Saturate `slow`'s outbound (capacity 8) with 8 STATE renders --
+    // `fast` is not subscribed to "state.only" so none of this reaches it.
+    // (`slow`'s connect-time fresh-render-on-connect dirty bit covers the
+    // first of these 8 sweeps.)
+    for (int i = 0; i < 8; i++) {
+        bb_data_http_sweep_step();
+        if (i < 7) fake_gen_bump("s1");  // re-dirty for the next iteration
+    }
+    TEST_ASSERT_EQUAL_UINT(8, bb_data_http_client_outbound_count_for_test(slow));
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_client_outbound_count_for_test(fast));
+
+    // Now push one EVENT both clients are subscribed to.
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_dropped_count(slow));   // dropped for `slow` only
+    TEST_ASSERT_EQUAL_UINT(8, bb_data_http_client_outbound_count_for_test(slow));  // unchanged -- still full
+
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dropped_count(fast));   // untouched
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_client_outbound_count_for_test(fast));  // delivered normally
 }
 
 void test_bb_data_http_sweep_step_without_render_fn_still_clears_dirty(void)
@@ -752,6 +1168,8 @@ void test_bb_data_http_for_test_helpers_defend_against_null_and_out_of_range(voi
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(NULL));
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_seen_gen_for_test(NULL, 0));
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_client_outbound_count_for_test(NULL));
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dropped_count(NULL));
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_event_cursor_for_test(NULL));
 
     bb_data_http_init(NULL);
     bb_data_http_client_t *c = NULL;
