@@ -40,6 +40,7 @@
 #include "bb_serialize.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -139,6 +140,35 @@ bb_err_t bb_data_render(bb_format_t fmt, const char *key,
 // Returns BB_ERR_INVALID_ARG if `key` or `out_kind` is NULL.
 // Returns BB_ERR_NOT_FOUND if `key` has no binding.
 bb_err_t bb_data_binding_replay_kind(const char *key, bb_data_replay_kind_t *out_kind);
+
+// Per-binding generation counter -- the coherence/invalidation signal for the
+// future bidirectional data path (a lost-wakeup ordering anchor for the
+// eventual SSE/WS drainer, and a future cache-invalidation hook). This PR
+// only adds the counter and its two accessors; nothing consumes it yet.
+//
+// It is NOT a lock, NOT a pub/sink, and has NO callback/notify surface -- it
+// does not wake or signal anything. A producer bumps it via bb_data_touch()
+// AFTER durably writing the value its gather hook exposes; a consumer polls
+// bb_data_generation() to detect that the value changed since it last read
+// it.
+//
+// The counter is scoped to the binding SLOT, not the key's current target --
+// it is NOT reset when a key is re-bound via bb_data_bind() (rebinding
+// carries the counter forward). Do not assume a rebind resets generation.
+
+// Bumps `key`'s generation counter by one. A producer calls this AFTER
+// durably writing the value it exposes via its gather hook -- bb_data_touch()
+// does not itself gather or render anything.
+//
+// Returns BB_ERR_INVALID_ARG if `key` is NULL.
+// Returns BB_ERR_NOT_FOUND if `key` has no binding.
+bb_err_t bb_data_touch(const char *key);
+
+// Returns `key`'s current generation counter via `*out_gen`.
+//
+// Returns BB_ERR_INVALID_ARG if `key` or `out_gen` is NULL.
+// Returns BB_ERR_NOT_FOUND if `key` has no binding.
+bb_err_t bb_data_generation(const char *key, uint32_t *out_gen);
 
 #ifdef BB_DATA_TESTING
 // Test-only: clears the binding table AND the underlying bb_registry

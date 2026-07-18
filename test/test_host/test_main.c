@@ -184,6 +184,14 @@ void test_bb_data_render_gather_failure_propagates(void);
 void test_bb_data_render_buf_too_small_returns_no_space(void);
 void test_bb_data_render_scratch_too_small_returns_no_space(void);
 void test_bb_data_render_unsupported_format_skips_gather(void);
+void test_bb_data_generation_fresh_binding_is_zero(void);
+void test_bb_data_touch_bumps_generation_by_one(void);
+void test_bb_data_touch_repeated_calls_are_monotonic(void);
+void test_bb_data_touch_independent_per_key(void);
+void test_bb_data_touch_unbound_key_returns_not_found(void);
+void test_bb_data_generation_unbound_key_returns_not_found(void);
+void test_bb_data_touch_null_key_returns_invalid_arg(void);
+void test_bb_data_generation_null_args_return_invalid_arg(void);
 void test_bb_data_render_null_args_return_invalid_arg(void);
 
 // Forward declarations from test_bb_serialize_console.c
@@ -9989,6 +9997,14 @@ int main(void) {
     RUN_TEST(test_bb_data_render_buf_too_small_returns_no_space);
     RUN_TEST(test_bb_data_render_scratch_too_small_returns_no_space);
     RUN_TEST(test_bb_data_render_unsupported_format_skips_gather);
+    RUN_TEST(test_bb_data_generation_fresh_binding_is_zero);
+    RUN_TEST(test_bb_data_touch_bumps_generation_by_one);
+    RUN_TEST(test_bb_data_touch_repeated_calls_are_monotonic);
+    RUN_TEST(test_bb_data_touch_independent_per_key);
+    RUN_TEST(test_bb_data_touch_unbound_key_returns_not_found);
+    RUN_TEST(test_bb_data_generation_unbound_key_returns_not_found);
+    RUN_TEST(test_bb_data_touch_null_key_returns_invalid_arg);
+    RUN_TEST(test_bb_data_generation_null_args_return_invalid_arg);
     RUN_TEST(test_bb_data_render_null_args_return_invalid_arg);
 
     return UNITY_END();

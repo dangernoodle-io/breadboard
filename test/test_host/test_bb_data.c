@@ -13,6 +13,7 @@
 #include "../../components/bb_meminfo/include/bb_meminfo_heap_snap.h"
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -342,6 +343,102 @@ void test_bb_data_binding_replay_kind_null_args_return_invalid_arg(void)
     bb_data_replay_kind_t kind;
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_binding_replay_kind(NULL, &kind));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_binding_replay_kind("dt.replay.nullargs", NULL));
+}
+
+// ---------------------------------------------------------------------------
+// generation (touch/generation) -- STORED coherence counter, no consumer yet.
+// ---------------------------------------------------------------------------
+
+void test_bb_data_generation_fresh_binding_is_zero(void)
+{
+    dt_reset();
+    int64_t ctx_val = 1;
+    bb_data_binding_t b = { .key = "dt.gen.fresh", .desc = &s_dt_desc, .gather = dt_gather_ok, .ctx = &ctx_val };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    uint32_t gen = 12345;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation("dt.gen.fresh", &gen));
+    TEST_ASSERT_EQUAL_UINT32(0, gen);
+}
+
+void test_bb_data_touch_bumps_generation_by_one(void)
+{
+    dt_reset();
+    int64_t ctx_val = 1;
+    bb_data_binding_t b = { .key = "dt.gen.bump", .desc = &s_dt_desc, .gather = dt_gather_ok, .ctx = &ctx_val };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_touch("dt.gen.bump"));
+
+    uint32_t gen = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation("dt.gen.bump", &gen));
+    TEST_ASSERT_EQUAL_UINT32(1, gen);
+}
+
+void test_bb_data_touch_repeated_calls_are_monotonic(void)
+{
+    dt_reset();
+    int64_t ctx_val = 1;
+    bb_data_binding_t b = { .key = "dt.gen.mono", .desc = &s_dt_desc, .gather = dt_gather_ok, .ctx = &ctx_val };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    for (uint32_t i = 1; i <= 5; i++) {
+        TEST_ASSERT_EQUAL(BB_OK, bb_data_touch("dt.gen.mono"));
+        uint32_t gen = 0;
+        TEST_ASSERT_EQUAL(BB_OK, bb_data_generation("dt.gen.mono", &gen));
+        TEST_ASSERT_EQUAL_UINT32(i, gen);
+    }
+}
+
+void test_bb_data_touch_independent_per_key(void)
+{
+    dt_reset();
+    int64_t ctx_val = 1;
+    bb_data_binding_t a = { .key = "dt.gen.a", .desc = &s_dt_desc, .gather = dt_gather_ok, .ctx = &ctx_val };
+    bb_data_binding_t b = { .key = "dt.gen.b", .desc = &s_dt_desc, .gather = dt_gather_ok, .ctx = &ctx_val };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&a));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_touch("dt.gen.a"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_touch("dt.gen.a"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_touch("dt.gen.b"));
+
+    uint32_t gen_a = 0, gen_b = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation("dt.gen.a", &gen_a));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation("dt.gen.b", &gen_b));
+    TEST_ASSERT_EQUAL_UINT32(2, gen_a);
+    TEST_ASSERT_EQUAL_UINT32(1, gen_b);
+}
+
+void test_bb_data_touch_unbound_key_returns_not_found(void)
+{
+    dt_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_data_touch("dt.gen.nope"));
+}
+
+void test_bb_data_generation_unbound_key_returns_not_found(void)
+{
+    dt_reset();
+    uint32_t gen = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_data_generation("dt.gen.nope", &gen));
+}
+
+void test_bb_data_touch_null_key_returns_invalid_arg(void)
+{
+    dt_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_touch(NULL));
+}
+
+void test_bb_data_generation_null_args_return_invalid_arg(void)
+{
+    dt_reset();
+    int64_t ctx_val = 1;
+    bb_data_binding_t b = { .key = "dt.gen.nullargs", .desc = &s_dt_desc, .gather = dt_gather_ok, .ctx = &ctx_val };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    uint32_t gen = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_generation(NULL, &gen));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_generation("dt.gen.nullargs", NULL));
 }
 
 void test_bb_data_render_null_args_return_invalid_arg(void)

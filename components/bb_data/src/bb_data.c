@@ -7,6 +7,7 @@
 #include "bb_registry.h"
 #include "bb_serialize_format.h"
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -22,6 +23,7 @@ typedef struct {
     bb_data_gather_fn          gather;
     void                      *ctx;
     bb_data_replay_kind_t      replay_kind;
+    _Atomic uint32_t           generation;
 } bb_data_slot_t;
 
 static bb_data_slot_t s_slots[BB_DATA_MAX_BINDINGS];
@@ -94,6 +96,28 @@ bb_err_t bb_data_binding_replay_kind(const char *key, bb_data_replay_kind_t *out
     if (!slot) return BB_ERR_NOT_FOUND;
 
     *out_kind = slot->replay_kind;
+    return BB_OK;
+}
+
+bb_err_t bb_data_touch(const char *key)
+{
+    if (!key) return BB_ERR_INVALID_ARG;
+
+    bb_data_slot_t *slot = (bb_data_slot_t *)bb_registry_lookup(&s_bb_data_registry, key);
+    if (!slot) return BB_ERR_NOT_FOUND;
+
+    atomic_fetch_add_explicit(&slot->generation, 1, memory_order_release);
+    return BB_OK;
+}
+
+bb_err_t bb_data_generation(const char *key, uint32_t *out_gen)
+{
+    if (!key || !out_gen) return BB_ERR_INVALID_ARG;
+
+    bb_data_slot_t *slot = (bb_data_slot_t *)bb_registry_lookup(&s_bb_data_registry, key);
+    if (!slot) return BB_ERR_NOT_FOUND;
+
+    *out_gen = atomic_load_explicit(&slot->generation, memory_order_acquire);
     return BB_OK;
 }
 
