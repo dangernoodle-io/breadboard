@@ -71,6 +71,7 @@ void test_bb_lifecycle_reason_truncation_equal_prefix_maps_same_bit(void);
 // Forward declarations from test_bb_lifecycle_async.c
 void test_bb_lifecycle_async_test_dropped_before_any_init_returns_zero(void);
 void test_bb_lifecycle_async_observe_async_bqueue_exhausted_propagates_error(void);
+void test_bb_lifecycle_async_observe_async_retries_after_transient_failure(void);
 void test_bb_lifecycle_async_drain_dispatch_for_test_invokes_only_async_slots(void);
 void test_bb_lifecycle_async_observe_null_cb_invalid_arg(void);
 void test_bb_lifecycle_async_observer_capacity_overflow_no_space(void);
@@ -9934,6 +9935,7 @@ int main(void) {
     // test_bb_lifecycle_async.c
     RUN_TEST(test_bb_lifecycle_async_test_dropped_before_any_init_returns_zero);
     RUN_TEST(test_bb_lifecycle_async_observe_async_bqueue_exhausted_propagates_error);
+    RUN_TEST(test_bb_lifecycle_async_observe_async_retries_after_transient_failure);
     RUN_TEST(test_bb_lifecycle_async_drain_dispatch_for_test_invokes_only_async_slots);
     RUN_TEST(test_bb_lifecycle_async_observe_null_cb_invalid_arg);
     RUN_TEST(test_bb_lifecycle_async_observer_capacity_overflow_no_space);

@@ -4,11 +4,21 @@
 // (bb_lifecycle.c) has no platform/queue/task dependency of its own and
 // calls the stubs at the bottom of this file unconditionally.
 //
-// One shared queue + one shared drain task, lazily created (bb_once-guarded,
-// mirrors ensure_lock()'s pattern in bb_lifecycle.c) on the FIRST
+// One shared queue + one shared drain task, lazily created on the FIRST
 // bb_lifecycle_observe_async() call. The drain task never mutates lifecycle
 // state itself -- it only invokes async-flagged observer callbacks, which
 // (like sync observers) must not call a lifecycle mutator.
+//
+// Init is mutex-guarded (bb_lock, ensure_async_lock() mirrors ensure_lock()'s
+// bb_once-guarded-init pattern in bb_lifecycle.c -- the lock ITSELF is a
+// permanent one-shot singleton, safe to latch forever) rather than a
+// permanent bb_once latch on the spawn attempt itself (B1-1044): a TRANSIENT
+// spawn failure (bb_bqueue_create()/bb_task_create() under pool exhaustion or
+// heap pressure) must be retryable by a LATER bb_lifecycle_observe_async()
+// call, not permanently poison async dispatch for the rest of the process.
+// s_async_ready only ever transitions UNINIT -> READY (on success) under
+// s_async_lock; a failed attempt leaves it UNINIT so the next caller to take
+// the lock genuinely re-attempts async_init() against a freshly-freed pool.
 #include "bb_lifecycle.h"
 #include "bb_lifecycle_priv.h"
 
@@ -30,12 +40,13 @@
 
 #if BB_LIFECYCLE_ASYNC
 
-// bb_bqueue/bb_task/bb_once/bb_log/bb_clock refs live ENTIRELY inside this
-// #if -- the CONFIG_BB_LIFECYCLE_ASYNC=n build below never includes or
+// bb_bqueue/bb_task/bb_once/bb_lock/bb_log/bb_clock refs live ENTIRELY inside
+// this #if -- the CONFIG_BB_LIFECYCLE_ASYNC=n build below never includes or
 // references any of them.
 #include "bb_bqueue.h"
 #include "bb_task.h"
 #include "bb_once.h"
+#include "bb_lock.h"
 #include "bb_log.h"
 #include "bb_clock.h"
 
@@ -65,9 +76,27 @@ static const char *TAG = "bb_lifecycle_async";
 // Lazy-init state
 // ---------------------------------------------------------------------------
 
-static bb_once_t   s_async_once = BB_ONCE_INIT;
-static bb_bqueue_t s_async_q;
-static bb_err_t    s_async_init_err = BB_OK; // captured result of the one lazy init run
+// s_async_lock guards s_async_ready/s_async_q/s_async_init_err below --
+// permanent one-shot singleton (safe: unlike the spawn attempt it guards,
+// initializing the lock itself has no transient-failure retry requirement).
+static bb_lock_t s_async_lock;
+static bb_once_t s_async_lock_once = BB_ONCE_INIT;
+
+static bool         s_async_ready;    // true only after a SUCCESSFUL async_init() -- guarded by s_async_lock
+static bb_bqueue_t  s_async_q;
+static bb_err_t     s_async_init_err = BB_OK; // result of the most recent init attempt
+
+static void init_async_lock(void *ctx)
+{
+    (void)ctx;
+    bb_lock_config_t cfg = { .name = "bb_lifecycle_async", .category = "service" };
+    bb_lock_init(&cfg, &s_async_lock);
+}
+
+static void ensure_async_lock(void)
+{
+    bb_once_run(&s_async_lock_once, init_async_lock, NULL);
+}
 
 // Rate-limit timestamp for the drop-log warn below. bb_lifecycle_priv_
 // async_notify() runs concurrently from multiple producer tasks/cores (after
@@ -142,10 +171,12 @@ static void async_init(void *ctx)
     // Covered by test_bb_lifecycle_async_observe_async_bqueue_exhausted_
     // propagates_error (test_bb_lifecycle_async.c): bb_bqueue_create()
     // deterministically returns BB_ERR_NO_SPACE once the static pool
-    // (BB_BQUEUE_MAX_INSTANCES) is exhausted, and
-    // bb_lifecycle_async_reset_for_test() (below, BB_LIFECYCLE_TESTING-only)
-    // un-latches THIS once-guard afterwards so later tests still get a
-    // genuine (re-)attempt against a freshly bb_bqueue_test_reset() pool.
+    // (BB_BQUEUE_MAX_INSTANCES) is exhausted. s_async_ready is left false on
+    // this path (see ensure_async_started()), so the very next
+    // bb_lifecycle_observe_async() call genuinely retries -- no reset hook
+    // needed for that alone; bb_lifecycle_async_reset_for_test() (below,
+    // BB_LIFECYCLE_TESTING-only) exists so a test can also un-latch after
+    // freeing the held pool, for full test isolation.
     if (err != BB_OK) {
         s_async_init_err = err;
         return;
@@ -168,11 +199,10 @@ static void async_init(void *ctx)
         .wdt_arm     = false,
     };
     err = bb_task_create(&tcfg, NULL);
-    // LCOV_EXCL_START — same once-only-ever rationale as the bb_bqueue_create
-    // failure branch above: host's bb_task_create() never fails validation
-    // for this call site's fixed, always-valid cfg, and forcing it to fail
-    // would (like the queue-create branch) permanently poison the shared
-    // singleton for every later test in this binary.
+    // LCOV_EXCL_START — host's bb_task_create() never fails validation for
+    // this call site's fixed, always-valid cfg, so this branch has no
+    // deterministic host trigger (unlike the bb_bqueue_create() failure
+    // above, forced via real pool exhaustion).
     if (err != BB_OK) {
         bb_bqueue_destroy(s_async_q);
         s_async_q = NULL;
@@ -184,18 +214,30 @@ static void async_init(void *ctx)
     s_async_init_err = BB_OK;
 }
 
+// Mutex-guarded retry-safe init (B1-1044): serializes every caller through
+// s_async_lock so exactly one task ever runs async_init() at a time (real
+// blocking acquire -- no busy-spin). Only a SUCCESSFUL run commits
+// s_async_ready=true; a failed run leaves it false, so the very next caller
+// to take the lock (whether that's a losing concurrent caller from this
+// round or a wholly later bb_lifecycle_observe_async() call) genuinely
+// re-attempts async_init(), not a cached replay of the old failure.
 static bb_err_t ensure_async_started(void)
 {
-    bb_once_run(&s_async_once, async_init, NULL);
-    return s_async_init_err;
-}
+    ensure_async_lock();
+    bb_lock_lock(&s_async_lock);
+    if (s_async_ready) {
+        bb_lock_unlock(&s_async_lock);
+        return BB_OK;
+    }
 
-// Accepted limitation: a TRANSIENT bb_bqueue/bb_task pool exhaustion at the
-// very first bb_lifecycle_observe_async() call permanently disables async
-// observation for the rest of the process -- bb_once latches DONE on that
-// one run and async_init() never re-attempts, even if the pool frees up
-// moments later. No retry loop is implemented here (out of scope); a
-// follow-up is tracked separately if this ever bites a real caller.
+    async_init(NULL); // sets s_async_init_err
+    bb_err_t err = s_async_init_err;
+    if (err == BB_OK) {
+        s_async_ready = true;
+    }
+    bb_lock_unlock(&s_async_lock);
+    return err;
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -267,12 +309,15 @@ size_t bb_lifecycle_async_test_dropped(void)
 
 void bb_lifecycle_async_reset_for_test(void)
 {
+    ensure_async_lock();
+    bb_lock_lock(&s_async_lock);
     if (s_async_q) {
         bb_bqueue_destroy(s_async_q);
         s_async_q = NULL;
     }
-    s_async_once = (bb_once_t)BB_ONCE_INIT; // un-latch: next observe_async() re-attempts init
+    s_async_ready = false; // un-latch: next observe_async() re-attempts init
     s_async_init_err = BB_OK;
+    bb_lock_unlock(&s_async_lock);
     atomic_store(&s_drop_log_last_ms, BB_LIFECYCLE_ASYNC_DROP_LOG_UNSET);
 }
 #endif
