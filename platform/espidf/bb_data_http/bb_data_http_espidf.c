@@ -43,8 +43,9 @@
 // paid by the one shared broadcaster task per stalled client per sweep;
 // MAX_CLIENTS*20ms budget stays well under the 50ms sweep cadence),
 // SWEEP_INTERVAL_MS=50, TASK_STACK=4096, TASK_PRIORITY=4 (below lwip),
-// RENDER_SCRATCH=128 (fixed stopgap -- fork #1, no per-key snap_size getter
-// in this de-risk).
+// RENDER_SCRATCH=256 (fixed stopgap -- fork #1, no per-key snap_size getter
+// in this de-risk; bb_data_http_attach_sized() adds the attach-time loud
+// guard for a binding that would exceed it, B1-1045 PR-4).
 // ---------------------------------------------------------------------------
 #ifdef CONFIG_BB_DATA_HTTP_SEND_TIMEOUT_MS
 #define BB_DATA_HTTP_SEND_TIMEOUT_MS CONFIG_BB_DATA_HTTP_SEND_TIMEOUT_MS
@@ -85,7 +86,7 @@
 #define BB_DATA_HTTP_RENDER_SCRATCH_BYTES CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES
 #endif
 #ifndef BB_DATA_HTTP_RENDER_SCRATCH_BYTES
-#define BB_DATA_HTTP_RENDER_SCRATCH_BYTES 128
+#define BB_DATA_HTTP_RENDER_SCRATCH_BYTES 256
 #endif
 
 // Side table sizing mirrors bb_data_http's own client-slot cap -- one slot

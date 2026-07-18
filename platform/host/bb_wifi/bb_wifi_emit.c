@@ -211,10 +211,13 @@ void bb_wifi_event_payload_build(bb_wifi_event_payload_t *out, bb_wifi_net_event
     }
 }
 
-// Pure classifier (B1-1045 PR-1, bb_wifi.h bb_wifi_classify_lifecycle):
+// Pure classifier (B1-1045 PR-1/PR-4, bb_wifi.h bb_wifi_classify_lifecycle):
 // wifi.net edge -> bb_lifecycle_action_t. GOT_IP starts the bound service;
-// DISCONNECT/LOST_IP stop it; every other id (including the
-// REBOOT_DENIED/RECONNECT_PARKED observe-only edges) is NONE. payload/size
+// DISCONNECT/LOST_IP/RECONNECT_PARKED stop it (PR-4 widening: ASSOC_LEAVE
+// parking the reconnect FSM is "no longer associated", the same lifecycle
+// action as a disconnect -- this is what preserves a STOP-driven consumer's
+// e.g. mDNS stop-on-parked behavior after the bb_event cutover); every other
+// id (including the REBOOT_DENIED observe-only edge) is NONE. payload/size
 // are accepted for bb_emit_fn-callable shape but unused.
 bb_lifecycle_action_t bb_wifi_classify_lifecycle(uint32_t id, const void *payload, size_t size)
 {
@@ -225,6 +228,7 @@ bb_lifecycle_action_t bb_wifi_classify_lifecycle(uint32_t id, const void *payloa
         return BB_LIFECYCLE_ACTION_START;
     case BB_WIFI_NET_EVT_DISCONNECT:
     case BB_WIFI_NET_EVT_LOST_IP:
+    case BB_WIFI_NET_EVT_RECONNECT_PARKED:
         return BB_LIFECYCLE_ACTION_STOP;
     default:
         return BB_LIFECYCLE_ACTION_NONE;

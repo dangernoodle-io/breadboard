@@ -12,7 +12,6 @@
 #include "bb_ota_pull.h"
 #include "bb_ota_pull_test_hooks.h"
 #include "bb_ota_check.h"
-#include "bb_event.h"
 #include "bb_http_client_host.h"
 #include <string.h>
 #include <stdlib.h>
@@ -56,12 +55,10 @@ static const char *MANIFEST_REALISTIC =
 
 // reset_world initializes bb_ota_check (setUp resets it) and sets a
 // default board name of "firmware" via bb_ota_check_set_firmware_board.
-// bb_event_init is required before bb_ota_check_init (topic registration).
 static void reset_world(void)
 {
     bb_http_client_clear_mock();
     bb_ota_pull_set_releases_url("http://example.com/releases/latest");
-    bb_event_init(NULL);
     bb_ota_check_init(NULL);
     bb_ota_check_set_firmware_board("firmware");
 }

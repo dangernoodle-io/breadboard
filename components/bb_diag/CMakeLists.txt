@@ -30,7 +30,7 @@ idf_component_register(
     SRCS ${_diag_srcs}
     INCLUDE_DIRS "include" "."
     REQUIRES bb_core bb_http_server bb_serialize
-    PRIV_REQUIRES bb_log bb_http bb_json bb_cache bb_config bb_storage bb_ntp bb_openapi bb_system bb_ota_validator bb_event bb_event_routes bb_task_registry bb_task espcoredump lwip nvs_flash esp_partition esp_app_format bb_str
+    PRIV_REQUIRES bb_log bb_http bb_json bb_cache bb_config bb_storage bb_ntp bb_openapi bb_system bb_ota_validator bb_data bb_task_registry bb_task espcoredump lwip nvs_flash esp_partition esp_app_format bb_str
 )
 
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)

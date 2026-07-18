@@ -12,16 +12,6 @@ config BB_OTA_CHECK_INTERVAL_S
         jitter (±600 s, floored at 60 s) to desynchronize fleets that
         reboot together.
 
-config BB_OTA_CHECK_AUTO_ATTACH
-    bool "Auto-attach update.available to /api/events"
-    default y
-    depends on BB_EVENT_ROUTES_AUTOREGISTER
-    help
-        When enabled, bb_ota_check's init attaches "update.available"
-        to the bb_event_routes SSE stream so /api/events surfaces it
-        without an explicit consumer call. Disable if a consumer wants
-        the bb_event topic for internal logic only.
-
 config BB_OTA_CHECK_CUSTOM_PARSER_BUF_BYTES
     int "Custom parser response buffer size (bytes)"
     default 8192

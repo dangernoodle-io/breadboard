@@ -30,7 +30,6 @@
 
 #include "bb_log.h"
 #include "bb_app_init.h"
-#include "bb_event.h"
 #include "bb_wifi.h"
 #include "bb_ota_validator.h"
 #include "smoke_app.h"
@@ -52,11 +51,13 @@ void app_main(void)
     // bb_app_init_early() so it is set before the EARLY-tier bb_wifi_autoinit
     // runs (same ordering constraint as the creds provider above).
     bb_wifi_set_ota_validated_cb(bb_ota_is_validated);
-    // wifi.net emit-seam wire (bb_wifi_set_emit(bb_event_emit)) is now
-    // codegen-emitted into bb_app_init_early() via the provides/consumes
-    // markers (bb_event.h's `// bbtool:provides key=emit_sink` +
-    // bb_wifi.h's `// bbtool:init tier=early ... consumes=emit_sink`) --
-    // no handwire needed here (B1-741).
+    // wifi.net emit-seam wire: B1-1045 dissolved the bb_event provider that
+    // used to satisfy bb_wifi.h's `// bbtool:init tier=early ...
+    // consumes=emit_sink` marker (B1-741) -- an unmatched consumes= key is a
+    // soft no-op in codegen (not a hard error), so smoke simply leaves the
+    // emit seam unwired for now. Repointing it to bb_lifecycle is smoke's
+    // rehab (B1-1051), out of scope for this survival-only strip; see
+    // examples/floor/main/floor_app.c for the real B1-1045 cutover wiring.
     bb_app_init_early();
     bb_smoke_storage_typed_selftest();
 #ifdef BB_HAVE_DISPLAY_INFO

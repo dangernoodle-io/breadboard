@@ -5,15 +5,14 @@
 // (platform/espidf/bb_task_registry/bb_task_registry_base_scan.c), which now
 // owns the single uxTaskGetSystemState poll for the whole tree. This file is
 // a pure OBSERVER: it registers a low-stack transition handler with
-// bb_task_registry (bb_task_registry_set_low_stack_handler) and posts the
-// retained "health.stack" bb_event topic on transitions into low-stack
-// state. No FreeRTOS types appear here anymore.
+// bb_task_registry (bb_task_registry_set_low_stack_handler) and bumps the
+// "health.stack" bb_data generation on transitions into low-stack state
+// (B1-1045). No FreeRTOS types appear here anymore.
 
 #include "../../../components/bb_health/bb_health_stack.h"
 #include "bb_health_stack_wire.h"
 
-#include "bb_event.h"
-#include "bb_event_routes.h"
+#include "bb_data.h"
 #include "bb_log.h"
 #include "bb_openapi.h"
 #include "bb_str.h"
@@ -35,33 +34,29 @@ static const char *TAG = "bb_health_stack";
 // Internal state
 // ---------------------------------------------------------------------------
 
-static bb_event_topic_t s_topic = NULL;
-
 // B1-1045 PR-2 wire-primitive stash: the last-published health.stack state,
 // widened to bb_health_stack_wire_t. Updated (mirrored) in BOTH publish
-// sites below -- low_stack_handler's transition-into-low post AND
+// sites below -- low_stack_handler's transition-into-low path AND
 // bb_health_stack_monitor_init's initial low=false publish -- each still
-// calling the existing bb_health_stack_build_json()+bb_event_post()
-// unchanged. Read by bb_health_stack_gather().
+// calling the existing bb_health_stack_build_json() as a validity gate.
+// Read by bb_health_stack_gather().
 static bb_health_stack_wire_t s_last_stack;
 
 static void low_stack_handler(const char *name, void *handle, uint32_t free_bytes, void *ctx)
 {
     (void)handle;
     (void)ctx;
-    if (!s_topic) return;
 
     char payload[128];
     int n_written = bb_health_stack_build_json(payload, sizeof(payload), name, free_bytes, true);
     if (n_written > 0) {
-        size_t sz = (size_t)n_written < sizeof(payload)
-                    ? (size_t)n_written : sizeof(payload) - 1;
-        bb_event_post(s_topic, 1, payload, sz);
         bb_log_w(TAG, "task '%s' stack low: %" PRIu32 " bytes free", name, free_bytes);
 
         bb_strlcpy(s_last_stack.task, name, sizeof(s_last_stack.task));
         s_last_stack.free_bytes = (int64_t)free_bytes;
         s_last_stack.low        = true;
+
+        bb_data_touch(BB_HEALTH_STACK_TOPIC);
     }
 }
 
@@ -104,38 +99,20 @@ static const char k_health_stack_schema[] =
 
 bb_err_t bb_health_stack_monitor_init(void)
 {
-    bb_err_t err = bb_event_topic_register(BB_HEALTH_STACK_TOPIC, &s_topic);
-    if (err != BB_OK) {
-        bb_log_w(TAG, "topic register failed: %d", (int)err);
-        return err;
-    }
-
     bb_openapi_register_topic_schema(BB_HEALTH_STACK_TOPIC, k_health_stack_schema, "HealthStack");
 
-#if defined(CONFIG_BB_HEALTH_AUTO_ATTACH) && CONFIG_BB_HEALTH_AUTO_ATTACH
-    {
-        bb_err_t attach_err = bb_event_routes_attach_ex(BB_HEALTH_STACK_TOPIC, true);
-        if (attach_err != BB_OK) {
-            bb_log_w(TAG, "auto-attach failed for '" BB_HEALTH_STACK_TOPIC "': %d",
-                     (int)attach_err);
-        }
-    }
-#endif
-
-    // Publish initial retained snapshot so SSE clients connecting before the
-    // first low-stack transition see a sane baseline state (no low task,
-    // low=false).
+    // Publish initial retained snapshot so a bb_data consumer reading before
+    // the first low-stack transition sees a sane baseline state (no low
+    // task, low=false).
     {
         char payload[128];
         int n = bb_health_stack_build_json(payload, sizeof(payload), "", 0, false);
         if (n > 0) {
-            size_t sz = (size_t)n < sizeof(payload)
-                        ? (size_t)n : sizeof(payload) - 1;
-            bb_event_post(s_topic, 0, payload, sz);
-
             s_last_stack.task[0]    = '\0';
             s_last_stack.free_bytes = 0;
             s_last_stack.low        = false;
+
+            bb_data_touch(BB_HEALTH_STACK_TOPIC);
         }
     }
 

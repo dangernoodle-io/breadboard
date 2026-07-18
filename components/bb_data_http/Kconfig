@@ -97,7 +97,7 @@ config BB_DATA_HTTP_TASK_PRIORITY
 
 config BB_DATA_HTTP_RENDER_SCRATCH_BYTES
     int "Render scratch buffer size (bytes)"
-    default 128
+    default 256
     range 32 2048
     help
         Fixed-size CALLER-OWNED scratch bb_data_render() gathers into before
@@ -107,5 +107,10 @@ config BB_DATA_HTTP_RENDER_SCRATCH_BYTES
         bb_data_render(); bb_data_http_sweep_step() leaves that key's dirty
         bit set on any render_fn failure, so it is retried (and logged,
         rate-limited) every subsequent sweep rather than silently dropped.
+        Default 256 covers the largest wire type attached today (the "log"
+        key's bb_log_event_wire_t at 220 bytes, B1-1045 PR-4) with margin;
+        bb_data_http_attach_sized() FAILS LOUD at attach time (ESP_LOGE +
+        BB_ERR_NO_SPACE, not a silent forever-failing render) if a future
+        binding's snap_size exceeds this.
 
 endmenu

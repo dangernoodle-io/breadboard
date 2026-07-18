@@ -58,14 +58,4 @@ config BB_DIAG_PANIC_TRIGGER
         hardware without physically rebooting the device. NEVER ship to
         production: any unauthenticated caller can crash the firmware.
 
-config BB_DIAG_AUTO_ATTACH
-    bool "Auto-attach diag.boot to /api/events"
-    default y
-    depends on BB_EVENT_ROUTES_AUTOREGISTER
-    help
-        When enabled, bb_diag_routes_init attaches the "diag.boot" retained
-        topic to the bb_event_routes SSE stream so /api/events surfaces it
-        without an explicit consumer call. Disable if a consumer wants the
-        bb_event topic for internal logic only.
-
 endmenu

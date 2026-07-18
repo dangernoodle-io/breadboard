@@ -159,6 +159,24 @@ bb_err_t bb_data_http_attach_ex(const char *key, const char *topic,
 // Convenience wrapper: bb_data_http_attach_ex(key, topic, BB_DATA_HTTP_STATE).
 bb_err_t bb_data_http_attach(const char *key, const char *topic);
 
+// Like bb_data_http_attach_ex(), plus a loud attach-time guard: rejects the
+// attach (BB_ERR_NO_SPACE, ESP_LOGE-level "attach-time fail loud" log) if
+// `snap_size` exceeds CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES instead of
+// silently attaching a key whose every future render would fail forever
+// (bb_data_render() returns BB_ERR_NO_SPACE whenever the caller's scratch
+// is smaller than the binding's desc->snap_size -- see bb_data.h). Callers
+// that have a bb_serialize_desc_t (the composition root does, via
+// bb_data_binding_t.desc) should pass `desc->snap_size` here rather than
+// calling bb_data_http_attach_ex() directly, so an oversized binding is
+// caught at wire-up instead of silently render-failing on every sweep.
+//
+// Returns BB_ERR_NO_SPACE if `snap_size` exceeds the render scratch bound
+// (the key is NOT attached in this case) or if the attach table itself is
+// full. Otherwise identical to bb_data_http_attach_ex().
+bb_err_t bb_data_http_attach_sized(const char *key, const char *topic,
+                                   bb_data_http_replay_kind_t kind,
+                                   size_t snap_size);
+
 // Diagnostics: number of keys currently attached.
 size_t bb_data_http_attach_count(void);
 

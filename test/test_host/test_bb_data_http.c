@@ -276,6 +276,46 @@ void test_bb_data_http_attach_capacity_full_returns_no_space(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach(keys[0], "t2"));
 }
 
+// B1-1045 PR-4 fix: bb_data_http_attach_sized() rejects (and does NOT
+// attach) a key whose snap_size exceeds the render scratch bound instead of
+// silently attaching a key that would render-fail forever. Host default
+// mirrors the Kconfig default (256, see bb_data_http_common.c's
+// CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES bridge).
+void test_bb_data_http_attach_sized_oversized_snap_size_returns_no_space_and_does_not_attach(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_attach_count());
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
+                      bb_data_http_attach_sized("oversized", "t", BB_DATA_HTTP_STATE, 257));
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_attach_count());
+}
+
+// The "log" key's actual wire size (220 bytes, BB_LOG_EVENT_LOG_TEXT_MAX)
+// is the case this fix restores: it now fits the bumped 256-byte scratch
+// and attaches successfully instead of being silently starved.
+void test_bb_data_http_attach_sized_log_sized_snap_size_attaches_successfully(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach_sized("log", "log", BB_DATA_HTTP_STATE, 220));
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_attach_count());
+}
+
+// The boundary itself (exactly the scratch size) is accepted -- only
+// STRICTLY GREATER than the scratch is rejected (bb_data_render()'s own
+// `scratch_cap < desc->snap_size` check is likewise a strict `<`).
+void test_bb_data_http_attach_sized_exact_scratch_size_attaches_successfully(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach_sized("k", "t", BB_DATA_HTTP_STATE, 256));
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_attach_count());
+}
+
 // ---------------------------------------------------------------------------
 // Client lifecycle (fd-table)
 // ---------------------------------------------------------------------------

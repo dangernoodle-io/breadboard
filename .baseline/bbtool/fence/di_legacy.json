@@ -1,66 +1,6 @@
 {
   "entries": [
     {
-      "id": "BB_DIAG_AUTO_ATTACH",
-      "path": "components/bb_diag/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
-      "id": "BB_DISPLAY_INFO_AUTO_ATTACH",
-      "path": "components/bb_display/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
-      "id": "BB_HEALTH_AUTO_ATTACH",
-      "path": "components/bb_health/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
-      "id": "BB_LOG_EVENT_AUTO_ATTACH",
-      "path": "components/bb_log_event/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
-      "id": "BB_OTA_CHECK_AUTO_ATTACH",
-      "path": "components/bb_ota_check/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
-      "id": "BB_OTA_HOOKS_AUTO_ATTACH",
-      "path": "components/bb_ota_hooks/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
-      "id": "BB_DIAG_AUTO_ATTACH",
-      "path": "platform/espidf/bb_diag/bb_diag_routes.c",
-      "type": "auto_attach_usage"
-    },
-    {
-      "id": "BB_DISPLAY_INFO_AUTO_ATTACH",
-      "path": "platform/espidf/bb_display/bb_display_info.c",
-      "type": "auto_attach_usage"
-    },
-    {
-      "id": "BB_HEALTH_AUTO_ATTACH",
-      "path": "platform/espidf/bb_health/bb_health_stack.c",
-      "type": "auto_attach_usage"
-    },
-    {
-      "id": "BB_LOG_EVENT_AUTO_ATTACH",
-      "path": "platform/espidf/bb_log_event/bb_log_event.c",
-      "type": "auto_attach_usage"
-    },
-    {
-      "id": "BB_OTA_CHECK_AUTO_ATTACH",
-      "path": "platform/espidf/bb_ota_check/bb_ota_check_espidf.c",
-      "type": "auto_attach_usage"
-    },
-    {
-      "id": "BB_OTA_HOOKS_AUTO_ATTACH",
-      "path": "platform/espidf/bb_ota_hooks/bb_ota_hooks.c",
-      "type": "auto_attach_usage"
-    },
-    {
       "id": "BB_BOARD_AUTOREGISTER",
       "path": "components/bb_board/Kconfig",
       "type": "autoregister_kconfig"
@@ -88,11 +28,6 @@
     {
       "id": "BB_DISPLAY_ST7789_AUTOREGISTER",
       "path": "components/bb_display_st77xx/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_EVENT_ROUTES_AUTOREGISTER",
-      "path": "components/bb_event_routes/Kconfig",
       "type": "autoregister_kconfig"
     },
     {

@@ -6,7 +6,6 @@
 #include "bb_cache.h"
 #include "bb_display_info.h"
 #include "bb_display_info_event_priv.h"
-#include "bb_event.h"
 #include "bb_json.h"
 
 #include <string.h>
@@ -18,7 +17,6 @@ void bb_cache_reset_for_test(void);
 static void reset(void)
 {
     bb_cache_reset_for_test();
-    bb_event_init(NULL);
 }
 
 // Helper: register topic, seed snap, serialize to JSON string (caller frees).
@@ -30,7 +28,7 @@ static char *serialize_snap(const bb_display_snap_t *snap)
         .snapshot  = NULL,
         .snap_size = sizeof(bb_display_snap_t),
         .serialize = bb_display_serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
+        .flags     = BB_CACHE_FLAG_NONE,
     };
     bb_cache_register(&cfg);
     bb_cache_update(&(bb_cache_update_t){ .key = BB_DISPLAY_INFO_TOPIC, .snap = snap });

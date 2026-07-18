@@ -38,6 +38,9 @@ static const char *TAG = "bb_data_http";
 #ifndef CONFIG_BB_DATA_HTTP_EVENT_RING_CAPACITY
 #define CONFIG_BB_DATA_HTTP_EVENT_RING_CAPACITY 16
 #endif
+#ifndef CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES
+#define CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES 256
+#endif
 
 // ---------------------------------------------------------------------------
 // Attach table (composition-root owned). Name-keyed small lookup table --
@@ -101,6 +104,31 @@ bb_err_t bb_data_http_attach_ex(const char *key, const char *topic,
 bb_err_t bb_data_http_attach(const char *key, const char *topic)
 {
     return bb_data_http_attach_ex(key, topic, BB_DATA_HTTP_STATE);
+}
+
+// Loud guard (B1-1045 PR-4 fix): a binding whose desc->snap_size exceeds the
+// shared render scratch (CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES) makes
+// bb_data_render() return BB_ERR_NO_SPACE on EVERY sweep, forever -- with
+// only a rate-limited WARN (bb_data_http_sweep_step()'s render-fail log).
+// That silently starves the key's stream from first render onward (root
+// cause of the "log" key never delivering a frame: 220B wire vs a 128B
+// scratch). Checking at ATTACH time instead surfaces a misconfiguration at
+// wire-up/boot as a loud, unmissable ERROR plus a rejected attach, rather
+// than a permanently-failing stream nobody notices until they go looking.
+bb_err_t bb_data_http_attach_sized(const char *key, const char *topic,
+                                   bb_data_http_replay_kind_t kind,
+                                   size_t snap_size)
+{
+    if (snap_size > (size_t)CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES) {
+        bb_log_e(TAG, "attach('%s'): snap_size=%u exceeds render scratch=%u -- "
+                "this key would render-fail (BB_ERR_NO_SPACE) every sweep, "
+                "forever; not attaching -- bump "
+                "CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES",
+                key ? key : "(null)", (unsigned)snap_size,
+                (unsigned)CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES);
+        return BB_ERR_NO_SPACE;
+    }
+    return bb_data_http_attach_ex(key, topic, kind);
 }
 
 size_t bb_data_http_attach_count(void)

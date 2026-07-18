@@ -14,5 +14,5 @@ idf_component_register(
     # is now needed publicly regardless for the health.stack descriptor.
     REQUIRES bb_core bb_json bb_response bb_http_server bb_serialize
     PRIV_REQUIRES bb_http bb_board bb_wifi_http bb_mdns bb_openapi bb_log bb_ota_validator
-                  bb_event bb_event_routes bb_task_registry bb_str
+                  bb_data bb_task_registry bb_str
 )

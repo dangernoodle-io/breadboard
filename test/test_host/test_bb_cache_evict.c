@@ -208,28 +208,21 @@ void test_bb_cache_evict_lazy_serialize_into_evicts(void)
     evict_teardown();
 }
 
-void test_bb_cache_evict_lazy_post_serialized_evicts(void)
+// B1-1045: bb_cache_post_serialized (bb_event-backed SSE post) is gone --
+// bb_cache_get_serialized (the remaining memoized-read entry point sharing
+// the LAZY eviction floor) covers this call site instead.
+void test_bb_cache_evict_lazy_get_serialized_evicts(void)
 {
     evict_setup();
-    bb_cache_config_t cfg = {
-        .key       = "evict.a",
-        .snapshot  = NULL,
-        .snap_size = sizeof(evict_snap_t),
-        .serialize = evict_serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
-        .eviction  = {
-            .policy       = BB_CACHE_EVICT_AGE_OUT,
-            .stale_age_ms = 500,
-            .evict_age_ms = 1000,
-        },
-    };
-    TEST_ASSERT_EQUAL(BB_OK, bb_cache_register(&cfg));
+    TEST_ASSERT_EQUAL(BB_OK, reg_owned_age_out("evict.a", 500, 1000));
     TEST_ASSERT_EQUAL(BB_OK, update_value("evict.a", 42));
 
     s_fake_now_ms += 1000;
 
+    char buf[128];
+    size_t len = 0;
     TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND,
-                       bb_cache_post_serialized("evict.a", "{}", 2));
+                       bb_cache_get_serialized("evict.a", buf, sizeof(buf), &len));
     evict_teardown();
 }
 

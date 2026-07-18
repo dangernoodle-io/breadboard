@@ -24,9 +24,10 @@ extern "C" {
 void bb_display_register_info(void);
 
 /*
- * Deferred registry-tier init: attaches the "health.display" topic to
- * /api/events and seeds the initial cache snapshot. No-op (returns BB_OK)
- * unless CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH is set.
+ * Deferred registry-tier init: seeds the initial cache snapshot and bumps
+ * the "health.display" bb_data generation (B1-1045). Attaching the key to
+ * /api/events is a composition-root concern (bb_data_http_attach()). No-op
+ * (returns BB_OK) if bb_display_register_info() was never called.
  */
 // bbtool:init tier=regular fn=bb_display_info_register_init server=true
 bb_err_t bb_display_info_register_init(bb_http_handle_t server);

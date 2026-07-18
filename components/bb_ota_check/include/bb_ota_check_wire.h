@@ -1,17 +1,20 @@
 #pragma once
 
 // bb_ota_check_wire — PUBLIC bb_serialize_desc_t (SSOT) for the
-// "update.available" bb_cache topic (B1-1045 PR-2, cutover composition-root
-// ownership decision KB 1454). ADDITIVE-only, INERT: no bb_data_bind() call
-// exists anywhere in this PR -- the composition root (PR-4) is the sole
-// owner of wiring this descriptor to bb_data.
+// "update.available" bb_data key (B1-1045 PR-2/PR-4, cutover composition-root
+// ownership decision KB 1454). The composition root
+// (examples/floor/main/floor_app.c, PR-4) owns wiring this descriptor to
+// bb_data via bb_data_bind().
 //
 // bb_ota_check_snap_t is REUSED DIRECTLY (moved here from
 // src/bb_ota_check_internal.h, which now includes this header for the
 // type) -- no widened parallel struct is needed: ts/last_check_ts are
 // already int64_t and every other field is bool/char, so nothing in the
 // existing snapshot layout violates bb_serialize_walk()'s fixed-8-byte
-// BB_TYPE_I64 memcpy contract (see bb_serialize_walk.c).
+// BB_TYPE_I64 memcpy contract (see bb_serialize_walk.c). This relocation
+// (review finding 2) makes bb_ota_check_snap_t's layout public API: it is
+// now read directly by bb_ota_check_wire.h's own bb_ota_check_gather(), not
+// just by bb_ota_check_common.c internally.
 //
 // Mirrors bb_ota_check_serialize()'s `{"current","latest","download_url",
 // "available","ts","last_check_ok","enabled","outcome"[,"last_check_ts"]}`
