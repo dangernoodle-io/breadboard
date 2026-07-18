@@ -38,11 +38,13 @@
 #include "bb_wifi.h"
 #include "bb_event.h"
 #include "bb_mqtt_client_reassemble.h"  // PRIV_INCLUDE_DIRS "src" (bb_mqtt_client component)
+#include "bb_mqtt_client_health.h"      // PRIV_INCLUDE_DIRS "src" (B1-1040 per-instance health)
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdatomic.h>
+#include <inttypes.h>
 
 #include "mqtt_client.h"
 #include "freertos/FreeRTOS.h"
@@ -88,6 +90,9 @@ typedef struct {
     bb_mqtt_client_disc_t           disc_reason;      // classified disconnect reason (B1-362)
     bb_tls_fail_t            tls_fail;         // TLS handshake failure class (B1-362)
     int                      tls_error_code;   // raw mbedtls err (0 = none) (B1-362)
+    int64_t                  last_ok_ms;       // B1-1040: stamped on MQTT_EVENT_CONNECTED
+    uint32_t                 fail_count;       // B1-1040: bumped on every MQTT_EVENT_DISCONNECTED
+                                                // (unconditional -- see bb_mqtt_client.h)
     char                     uri[256];             // copy of cfg->uri for diag
     bb_mqtt_client_sub_entry_t      subs[BB_MQTT_CLIENT_SUB_MAX]; // B1-487: tracked filters
     int                      sub_count;
@@ -242,6 +247,7 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
         xSemaphoreTake(h->lock, portMAX_DELAY);
         h->connected = true;
         h->ever_connected = true;
+        h->last_ok_ms = bb_mqtt_client_priv_now_ms64();  // B1-1040
         n = h->sub_count;
         memcpy(local, h->subs, sizeof(bb_mqtt_client_sub_entry_t) * (size_t)n);
         xSemaphoreGive(h->lock);
@@ -262,8 +268,19 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
             h->reconnect_count++;
         }
         h->connected = false;
+        // B1-1040: fail_count is unconditional -- unlike reconnect_count
+        // above, it also captures a failed FIRST connect attempt (never
+        // reached ever_connected). This event handler only ever sees a
+        // DISCONNECTED that esp-mqtt itself dispatches for a network-level
+        // drop -- a deliberate bb_mqtt_client_destroy() sets h->destroyed
+        // BEFORE tearing the client down, and the guard at the top of this
+        // handler returns early for any event dispatched after that point,
+        // so a caller-initiated close never reaches here (see
+        // bb_mqtt_client.h's reporting policy).
+        h->fail_count++;
         xSemaphoreGive(h->lock);
-        bb_log_i(TAG, "disconnected (reconnect_count=%u)", h->reconnect_count);
+        bb_log_i(TAG, "disconnected (reconnect_count=%" PRIu32 " fail_count=%" PRIu32 ")",
+                 h->reconnect_count, h->fail_count);
         break;
     case MQTT_EVENT_DATA: {
         // B1-487: reassemble fragmented payload via the shared pure state
@@ -628,6 +645,21 @@ bool bb_mqtt_client_is_tls(bb_mqtt_client_t handle)
     return ((bb_mqtt_client_handle_t *)handle)->tls;
 }
 
+// B1-1040: reuses h->lock (already guards get_stats()'s cross-task read
+// above) rather than introducing a second lock -- see bb_mqtt_client_health.c.
+bb_err_t bb_mqtt_client_health_fill(bb_mqtt_client_t handle, bb_mqtt_client_health_snap_t *out)
+{
+    if (!handle || !out) return BB_ERR_INVALID_ARG;
+    bb_mqtt_client_handle_t *h = (bb_mqtt_client_handle_t *)handle;
+    xSemaphoreTake(h->lock, portMAX_DELAY);
+    out->connected      = h->connected;
+    out->last_ok_ms     = h->last_ok_ms;
+    out->fail_count     = (uint64_t)h->fail_count;
+    out->tls_error_code = (int64_t)h->tls_error_code;
+    xSemaphoreGive(h->lock);
+    return BB_OK;
+}
+
 bb_err_t bb_mqtt_client_destroy(bb_mqtt_client_t handle)
 {
     if (!handle) return BB_OK;
@@ -640,6 +672,10 @@ bb_err_t bb_mqtt_client_destroy(bb_mqtt_client_t handle)
         if (h->lock) {
             xSemaphoreTake(h->lock, portMAX_DELAY);
             h->destroyed = true;
+            // B1-1040: a caller-initiated destroy is a clean close, not a
+            // transport failure -- the shared helper clears connected
+            // without touching fail_count (see bb_mqtt_client_health.h).
+            bb_mqtt_client_priv_health_close(&h->connected);
             xSemaphoreGive(h->lock);
         }
         // Only stop a client that was actually started; calling

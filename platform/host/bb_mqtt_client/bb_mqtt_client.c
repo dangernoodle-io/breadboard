@@ -11,6 +11,7 @@
 #include "bb_config.h"
 #include "bb_mqtt_client_nvs.h"
 #include "bb_mqtt_client_reassemble.h"
+#include "bb_mqtt_client_health.h"
 #include "bb_str.h"
 
 #include <stdio.h>
@@ -49,6 +50,8 @@ typedef struct {
     bb_mqtt_client_disc_t     disc_reason;
     bb_tls_fail_t      tls_fail;
     int                tls_error_code;
+    int64_t            last_ok_ms;      // B1-1040: stamped on simulated connect success
+    uint32_t           fail_count;      // B1-1040: bumped on simulated disconnect error
     bb_mqtt_client_msg_cb        msg_cb;    // B1-487: per-handle receive callback
     void                 *msg_ctx;
     bb_mqtt_client_reasm_state_t reasm;     // per-handle reassembly state (mirrors espidf)
@@ -160,10 +163,29 @@ bb_err_t bb_mqtt_client_get_stats(bb_mqtt_client_t handle, bb_mqtt_client_stats_
     return BB_OK;
 }
 
+// B1-1040: no lock needed -- host stub is single-writer-per-instance,
+// single-threaded tests only (mirrors bb_tcp_client's host backend
+// convention; see bb_mqtt_client_health.c).
+bb_err_t bb_mqtt_client_health_fill(bb_mqtt_client_t handle, bb_mqtt_client_health_snap_t *out)
+{
+    if (!handle || !out) return BB_ERR_INVALID_ARG;
+    bb_mqtt_client_host_handle_t *h = (bb_mqtt_client_host_handle_t *)handle;
+    out->connected      = h->connected;
+    out->last_ok_ms     = h->last_ok_ms;
+    out->fail_count     = (uint64_t)h->fail_count;
+    out->tls_error_code = (int64_t)h->tls_error_code;
+    return BB_OK;
+}
+
 bb_err_t bb_mqtt_client_destroy(bb_mqtt_client_t handle)
 {
     if (!handle) return BB_OK;
     bb_mqtt_client_host_handle_t *h = (bb_mqtt_client_host_handle_t *)handle;
+    // B1-1040: a caller-initiated destroy is a clean close, not a transport
+    // failure -- the shared helper clears connected without touching
+    // fail_count (see bb_mqtt_client_health.h). No lock needed here (host
+    // is single-writer-per-instance).
+    bb_mqtt_client_priv_health_close(&h->connected);
     free(h->reasm.buf);
     free(handle);
     return BB_OK;
@@ -338,6 +360,43 @@ void bb_mqtt_client_host_reset(bb_mqtt_client_t handle)
     h->disc_reason           = BB_MQTT_CLIENT_DISC_NONE;
     h->tls_fail              = BB_TLS_FAIL_NONE;
     h->tls_error_code        = 0;
+    h->last_ok_ms            = 0;
+    h->fail_count            = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Per-instance health test hooks (B1-1040)
+// ---------------------------------------------------------------------------
+
+void bb_mqtt_client_host_simulate_connect_success(bb_mqtt_client_t handle)
+{
+    if (!handle) return;
+    bb_mqtt_client_host_handle_t *h = (bb_mqtt_client_host_handle_t *)handle;
+    h->connected      = true;
+    h->ever_connected = true;
+    h->last_ok_ms     = bb_mqtt_client_priv_now_ms64();
+}
+
+void bb_mqtt_client_host_simulate_disconnect_error(bb_mqtt_client_t handle)
+{
+    if (!handle) return;
+    bb_mqtt_client_host_handle_t *h = (bb_mqtt_client_host_handle_t *)handle;
+    if (h->ever_connected) {
+        h->reconnect_count++;
+    }
+    h->connected = false;
+    h->fail_count++;  // unconditional -- see bb_mqtt_client.h's reporting policy
+}
+
+// Thin wrapper over the shared bb_mqtt_client_priv_health_close() helper --
+// the SAME function both backends' bb_mqtt_client_destroy() call -- so this
+// test hook exercises the real clean-close mutation, not a divergent
+// stand-in (firmware-review finding, B1-1040).
+void bb_mqtt_client_host_simulate_clean_close(bb_mqtt_client_t handle)
+{
+    if (!handle) return;
+    bb_mqtt_client_host_handle_t *h = (bb_mqtt_client_host_handle_t *)handle;
+    bb_mqtt_client_priv_health_close(&h->connected);
 }
 
 void bb_mqtt_client_host_simulate_reconnect(bb_mqtt_client_t handle)

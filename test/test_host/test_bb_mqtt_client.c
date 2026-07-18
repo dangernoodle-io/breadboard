@@ -13,6 +13,7 @@
 #include "bb_mqtt_client.h"
 #include "bb_config.h"
 #include "bb_mqtt_client_nvs.h"
+#include "bb_serialize.h"
 #include "bb_storage.h"
 #include "fake_nvs_backend.h"
 
@@ -927,4 +928,220 @@ void test_bb_mqtt_client_nvs_ssot_values_are_byte_identical(void)
 {
     TEST_ASSERT_EQUAL_STRING("bb_mqtt",   BB_MQTT_CLIENT_NVS_NS);
     TEST_ASSERT_EQUAL_STRING("client_id", BB_MQTT_CLIENT_NVS_KEY_CLIENT_ID);
+}
+
+// ---------------------------------------------------------------------------
+// bb_mqtt_client_health_fill / bb_mqtt_client_health_desc (B1-1040):
+// per-instance health -- deterministic single-threaded mutations against
+// the mock clock, no real threads (see the test-runner rationale in
+// test_bb_tcp_client.c -- a pthread-race test bit CI once already).
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_health_connect_success_sets_connected_and_last_ok_ms(void)
+{
+    bb_mqtt_client_test_set_mock_time_ms64(12345);
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+
+    bb_mqtt_client_host_simulate_connect_success(h);
+
+    bb_mqtt_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_health_fill(h, &snap));
+    TEST_ASSERT_TRUE(snap.connected);
+    TEST_ASSERT_EQUAL_INT64(12345, snap.last_ok_ms);
+    TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
+
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_health_disconnect_error_sets_disconnected_and_bumps_fail_count(void)
+{
+    bb_mqtt_client_test_set_mock_time_ms64(100);
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_simulate_connect_success(h);
+
+    bb_mqtt_client_host_simulate_disconnect_error(h);
+
+    bb_mqtt_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_health_fill(h, &snap));
+    TEST_ASSERT_FALSE(snap.connected);
+    TEST_ASSERT_EQUAL_UINT64(1, snap.fail_count);
+
+    bb_mqtt_client_destroy(h);
+}
+
+// fail_count is unconditional -- unlike reconnect_count, it also captures a
+// failed FIRST connect attempt (never reached ever_connected).
+void test_bb_mqtt_health_disconnect_error_before_ever_connected_still_bumps_fail_count(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+
+    bb_mqtt_client_host_simulate_disconnect_error(h);
+
+    bb_mqtt_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_health_fill(h, &snap));
+    TEST_ASSERT_FALSE(snap.connected);
+    TEST_ASSERT_EQUAL_UINT64(1, snap.fail_count);
+
+    bb_mqtt_client_stats_t stats;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_get_stats(h, &stats));
+    TEST_ASSERT_EQUAL_UINT32(0, stats.reconnect_count);  // gated on ever_connected -- unchanged
+
+    bb_mqtt_client_destroy(h);
+}
+
+// bb_mqtt_client_host_simulate_clean_close() is a thin wrapper over the
+// SAME bb_mqtt_client_priv_health_close() helper that bb_mqtt_client_destroy()
+// calls on both backends (see bb_mqtt_client_health.h) -- this test therefore
+// exercises the real clean-close code path, not a divergent stand-in
+// (firmware-review finding, B1-1040). fail_count is seeded non-zero via a
+// prior disconnect-error first, so the assertion proves the shared helper
+// leaves it untouched rather than merely starting from zero.
+void test_bb_mqtt_health_clean_close_sets_disconnected_without_fail_count_bump(void)
+{
+    bb_mqtt_client_test_set_mock_time_ms64(200);
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_simulate_connect_success(h);
+    bb_mqtt_client_host_simulate_disconnect_error(h);  // seeds fail_count=1
+
+    bb_mqtt_client_host_simulate_clean_close(h);
+
+    bb_mqtt_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_health_fill(h, &snap));
+    TEST_ASSERT_FALSE(snap.connected);
+    TEST_ASSERT_EQUAL_UINT64(1, snap.fail_count);  // a clean close is not a failure -- untouched
+    TEST_ASSERT_EQUAL_INT64(200, snap.last_ok_ms);  // last successful stamp untouched
+
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_health_tls_error_code_set_from_tls_path_not_reset_on_success(void)
+{
+    bb_mqtt_client_test_set_mock_time_ms64(300);
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+
+    bb_mqtt_client_host_set_tls_error_code(h, -0x7200);
+    bb_mqtt_client_host_simulate_connect_success(h);
+
+    bb_mqtt_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_health_fill(h, &snap));
+    TEST_ASSERT_TRUE(snap.connected);
+    TEST_ASSERT_EQUAL_INT64(-0x7200, snap.tls_error_code);  // untouched by a later success
+
+    bb_mqtt_client_destroy(h);
+}
+
+// Per-instance isolation: two independently-created handles never cross-talk
+// their health state.
+void test_bb_mqtt_health_per_instance_isolation(void)
+{
+    bb_mqtt_client_test_set_mock_time_ms64(10);
+    bb_mqtt_client_t a = make_client(NULL, NULL);
+    bb_mqtt_client_t b = make_client(NULL, NULL);
+
+    bb_mqtt_client_host_simulate_connect_success(a);
+    bb_mqtt_client_host_simulate_disconnect_error(b);
+
+    bb_mqtt_client_health_snap_t snap_a, snap_b;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_health_fill(a, &snap_a));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_health_fill(b, &snap_b));
+
+    TEST_ASSERT_TRUE(snap_a.connected);
+    TEST_ASSERT_EQUAL_UINT64(0, snap_a.fail_count);
+    TEST_ASSERT_FALSE(snap_b.connected);
+    TEST_ASSERT_EQUAL_UINT64(1, snap_b.fail_count);
+
+    bb_mqtt_client_destroy(a);
+    bb_mqtt_client_destroy(b);
+}
+
+void test_bb_mqtt_health_fill_null_handle_returns_invalid_arg(void)
+{
+    bb_mqtt_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_mqtt_client_health_fill(NULL, &snap));
+}
+
+void test_bb_mqtt_health_fill_null_out_returns_invalid_arg(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_mqtt_client_health_fill(h, NULL));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_health_simulate_connect_success_null_handle_is_safe(void)
+{
+    bb_mqtt_client_host_simulate_connect_success(NULL);
+}
+
+void test_bb_mqtt_health_simulate_disconnect_error_null_handle_is_safe(void)
+{
+    bb_mqtt_client_host_simulate_disconnect_error(NULL);
+}
+
+void test_bb_mqtt_health_simulate_clean_close_null_handle_is_safe(void)
+{
+    bb_mqtt_client_host_simulate_clean_close(NULL);
+}
+
+// ---------------------------------------------------------------------------
+// bb_mqtt_client_health_desc: the descriptor produces exactly the 4
+// documented wire keys, in order, against a live-filled snapshot.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    char keys[8][32];
+    int  count;
+} mqtt_health_desc_capture_t;
+
+static void mqtt_health_capture_emit_bool(void *ctx, const char *key, bool v)
+{
+    (void)v;
+    mqtt_health_desc_capture_t *cap = (mqtt_health_desc_capture_t *)ctx;
+    strncpy(cap->keys[cap->count], key, sizeof(cap->keys[0]) - 1);
+    cap->count++;
+}
+
+static void mqtt_health_capture_emit_i64(void *ctx, const char *key, int64_t v)
+{
+    (void)v;
+    mqtt_health_desc_capture_t *cap = (mqtt_health_desc_capture_t *)ctx;
+    strncpy(cap->keys[cap->count], key, sizeof(cap->keys[0]) - 1);
+    cap->count++;
+}
+
+static void mqtt_health_capture_emit_u64(void *ctx, const char *key, uint64_t v)
+{
+    (void)v;
+    mqtt_health_desc_capture_t *cap = (mqtt_health_desc_capture_t *)ctx;
+    strncpy(cap->keys[cap->count], key, sizeof(cap->keys[0]) - 1);
+    cap->count++;
+}
+
+void test_bb_mqtt_health_desc_walks_all_four_keys(void)
+{
+    bb_mqtt_client_test_set_mock_time_ms64(555);
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_simulate_connect_success(h);
+
+    bb_mqtt_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_health_fill(h, &snap));
+
+    mqtt_health_desc_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+
+    bb_serialize_emit_t emit = {
+        .format_id = BB_FORMAT_NONE,
+        .ctx       = &cap,
+        .emit_bool = mqtt_health_capture_emit_bool,
+        .emit_i64  = mqtt_health_capture_emit_i64,
+        .emit_u64  = mqtt_health_capture_emit_u64,
+    };
+    bb_serialize_walk(&bb_mqtt_client_health_desc, &snap, &emit);
+
+    TEST_ASSERT_EQUAL_INT(4, cap.count);
+    TEST_ASSERT_EQUAL_STRING("connected", cap.keys[0]);
+    TEST_ASSERT_EQUAL_STRING("last_ok_ms", cap.keys[1]);
+    TEST_ASSERT_EQUAL_STRING("fail_count", cap.keys[2]);
+    TEST_ASSERT_EQUAL_STRING("tls_error_code", cap.keys[3]);
+
+    bb_mqtt_client_destroy(h);
 }

@@ -3916,6 +3916,18 @@ void test_bb_mqtt_subscribe_happy_path_returns_ok(void);
 void test_bb_mqtt_host_set_subscribe_fail_forces_error(void);
 void test_bb_mqtt_host_set_subscribe_fail_can_be_cleared(void);
 void test_bb_mqtt_client_nvs_ssot_values_are_byte_identical(void);
+void test_bb_mqtt_health_connect_success_sets_connected_and_last_ok_ms(void);
+void test_bb_mqtt_health_disconnect_error_sets_disconnected_and_bumps_fail_count(void);
+void test_bb_mqtt_health_disconnect_error_before_ever_connected_still_bumps_fail_count(void);
+void test_bb_mqtt_health_clean_close_sets_disconnected_without_fail_count_bump(void);
+void test_bb_mqtt_health_tls_error_code_set_from_tls_path_not_reset_on_success(void);
+void test_bb_mqtt_health_per_instance_isolation(void);
+void test_bb_mqtt_health_fill_null_handle_returns_invalid_arg(void);
+void test_bb_mqtt_health_fill_null_out_returns_invalid_arg(void);
+void test_bb_mqtt_health_simulate_connect_success_null_handle_is_safe(void);
+void test_bb_mqtt_health_simulate_disconnect_error_null_handle_is_safe(void);
+void test_bb_mqtt_health_simulate_clean_close_null_handle_is_safe(void);
+void test_bb_mqtt_health_desc_walks_all_four_keys(void);
 // Forward declarations from test_bb_mqtt_on_message.c
 void test_bb_mqtt_on_message_receives_injected_message(void);
 void test_bb_mqtt_on_message_passes_ctx(void);
@@ -8542,6 +8554,18 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_host_set_subscribe_fail_forces_error);
     RUN_TEST(test_bb_mqtt_host_set_subscribe_fail_can_be_cleared);
     RUN_TEST(test_bb_mqtt_client_nvs_ssot_values_are_byte_identical);
+    RUN_TEST(test_bb_mqtt_health_connect_success_sets_connected_and_last_ok_ms);
+    RUN_TEST(test_bb_mqtt_health_disconnect_error_sets_disconnected_and_bumps_fail_count);
+    RUN_TEST(test_bb_mqtt_health_disconnect_error_before_ever_connected_still_bumps_fail_count);
+    RUN_TEST(test_bb_mqtt_health_clean_close_sets_disconnected_without_fail_count_bump);
+    RUN_TEST(test_bb_mqtt_health_tls_error_code_set_from_tls_path_not_reset_on_success);
+    RUN_TEST(test_bb_mqtt_health_per_instance_isolation);
+    RUN_TEST(test_bb_mqtt_health_fill_null_handle_returns_invalid_arg);
+    RUN_TEST(test_bb_mqtt_health_fill_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_mqtt_health_simulate_connect_success_null_handle_is_safe);
+    RUN_TEST(test_bb_mqtt_health_simulate_disconnect_error_null_handle_is_safe);
+    RUN_TEST(test_bb_mqtt_health_simulate_clean_close_null_handle_is_safe);
+    RUN_TEST(test_bb_mqtt_health_desc_walks_all_four_keys);
     // bb_mqtt_client_on_message tests
     RUN_TEST(test_bb_mqtt_on_message_receives_injected_message);
     RUN_TEST(test_bb_mqtt_on_message_passes_ctx);
