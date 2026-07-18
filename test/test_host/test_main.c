@@ -2897,6 +2897,38 @@ void test_snap_desc_system_render_no_space_all_or_nothing(void);
 void test_snap_desc_system_snap_fill_rejects_null(void);
 void test_snap_desc_system_snap_fill_host_defaults(void);
 
+// Forward declarations from test_wire_desc_producers.c (B1-1045 PR-2)
+void test_wire_desc_log_render_plain(void);
+void test_wire_desc_log_render_escapes_quotes_and_backslashes(void);
+void test_wire_desc_ota_hooks_render_start(void);
+void test_wire_desc_ota_hooks_render_progress(void);
+void test_wire_desc_ota_hooks_render_success(void);
+void test_wire_desc_ota_hooks_render_fail(void);
+void test_wire_desc_ota_hooks_render_unknown_fallback(void);
+void test_wire_desc_ota_hooks_gather_rejects_null(void);
+void test_wire_desc_health_stack_render_initial_low_false(void);
+void test_wire_desc_health_stack_render_transition_low_true(void);
+void test_wire_desc_diag_boot_render_no_panic(void);
+void test_wire_desc_diag_boot_render_panic_available(void);
+void test_wire_desc_diag_boot_render_detail_empty(void);
+void test_wire_desc_diag_boot_render_detail_nonempty(void);
+void test_wire_desc_diag_boot_render_age_s_omitted_when_now_invalid(void);
+void test_wire_desc_diag_boot_render_age_s_present_when_both_valid(void);
+void test_wire_desc_diag_boot_render_history_empty(void);
+void test_wire_desc_diag_boot_render_history_one_entry(void);
+void test_wire_desc_diag_boot_render_history_eight_entries_wraparound(void);
+void test_wire_desc_diag_boot_gather_rejects_null(void);
+void test_wire_desc_diag_boot_gather_returns_err_when_not_published(void);
+void test_wire_desc_diag_boot_render_age_s_omitted_when_clock_skew(void);
+void test_wire_desc_diag_boot_render_history_count_clamped_when_out_of_range(void);
+void test_wire_desc_display_info_render_present_false(void);
+void test_wire_desc_display_info_render_present_true(void);
+void test_wire_desc_display_info_gather_returns_err_when_not_published(void);
+void test_wire_desc_display_info_gather_rejects_null(void);
+void test_wire_desc_ota_check_render_last_check_ts_zero_omitted(void);
+void test_wire_desc_ota_check_render_last_check_ts_nonzero_present(void);
+void test_wire_desc_ota_check_gather_rejects_null(void);
+
 // Forward declarations from test_bb_health.c
 void test_bb_health_register_section_null_name_returns_err(void);
 void test_bb_health_register_section_null_get_returns_err(void);
@@ -7042,6 +7074,38 @@ int main(void) {
     RUN_TEST(test_snap_desc_meminfo_render_no_space_all_or_nothing);
     RUN_TEST(test_snap_desc_meminfo_snap_fill_rejects_null);
     RUN_TEST(test_snap_desc_meminfo_snap_fill_host_zeroes);
+
+    // producer wire-primitive descriptors (test_wire_desc_producers.c, B1-1045 PR-2)
+    RUN_TEST(test_wire_desc_log_render_plain);
+    RUN_TEST(test_wire_desc_log_render_escapes_quotes_and_backslashes);
+    RUN_TEST(test_wire_desc_ota_hooks_render_start);
+    RUN_TEST(test_wire_desc_ota_hooks_render_progress);
+    RUN_TEST(test_wire_desc_ota_hooks_render_success);
+    RUN_TEST(test_wire_desc_ota_hooks_render_fail);
+    RUN_TEST(test_wire_desc_ota_hooks_render_unknown_fallback);
+    RUN_TEST(test_wire_desc_ota_hooks_gather_rejects_null);
+    RUN_TEST(test_wire_desc_health_stack_render_initial_low_false);
+    RUN_TEST(test_wire_desc_health_stack_render_transition_low_true);
+    RUN_TEST(test_wire_desc_diag_boot_render_no_panic);
+    RUN_TEST(test_wire_desc_diag_boot_render_panic_available);
+    RUN_TEST(test_wire_desc_diag_boot_render_detail_empty);
+    RUN_TEST(test_wire_desc_diag_boot_render_detail_nonempty);
+    RUN_TEST(test_wire_desc_diag_boot_render_age_s_omitted_when_now_invalid);
+    RUN_TEST(test_wire_desc_diag_boot_render_age_s_present_when_both_valid);
+    RUN_TEST(test_wire_desc_diag_boot_render_history_empty);
+    RUN_TEST(test_wire_desc_diag_boot_render_history_one_entry);
+    RUN_TEST(test_wire_desc_diag_boot_render_history_eight_entries_wraparound);
+    RUN_TEST(test_wire_desc_diag_boot_gather_rejects_null);
+    RUN_TEST(test_wire_desc_diag_boot_gather_returns_err_when_not_published);
+    RUN_TEST(test_wire_desc_diag_boot_render_age_s_omitted_when_clock_skew);
+    RUN_TEST(test_wire_desc_diag_boot_render_history_count_clamped_when_out_of_range);
+    RUN_TEST(test_wire_desc_display_info_render_present_false);
+    RUN_TEST(test_wire_desc_display_info_render_present_true);
+    RUN_TEST(test_wire_desc_display_info_gather_returns_err_when_not_published);
+    RUN_TEST(test_wire_desc_display_info_gather_rejects_null);
+    RUN_TEST(test_wire_desc_ota_check_render_last_check_ts_zero_omitted);
+    RUN_TEST(test_wire_desc_ota_check_render_last_check_ts_nonzero_present);
+    RUN_TEST(test_wire_desc_ota_check_gather_rejects_null);
 
     // bb_health tests
     RUN_TEST(test_bb_health_register_section_null_name_returns_err);

@@ -1,8 +1,11 @@
 set(SRCS
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_display.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_display_info_event_common.c"
+    "${CMAKE_CURRENT_LIST_DIR}/src/bb_display_info_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_display/bb_display_info.c")
-set(_display_reqs bb_core bb_http_server)
+# bb_serialize: PUBLIC -- include/bb_display_info_wire.h (the
+# "health.display" wire descriptor, B1-1045 PR-2) includes bb_serialize.h.
+set(_display_reqs bb_core bb_http_server bb_serialize)
 # B1-893: bb_cache/bb_event/bb_event_routes/bb_openapi/bb_json/bb_str
 # re-homed here from the deleted bb_display_info satellite (health.display
 # cache/SSE registration -- see src/bb_display_info_event_priv.h banner).

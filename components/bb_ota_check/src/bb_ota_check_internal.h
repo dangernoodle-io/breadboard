@@ -2,32 +2,19 @@
 // Private interface shared by bb_ota_check_common.c and the per-platform
 // ports / route handlers. Not for external consumers.
 
-// Single source of truth for the update-check event topic name.
-#define BB_OTA_CHECK_TOPIC "update.available"
 #include "bb_cache.h"
 #include "bb_core.h"
 #include "bb_json.h"
 #include "bb_ota_check.h"
+// BB_OTA_CHECK_TOPIC + bb_ota_check_snap_t + bb_ota_check_wire_desc
+// (B1-1045 PR-2 wire primitive) now live in the public bb_ota_check_wire.h
+// -- moved there so the wire descriptor can reuse the snapshot struct
+// directly rather than a widened parallel one (see bb_ota_check_wire.h
+// banner).
+#include "bb_ota_check_wire.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-
-// ---------------------------------------------------------------------------
-// Canonical owned snapshot for the update.available bb_cache topic.
-// Shared between SSE (bb_ota_check_common.c) and REST (bb_ota_check_espidf.c).
-// Included by test/test_host/test_bb_cache_fidelity.c.
-// ---------------------------------------------------------------------------
-typedef struct {
-    char    current[24];       // matches bb_ota_check_status_t.current
-    char    latest[24];        // matches bb_ota_check_status_t.latest
-    char    download_url[256]; // URL_MAX
-    bool    available;
-    int64_t ts;                // wall-clock seconds at publish time
-    bool    last_check_ok;
-    bool    enabled;
-    char    outcome[24];       // outcome_str result; longest = "check_on_apply" (14)
-    int64_t last_check_ts;     // epoch-s from last_check_us; 0 = omit
-} bb_ota_check_snap_t;
 
 // Serializer — signature matches bb_cache_serialize_fn.
 // Emits the canonical union shape for both SSE and REST.

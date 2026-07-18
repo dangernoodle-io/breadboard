@@ -1,5 +1,7 @@
 #include "bb_ota_hooks.h"
+#include "bb_ota_hooks_wire.h"
 #include "bb_log.h"
+#include "bb_str.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -33,6 +35,11 @@ static size_t                 s_skip_count;
 
 static bb_ota_phase_t           s_last_phase = BB_OTA_PHASE_FAIL;
 static int                      s_last_pct;
+// B1-1045 PR-2 wire-primitive stash: the `via` string of the last emitted
+// progress event, alongside the pre-existing s_last_phase/s_last_pct
+// (updated unconditionally by bb_ota_emit_progress(), portable). Read by
+// bb_ota_hooks_gather() below.
+static char                     s_last_via[16];
 
 #ifdef ESP_PLATFORM
 static bb_event_topic_t s_ota_progress_topic = NULL;
@@ -159,15 +166,24 @@ void bb_ota_last_progress(bb_ota_phase_t *phase, int *pct)
 }
 
 // ---------------------------------------------------------------------------
+// Shared phase->name mapping (B1-1045 PR-2 -- reused by bb_ota_progress_json
+// below AND bb_ota_hooks_gather(), never re-hand-rolled).
+// ---------------------------------------------------------------------------
+
+static const char *ota_phase_name(int state)
+{
+    static const char *names[] = {"start", "progress", "success", "fail"};
+    return (state >= 0 && state <= 3) ? names[state] : "unknown";
+}
+
+// ---------------------------------------------------------------------------
 // Pure JSON builder (host-testable — outside ESP_PLATFORM guard)
 // ---------------------------------------------------------------------------
 
 int bb_ota_progress_json(char *buf, size_t sz, const char *via, int state, int pct)
 {
-    static const char *names[] = {"start", "progress", "success", "fail"};
-    const char *s = (state >= 0 && state <= 3) ? names[state] : "unknown";
     int n = snprintf(buf, sz, "{\"via\":\"%s\",\"state\":\"%s\",\"pct\":%d}",
-                     via ? via : "", s, pct);
+                     via ? via : "", ota_phase_name(state), pct);
     if (n <= 0 || (size_t)n >= sz) return 0;
     return n;
 }
@@ -191,8 +207,16 @@ void bb_ota_emit_progress(const char *via, bb_ota_phase_t phase, int pct)
         case BB_OTA_PHASE_FAIL:     bb_log_w(TAG, "OTA %s: failed", via);    break;
     }
 
+    // Stash last progress for bb_ota_hooks_gather() (Model-B egress). This is
+    // intentionally BEFORE — and outside the guard of — the ESP_PLATFORM
+    // bb_event_post() block below: the gather is host-testable, so these
+    // statics must update on every platform. (log/health stash AFTER their
+    // post because their stash lives in the same platform-only path.) The
+    // event payload is built only from the local via/phase/pct params, never
+    // these statics, so this ordering never affects the emitted event.
     s_last_phase = phase;
     s_last_pct   = pct;
+    bb_strlcpy(s_last_via, via ? via : "", sizeof(s_last_via));
 
 #ifdef ESP_PLATFORM
     if (s_ota_progress_topic) {
@@ -207,6 +231,21 @@ void bb_ota_emit_progress(const char *via, bb_ota_phase_t phase, int pct)
 }
 
 // ---------------------------------------------------------------------------
+// B1-1045 PR-2 wire-primitive gather -- portable, fully host-testable (no
+// ESP-IDF dep, mirrors bb_ota_progress_json() via the shared ota_phase_name()
+// mapping above)
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_ota_hooks_gather(bb_ota_hooks_wire_t *dst)
+{
+    if (!dst) return BB_ERR_INVALID_ARG;
+    bb_strlcpy(dst->via, s_last_via, sizeof(dst->via));
+    bb_strlcpy(dst->state, ota_phase_name((int)s_last_phase), sizeof(dst->state));
+    dst->pct = (int64_t)s_last_pct;
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
 // Testing hooks
 // ---------------------------------------------------------------------------
 
@@ -218,6 +257,7 @@ void bb_ota_hooks_test_reset(void)
     s_skip_count     = 0;
     s_last_phase     = BB_OTA_PHASE_FAIL;
     s_last_pct       = 0;
+    s_last_via[0]    = '\0';
 }
 #endif
 
