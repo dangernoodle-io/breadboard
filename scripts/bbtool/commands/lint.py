@@ -58,6 +58,7 @@ def _check_public_header_leak(ctx: Context) -> list:
         r'|["<]nvs(?:_flash)?\.h'
         r'|["<]httpd_'
         r'|["<]sdkconfig\.h'
+        r'|["<]pthread\.h'
     )
     ifdef_open = re.compile(
         r'^\s*#\s*(?:ifdef\s+ESP_PLATFORM|if\s+defined\s*\(\s*ESP_PLATFORM\s*\))'

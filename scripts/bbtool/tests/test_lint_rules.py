@@ -217,6 +217,20 @@ class TestPublicHeaderLeak(unittest.TestCase):
             violations = _check_public_header_leak(make_ctx(td))
             self.assertFalse(violations, "gated sdkconfig.h include must NOT fire")
 
+    def test_fires_on_pthread_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#include <pthread.h>\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertTrue(violations, "ungated pthread.h include must fire")
+
+    def test_no_fire_on_gated_pthread_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#ifdef ESP_PLATFORM\n#include <pthread.h>\n#endif\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertFalse(violations, "gated pthread.h include must NOT fire")
+
 
 class TestStateTopicPost(unittest.TestCase):
     def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:

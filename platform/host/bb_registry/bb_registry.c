@@ -1,7 +1,9 @@
 // bb_registry — generic name→handle object registry.
 //
 // Compiled on both host (tests) and ESP-IDF (via bb_registry CMakeLists SRCS).
-// All operations are guarded by a per-registry pthread_mutex_t.
+// All operations are guarded by a per-registry bb_lock_t (bb_core) — its
+// host backend wraps pthread_mutex_t, its ESP-IDF backend a FreeRTOS
+// semaphore; this file never sees either platform type directly.
 // foreach uses a stack copy-out so callbacks run without the lock held.
 
 #include "bb_registry.h"
@@ -9,7 +11,6 @@
 
 #include <inttypes.h>
 #include <string.h>
-#include <pthread.h>
 #include <stdbool.h>
 
 static const char *s_default_tag = "bb_registry";
@@ -18,6 +19,21 @@ static const char *s_default_tag = "bb_registry";
 static inline const char *s_tag(const bb_registry_t *r)
 {
     return r->tag ? r->tag : s_default_tag;
+}
+
+// Lazily bb_lock_init() r->lock exactly once (bb_once_run) — mirrors
+// BB_REGISTRY_DEFINE's "no explicit init call needed" contract while keeping
+// the platform mutex type out of bb_registry.h.
+static void registry_init_lock(void *ctx)
+{
+    bb_registry_t *r = ctx;
+    bb_lock_config_t cfg = { .name = "bb_registry", .category = r->tag };
+    bb_lock_init(&cfg, &r->lock);
+}
+
+static inline void registry_ensure_lock(bb_registry_t *r)
+{
+    bb_once_run(&r->lock_once, registry_init_lock, r);
 }
 
 // Scan entries[] for the slot matching key. by_ptr selects the comparison:
@@ -47,7 +63,8 @@ static bb_err_t registry_register_common(bb_registry_t *r, const void *key,
                                           void *value, bool by_ptr,
                                           const char *log_prefix)
 {
-    pthread_mutex_lock(&r->lock);
+    registry_ensure_lock(r);
+    bb_lock_lock(&r->lock);
 
     if (r->frozen) {
         if (by_ptr) {
@@ -56,7 +73,7 @@ static bb_err_t registry_register_common(bb_registry_t *r, const void *key,
             bb_log_w(s_tag(r), "%s('%s'): registry is frozen", log_prefix,
                      (const char *)key);
         }
-        pthread_mutex_unlock(&r->lock);
+        bb_lock_unlock(&r->lock);
         return BB_ERR_INVALID_STATE;
     }
 
@@ -67,7 +84,7 @@ static bb_err_t registry_register_common(bb_registry_t *r, const void *key,
             bb_log_w(s_tag(r), "%s('%s'): duplicate name, ignored", log_prefix,
                      (const char *)key);
         }
-        pthread_mutex_unlock(&r->lock);
+        bb_lock_unlock(&r->lock);
         return BB_ERR_INVALID_STATE;
     }
 
@@ -79,7 +96,7 @@ static bb_err_t registry_register_common(bb_registry_t *r, const void *key,
             bb_log_w(s_tag(r), "%s('%s'): registry full (cap %" PRIu16 ")",
                      log_prefix, (const char *)key, r->capacity);
         }
-        pthread_mutex_unlock(&r->lock);
+        bb_lock_unlock(&r->lock);
         return BB_ERR_NO_SPACE;
     }
 
@@ -95,7 +112,7 @@ static bb_err_t registry_register_common(bb_registry_t *r, const void *key,
         r->hwm_warned = true;
     }
 
-    pthread_mutex_unlock(&r->lock);
+    bb_lock_unlock(&r->lock);
     return BB_OK;
 }
 
@@ -104,7 +121,8 @@ static bb_err_t registry_register_common(bb_registry_t *r, const void *key,
 static bb_err_t registry_deregister_common(bb_registry_t *r, const void *key,
                                             bool by_ptr, const char *log_prefix)
 {
-    pthread_mutex_lock(&r->lock);
+    registry_ensure_lock(r);
+    bb_lock_lock(&r->lock);
 
     if (r->frozen) {
         if (by_ptr) {
@@ -113,13 +131,13 @@ static bb_err_t registry_deregister_common(bb_registry_t *r, const void *key,
             bb_log_w(s_tag(r), "%s('%s'): registry is frozen", log_prefix,
                      (const char *)key);
         }
-        pthread_mutex_unlock(&r->lock);
+        bb_lock_unlock(&r->lock);
         return BB_ERR_INVALID_STATE;
     }
 
     int idx = registry_find_index(r, key, by_ptr);
     if (idx < 0) {
-        pthread_mutex_unlock(&r->lock);
+        bb_lock_unlock(&r->lock);
         return BB_ERR_NOT_FOUND;
     }
 
@@ -130,7 +148,7 @@ static bb_err_t registry_deregister_common(bb_registry_t *r, const void *key,
     }
     r->count = tail;
 
-    pthread_mutex_unlock(&r->lock);
+    bb_lock_unlock(&r->lock);
     return BB_OK;
 }
 
@@ -138,10 +156,11 @@ static bb_err_t registry_deregister_common(bb_registry_t *r, const void *key,
 // Caller holds no lock; key has already been checked non-NULL.
 static void *registry_lookup_common(bb_registry_t *r, const void *key, bool by_ptr)
 {
-    pthread_mutex_lock(&r->lock);
+    registry_ensure_lock(r);
+    bb_lock_lock(&r->lock);
     int idx = registry_find_index(r, key, by_ptr);
     void *v = (idx >= 0) ? r->entries[idx].value : NULL;
-    pthread_mutex_unlock(&r->lock);
+    bb_lock_unlock(&r->lock);
     return v;
 }
 
@@ -175,9 +194,10 @@ bb_err_t bb_registry_deregister(bb_registry_t *r, const char *name)
 
 void bb_registry_freeze(bb_registry_t *r)
 {
-    pthread_mutex_lock(&r->lock);
+    registry_ensure_lock(r);
+    bb_lock_lock(&r->lock);
     r->frozen = true;
-    pthread_mutex_unlock(&r->lock);
+    bb_lock_unlock(&r->lock);
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +209,8 @@ void bb_registry_freeze(bb_registry_t *r)
 static uint16_t registry_snapshot(bb_registry_t *r,
                                    bb_registry_entry_t snapshot[BB_REGISTRY_SNAPSHOT_MAX])
 {
-    pthread_mutex_lock(&r->lock);
+    registry_ensure_lock(r);
+    bb_lock_lock(&r->lock);
     uint16_t count = r->count;
 
     // Fixed-size stack buffer bounded by BB_REGISTRY_SNAPSHOT_MAX.
@@ -198,7 +219,7 @@ static uint16_t registry_snapshot(bb_registry_t *r,
     for (uint16_t i = 0; i < count; i++) {
         snapshot[i] = r->entries[i];
     }
-    pthread_mutex_unlock(&r->lock);
+    bb_lock_unlock(&r->lock);
     return count;
 }
 
@@ -240,9 +261,10 @@ void bb_registry_foreach_ptr(bb_registry_t *r,
 
 uint16_t bb_registry_count(bb_registry_t *r)
 {
-    pthread_mutex_lock(&r->lock);
+    registry_ensure_lock(r);
+    bb_lock_lock(&r->lock);
     uint16_t c = r->count;
-    pthread_mutex_unlock(&r->lock);
+    bb_lock_unlock(&r->lock);
     return c;
 }
 
@@ -257,13 +279,14 @@ bb_err_t bb_registry_get_by_index(bb_registry_t *r, uint16_t idx,
         return BB_ERR_INVALID_ARG;
     }
 
-    pthread_mutex_lock(&r->lock);
+    registry_ensure_lock(r);
+    bb_lock_lock(&r->lock);
     if (idx >= r->count) {
-        pthread_mutex_unlock(&r->lock);
+        bb_lock_unlock(&r->lock);
         return BB_ERR_NOT_FOUND;
     }
     *out = r->entries[idx];
-    pthread_mutex_unlock(&r->lock);
+    bb_lock_unlock(&r->lock);
     return BB_OK;
 }
 
@@ -322,10 +345,10 @@ void *bb_registry_lookup_ptr(bb_registry_t *r, const void *key)
 #ifdef BB_REGISTRY_TESTING
 void bb_registry_reset(bb_registry_t *r)
 {
-    pthread_mutex_destroy(&r->lock);
+    bb_lock_destroy(&r->lock);
     r->count      = 0;
     r->frozen     = false;
     r->hwm_warned = false;
-    pthread_mutex_init(&r->lock, NULL);
+    r->lock_once  = (bb_once_t)BB_ONCE_INIT;
 }
 #endif
