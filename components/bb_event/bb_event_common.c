@@ -262,10 +262,12 @@ bb_err_t bb_event_post(bb_event_topic_t topic, int32_t id,
 // on either failure since a generic emit sink has nowhere to propagate a
 // bb_err_t. Idempotent-per-call -- no static handle is cached (topics are
 // capped low via CONFIG_BB_EVENT_MAX_TOPICS, so the register-or-lookup is
-// cheap).
-void bb_event_emit(const char *name, int32_t id,
+// cheap). `ctx` (B1-1045 PR-1, bb_emit_fn's new leading param) is IGNORED --
+// see bb_event.h for rationale.
+void bb_event_emit(void *ctx, const char *name, int32_t id,
                    const void *data, size_t size)
 {
+    (void)ctx;
     bb_event_topic_t topic = NULL;
     bb_err_t err = bb_event_topic_register(name, &topic);
     if (err != BB_OK) {

@@ -60,6 +60,11 @@ void test_bb_lifecycle_observer_capacity_overflow_no_space(void);
 void test_bb_lifecycle_observe_null_cb_invalid_arg(void);
 void test_bb_lifecycle_pull_null_sink_no_crash_still_bumps_and_fires(void);
 void test_bb_lifecycle_pull_stub_sink_receives_topic_id_payload(void);
+void test_bb_lifecycle_emit_binding_init_null_args_invalid(void);
+void test_bb_lifecycle_emit_binding_trampoline_start_drives_service(void);
+void test_bb_lifecycle_emit_binding_trampoline_stop_drives_service(void);
+void test_bb_lifecycle_emit_binding_trampoline_none_is_noop(void);
+void test_bb_lifecycle_emit_binding_trampoline_null_ctx_is_noop(void);
 void test_bb_lifecycle_version_monotonic_on_real_transitions(void);
 void test_bb_lifecycle_version_unchanged_on_noop(void);
 void test_bb_lifecycle_count_reflects_registrations(void);
@@ -1814,6 +1819,12 @@ void test_bb_wifi_classify_mode_ok(void);
 void test_bb_wifi_classify_mode_no_ip(void);
 void test_bb_wifi_classify_mode_not_associated(void);
 void test_bb_wifi_classify_mode_not_associated_dominates_has_ip(void);
+void test_bb_wifi_classify_lifecycle_got_ip_is_start(void);
+void test_bb_wifi_classify_lifecycle_disconnect_is_stop(void);
+void test_bb_wifi_classify_lifecycle_lost_ip_is_stop(void);
+void test_bb_wifi_classify_lifecycle_reboot_denied_is_none(void);
+void test_bb_wifi_classify_lifecycle_reconnect_parked_is_none(void);
+void test_bb_wifi_classify_lifecycle_unknown_id_is_none(void);
 void test_bb_wifi_mode_str_ok(void);
 void test_bb_wifi_mode_str_no_ip(void);
 void test_bb_wifi_mode_str_not_associated(void);
@@ -2622,6 +2633,9 @@ void test_bb_callback_slot_ret_set_slot_returns_cb_value(void);
 void test_bb_callback_slot_void0_null_slot_is_noop(void);
 void test_bb_callback_slot_void0_set_slot_dispatches(void);
 void test_bb_callback_slot_void0_re_set_replaces(void);
+void test_bb_callback_slot_void_ctx_null_slot_is_noop(void);
+void test_bb_callback_slot_void_ctx_set_slot_dispatches_with_ctx(void);
+void test_bb_callback_slot_void_ctx_null_ctx_round_trips(void);
 void test_bb_callback_slot_ret_re_set_replaces(void);
 
 // Forward declarations from test_bb_mem.c
@@ -5273,6 +5287,9 @@ int main(void) {
     RUN_TEST(test_bb_callback_slot_void0_null_slot_is_noop);
     RUN_TEST(test_bb_callback_slot_void0_set_slot_dispatches);
     RUN_TEST(test_bb_callback_slot_void0_re_set_replaces);
+    RUN_TEST(test_bb_callback_slot_void_ctx_null_slot_is_noop);
+    RUN_TEST(test_bb_callback_slot_void_ctx_set_slot_dispatches_with_ctx);
+    RUN_TEST(test_bb_callback_slot_void_ctx_null_ctx_round_trips);
 
     // bb_mem SPIRAM-preferred alloc helper
     RUN_TEST(test_bb_mem_malloc_returns_usable_block);
@@ -6193,6 +6210,12 @@ int main(void) {
     RUN_TEST(test_bb_wifi_classify_mode_no_ip);
     RUN_TEST(test_bb_wifi_classify_mode_not_associated);
     RUN_TEST(test_bb_wifi_classify_mode_not_associated_dominates_has_ip);
+    RUN_TEST(test_bb_wifi_classify_lifecycle_got_ip_is_start);
+    RUN_TEST(test_bb_wifi_classify_lifecycle_disconnect_is_stop);
+    RUN_TEST(test_bb_wifi_classify_lifecycle_lost_ip_is_stop);
+    RUN_TEST(test_bb_wifi_classify_lifecycle_reboot_denied_is_none);
+    RUN_TEST(test_bb_wifi_classify_lifecycle_reconnect_parked_is_none);
+    RUN_TEST(test_bb_wifi_classify_lifecycle_unknown_id_is_none);
     RUN_TEST(test_bb_wifi_mode_str_ok);
     RUN_TEST(test_bb_wifi_mode_str_no_ip);
     RUN_TEST(test_bb_wifi_mode_str_not_associated);
@@ -10051,6 +10074,11 @@ int main(void) {
     RUN_TEST(test_bb_lifecycle_observe_null_cb_invalid_arg);
     RUN_TEST(test_bb_lifecycle_pull_null_sink_no_crash_still_bumps_and_fires);
     RUN_TEST(test_bb_lifecycle_pull_stub_sink_receives_topic_id_payload);
+    RUN_TEST(test_bb_lifecycle_emit_binding_init_null_args_invalid);
+    RUN_TEST(test_bb_lifecycle_emit_binding_trampoline_start_drives_service);
+    RUN_TEST(test_bb_lifecycle_emit_binding_trampoline_stop_drives_service);
+    RUN_TEST(test_bb_lifecycle_emit_binding_trampoline_none_is_noop);
+    RUN_TEST(test_bb_lifecycle_emit_binding_trampoline_null_ctx_is_noop);
     RUN_TEST(test_bb_lifecycle_version_monotonic_on_real_transitions);
     RUN_TEST(test_bb_lifecycle_version_unchanged_on_noop);
     RUN_TEST(test_bb_lifecycle_count_reflects_registrations);

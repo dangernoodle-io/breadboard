@@ -13,6 +13,7 @@
 
 #include "bb_core.h"
 #include "bb_emit.h"
+#include "bb_lifecycle_action.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -263,14 +264,17 @@ void bb_wifi_event_payload_build(bb_wifi_event_payload_t *out,
                                  const char *ip);
 
 // Register a generic emit sink (bb_emit_fn, bb_core/bb_emit.h) for the
-// wifi.net payload -- bus-shaped (topic, id, payload, size). NULL clears it.
-// Fired on BB_WIFI_EVENT_TOPIC at the three STA lifecycle edges
+// wifi.net payload -- bus-shaped (ctx, topic, id, payload, size). NULL cb
+// clears it. Fired on BB_WIFI_EVENT_TOPIC at the three STA lifecycle edges
 // (got_ip/disconnect/lost_ip), with the id/payload built via
-// bb_wifi_event_payload_build.
+// bb_wifi_event_payload_build. `ctx` (B1-1045 PR-1) is an opaque
+// caller-owned pointer threaded through to every invocation of cb -- bb_wifi
+// never dereferences it. Currently always NULL from codegen (PR-1 is inert
+// scaffolding; a real per-consumer ctx binding lands in a later PR).
 // Single-slot, single-consumer, null-safe: register once at init, before
 // bb_wifi_init()/bb_wifi_init_sta(), from a single thread.
 // bbtool:init tier=early fn=bb_wifi_set_emit consumes=emit_sink order=0
-void bb_wifi_set_emit(bb_emit_fn cb);
+void bb_wifi_set_emit(bb_emit_fn cb, void *ctx);
 
 // One-shot synthesis of the CURRENT STA state (bb_wifi_has_ip()/
 // bb_wifi_get_info()) onto the generic emit slot, as a wifi.net GOT_IP or
@@ -281,6 +285,16 @@ void bb_wifi_set_emit(bb_emit_fn cb);
 // bb_event subscriber (see above): that consumer still calls
 // bb_wifi_has_ip()/bb_wifi_get_info() itself before subscribing.
 void bb_wifi_emit_baseline(void);
+
+// Pure classifier (B1-1045 PR-1): maps a wifi.net emit-seam edge (id) onto a
+// bb_lifecycle_action_t a bound bb_lifecycle service should take -- START on
+// GOT_IP, STOP on DISCONNECT/LOST_IP, NONE for every other id (including the
+// REBOOT_DENIED/RECONNECT_PARKED edges, which are observe-only telemetry,
+// not lifecycle-driving). `payload`/`size` are accepted (bb_emit_fn-callable
+// shape) but unused -- the classification is id-only. No side effects; safe
+// to call with NULL payload/size==0. Dormant scaffolding: not yet wired to
+// any bb_wifi_set_emit call site (see bb_lifecycle.h's caller-owned binding).
+bb_lifecycle_action_t bb_wifi_classify_lifecycle(uint32_t id, const void *payload, size_t size);
 
 // ---------------------------------------------------------------------------
 // Diagnostics

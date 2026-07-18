@@ -162,3 +162,58 @@ void test_bb_callback_slot_void0_re_set_replaces(void)
     TEST_ASSERT_EQUAL_INT(1, s_cbslot_void0_calls_b);
     cbslot_test_void0_set(NULL);
 }
+
+// ---------------------------------------------------------------------------
+// BB_CALLBACK_SLOT_VOID_CTX -- dummy void-fire callback WITH an argument
+// PLUS a caller-owned ctx threaded through from the setter (B1-1045 PR-1).
+// ---------------------------------------------------------------------------
+
+typedef void (*cbslot_test_ctx_fn)(void *ctx, int val);
+
+static void *s_cbslot_ctx_last_ctx = (void *)-1;
+static int   s_cbslot_ctx_last_val = -1;
+static void cbslot_test_ctx_fixture_a(void *ctx, int val)
+{
+    s_cbslot_ctx_last_ctx = ctx;
+    s_cbslot_ctx_last_val = val;
+}
+
+void cbslot_test_ctx_set(cbslot_test_ctx_fn cb, void *ctx);
+void cbslot_test_ctx_invoke(int val);
+
+BB_CALLBACK_SLOT_VOID_CTX(cbslot_test_ctx, cbslot_test_ctx_fn, cbslot_test_ctx_set,
+                          cbslot_test_ctx_invoke, (int val), (val))
+
+// Null slot -> no-op (no crash, cb not invoked).
+void test_bb_callback_slot_void_ctx_null_slot_is_noop(void)
+{
+    s_cbslot_ctx_last_val = -1;
+    cbslot_test_ctx_invoke(7);
+    TEST_ASSERT_EQUAL_INT(-1, s_cbslot_ctx_last_val);
+}
+
+// Set slot with a real ctx -> invoke calls it, forwarding BOTH the ctx and
+// the argument -- proving ctx round-trips through set -> invoke.
+void test_bb_callback_slot_void_ctx_set_slot_dispatches_with_ctx(void)
+{
+    int marker = 0;
+    cbslot_test_ctx_set(cbslot_test_ctx_fixture_a, &marker);
+    s_cbslot_ctx_last_ctx = NULL;
+    s_cbslot_ctx_last_val = -1;
+    cbslot_test_ctx_invoke(42);
+    TEST_ASSERT_EQUAL_PTR(&marker, s_cbslot_ctx_last_ctx);
+    TEST_ASSERT_EQUAL_INT(42, s_cbslot_ctx_last_val);
+    cbslot_test_ctx_set(NULL, NULL);
+}
+
+// A NULL ctx is a valid, distinct value that also round-trips.
+void test_bb_callback_slot_void_ctx_null_ctx_round_trips(void)
+{
+    int marker = 0;
+    cbslot_test_ctx_set(cbslot_test_ctx_fixture_a, &marker);
+    cbslot_test_ctx_set(cbslot_test_ctx_fixture_a, NULL);
+    s_cbslot_ctx_last_ctx = &marker; // seed to a non-NULL sentinel
+    cbslot_test_ctx_invoke(1);
+    TEST_ASSERT_NULL(s_cbslot_ctx_last_ctx);
+    cbslot_test_ctx_set(NULL, NULL);
+}

@@ -5,6 +5,16 @@ Grammar (one marker per comment line, order of key=value tokens is free):
 
     // bbtool:init tier=early|pre_http|regular [order=N] fn=<sym>
                     [server=true] [provides=k,..] [requires=k,..] [consumes=k]
+                    [ctx=<expr>]
+
+`ctx=<expr>` (B1-1045 PR-1) names a C expression passed as the second
+argument to a `consumes=` setter call (see `commands.wire._emit_consumes_call`)
+-- the setter's own producer-supplied ctx pointer, threaded through to every
+invocation of the provider symbol it registers. `ctx=` REQUIRES `consumes=`
+on the same marker line (a hard ParseError otherwise -- ctx is meaningless
+without a setter to pass it to). Omitting `ctx=` on a `consumes=` marker is
+still valid: the setter call's second argument defaults to the literal
+`NULL`.
 
 No preprocessor is involved — bbtool greps the raw header text. `tier` and
 `fn` are required; everything else is optional. Any malformed marker (missing
@@ -43,7 +53,7 @@ TIER_RANK = {name: i for i, name in enumerate(TIERS)}
 _MARKER_PREFIX = "// bbtool:init"
 _PROVIDES_PREFIX = "// bbtool:provides"
 
-_KNOWN_KEYS = {"tier", "order", "fn", "server", "provides", "requires", "consumes"}
+_KNOWN_KEYS = {"tier", "order", "fn", "server", "provides", "requires", "consumes", "ctx"}
 _PROVIDES_KNOWN_KEYS = {"key", "symbol"}
 
 
@@ -61,6 +71,7 @@ class InitEntry:
     provides: Tuple[str, ...] = field(default_factory=tuple)
     requires: Tuple[str, ...] = field(default_factory=tuple)
     consumes: "str | None" = None
+    ctx: "str | None" = None
     src_file: str = "<string>"
     src_line: int = 0
 
@@ -155,6 +166,13 @@ def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
             f"for the http-handle-threading path)"
         )
 
+    ctx = fields.get("ctx")
+    if ctx is not None and consumes is None:
+        raise ParseError(
+            f"{src_file}:{lineno}: 'ctx=' requires 'consumes=' on the same "
+            f"marker (ctx is meaningless without a setter to pass it to)"
+        )
+
     return InitEntry(
         tier=tier,
         fn=fn,
@@ -163,6 +181,7 @@ def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
         provides=provides,
         requires=requires,
         consumes=consumes,
+        ctx=ctx,
         src_file=src_file,
         src_line=lineno,
     )

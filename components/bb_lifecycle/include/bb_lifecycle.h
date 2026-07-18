@@ -11,8 +11,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "bb_core.h"   // bb_err_t
-#include "bb_emit.h"   // bb_emit_fn (bb_core)
+#include "bb_core.h"             // bb_err_t
+#include "bb_emit.h"             // bb_emit_fn (bb_core)
+#include "bb_lifecycle_action.h" // bb_lifecycle_action_t (bb_core)
 
 #ifdef ESP_PLATFORM
 #  include "sdkconfig.h"
@@ -147,11 +148,56 @@ const char *bb_lifecycle_reason_name(uint8_t bit);
 
 // Register a generic emit sink (bb_emit_fn, bb_core/bb_emit.h) fired on
 // BB_LIFECYCLE_EVENT_TOPIC after every real state transition, with
-// id=(int32_t)svc and payload=bb_lifecycle_event_t. NULL clears it.
+// id=(int32_t)svc and payload=bb_lifecycle_event_t. NULL cb clears it.
+// `ctx` (B1-1045 PR-1) is an opaque caller-owned pointer threaded through to
+// every invocation of cb -- bb_lifecycle never dereferences it. Currently
+// always NULL from codegen (PR-1 is inert scaffolding; a real per-consumer
+// ctx binding lands in a later PR).
 // Single-slot, single-consumer, null-safe: register once at init, before
 // any bb_lifecycle_register()/start()/etc. calls, from a single thread.
 // bbtool:init tier=early fn=bb_lifecycle_set_emit consumes=emit_sink order=0
-void bb_lifecycle_set_emit(bb_emit_fn cb);
+void bb_lifecycle_set_emit(bb_emit_fn cb, void *ctx);
+
+// ---------------------------------------------------------------------------
+// Emit-seam producer binding (B1-1045 PR-1) -- caller-owned, no hidden
+// static/pool. Lets an independent emit-shaped producer (e.g. bb_wifi's
+// wifi.net seam) drive a bound bb_lifecycle service's start/stop directly,
+// via a pure classify function over that producer's own (id, payload, size)
+// shape. N producers compose by each owning their own bb_lifecycle_binding_t
+// -- there is no fixed-N pool or global table here.
+// ---------------------------------------------------------------------------
+
+typedef bb_lifecycle_action_t (*bb_lifecycle_classify_fn)(uint32_t id, const void *payload, size_t size);
+
+// Caller-owned binding: which service to drive, and the pure classifier
+// that decides START/STOP/NONE from a producer's emitted (id, payload,
+// size). Zero-init is NOT valid -- must be built via
+// bb_lifecycle_emit_binding_init().
+typedef struct {
+    bb_lifecycle_svc_t svc;
+    bb_lifecycle_classify_fn classify;
+} bb_lifecycle_binding_t;
+
+// Fill *out with svc/classify. NULL out/classify, or an invalid svc
+// (bb_lifecycle_find/register handle), -> BB_ERR_INVALID_ARG. Does not
+// itself register the binding onto any emit seam -- the caller wires *out
+// as the ctx of a bb_wifi_set_emit(bb_lifecycle_emit_binding_fn(), out)
+// call (or any other bb_emit_fn-shaped producer). PR-1 builds this API but
+// does not perform that wiring anywhere -- floor registers a dormant
+// binding without repointing bb_wifi's emit seam; the real cutover is a
+// later PR.
+bb_err_t bb_lifecycle_emit_binding_init(bb_lifecycle_binding_t *out,
+                                        bb_lifecycle_svc_t svc,
+                                        bb_lifecycle_classify_fn classify);
+
+// The (single, shared) bb_emit_fn-shaped trampoline every bb_lifecycle_binding_t
+// is driven through: reads ctx as a bb_lifecycle_binding_t*, classifies
+// (id, payload, size) via binding->classify, and on START/STOP calls
+// bb_lifecycle_start(binding->svc)/bb_lifecycle_stop(binding->svc). NULL-safe
+// no-op on a NULL/malformed ctx. Internally a single static function --
+// this accessor is the only way to obtain its address, for wiring as an
+// emit-seam producer's cb.
+bb_emit_fn bb_lifecycle_emit_binding_fn(void);
 
 #ifdef BB_LIFECYCLE_TESTING
 // Clear services, envelopes, inhibits, versions, the reason-intern table,

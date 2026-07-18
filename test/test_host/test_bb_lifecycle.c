@@ -64,6 +64,7 @@ static char   s_emit_topic[32];
 static int32_t s_emit_id;
 static bb_lifecycle_event_t s_emit_payload;
 static int    s_emit_calls;
+static void  *s_emit_ctx;
 
 static void reset_emit_capture(void)
 {
@@ -71,11 +72,13 @@ static void reset_emit_capture(void)
     s_emit_id = -999;
     memset(&s_emit_payload, 0, sizeof(s_emit_payload));
     s_emit_calls = 0;
+    s_emit_ctx = NULL;
 }
 
-static void stub_emit(const char *topic, int32_t id, const void *payload, size_t size)
+static void stub_emit(void *ctx, const char *topic, int32_t id, const void *payload, size_t size)
 {
     s_emit_calls++;
+    s_emit_ctx = ctx;
     strncpy(s_emit_topic, topic, sizeof(s_emit_topic) - 1);
     s_emit_id = id;
     if (payload && size == sizeof(s_emit_payload)) {
@@ -623,7 +626,7 @@ void test_bb_lifecycle_pull_stub_sink_receives_topic_id_payload(void)
 {
     test_bb_lifecycle_reset_local();
 
-    bb_lifecycle_set_emit(stub_emit);
+    bb_lifecycle_set_emit(stub_emit, NULL);
 
     bb_lifecycle_config_t cfg = { .name = "svc-a" };
     bb_lifecycle_svc_t svc;
@@ -635,8 +638,126 @@ void test_bb_lifecycle_pull_stub_sink_receives_topic_id_payload(void)
     TEST_ASSERT_EQUAL((int32_t)svc, s_emit_id);
     TEST_ASSERT_EQUAL((int32_t)svc, s_emit_payload.svc);
     TEST_ASSERT_EQUAL(BB_LIFECYCLE_RUNNING, s_emit_payload.new_state);
+    // B1-1045 PR-1: bb_lifecycle_set_emit still takes only a bare cb (no
+    // ctx param yet) -- bb_lifecycle_emit_invoke's internal cb(...) call
+    // always passes a NULL ctx until a later PR wires a real per-consumer
+    // binding.
+    TEST_ASSERT_NULL(s_emit_ctx);
 
-    bb_lifecycle_set_emit(NULL); // clean up before reset_for_test also clears it
+    bb_lifecycle_set_emit(NULL, NULL); // clean up before reset_for_test also clears it
+}
+
+// ---------------------------------------------------------------------------
+// Emit-seam producer binding (B1-1045 PR-1) -- caller-owned, round-trip.
+// ---------------------------------------------------------------------------
+
+static bb_lifecycle_action_t classify_always_start(uint32_t id, const void *payload, size_t size)
+{
+    (void)id;
+    (void)payload;
+    (void)size;
+    return BB_LIFECYCLE_ACTION_START;
+}
+
+static bb_lifecycle_action_t classify_always_stop(uint32_t id, const void *payload, size_t size)
+{
+    (void)id;
+    (void)payload;
+    (void)size;
+    return BB_LIFECYCLE_ACTION_STOP;
+}
+
+static bb_lifecycle_action_t classify_always_none(uint32_t id, const void *payload, size_t size)
+{
+    (void)id;
+    (void)payload;
+    (void)size;
+    return BB_LIFECYCLE_ACTION_NONE;
+}
+
+void test_bb_lifecycle_emit_binding_init_null_args_invalid(void)
+{
+    test_bb_lifecycle_reset_local();
+
+    bb_lifecycle_config_t cfg = { .name = "svc-bind" };
+    bb_lifecycle_svc_t svc;
+    TEST_ASSERT_EQUAL(BB_OK, bb_lifecycle_register(&cfg, &svc));
+
+    bb_lifecycle_binding_t binding;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_lifecycle_emit_binding_init(NULL, svc, classify_always_start));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_lifecycle_emit_binding_init(&binding, svc, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                      bb_lifecycle_emit_binding_init(&binding, BB_LIFECYCLE_SVC_INVALID, classify_always_start));
+}
+
+// Round-trip: bb_lifecycle_emit_binding_fn()'s trampoline reads ctx as the
+// bb_lifecycle_binding_t built by bb_lifecycle_emit_binding_init(), and
+// drives the bound service's start/stop per the classify function's
+// verdict -- exercised via the real bb_emit_fn call shape (ctx, topic, id,
+// payload, size), not a mirror of the trampoline's internals.
+void test_bb_lifecycle_emit_binding_trampoline_start_drives_service(void)
+{
+    test_bb_lifecycle_reset_local();
+
+    bb_lifecycle_config_t cfg = { .name = "svc-bind" };
+    bb_lifecycle_svc_t svc;
+    TEST_ASSERT_EQUAL(BB_OK, bb_lifecycle_register(&cfg, &svc));
+    TEST_ASSERT_EQUAL(BB_LIFECYCLE_STOPPED, bb_lifecycle_state(svc));
+
+    bb_lifecycle_binding_t binding;
+    TEST_ASSERT_EQUAL(BB_OK, bb_lifecycle_emit_binding_init(&binding, svc, classify_always_start));
+
+    bb_emit_fn trampoline = bb_lifecycle_emit_binding_fn();
+    TEST_ASSERT_NOT_NULL(trampoline);
+    trampoline(&binding, "producer.topic", 1, NULL, 0);
+
+    TEST_ASSERT_EQUAL(BB_LIFECYCLE_RUNNING, bb_lifecycle_state(svc));
+}
+
+void test_bb_lifecycle_emit_binding_trampoline_stop_drives_service(void)
+{
+    test_bb_lifecycle_reset_local();
+
+    bb_lifecycle_config_t cfg = { .name = "svc-bind" };
+    bb_lifecycle_svc_t svc;
+    TEST_ASSERT_EQUAL(BB_OK, bb_lifecycle_register(&cfg, &svc));
+    bb_lifecycle_start(svc);
+    TEST_ASSERT_EQUAL(BB_LIFECYCLE_RUNNING, bb_lifecycle_state(svc));
+
+    bb_lifecycle_binding_t binding;
+    TEST_ASSERT_EQUAL(BB_OK, bb_lifecycle_emit_binding_init(&binding, svc, classify_always_stop));
+
+    bb_emit_fn trampoline = bb_lifecycle_emit_binding_fn();
+    trampoline(&binding, "producer.topic", 2, NULL, 0);
+
+    TEST_ASSERT_EQUAL(BB_LIFECYCLE_STOPPED, bb_lifecycle_state(svc));
+}
+
+void test_bb_lifecycle_emit_binding_trampoline_none_is_noop(void)
+{
+    test_bb_lifecycle_reset_local();
+
+    bb_lifecycle_config_t cfg = { .name = "svc-bind" };
+    bb_lifecycle_svc_t svc;
+    TEST_ASSERT_EQUAL(BB_OK, bb_lifecycle_register(&cfg, &svc));
+    uint32_t v_before = bb_lifecycle_version(svc);
+
+    bb_lifecycle_binding_t binding;
+    TEST_ASSERT_EQUAL(BB_OK, bb_lifecycle_emit_binding_init(&binding, svc, classify_always_none));
+
+    bb_emit_fn trampoline = bb_lifecycle_emit_binding_fn();
+    trampoline(&binding, "producer.topic", 3, NULL, 0);
+
+    TEST_ASSERT_EQUAL(BB_LIFECYCLE_STOPPED, bb_lifecycle_state(svc));
+    TEST_ASSERT_EQUAL(v_before, bb_lifecycle_version(svc));
+}
+
+// NULL/malformed ctx is a no-op, never a crash.
+void test_bb_lifecycle_emit_binding_trampoline_null_ctx_is_noop(void)
+{
+    bb_emit_fn trampoline = bb_lifecycle_emit_binding_fn();
+    TEST_ASSERT_NOT_NULL(trampoline);
+    trampoline(NULL, "producer.topic", 1, NULL, 0); // must not crash
 }
 
 // ---------------------------------------------------------------------------

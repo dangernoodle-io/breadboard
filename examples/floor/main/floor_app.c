@@ -36,6 +36,16 @@ static const char *TAG = "floor_app";
 // zero-handle match.
 static bb_lifecycle_svc_t s_http_svc = BB_LIFECYCLE_SVC_INVALID;
 
+// B1-1045 PR-1: dormant "wifi" bb_lifecycle service + its caller-owned
+// emit-seam binding (bb_lifecycle_binding_t, bb_lifecycle_emit_binding_init).
+// Proves the new API compiles + composes + links in the real handwire
+// composition root -- registered but never started, and NOT wired onto
+// bb_wifi's emit seam (bb_wifi_set_emit still takes only a bare cb; the
+// real ctx-carrying wire-up is a later PR). File-scope like s_http_svc,
+// mirroring its idiom.
+static bb_lifecycle_svc_t     s_wifi_svc = BB_LIFECYCLE_SVC_INVALID;
+static bb_lifecycle_binding_t s_wifi_lifecycle_binding;
+
 // Real httpd socket state, set synchronously by http_lifecycle_observer (it
 // fires inside bb_lifecycle_start() on this same task) -- the SSOT for
 // whether bb_http_server_start() actually succeeded. bb_lifecycle_start()
@@ -248,6 +258,25 @@ void app_main(void)
             // is actually up. If register/observe/start fail, the
             // observer's start edge never fires and s_httpd_up stays
             // false, so no separate else-branch is needed here.
+        }
+    }
+
+    // B1-1045 PR-1: register (but do not start) a dormant "wifi" bb_lifecycle
+    // service and initialize its caller-owned emit-seam binding over
+    // bb_wifi_classify_lifecycle -- inert scaffolding proving the new
+    // bb_lifecycle_binding_t/bb_lifecycle_emit_binding_init API compiles and
+    // links at this composition root. Never started, never wired onto
+    // bb_wifi's emit seam (bb_wifi_set_emit is not repointed here -- that's
+    // a later PR).
+    bb_lifecycle_config_t wifi_cfg = { .name = "wifi" };
+    err = bb_lifecycle_register(&wifi_cfg, &s_wifi_svc);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "lifecycle_register(wifi) failed (%d)", (int)err);
+    } else {
+        err = bb_lifecycle_emit_binding_init(&s_wifi_lifecycle_binding, s_wifi_svc,
+                                             bb_wifi_classify_lifecycle);
+        if (err != BB_OK) {
+            bb_log_w(TAG, "lifecycle_emit_binding_init(wifi) failed (%d)", (int)err);
         }
     }
 

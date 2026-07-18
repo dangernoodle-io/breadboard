@@ -199,15 +199,21 @@ static bb_err_t reason_intern_locked(const char *reason, uint8_t *out_bit)
 // ---------------------------------------------------------------------------
 // Generic emit sink (bb_lifecycle.h bb_lifecycle_set_emit). Bus-shaped
 // (bb_emit_fn, bb_core/bb_emit.h). The generated invoke is forward-declared
-// here (external linkage, matching what BB_CALLBACK_SLOT_VOID defines below)
-// so it has an explicit prototype at every use site -- keeps this file clean
-// under -Wmissing-prototypes.
+// here (external linkage, matching what BB_CALLBACK_SLOT_VOID_CTX defines
+// below) so it has an explicit prototype at every use site -- keeps this
+// file clean under -Wmissing-prototypes.
 // ---------------------------------------------------------------------------
 void bb_lifecycle_emit_invoke(const char *topic, int32_t id, const void *payload, size_t size);
 
-BB_CALLBACK_SLOT_VOID(emit, bb_emit_fn, bb_lifecycle_set_emit, bb_lifecycle_emit_invoke,
-                      (const char *topic, int32_t id, const void *payload, size_t size),
-                      (topic, id, payload, size))
+// B1-1045 PR-1: bb_lifecycle_set_emit now takes (cb, ctx) via
+// BB_CALLBACK_SLOT_VOID_CTX -- a required consequence of bb_emit_fn gaining
+// a leading ctx param, not a repoint (bb_lifecycle_emit_invoke's own 4-arg
+// shape, and notify_all()'s existing call to it below, stay untouched; ctx
+// is injected internally). Currently always NULL from codegen (PR-1 is
+// inert scaffolding; a real per-consumer ctx binding lands in a later PR).
+BB_CALLBACK_SLOT_VOID_CTX(emit, bb_emit_fn, bb_lifecycle_set_emit, bb_lifecycle_emit_invoke,
+                          (const char *topic, int32_t id, const void *payload, size_t size),
+                          (topic, id, payload, size))
 
 // ---------------------------------------------------------------------------
 // Handle validation + PUSH/PULL delivery
@@ -556,6 +562,53 @@ bb_err_t bb_lifecycle_observe(bb_lifecycle_observer_fn cb, void *user)
     return bb_lifecycle_priv_observe_slot(cb, user, false);
 }
 
+// ---------------------------------------------------------------------------
+// Emit-seam producer binding (bb_lifecycle.h bb_lifecycle_emit_binding_init /
+// bb_lifecycle_emit_binding_fn, B1-1045 PR-1) -- caller-owned, no hidden
+// static/pool. Dormant scaffolding: nothing in this PR wires the trampoline
+// below onto any producer's emit seam.
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_lifecycle_emit_binding_init(bb_lifecycle_binding_t *out,
+                                        bb_lifecycle_svc_t svc,
+                                        bb_lifecycle_classify_fn classify)
+{
+    if (!out || !classify || !svc_valid(svc)) return BB_ERR_INVALID_ARG;
+    out->svc = svc;
+    out->classify = classify;
+    return BB_OK;
+}
+
+// The single static trampoline every bb_lifecycle_binding_t is driven
+// through (accessor: bb_lifecycle_emit_binding_fn below). bb_emit_fn-shaped:
+// reads ctx as a bb_lifecycle_binding_t*, classifies (id, payload, size) via
+// binding->classify, and on START/STOP drives the bound service. NULL-safe
+// no-op on a NULL/malformed ctx; `topic` is unused (classification is
+// id-only, per the producer's own classify contract).
+static void bb_lifecycle_emit_trampoline(void *ctx, const char *topic, int32_t id,
+                                         const void *payload, size_t size)
+{
+    (void)topic;
+    bb_lifecycle_binding_t *binding = (bb_lifecycle_binding_t *)ctx;
+    if (!binding || !binding->classify) return;
+    switch (binding->classify((uint32_t)id, payload, size)) {
+    case BB_LIFECYCLE_ACTION_START:
+        bb_lifecycle_start(binding->svc);
+        break;
+    case BB_LIFECYCLE_ACTION_STOP:
+        bb_lifecycle_stop(binding->svc);
+        break;
+    case BB_LIFECYCLE_ACTION_NONE:
+    default:
+        break;
+    }
+}
+
+bb_emit_fn bb_lifecycle_emit_binding_fn(void)
+{
+    return bb_lifecycle_emit_trampoline;
+}
+
 #ifdef BB_LIFECYCLE_TESTING
 void bb_lifecycle_reset_for_test(void)
 {
@@ -568,6 +621,6 @@ void bb_lifecycle_reset_for_test(void)
     memset(s_observers, 0, sizeof(s_observers));
     atomic_store(&s_observer_count, 0);
     bb_lock_unlock(&s_lock);
-    bb_lifecycle_set_emit(NULL);
+    bb_lifecycle_set_emit(NULL, NULL);
 }
 #endif

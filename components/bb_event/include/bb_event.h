@@ -51,13 +51,16 @@ bb_err_t bb_event_post(bb_event_topic_t topic, int32_t id,
 
 // Post by topic NAME (register-or-lookup then post). String-keyed peer of
 // bb_event_post, for producers that hold no bb_event_topic_t handle. Matches
-// bb_emit_fn's (topic, id, payload, size) shape exactly (see bb_emit.h) so it
-// can be assigned directly as a generic emit sink -- void return, logs on
-// register/post failure internally rather than propagating bb_err_t (an emit
-// sink has no caller able to act on the error anyway). Register-or-lookup is
-// idempotent-per-call (topics are capped low, cheap); no handle is cached.
+// bb_emit_fn's (ctx, topic, id, payload, size) shape exactly (see bb_emit.h)
+// so it can be assigned directly as a generic emit sink -- void return, logs
+// on register/post failure internally rather than propagating bb_err_t (an
+// emit sink has no caller able to act on the error anyway). Register-or-lookup
+// is idempotent-per-call (topics are capped low, cheap); no handle is cached.
+// `ctx` (B1-1045 PR-1) is IGNORED -- bb_event stays retained-state-free; a
+// producer's ctx is meaningful only to that producer's own classify/binding
+// logic, never to the generic bus sink.
 // bbtool:provides key=emit_sink symbol=bb_event_emit
-void bb_event_emit(const char *name, int32_t id,
+void bb_event_emit(void *ctx, const char *name, int32_t id,
                    const void *data, size_t size);
 
 // Cooperative dispatch: drain up to budget events (or all if budget=0); returns count dispatched.
