@@ -127,11 +127,16 @@ paths = []
 # dogfoods scaffold on breadboard's own [env:native] host test env
 # (custom_bb_board = native in platformio.ini), replacing the old
 # scripts/native_scaffold.py hand-maintained COMPONENT_MAP.
+#
+# bb_data_http (B1-1033 PR-2) lives here only because `core` is the sole
+# capability that reaches the host build/test graph today -- there is no
+# dedicated http/egress capability yet. Provisional: revisit once PR-3 wires
+# a real espidf consumer (B1-1045) and/or an http/egress capability exists.
 [capability.core]
 components = [
     "bb_attrs", "bb_board", "bb_bqueue", "bb_button",
     "bb_button_events", "bb_button_gpio", "bb_cache", "bb_cache_reactive", "bb_cache_serialize",
-    "bb_cache_routes", "bb_collection", "bb_config", "bb_core", "bb_data", "bb_diag", "bb_dispatch_cmd",
+    "bb_cache_routes", "bb_collection", "bb_config", "bb_core", "bb_data", "bb_data_http", "bb_diag", "bb_dispatch_cmd",
     "bb_display", "bb_event", "bb_event_ring", "bb_event_routes",
     "bb_fan", "bb_filter", "bb_fmt", "bb_fsm", "bb_health", "bb_http",
     "bb_http_client", "bb_http_server", "bb_i2c", "bb_json",
