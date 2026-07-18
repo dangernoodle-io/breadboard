@@ -1,6 +1,7 @@
 // ESP-IDF port for bb_http_client — wraps esp_http_client_perform with the
 // retry / TLS-bundle pattern proven in bb_ota_pull.
 #include "bb_http_client.h"
+#include "bb_http_client_health.h"  // PRIV_INCLUDE_DIRS "src" (B1-1041 per-session health)
 #include "bb_log.h"
 #include "bb_mem.h"
 
@@ -332,6 +333,7 @@ bb_err_t bb_http_client_post(const char *url,
 
 typedef struct {
     esp_http_client_handle_t client;
+    bb_http_client_health_state_t health;  // B1-1041: per-session health
 } espidf_session_t;
 
 bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
@@ -369,6 +371,8 @@ bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
         return BB_ERR_INVALID_STATE;
     }
 
+    pthread_mutex_init(&s->health.lock, NULL);  // B1-1041
+
     *out = (bb_http_client_session_t)s;
     return BB_OK;
 }
@@ -398,6 +402,11 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t sess,
         out->body_len     = 0;
         out->truncated    = false;
         out->tls_error_code = tls_code;
+        // B1-1041: transport failure -- connected=false, fail_count++.
+        bb_http_client_priv_health_report(&s->health, false, 0);
+        if (tls_code != 0) {
+            bb_http_client_priv_health_set_tls_error(&s->health, tls_code);
+        }
         return BB_ERR_INVALID_STATE;
     }
 
@@ -406,6 +415,11 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t sess,
     out->body_len    = 0;
     out->truncated   = false;
     out->tls_error_code = 0;
+    // B1-1041: round trip completed -- connected=true, last_ok_ms stamped;
+    // status_code >= 500 also bumps fail_count (see the reporting policy in
+    // bb_http_client.h). tls_error_code is left untouched (0 here is not a
+    // real error to record, not a reset).
+    bb_http_client_priv_health_report(&s->health, true, status);
 
     if (status < 200 || status >= 300) {
         bb_log_w(TAG, "session POST %s: HTTP %d", url, status);
@@ -413,6 +427,20 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t sess,
     }
 
     bb_log_d(TAG, "session POST %s -> %d", url, status);
+    return BB_OK;
+}
+
+bb_err_t bb_http_client_session_health_fill(bb_http_client_session_t sess,
+                                            bb_http_client_session_health_snap_t *out)
+{
+    if (!sess || !out) return BB_ERR_INVALID_ARG;
+    espidf_session_t *s = (espidf_session_t *)sess;
+    pthread_mutex_lock(&s->health.lock);
+    out->connected      = s->health.connected;
+    out->last_ok_ms     = s->health.last_ok_ms;
+    out->fail_count     = (uint64_t)s->health.fail_count;
+    out->tls_error_code = s->health.tls_error_code;
+    pthread_mutex_unlock(&s->health.lock);
     return BB_OK;
 }
 
@@ -434,5 +462,7 @@ void bb_http_client_session_close(bb_http_client_session_t sess)
         esp_http_client_cleanup(s->client);
         s->client = NULL;
     }
+    bb_http_client_priv_health_close(&s->health);  // B1-1041: clean close, fail_count untouched
+    pthread_mutex_destroy(&s->health.lock);
     bb_mem_free(s);
 }

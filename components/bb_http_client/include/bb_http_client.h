@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "bb_core.h"
+#include "bb_serialize.h"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -35,6 +36,15 @@ extern "C" {
 //              the host port header. Real network access is not implemented
 //              on host (intentionally — host tests must be hermetic).
 //   - Arduino: stub returning BB_ERR_UNSUPPORTED.
+//
+// Per-session health (B1-1041): only the keep-alive SESSION API
+// (bb_http_client_session_open/_post/_close) surfaces a health snapshot --
+// the one-shot bb_http_client_get/_get_stream/_post calls have no
+// persistent object to hang health on, so they are deliberately OUT OF
+// SCOPE. A caller that needs health for a one-shot-shaped workflow should
+// wrap it in a session instead. See bb_http_client_session_health_fill
+// below (near the session API) for the snapshot contract and reporting
+// policy.
 
 typedef struct {
     uint32_t timeout_ms;       // 0 -> 10000 (10 s)
@@ -186,6 +196,59 @@ bb_err_t bb_http_client_session_set_header(bb_http_client_session_t s,
 
 // Close the session and release all resources.  Safe to call with NULL.
 void bb_http_client_session_close(bb_http_client_session_t s);
+
+// ---------------------------------------------------------------------------
+// Per-session health snapshot (B1-1041) — format-agnostic wire surface,
+// mirroring bb_tcp_client_health_snap_t / bb_mqtt_client_health_snap_t /
+// bb_meminfo_heap_snap's descriptor+fill pattern. Every numeric field is
+// widened to a fixed 64-bit width so bb_serialize_walk()'s
+// BB_TYPE_I64/BB_TYPE_U64 cases (which always memcpy a fixed 8 bytes at the
+// descriptor offset) never read past a narrower platform type.
+//
+// SCOPE: session-mode only (see the top-of-file note) -- there is no
+// persistent object behind bb_http_client_get/_post to attach health to.
+//
+// Reporting policy — read this before wiring a consumer FSM off
+// bb_http_client_session_health_fill():
+//   - session_post() completes the round trip (any HTTP status code)
+//     -> connected=true, last_ok_ms stamped
+//   - session_post() status_code >= 500 (server error, transport OK)
+//     -> ALSO fail_count++
+//   - session_post() status_code in [400,499]
+//     -> fail_count NOT bumped -- a 4xx is a valid server response, not a
+//        transport failure
+//   - session_post() transport failure (DNS/TLS/socket, no response)
+//     -> connected=false, fail_count++ (status_code ignored)
+//   - session_close()
+//     -> connected=false, fail_count untouched -- a clean close is not a
+//        transport failure
+//   - tls_error_code is set whenever a session_post() result carries a
+//     non-zero tls_error_code (success or failure path) and otherwise left
+//     at its last-reported value -- never reset to 0 on a later success
+//
+// bb_http_client_session_health_fill() + bb_http_client_session_health_desc
+// give a consumer a format-agnostic snapshot of one session's health (the
+// bb_tcp_client_health_* / bb_mqtt_client_health_* pattern) -- bb exposes
+// RAW metrics; the consumer judges (no verdict here).
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    bool     connected;
+    int64_t  last_ok_ms;
+    uint64_t fail_count;
+    int64_t  tls_error_code;
+} bb_http_client_session_health_snap_t;
+
+extern const bb_serialize_desc_t bb_http_client_session_health_desc;
+
+/**
+ * Populates `out` from session `s`'s live health state.
+ *
+ * @return BB_OK on success; BB_ERR_INVALID_ARG if s is NULL/invalid or out
+ *         is NULL.
+ */
+bb_err_t bb_http_client_session_health_fill(bb_http_client_session_t s,
+                                            bb_http_client_session_health_snap_t *out);
 
 #ifdef __cplusplus
 }

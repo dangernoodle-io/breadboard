@@ -3990,6 +3990,15 @@ void test_bb_http_client_session_open_count_increments_per_open(void);
 void test_bb_http_client_session_last_keep_alive_false_when_cfg_null(void);
 void test_bb_http_client_session_last_keep_alive_true_when_cfg_sets_it(void);
 void test_bb_http_client_session_last_keep_alive_false_when_cfg_clears_it(void);
+void test_bb_http_client_session_health_fill_null_args_return_invalid_arg(void);
+void test_bb_http_client_session_health_fill_fresh_session_is_zeroed(void);
+void test_bb_http_client_session_post_2xx_sets_connected_and_stamps_last_ok_ms(void);
+void test_bb_http_client_session_post_transport_error_sets_disconnected_and_bumps_fail_count(void);
+void test_bb_http_client_session_post_4xx_does_not_bump_fail_count(void);
+void test_bb_http_client_session_post_5xx_bumps_fail_count(void);
+void test_bb_http_client_session_health_tls_error_code_set_on_failure(void);
+void test_bb_http_client_session_health_tls_error_code_not_reset_on_later_success(void);
+void test_bb_http_client_session_health_desc_walks_all_four_keys(void);
 void test_bb_http_client_host_set_session_calloc_overrides_allocator(void);
 void test_bb_http_client_host_set_session_calloc_null_reverts_to_real_calloc(void);
 
@@ -8628,6 +8637,15 @@ int main(void) {
     RUN_TEST(test_bb_http_client_session_last_keep_alive_false_when_cfg_null);
     RUN_TEST(test_bb_http_client_session_last_keep_alive_true_when_cfg_sets_it);
     RUN_TEST(test_bb_http_client_session_last_keep_alive_false_when_cfg_clears_it);
+    RUN_TEST(test_bb_http_client_session_health_fill_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_http_client_session_health_fill_fresh_session_is_zeroed);
+    RUN_TEST(test_bb_http_client_session_post_2xx_sets_connected_and_stamps_last_ok_ms);
+    RUN_TEST(test_bb_http_client_session_post_transport_error_sets_disconnected_and_bumps_fail_count);
+    RUN_TEST(test_bb_http_client_session_post_4xx_does_not_bump_fail_count);
+    RUN_TEST(test_bb_http_client_session_post_5xx_bumps_fail_count);
+    RUN_TEST(test_bb_http_client_session_health_tls_error_code_set_on_failure);
+    RUN_TEST(test_bb_http_client_session_health_tls_error_code_not_reset_on_later_success);
+    RUN_TEST(test_bb_http_client_session_health_desc_walks_all_four_keys);
     RUN_TEST(test_bb_http_client_host_set_session_calloc_overrides_allocator);
     RUN_TEST(test_bb_http_client_host_set_session_calloc_null_reverts_to_real_calloc);
 
