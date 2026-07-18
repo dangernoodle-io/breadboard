@@ -20,18 +20,40 @@ extern "C" {
 // never sees bb_data binding indices, only attach-table slots it owns
 // itself.
 //
-// event_cursor is reserved for PR-3 (shared EVENT ring + per-client cursor +
-// dropped:N, B1-1032) -- present so the struct shape matches the converged
-// design now, but unread/unwritten by this PR's sweep-step.
+// event_cursor (B1-1033 PR-3, KB 1443/1444) is this client's read position
+// into the shared EVENT ring (see bb_data_http_common.c's s_event_ring): the
+// next global push-sequence number this client has not yet drained. Set to
+// the ring's current total-pushed count on acquire -- a freshly-attached
+// client only receives EVENTs pushed AFTER it connects, never ring backlog
+// (mirrors an SSE "new events only" subscription rather than replay-on-
+// connect; STATE's fresh-render-on-connect semantics do not apply to EVENT).
+//
+// event_dropped / event_drop_marker_pending implement the backpressure
+// contract (see bb_data_http_sweep_step()'s EVENT drain doc): when this
+// client's own `outbound` queue has no room for a drained event, the event
+// is dropped (not evicted from the shared ring -- other clients are
+// unaffected) and event_dropped increments. A "dropped:N" marker frame is
+// queued for this client at the next opportunity outbound has room, then
+// event_drop_marker_pending clears; event_dropped itself is cumulative and
+// never resets (bb_data_http_client_dropped_count()).
+//
+// outbound_max_bytes mirrors the byte budget passed to bb_queue_create_ex()
+// for `outbound` at acquire time. bb_queue exposes no "would this push fit"
+// query, so the EVENT drain path (which must NOT rely on outbound's
+// BB_QUEUE_EVICT_OLDEST auto-eviction -- see the drop-not-evict rationale
+// above) keeps its own copy to pre-check room before pushing.
 struct bb_data_http_client {
     bool       in_use;
     int        fd;
     bool       is_ws;
     char       topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
-    uint32_t   event_cursor;                          // unused until PR-3
+    uint32_t   event_cursor;
+    uint32_t   event_dropped;
+    bool       event_drop_marker_pending;
     uint32_t   state_dirty_mask;
     uint32_t   state_seen_gen[BB_DATA_HTTP_MAX_ATTACH];
     bb_queue_t outbound;
+    size_t     outbound_max_bytes;
 };
 
 #ifdef BB_DATA_HTTP_TESTING
@@ -49,6 +71,10 @@ uint32_t bb_data_http_client_seen_gen_for_test(const bb_data_http_client_t *c, s
 // Returns the number of entries currently queued in client `c`'s outbound
 // bb_queue. Returns 0 if `c` is NULL.
 size_t bb_data_http_client_outbound_count_for_test(const bb_data_http_client_t *c);
+
+// Returns client `c`'s current event_cursor (next undrained EVENT global
+// sequence number). Returns 0 if `c` is NULL.
+uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *c);
 #endif
 
 #ifdef __cplusplus

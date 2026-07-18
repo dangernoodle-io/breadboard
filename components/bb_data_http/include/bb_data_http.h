@@ -10,12 +10,24 @@
  * serve any egress transport without a hard dependency on the data or
  * websocket layers.
  *
- * THIS PR (B1-1033 PR-2) ships the host-testable pure core + STATE replay
- * path only. No FreeRTOS task, no httpd, no real sockets -- the espidf
- * backend that drives bb_data_http_sweep_step() from a broadcaster task is a
- * later, HW-gated PR (B1-1045). EVENT replay (a shared bb_queue ring +
- * per-client cursor + dropped:N, B1-1032) is deferred to PR-3; this PR only
- * reserves the fd-table's event_cursor field.
+ * Host-testable pure core: no FreeRTOS task, no httpd, no real sockets --
+ * the espidf backend that drives bb_data_http_sweep_step() from a
+ * broadcaster task is a later, HW-gated PR (B1-1045).
+ *
+ * EVENT replay (B1-1032, this PR): a single SHARED bb_queue ring, fed by
+ * EVENT-kind attached keys, holds rendered frames in monotonic push order.
+ * Each active client tracks its own event_cursor (the next undrained global
+ * push-sequence number) and independently drains ring entries -- newer than
+ * its cursor and matching its topic_filter -- into its own outbound queue
+ * each sweep_step(). Unlike STATE (coalesced dirty-mask, latest value wins),
+ * EVENT is append-only: every detected generation change on an EVENT-kind
+ * key produces at most one ring push, and a slow client never causes another
+ * client's delivery to stall (the ring is never blocked on a reader). If a
+ * client's own outbound queue has no room for a drained event, that event is
+ * DROPPED for that client only (never evicted from the shared ring), its
+ * per-client dropped counter increments, and a "dropped:N" marker frame is
+ * queued for it as soon as outbound has room again -- see
+ * bb_data_http_client_dropped_count() and bb_data_http_sweep_step().
  *
  * Composition-root-owned attach table: bb_data_http_attach() maps a bb_data
  * key to a topic name. bb_data itself stays topic-agnostic -- the key<->topic
@@ -53,8 +65,8 @@ extern "C" {
 typedef struct bb_data_http_client bb_data_http_client_t;
 
 // ---------------------------------------------------------------------------
-// Replay kind (B1-1032) -- STATE is fully implemented by this PR; EVENT is a
-// deliberate no-op stub (deferred to PR-3, the shared ring + cursor design).
+// Replay kind (B1-1032) -- both STATE (coalesced dirty-mask) and EVENT
+// (shared ring + per-client cursor) are fully implemented.
 // ---------------------------------------------------------------------------
 typedef enum {
     BB_DATA_HTTP_STATE = 0,
@@ -120,7 +132,8 @@ void bb_data_http_set_send_fn(bb_data_http_send_fn fn, void *ctx);
 // ---------------------------------------------------------------------------
 
 typedef struct {
-    size_t max_clients;  // 0 -> CONFIG_BB_DATA_HTTP_MAX_CLIENTS
+    size_t max_clients;         // 0 -> CONFIG_BB_DATA_HTTP_MAX_CLIENTS
+    size_t event_ring_capacity; // 0 -> CONFIG_BB_DATA_HTTP_EVENT_RING_CAPACITY
 } bb_data_http_cfg_t;
 
 // Initialize the transport core. Idempotent; a second call returns BB_OK.
@@ -208,8 +221,28 @@ size_t bb_data_http_active_client_count(void);
 //      cadence. Once every dirty key has been drained into the queue, the
 //      queue is flushed via send_fn.
 //
-// EVENT-kind attached keys are skipped entirely by this PR (TODO PR-3: shared
-// bb_queue ring + per-client cursor + dropped:N, per KB 1442).
+// EVENT-kind attached keys follow a separate, append-only path within the
+// same sweep_step() call:
+//
+//   1. Ring feed: for each attached EVENT key whose generation (via
+//      generation_fn) differs from the module's own last-seen generation for
+//      that key, render_fn is called immediately (not deferred to a drain
+//      phase -- the shared ring has no per-client dirty state to coalesce
+//      against) and the rendered bytes are pushed onto the single shared
+//      EVENT ring. The last-seen generation for that key advances ONLY on
+//      render success (mirrors STATE's clear-only-on-success retry
+//      contract) so a failing render_fn is retried next sweep rather than
+//      silently skipping the event.
+//   2. Per-client drain: for each active, subscribed client, every ring
+//      entry newer than its event_cursor is drained into its own outbound
+//      queue and its cursor advances past it. If the ring itself has
+//      evicted entries older than a client's cursor (a slow client that
+//      fell behind the ring's own capacity), that gap counts as dropped for
+//      that client too. A client whose outbound has no room for a drained
+//      event does NOT stall the ring for other clients -- the event is
+//      dropped for that client only, its dropped counter increments, and a
+//      "dropped:N" marker frame is queued for it once outbound has room
+//      again (see bb_data_http_client_dropped_count()).
 //
 // A missing render_fn/generation_fn/send_fn degrades gracefully (see the
 // setters above) rather than crashing -- useful for host tests exercising
@@ -223,6 +256,13 @@ void bb_data_http_sweep_step(void);
 // (see bb_data_http_sweep_step() above) -- this counter is what makes a
 // persistently-failing render_fn observable instead of silently stuck.
 size_t bb_data_http_render_fail_count(void);
+
+// Diagnostics: cumulative count of EVENT-kind entries dropped for client `c`
+// because its own outbound queue had no room when drained (see
+// bb_data_http_sweep_step()'s EVENT drain doc). Cumulative -- never resets
+// across sweeps; a "dropped:N" marker frame is queued for the client as soon
+// as outbound has room, using this same value. Returns 0 if `c` is NULL.
+uint32_t bb_data_http_client_dropped_count(const bb_data_http_client_t *c);
 
 #ifdef BB_DATA_HTTP_TESTING
 // Test-only: releases every client, clears the attach table, clears the
