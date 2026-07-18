@@ -224,7 +224,7 @@ bb_err_t bb_data_http_init(const bb_data_http_cfg_t *cfg)
     }
 
     s_cfg.initialized = true;
-    bb_log_i(TAG, "initialized: max_clients=%zu event_ring_capacity=%zu", s_cfg.max_clients, ring_capacity);
+    bb_log_i(TAG, "initialized: max_clients=%u event_ring_capacity=%u", (unsigned)s_cfg.max_clients, (unsigned)ring_capacity);
     return BB_OK;
 }
 

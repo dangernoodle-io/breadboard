@@ -151,8 +151,8 @@ bb_err_t bb_queue_create_ex(const bb_queue_cfg_t *cfg, bb_queue_t *out)
         r->name[0] = '\0';
     }
 
-    bb_log_i(TAG, "created ring '%s': capacity=%zu max_entry=%zu policy=%d max_bytes=%zu max_age=%" PRIu32,
-             r->name, r->capacity, r->max_entry, (int)r->policy, r->max_bytes, r->max_age);
+    bb_log_i(TAG, "created ring '%s': capacity=%u max_entry=%u policy=%d max_bytes=%u max_age=%" PRIu32,
+             r->name, (unsigned)r->capacity, (unsigned)r->max_entry, (int)r->policy, (unsigned)r->max_bytes, r->max_age);
 
     // Best-effort self-registration for GET /api/diag/rings — a full
     // registry or a duplicate name is logged (inside bb_queue_registry) and
@@ -246,7 +246,7 @@ bb_err_t bb_queue_push(bb_queue_t r, const void *data, size_t len,
     // Reject oversized entries
     if (len > r->max_entry) {
         r->truncated++;
-        bb_log_w(TAG, "push rejected: len=%zu > max_entry=%zu", len, r->max_entry);
+        bb_log_w(TAG, "push rejected: len=%u > max_entry=%u", (unsigned)len, (unsigned)r->max_entry);
         return BB_ERR_INVALID_ARG;
     }
 

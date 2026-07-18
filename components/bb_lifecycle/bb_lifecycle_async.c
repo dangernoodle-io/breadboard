@@ -284,7 +284,7 @@ void bb_lifecycle_priv_async_notify(const bb_lifecycle_event_t *evt)
     if (expired && atomic_compare_exchange_strong(&s_drop_log_last_ms, &last, now)) {
         size_t dropped = 0;
         bb_bqueue_dropped(s_async_q, &dropped);
-        bb_log_w(TAG, "async queue full, dropping event (total dropped=%zu)", dropped);
+        bb_log_w(TAG, "async queue full, dropping event (total dropped=%u)", (unsigned)dropped);
     }
 }
 

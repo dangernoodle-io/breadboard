@@ -198,9 +198,9 @@ static void requery_work_fn(void *arg)
 
         if (s_state.txt_fields && s_state.txt_count > 0) {
             if (r->txt_count > BB_MDNS_CACHE_REQUERY_TXT_MAX) {
-                bb_log_w(TAG, "requery: %s has %zu TXT records, truncating to %d",
+                bb_log_w(TAG, "requery: %s has %u TXT records, truncating to %d",
                          r->instance_name ? r->instance_name : "(null)",
-                         r->txt_count, BB_MDNS_CACHE_REQUERY_TXT_MAX);
+                         (unsigned)r->txt_count, BB_MDNS_CACHE_REQUERY_TXT_MAX);
             }
             bb_mdns_txt_t txt_view[BB_MDNS_CACHE_REQUERY_TXT_MAX] = {0};
             size_t n = r->txt_count > BB_MDNS_CACHE_REQUERY_TXT_MAX
@@ -236,8 +236,8 @@ bb_err_t bb_mdns_cache_start(const bb_mdns_cache_config_t *cfg)
             bb_log_e(TAG, "bb_mdns_cache_start: txt_fields set but entry_size == 0");
         } else {
             size_t entry_size = cfg->entry_size ? cfg->entry_size : sizeof(bb_mdns_cache_entry_t);
-            bb_log_e(TAG, "bb_mdns_cache_start: entry_size %zu exceeds BB_MDNS_CACHE_ENTRY_MAX %d",
-                     entry_size, BB_MDNS_CACHE_ENTRY_MAX);
+            bb_log_e(TAG, "bb_mdns_cache_start: entry_size %u exceeds BB_MDNS_CACHE_ENTRY_MAX %d",
+                     (unsigned)entry_size, BB_MDNS_CACHE_ENTRY_MAX);
         }
         return verr;
     }

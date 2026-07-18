@@ -161,7 +161,7 @@ static esp_err_t ws_shim_handler(httpd_req_t *req)
     if (ws_pkt.len > 0) {
         buf = bb_calloc_prefer_spiram(1, ws_pkt.len + 1);
         if (!buf) {
-            bb_log_e(TAG, "ws recv alloc failed (%zu bytes)", ws_pkt.len);
+            bb_log_e(TAG, "ws recv alloc failed (%u bytes)", (unsigned)ws_pkt.len);
             return ESP_ERR_NO_MEM;
         }
         ws_pkt.payload = buf;

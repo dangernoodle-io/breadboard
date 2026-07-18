@@ -178,7 +178,7 @@ bb_err_t bb_tcp_client_write(bb_tcp_client_t h, const uint8_t *buf, size_t len)
         uint32_t now_ms = bb_clock_now_ms();
         int32_t remaining_ms = (int32_t)(deadline_ms - now_ms);
         if (remaining_ms <= 0) {
-            bb_log_w(TAG, "write timed out after %zu/%zu bytes", total, len);
+            bb_log_w(TAG, "write timed out after %u/%u bytes", (unsigned)total, (unsigned)len);
             record_tls_error(inst, inst->transport);
             bb_tcp_client_priv_health_report(&inst->health, false);
             return BB_ERR_INVALID_STATE;
