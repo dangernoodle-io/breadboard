@@ -2,6 +2,7 @@ idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_storage_nvs/bb_storage_nvs.c"
          "${CMAKE_CURRENT_LIST_DIR}/src/bb_storage_nvs_get_decision.c"
          "${CMAKE_CURRENT_LIST_DIR}/src/bb_storage_nvs_classify_enc.c"
+         "${CMAKE_CURRENT_LIST_DIR}/src/bb_storage_nvs_classify_nvs_type.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES bb_core
