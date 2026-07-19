@@ -41,6 +41,30 @@ extern "C" {
 #endif
 
 // ---------------------------------------------------------------------------
+// Request-scoped query-param carrier -- a neutral, HTTP-agnostic filter
+// argument a caller (e.g. bb_data_render()) can thread down to a producer's
+// gather/fill hook. Plain data -- no httpd types anywhere in this. Lives
+// here (not bb_data) so a filtered producer (e.g. bb_storage's diag fill fn)
+// can depend on bb_serialize alone and stay bb_data-free.
+// ---------------------------------------------------------------------------
+
+#define BB_SERIALIZE_QUERY_MAX_PARAMS 4  // fixed cap, no heap
+
+typedef struct {
+    const char *key;
+    const char *value;
+} bb_serialize_query_param_t;
+
+typedef struct {
+    bb_serialize_query_param_t params[BB_SERIALIZE_QUERY_MAX_PARAMS];
+    size_t                     count;
+} bb_serialize_query_t;
+
+// Looks up `key` in `q`'s params, first match wins. NULL-safe: `q == NULL`
+// or no match returns NULL (never BB_ERR_*, this is a plain lookup helper).
+const char *bb_serialize_query_get(const bb_serialize_query_t *q, const char *key);
+
+// ---------------------------------------------------------------------------
 // Runtime carriers -- the value found AT a field's offset for indirect types
 // ---------------------------------------------------------------------------
 

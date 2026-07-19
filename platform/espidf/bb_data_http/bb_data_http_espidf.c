@@ -193,8 +193,13 @@ static bb_err_t espidf_render_fn(const char *key, char *buf, size_t cap,
                                   size_t *out_len, void *ctx)
 {
     (void)ctx;
-    return bb_data_render(BB_FORMAT_JSON, key, s_render_scratch,
-                          sizeof(s_render_scratch), buf, cap, out_len);
+    // Broadcaster sweep is query-less -- no per-request params to forward.
+    bb_data_render_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = key, .query = NULL,
+        .scratch = s_render_scratch, .scratch_cap = sizeof(s_render_scratch),
+        .buf = buf, .buf_cap = cap, .out_len = out_len,
+    };
+    return bb_data_render(&req);
 }
 
 static bb_err_t espidf_generation_fn(const char *key, uint32_t *out_gen, void *ctx)

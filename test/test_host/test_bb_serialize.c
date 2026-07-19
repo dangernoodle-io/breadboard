@@ -757,3 +757,62 @@ void test_bb_serialize_walk_null_args_is_noop(void)
 
     TEST_ASSERT_EQUAL_UINT(0, s_rec_n);
 }
+
+// ---------------------------------------------------------------------------
+// bb_serialize_query_get -- request-scoped query-param carrier (relocated
+// from bb_data so a filtered producer can depend on bb_serialize alone).
+// ---------------------------------------------------------------------------
+
+void test_bb_serialize_query_get_returns_matching_value(void)
+{
+    bb_serialize_query_t q = {
+        .params = { { .key = "type", .value = "raw" }, { .key = "n", .value = "5" } },
+        .count  = 2,
+    };
+    TEST_ASSERT_EQUAL_STRING("raw", bb_serialize_query_get(&q, "type"));
+    TEST_ASSERT_EQUAL_STRING("5", bb_serialize_query_get(&q, "n"));
+}
+
+void test_bb_serialize_query_get_missing_key_returns_null(void)
+{
+    bb_serialize_query_t q = {
+        .params = { { .key = "type", .value = "raw" } },
+        .count  = 1,
+    };
+    TEST_ASSERT_NULL(bb_serialize_query_get(&q, "nope"));
+}
+
+void test_bb_serialize_query_get_null_query_returns_null(void)
+{
+    TEST_ASSERT_NULL(bb_serialize_query_get(NULL, "type"));
+}
+
+void test_bb_serialize_query_get_null_key_returns_null(void)
+{
+    bb_serialize_query_t q = {
+        .params = { { .key = "type", .value = "raw" } },
+        .count  = 1,
+    };
+    TEST_ASSERT_NULL(bb_serialize_query_get(&q, NULL));
+}
+
+// A caller-supplied count exceeding the fixed params[] capacity (e.g. a
+// future HTTP query-string parser feeding untrusted input) must be clamped
+// to BB_SERIALIZE_QUERY_MAX_PARAMS -- never trusted past the array's actual
+// bound. Asserts a defined result (no OOB read/crash under ASan/valgrind)
+// and that only the first MAX_PARAMS entries are ever consulted: a key
+// that would only exist "past" the clamp is correctly reported missing.
+void test_bb_serialize_query_get_count_over_capacity_is_clamped(void)
+{
+    bb_serialize_query_t q = {
+        .params = { { .key = "a", .value = "1" }, { .key = "b", .value = "2" },
+                    { .key = "c", .value = "3" }, { .key = "d", .value = "4" } },
+        .count  = BB_SERIALIZE_QUERY_MAX_PARAMS + 100,  // deliberately over capacity
+    };
+    TEST_ASSERT_EQUAL_STRING("1", bb_serialize_query_get(&q, "a"));
+    TEST_ASSERT_EQUAL_STRING("4", bb_serialize_query_get(&q, "d"));
+    // Never reads past params[BB_SERIALIZE_QUERY_MAX_PARAMS - 1] regardless
+    // of the inflated count -- a key that isn't actually present is still
+    // correctly reported missing, not an OOB match.
+    TEST_ASSERT_NULL(bb_serialize_query_get(&q, "nope"));
+}

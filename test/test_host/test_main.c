@@ -143,6 +143,11 @@ void test_bb_serialize_walk_null_args_is_noop(void);
 void test_bb_serialize_arr_of_obj_depth_guard_bails_on_self_reference(void);
 void test_bb_serialize_unknown_type_is_noop(void);
 void test_bb_serialize_desc_find_skips_null_key_field(void);
+void test_bb_serialize_query_get_returns_matching_value(void);
+void test_bb_serialize_query_get_missing_key_returns_null(void);
+void test_bb_serialize_query_get_null_query_returns_null(void);
+void test_bb_serialize_query_get_null_key_returns_null(void);
+void test_bb_serialize_query_get_count_over_capacity_is_clamped(void);
 
 // Forward declarations from test_bb_serialize_format.c
 void test_bb_format_name_none_returns_null(void);
@@ -188,6 +193,8 @@ void test_bb_data_render_gather_failure_propagates(void);
 void test_bb_data_render_buf_too_small_returns_no_space(void);
 void test_bb_data_render_scratch_too_small_returns_no_space(void);
 void test_bb_data_render_unsupported_format_skips_gather(void);
+void test_bb_data_render_forwards_query_to_gather(void);
+void test_bb_data_render_null_query_still_works(void);
 void test_bb_data_generation_fresh_binding_is_zero(void);
 void test_bb_data_touch_bumps_generation_by_one(void);
 void test_bb_data_touch_repeated_calls_are_monotonic(void);
@@ -9207,6 +9214,11 @@ int main(void) {
     RUN_TEST(test_bb_serialize_arr_of_obj_depth_guard_bails_on_self_reference);
     RUN_TEST(test_bb_serialize_unknown_type_is_noop);
     RUN_TEST(test_bb_serialize_desc_find_skips_null_key_field);
+    RUN_TEST(test_bb_serialize_query_get_returns_matching_value);
+    RUN_TEST(test_bb_serialize_query_get_missing_key_returns_null);
+    RUN_TEST(test_bb_serialize_query_get_null_query_returns_null);
+    RUN_TEST(test_bb_serialize_query_get_null_key_returns_null);
+    RUN_TEST(test_bb_serialize_query_get_count_over_capacity_is_clamped);
 
     // bb_serialize_populate
     RUN_TEST(test_bb_serialize_populate_flat_scalars);
@@ -9728,6 +9740,8 @@ int main(void) {
     RUN_TEST(test_bb_data_render_buf_too_small_returns_no_space);
     RUN_TEST(test_bb_data_render_scratch_too_small_returns_no_space);
     RUN_TEST(test_bb_data_render_unsupported_format_skips_gather);
+    RUN_TEST(test_bb_data_render_forwards_query_to_gather);
+    RUN_TEST(test_bb_data_render_null_query_still_works);
     RUN_TEST(test_bb_data_generation_fresh_binding_is_zero);
     RUN_TEST(test_bb_data_touch_bumps_generation_by_one);
     RUN_TEST(test_bb_data_touch_repeated_calls_are_monotonic);

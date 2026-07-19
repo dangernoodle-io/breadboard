@@ -95,17 +95,19 @@ static void heap_log_tick(void *arg)
 #define FLOOR_DIAG_RENDER_BUF_SIZE 2560
 
 // bb_data gather adapters: bb_data_gather_fn's signature is untyped
-// (void *dst, void *ctx); each snap's own _fill()/_gather() fn takes its
-// typed pointer, so these thin shims are the only cast needed.
-static bb_err_t gather_meminfo(void *dst, void *ctx)
+// (void *dst, const bb_data_gather_args_t *args); each snap's own
+// _fill()/_gather() fn takes its typed pointer, so these thin shims are the
+// only cast needed. None of these three keys take request-scoped query
+// params yet -- args->query is ignored.
+static bb_err_t gather_meminfo(void *dst, const bb_data_gather_args_t *args)
 {
-    (void)ctx;
+    (void)args;
     return bb_meminfo_heap_snap_fill((bb_meminfo_heap_snap_t *)dst);
 }
 
-static bb_err_t gather_system(void *dst, void *ctx)
+static bb_err_t gather_system(void *dst, const bb_data_gather_args_t *args)
 {
-    (void)ctx;
+    (void)args;
     return bb_system_snap_fill((bb_system_snap_t *)dst);
 }
 
@@ -113,9 +115,9 @@ static bb_err_t gather_system(void *dst, void *ctx)
 // producer's PR-2 plain gather -- portable/host-testable at the producer's
 // own layer (see bb_log_event_gather()'s doc comment); this composition
 // root just supplies the untyped bb_data_gather_fn cast.
-static bb_err_t gather_log(void *dst, void *ctx)
+static bb_err_t gather_log(void *dst, const bb_data_gather_args_t *args)
 {
-    (void)ctx;
+    (void)args;
     return bb_log_event_gather((bb_log_event_wire_t *)dst);
 }
 
@@ -130,7 +132,12 @@ static bb_err_t floor_diag_render(bb_http_request_t *req, const char *key,
     char   buf[FLOOR_DIAG_RENDER_BUF_SIZE];
     size_t len = 0;
 
-    bb_err_t rc = bb_data_render(BB_FORMAT_JSON, key, scratch, scratch_cap, buf, sizeof(buf), &len);
+    bb_data_render_req_t render_req = {
+        .fmt = BB_FORMAT_JSON, .key = key, .query = NULL,
+        .scratch = scratch, .scratch_cap = scratch_cap,
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &len,
+    };
+    bb_err_t rc = bb_data_render(&render_req);
     bb_http_resp_set_type(req, "application/json");
     if (rc != BB_OK) {
         bb_http_resp_set_status(req, 500);

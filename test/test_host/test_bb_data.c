@@ -36,26 +36,39 @@ static const bb_serialize_desc_t s_dt_desc = {
     .snap_size = sizeof(dt_snap_t),
 };
 
-static bb_err_t dt_gather_ok(void *dst, void *ctx)
+static bb_err_t dt_gather_ok(void *dst, const bb_data_gather_args_t *args)
 {
-    ((dt_snap_t *)dst)->n = *(int64_t *)ctx;
+    ((dt_snap_t *)dst)->n = *(int64_t *)args->ctx;
     return BB_OK;
 }
 
-static bb_err_t dt_gather_fail(void *dst, void *ctx)
+static bb_err_t dt_gather_fail(void *dst, const bb_data_gather_args_t *args)
 {
     (void)dst;
-    (void)ctx;
+    (void)args;
     return BB_ERR_INVALID_STATE;
 }
 
 // Adapter: bb_meminfo_heap_snap_fill() takes a single out-param, not the
-// (dst, ctx) shape bb_data_gather_fn requires -- wrap rather than cast the
+// (dst, args) shape bb_data_gather_fn requires -- wrap rather than cast the
 // fn pointer across a mismatched signature.
-static bb_err_t dt_gather_meminfo(void *dst, void *ctx)
+static bb_err_t dt_gather_meminfo(void *dst, const bb_data_gather_args_t *args)
 {
-    (void)ctx;
+    (void)args;
     return bb_meminfo_heap_snap_fill((bb_meminfo_heap_snap_t *)dst);
+}
+
+// Asserts the request-scoped query carried through to the gather hook
+// matches the expected "type" value, then fills the snapshot like
+// dt_gather_ok().
+static const char *s_dt_gather_query_expected_type = NULL;
+
+static bb_err_t dt_gather_query(void *dst, const bb_data_gather_args_t *args)
+{
+    TEST_ASSERT_EQUAL_STRING(s_dt_gather_query_expected_type,
+                              bb_serialize_query_get(args->query, "type"));
+    ((dt_snap_t *)dst)->n = *(int64_t *)args->ctx;
+    return BB_OK;
 }
 
 // Registers a fake format under BB_FORMAT_JSON: a REAL JSON renderer
@@ -102,9 +115,12 @@ void test_bb_data_bind_override_replaces_binding(void)
     char   scratch[sizeof(dt_snap_t)];
     char   buf[64];
     size_t out_len = 0;
-    TEST_ASSERT_EQUAL(BB_OK,
-                       bb_data_render(BB_FORMAT_JSON, "dt.override", scratch, sizeof(scratch), buf, sizeof(buf),
-                                      &out_len));
+    bb_data_render_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.override", .query = NULL,
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_render(&req));
     TEST_ASSERT_EQUAL_STRING("{\"n\":2}", buf);
 }
 
@@ -188,8 +204,12 @@ void test_bb_data_render_happy_path_with_meminfo_fixture(void)
     bb_meminfo_heap_snap_t scratch;
     char                   buf[1024];
     size_t                 out_len = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_render(BB_FORMAT_JSON, "dt.meminfo", &scratch, sizeof(scratch), buf,
-                                             sizeof(buf), &out_len));
+    bb_data_render_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.meminfo", .query = NULL,
+        .scratch = &scratch, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_render(&req));
     TEST_ASSERT_TRUE(out_len > 0);
     TEST_ASSERT_EQUAL_UINT(strlen(buf), out_len);
 }
@@ -202,9 +222,12 @@ void test_bb_data_render_unbound_key_returns_not_found(void)
     char   scratch[sizeof(dt_snap_t)];
     char   buf[64];
     size_t out_len = 0;
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND,
-                       bb_data_render(BB_FORMAT_JSON, "dt.nope", scratch, sizeof(scratch), buf, sizeof(buf),
-                                      &out_len));
+    bb_data_render_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.nope", .query = NULL,
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_data_render(&req));
 }
 
 void test_bb_data_render_unregistered_format_returns_unsupported(void)
@@ -219,9 +242,12 @@ void test_bb_data_render_unregistered_format_returns_unsupported(void)
     char   scratch[sizeof(dt_snap_t)];
     char   buf[64];
     size_t out_len = 0;
-    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED,
-                       bb_data_render(BB_FORMAT_JSON, "dt.nofmt", scratch, sizeof(scratch), buf, sizeof(buf),
-                                      &out_len));
+    bb_data_render_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.nofmt", .query = NULL,
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_data_render(&req));
 }
 
 void test_bb_data_render_gather_failure_propagates(void)
@@ -235,9 +261,12 @@ void test_bb_data_render_gather_failure_propagates(void)
     char   scratch[sizeof(dt_snap_t)];
     char   buf[64];
     size_t out_len = 0;
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE,
-                       bb_data_render(BB_FORMAT_JSON, "dt.gatherfail", scratch, sizeof(scratch), buf, sizeof(buf),
-                                      &out_len));
+    bb_data_render_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.gatherfail", .query = NULL,
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_data_render(&req));
 }
 
 void test_bb_data_render_buf_too_small_returns_no_space(void)
@@ -252,9 +281,12 @@ void test_bb_data_render_buf_too_small_returns_no_space(void)
     char   scratch[sizeof(dt_snap_t)];
     char   buf[4];  // {"n": already overflows a 4-byte buffer
     size_t out_len = 0;
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
-                       bb_data_render(BB_FORMAT_JSON, "dt.overflow", scratch, sizeof(scratch), buf, sizeof(buf),
-                                      &out_len));
+    bb_data_render_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.overflow", .query = NULL,
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_render(&req));
 }
 
 void test_bb_data_render_scratch_too_small_returns_no_space(void)
@@ -269,9 +301,12 @@ void test_bb_data_render_scratch_too_small_returns_no_space(void)
     char   scratch[1];  // smaller than s_dt_desc.snap_size (sizeof(dt_snap_t))
     char   buf[64];
     size_t out_len = 0;
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
-                       bb_data_render(BB_FORMAT_JSON, "dt.scratch", scratch, sizeof(scratch), buf, sizeof(buf),
-                                      &out_len));
+    bb_data_render_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.scratch", .query = NULL,
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_render(&req));
 }
 
 void test_bb_data_render_unsupported_format_skips_gather(void)
@@ -290,9 +325,67 @@ void test_bb_data_render_unsupported_format_skips_gather(void)
     char   scratch[sizeof(dt_snap_t)];
     char   buf[64];
     size_t out_len = 0;
-    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED,
-                       bb_data_render(BB_FORMAT_JSON, "dt.noop", scratch, sizeof(scratch), buf, sizeof(buf),
-                                      &out_len));
+    bb_data_render_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.noop", .query = NULL,
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_data_render(&req));
+}
+
+// A render carrying a non-NULL query is forwarded to the gather hook
+// byte-for-byte via bb_data_gather_args_t.query -- dt_gather_query() asserts
+// it inline.
+void test_bb_data_render_forwards_query_to_gather(void)
+{
+    dt_reset();
+    dt_register_format();
+
+    int64_t ctx_val = 7;
+    bb_data_binding_t b = { .key = "dt.query", .desc = &s_dt_desc, .gather = dt_gather_query, .ctx = &ctx_val };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    bb_serialize_query_t query = {
+        .params = { { .key = "type", .value = "raw" } },
+        .count  = 1,
+    };
+    s_dt_gather_query_expected_type = "raw";
+
+    char   scratch[sizeof(dt_snap_t)];
+    char   buf[64];
+    size_t out_len = 0;
+    bb_data_render_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.query", .query = &query,
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_render(&req));
+    TEST_ASSERT_EQUAL_STRING("{\"n\":7}", buf);
+}
+
+// A NULL query (the pre-existing back-compat shape) still renders
+// successfully -- the gather hook observes args->query == NULL.
+void test_bb_data_render_null_query_still_works(void)
+{
+    dt_reset();
+    dt_register_format();
+
+    int64_t ctx_val = 9;
+    bb_data_binding_t b = { .key = "dt.noquery", .desc = &s_dt_desc, .gather = dt_gather_query, .ctx = &ctx_val };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    s_dt_gather_query_expected_type = NULL;
+
+    char   scratch[sizeof(dt_snap_t)];
+    char   buf[64];
+    size_t out_len = 0;
+    bb_data_render_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.noquery", .query = NULL,
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_render(&req));
+    TEST_ASSERT_EQUAL_STRING("{\"n\":9}", buf);
 }
 
 // ---------------------------------------------------------------------------
@@ -454,15 +547,33 @@ void test_bb_data_render_null_args_return_invalid_arg(void)
     char   buf[64];
     size_t out_len = 0;
 
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
-                       bb_data_render(BB_FORMAT_JSON, NULL, scratch, sizeof(scratch), buf, sizeof(buf), &out_len));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
-                       bb_data_render(BB_FORMAT_JSON, "dt.nullargs", NULL, sizeof(scratch), buf, sizeof(buf),
-                                      &out_len));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
-                       bb_data_render(BB_FORMAT_JSON, "dt.nullargs", scratch, sizeof(scratch), NULL, sizeof(buf),
-                                      &out_len));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
-                       bb_data_render(BB_FORMAT_JSON, "dt.nullargs", scratch, sizeof(scratch), buf, sizeof(buf),
-                                      NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_render(NULL));
+
+    bb_data_render_req_t req_no_key = {
+        .fmt = BB_FORMAT_JSON, .key = NULL, .query = NULL,
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_render(&req_no_key));
+
+    bb_data_render_req_t req_no_scratch = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.nullargs", .query = NULL,
+        .scratch = NULL, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_render(&req_no_scratch));
+
+    bb_data_render_req_t req_no_buf = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.nullargs", .query = NULL,
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = NULL, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_render(&req_no_buf));
+
+    bb_data_render_req_t req_no_out_len = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.nullargs", .query = NULL,
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = NULL,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_render(&req_no_out_len));
 }
