@@ -3,12 +3,22 @@ set(_diag_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_scrub.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_event_common.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_boot_wire.c"
+    "${CMAKE_CURRENT_LIST_DIR}/bb_diag_section.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag/bb_diag_panic.c"
 )
 
 if(CONFIG_BB_DIAG_ROUTES)
     list(APPEND _diag_srcs
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag/bb_diag_routes.c")
+endif()
+
+# Generic /api/diag/* section registry (B1-diag-dissolution PR3) -- a NEW,
+# independent Kconfig from BB_DIAG_ROUTES (see Kconfig): the portable
+# registry above (bb_diag_section.c) always builds; only the ESP-IDF
+# wildcard-route dispatcher is gated.
+if(CONFIG_BB_DIAG_SECTIONS)
+    list(APPEND _diag_srcs
+        "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag/bb_diag_section_dispatch.c")
 endif()
 
 # bb_nv_namespaces.h's BB_REBOOT_NVS_NS / bb_nv_keys.h's
@@ -26,11 +36,14 @@ endif()
 # direct-call dependency.
 # bb_serialize: PUBLIC -- include/bb_diag_boot_wire.h (the "diag.boot" wire
 # descriptor, B1-1045 PR-2) includes bb_serialize.h.
+# bb_registry: PRIVATE -- bb_diag_section.c (B1-diag-dissolution PR3) stores
+# the name -> section table in a bb_registry instance, an implementation
+# detail never exposed by bb_diag_section.h.
 idf_component_register(
     SRCS ${_diag_srcs}
     INCLUDE_DIRS "include" "."
     REQUIRES bb_core bb_http_server bb_serialize
-    PRIV_REQUIRES bb_log bb_http bb_json bb_cache bb_config bb_storage bb_ntp bb_openapi bb_system bb_ota_validator bb_data bb_task_registry bb_task espcoredump lwip nvs_flash esp_partition esp_app_format bb_str
+    PRIV_REQUIRES bb_log bb_http bb_json bb_cache bb_config bb_storage bb_ntp bb_openapi bb_system bb_ota_validator bb_data bb_task_registry bb_task espcoredump lwip nvs_flash esp_partition esp_app_format bb_str bb_registry
 )
 
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)

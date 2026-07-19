@@ -1,0 +1,118 @@
+#pragma once
+
+/**
+ * @brief Generic section registry for the canonical GET /api/diag/<name>
+ * wildcard route (B1-diag-dissolution PR3). A consumer registers a named
+ * section once (typically from a composition root or the owning
+ * component's own init fn) via bb_diag_register_section(); the ESP-IDF
+ * dispatcher (bb_diag_sections_init(), platform/espidf/bb_diag/
+ * bb_diag_section_dispatch.c) then serves GET /api/diag/<name> for every
+ * registered section, rendering its snapshot straight through
+ * bb_serialize_format_render() -- NOT through bb_data. bb_diag stays
+ * bb_data-free here on purpose: this registry is a smaller, more direct
+ * seam than bb_data's binding table, with no wire-format lookup indirection
+ * beyond bb_serialize's own format registry.
+ *
+ * This PR ships the MECHANISM ONLY -- zero real section names. Producers
+ * (meminfo/system/mdns/storage) land in later PRs against this same API.
+ *
+ * A registered name derives its route as GET /api/diag/<name>. Exact
+ * routes (the 12 legacy handlers still owned by bb_diag_routes.c and
+ * sibling *_routes components) continue to win over this wildcard for as
+ * long as they coexist -- see bb_http_server's exact-before-wildcard
+ * dispatch contract (PR2, #937).
+ */
+
+#include "bb_core.h"
+#include "bb_serialize.h"
+
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// Fixed table capacity -- a handful of composed sections, not an
+// open-ended runtime set (mirrors bb_data's own small-registry sizing
+// rationale). No Kconfig bridge -- this is a compile-time-only constant.
+#define BB_DIAG_SECTION_TABLE_CAP 16
+
+// Max length (including the terminating NUL) of a section name -- the
+// "<name>" segment of "/api/diag/<name>". bb_diag_register_section()
+// rejects (BB_ERR_INVALID_ARG) any name whose strlen() is >= this bound
+// rather than silently truncating it.
+#define BB_DIAG_SECTION_NAME_MAX 24
+
+// Args passed to a section's fill hook on every request. bb_diag-LOCAL
+// type (deliberately NOT bb_data_gather_args_t) -- bb_diag never includes
+// bb_data.h. Byte-shape mirrors bb_data_gather_args_t so wrapping a future
+// bb_data_gather_fn as a section fill_fn (or vice versa) is a one-line
+// adapter, not a redesign.
+typedef struct {
+    void                       *ctx;
+    const bb_serialize_query_t *query;  // NULL if the section declares no query_keys
+} bb_diag_fill_args_t;
+
+// Fill hook: fills `dst` (the section's snap_desc's snap_size bytes,
+// CALLER-OWNED scratch storage) from live sources. Same contract as
+// bb_data_gather_fn: `args` is never NULL; `args->query` may be NULL.
+typedef bb_err_t (*bb_diag_fill_fn)(void *dst, const bb_diag_fill_args_t *args);
+
+// One section's registration. `snap_desc` is BORROWED -- the caller (the
+// producer component) keeps it alive for the process lifetime, typically a
+// static const. `name`/`desc`/`query_keys` strings must likewise outlive
+// registration (static const/string literals).
+typedef struct {
+    const char                *name;       // derives GET /api/diag/<name>; strlen() < BB_DIAG_SECTION_NAME_MAX
+    const char                *desc;       // human-readable; not wired to bb_openapi in this PR
+    const bb_serialize_desc_t *snap_desc;  // BORROWED SSOT
+    bb_diag_fill_fn             fill;
+    void                       *ctx;
+    const char *const         *query_keys;   // NULL-ok
+    size_t                      n_query_keys; // <= BB_SERIALIZE_QUERY_MAX_PARAMS (4)
+} bb_diag_section_t;
+
+// Registers `section`. Copies its fields (not the pointer) into the
+// registry's own table -- `section` itself may be a stack temporary, but
+// every pointer field it carries (name/desc/snap_desc/fill/ctx/query_keys)
+// must remain valid for the process lifetime.
+//
+// First-registration wins: a duplicate `name` is REJECTED
+// (BB_ERR_INVALID_STATE), never silently overridden -- two producers
+// claiming the same section name is a composition bug (unlike bb_data_bind's
+// intentional override-on-rebind semantics, which serves a different,
+// disjoint-producer use case).
+//
+// Returns BB_ERR_INVALID_ARG if `section`, `section->name`, `section->snap_desc`,
+// or `section->fill` is NULL; if strlen(section->name) >= BB_DIAG_SECTION_NAME_MAX;
+// or if section->n_query_keys > BB_SERIALIZE_QUERY_MAX_PARAMS.
+// Returns BB_ERR_INVALID_STATE if `section->name` is already registered.
+// Returns BB_ERR_NO_SPACE if the table is full (BB_DIAG_SECTION_TABLE_CAP
+// distinct names already registered), OR if
+// section->snap_desc->snap_size exceeds CONFIG_BB_DIAG_SECTION_SCRATCH_BYTES
+// (the shared scratch buffer every dispatched request renders into) -- a
+// loud, attach-time reject rather than a silent per-request truncation.
+bb_err_t bb_diag_register_section(const bb_diag_section_t *section);
+
+#if CONFIG_BB_DIAG_SECTIONS
+#ifdef ESP_PLATFORM
+#include "bb_http_server.h"
+
+// Registers the GET /api/diag/* wildcard route on `server`, dispatching to
+// whichever section a request names (platform/espidf/bb_diag/
+// bb_diag_section_dispatch.c). ESP-IDF only -- there is no host server to
+// register against.
+// bbtool:init tier=regular fn=bb_diag_sections_init server=true
+bb_err_t bb_diag_sections_init(bb_http_handle_t server);
+
+#endif /* ESP_PLATFORM */
+#endif /* CONFIG_BB_DIAG_SECTIONS */
+
+#ifdef BB_DIAG_SECTION_TESTING
+// Test-only: clears every registered section back to empty.
+void bb_diag_section_test_reset(void);
+#endif
+
+#ifdef __cplusplus
+}
+#endif
