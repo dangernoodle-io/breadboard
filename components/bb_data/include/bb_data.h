@@ -61,10 +61,24 @@ extern "C" {
 // rather than silently truncating it.
 #define BB_DATA_KEY_MAX 48
 
+// Args passed to a binding's gather hook on every render: `ctx` is the
+// binding's own bind-time context (bb_data_binding_t.ctx, unchanged from
+// today); `query` is the CALLING request's query params (or NULL for a
+// query-less render, e.g. the SSE broadcaster) -- bb_serialize_query_t
+// (see bb_serialize.h), not a bb_data type: a filtered producer (e.g.
+// bb_storage's diag fill fn) depends on bb_serialize alone, never bb_data.
+// A gather hook MUST NOT mutate any state reachable from `ctx` based on
+// `query` -- the render path is reentrant/lock-free BECAUSE per-request
+// data flows in as a call arg, never smuggled through bind-time `ctx`.
+typedef struct {
+    void                        *ctx;
+    const bb_serialize_query_t  *query;
+} bb_data_gather_args_t;
+
 // Egress hook: fills `dst` (the binding's descriptor's snap_size bytes,
 // CALLER-OWNED scratch storage sized by the bb_data_render() caller) from
-// live sources.
-typedef bb_err_t (*bb_data_gather_fn)(void *dst, void *ctx);
+// live sources. `args` is never NULL; `args->query` may be NULL.
+typedef bb_err_t (*bb_data_gather_fn)(void *dst, const bb_data_gather_args_t *args);
 
 // Replay semantics for a binding's future broadcast path (B1-1033) -- STORED
 // only here, not yet consumed by anything in this PR.
@@ -116,26 +130,45 @@ typedef struct {
 // distinct keys already bound) and `binding->key` is not already bound.
 bb_err_t bb_data_bind(const bb_data_binding_t *binding);
 
-// Renders `key`'s current value as `fmt` wire bytes. Looks up `key`'s
-// binding and `fmt`'s registered renderer (bb_serialize_format_get_render())
-// FIRST -- an unsupported format is a true no-op, the gather hook is never
-// invoked -- then calls the gather hook into `scratch` (CALLER-OWNED,
-// capacity `scratch_cap`, which MUST be >= the binding's desc->snap_size),
-// writing the rendered bytes into `buf` (capacity `cap`) and the rendered
-// length into `*out_len`.
+// The ONE render entry point's request struct -- a config struct, not an
+// `_ex` positional-overload variant (workspace convention, mirrors
+// bb_data_binding_t). `query` is request-scoped and OPTIONAL: NULL means no
+// request params (e.g. the SSE broadcaster's query-less sweep render);
+// non-NULL is forwarded to the binding's gather hook via
+// bb_data_gather_args_t.query, byte-for-byte, without bb_data itself ever
+// interpreting it.
+typedef struct {
+    bb_format_t                  fmt;
+    const char                  *key;
+    const bb_serialize_query_t  *query;
+    void                        *scratch;
+    size_t                       scratch_cap;
+    char                        *buf;
+    size_t                       buf_cap;
+    size_t                      *out_len;
+} bb_data_render_req_t;
+
+// Renders `req->key`'s current value as `req->fmt` wire bytes. Looks up
+// `req->key`'s binding and `req->fmt`'s registered renderer
+// (bb_serialize_format_get_render()) FIRST -- an unsupported format is a
+// true no-op, the gather hook is never invoked -- then calls the gather
+// hook into `req->scratch` (CALLER-OWNED, capacity `req->scratch_cap`, which
+// MUST be >= the binding's desc->snap_size) with a bb_data_gather_args_t
+// built from the binding's stored `ctx` plus `req->query`, writing the
+// rendered bytes into `req->buf` (capacity `req->buf_cap`) and the rendered
+// length into `*req->out_len`. When `req->query` is NULL, behavior is
+// byte-identical to a query-less render.
 //
-// Returns BB_ERR_INVALID_ARG if `key`, `scratch`, `buf`, or `out_len` is
-// NULL.
-// Returns BB_ERR_NOT_FOUND if `key` has no binding.
-// Returns BB_ERR_UNSUPPORTED if `fmt` has no registered renderer (gather is
-// never invoked).
-// Returns BB_ERR_NO_SPACE if `scratch_cap` is smaller than the binding's
-// desc->snap_size (gather is never invoked), or if the renderer's own
-// output overflows `cap`.
+// Returns BB_ERR_INVALID_ARG if `req`, `req->key`, `req->scratch`,
+// `req->buf`, or `req->out_len` is NULL.
+// Returns BB_ERR_NOT_FOUND if `req->key` has no binding.
+// Returns BB_ERR_UNSUPPORTED if `req->fmt` has no registered renderer
+// (gather is never invoked).
+// Returns BB_ERR_NO_SPACE if `req->scratch_cap` is smaller than the
+// binding's desc->snap_size (gather is never invoked), or if the renderer's
+// own output overflows `req->buf_cap`.
 // Propagates any error the gather hook itself returns.
-bb_err_t bb_data_render(bb_format_t fmt, const char *key,
-                        void *scratch, size_t scratch_cap,
-                        char *buf, size_t cap, size_t *out_len);
+bb_err_t bb_data_render(const bb_data_render_req_t *req);
 
 // Returns `key`'s bound replay_kind via `*out_kind`. Not yet consumed by any
 // broadcaster (B1-1033 will) -- this PR only stores/reads the flag.

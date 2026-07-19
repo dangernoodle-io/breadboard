@@ -68,24 +68,23 @@ bb_err_t bb_data_bind(const bb_data_binding_t *binding)
     return BB_OK;
 }
 
-bb_err_t bb_data_render(bb_format_t fmt, const char *key,
-                        void *scratch, size_t scratch_cap,
-                        char *buf, size_t cap, size_t *out_len)
+bb_err_t bb_data_render(const bb_data_render_req_t *req)
 {
-    if (!key || !scratch || !buf || !out_len) return BB_ERR_INVALID_ARG;
+    if (!req || !req->key || !req->scratch || !req->buf || !req->out_len) return BB_ERR_INVALID_ARG;
 
-    bb_data_slot_t *slot = (bb_data_slot_t *)bb_registry_lookup(&s_bb_data_registry, key);
+    bb_data_slot_t *slot = (bb_data_slot_t *)bb_registry_lookup(&s_bb_data_registry, req->key);
     if (!slot) return BB_ERR_NOT_FOUND;
 
-    bb_serialize_render_fn render = bb_serialize_format_get_render(fmt);
+    bb_serialize_render_fn render = bb_serialize_format_get_render(req->fmt);
     if (!render) return BB_ERR_UNSUPPORTED;
 
-    if (scratch_cap < slot->desc->snap_size) return BB_ERR_NO_SPACE;
+    if (req->scratch_cap < slot->desc->snap_size) return BB_ERR_NO_SPACE;
 
-    bb_err_t rc = slot->gather(scratch, slot->ctx);
+    bb_data_gather_args_t args = { .ctx = slot->ctx, .query = req->query };
+    bb_err_t rc = slot->gather(req->scratch, &args);
     if (rc != BB_OK) return rc;
 
-    return render(slot->desc, scratch, buf, cap, out_len);
+    return render(slot->desc, req->scratch, req->buf, req->buf_cap, req->out_len);
 }
 
 bb_err_t bb_data_binding_replay_kind(const char *key, bb_data_replay_kind_t *out_kind)

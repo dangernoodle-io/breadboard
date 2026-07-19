@@ -95,13 +95,12 @@ static void reset_world(void)
     g_pause_returns = true;
 }
 
-// B1-1045: bb_data gather adapter wrapping bb_ota_check_gather() (its
-// signature already matches bb_data_gather_fn field-for-field minus the
-// unused ctx arg) -- lets tests bind "update.available" and observe
-// bb_data_touch() via bb_data_generation() instead of an event-ring replay.
-static bb_err_t ota_check_gather_adapter(void *dst, void *ctx)
+// B1-1045: bb_data gather adapter wrapping bb_ota_check_gather() -- lets
+// tests bind "update.available" and observe bb_data_touch() via
+// bb_data_generation() instead of an event-ring replay.
+static bb_err_t ota_check_gather_adapter(void *dst, const bb_data_gather_args_t *args)
 {
-    (void)ctx;
+    (void)args;
     return bb_ota_check_gather((bb_ota_check_snap_t *)dst);
 }
 
