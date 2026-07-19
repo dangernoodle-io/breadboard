@@ -244,9 +244,8 @@ bb_err_t bb_settings_wifi_rtc_mirror_clear(void);
 void bb_settings_wifi_rtc_mirror_write(const char *ssid, const char *pass);
 
 // ---------------------------------------------------------------------------
-// Creds-boot heal/seed shell + /api/manifest registration (B1-963/B1-708:
-// relocated VERBATIM from platform/espidf/bb_nv/bb_nv.c's
-// bb_nv_config_init()/bb_nv_config_manifest_init() -- the shell's own
+// Creds-boot heal/seed shell (B1-963/B1-708: relocated VERBATIM from
+// platform/espidf/bb_nv/bb_nv.c's bb_nv_config_init() -- the shell's own
 // delegates (bb_storage_nvs_flash_init(), the pure heal-vs-seed decision now
 // at components/bb_settings/src/bb_settings_creds_boot_decide.c, and the
 // bb_settings_wifi_* accessors above) are unchanged; only the caller moved).
@@ -264,11 +263,43 @@ void bb_settings_wifi_rtc_mirror_write(const char *ssid, const char *pass);
 // bbtool:init tier=early fn=bb_settings_creds_boot_init requires=storage_rtc
 bb_err_t bb_settings_creds_boot_init(void);
 
-// Register the wifi_ssid/wifi_pass/provisioned NVS keys (namespace "bb_cfg")
-// with /api/manifest. Portable (no ESP-IDF deps), moved verbatim from
-// bb_nv_config_manifest_init.
-// bbtool:init tier=pre_http fn=bb_settings_creds_boot_manifest_init
-bb_err_t bb_settings_creds_boot_manifest_init(void);
+// ---------------------------------------------------------------------------
+// NVS-key schema overlay (B1-708 PR7): a read-only projection over the
+// bb_config_field_t literals bb_settings already declares -- replaces the
+// hand-duplicated bb_manifest registration this component used to own
+// (bb_settings_creds_boot_manifest_init/s_creds_boot_manifest_keys, deleted
+// here; this is the FIRST bb_manifest caller removed, a precondition for
+// bb_manifest's own eventual deletion). Pure schema metadata, no storage
+// access -- mirrors the old manifest registration's exact scope (the 3 live
+// "bb_cfg" keys: wifi_ssid/wifi_pass/provisioned), not the pending-creds or
+// RTC-mirror fields (least-surprise; a future consumer can widen this if it
+// wants the fuller picture).
+// ---------------------------------------------------------------------------
+
+// One NVS-key's schema metadata, derived from a bb_config_field_t literal.
+// Distinct from bb_storage_entry_t (PR5, LIVE-value shaped) -- this carries
+// the render-metadata bb_config_field_t has that bb_storage_entry_t doesn't
+// (label/secret/provisioning_only/reboot_required).
+typedef struct {
+    const char *ns_or_dir;
+    const char *key;
+    const char *type_str;        // "bool"|"u8"|"u16"|"u32"|"i32"|"str"|"blob"
+    const char *label;
+    bool        secret;
+    bool        provisioning_only;
+    bool        reboot_required;
+} bb_settings_nv_overlay_entry_t;
+
+// Compile-time capacity: the known field count this component's overlay
+// covers today (wifi_ssid/wifi_pass/provisioned).
+#define BB_SETTINGS_NV_OVERLAY_CAP 3
+
+// Fills out[0..min(cap, total))] with the NVS-key schema metadata for every
+// bb_config_field_t this overlay covers, in declaration order. Returns the
+// TOTAL entry count found, even when it exceeds cap (same truncation-report
+// contract as bb_storage_list_entries) -- callers detect truncation via
+// return value > cap. Pure: no storage access, schema only.
+size_t bb_settings_nv_overlay_entries(bb_settings_nv_overlay_entry_t *out, size_t cap);
 
 #ifdef __cplusplus
 }
