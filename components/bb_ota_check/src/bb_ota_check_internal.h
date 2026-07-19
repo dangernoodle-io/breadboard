@@ -54,7 +54,7 @@ const bb_route_t *bb_ota_check_config_get_route(void);
 const bb_route_t *bb_ota_check_config_post_route(void);
 
 #ifdef BB_OTA_CHECK_TESTING
-// Reset all state so a test can start clean. Does NOT touch bb_event or
+// Reset all state so a test can start clean. Does NOT touch bb_data or
 // bb_mdns global state (callers reset those separately).
 void bb_ota_check_reset_for_test(void);
 

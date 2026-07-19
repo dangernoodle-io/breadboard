@@ -5,7 +5,7 @@
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_http_client.h"
-#include "bb_event.h"
+#include "bb_data.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mdns.h"
@@ -61,7 +61,6 @@ static char                          s_firmware_board[BOARD_MAX];
 static bb_release_manifest_parse_fn  s_parser = bb_release_manifest_parse_github;
 static bb_ota_check_status_t s_status;
 static bool                          s_first_check_done = false;
-static bb_event_topic_t              s_topic = NULL;
 static pthread_mutex_t               s_lock = PTHREAD_MUTEX_INITIALIZER;
 static bb_ota_check_pause_cb_t s_pause_hook = NULL;
 static bb_ota_check_resume_cb_t s_resume_hook = NULL;
@@ -159,7 +158,7 @@ static void publish_state(const bb_ota_check_status_t *st, const char *txt_value
     snap.last_check_ts = (st->last_check_us != 0) ? (int64_t)(st->last_check_us / 1000000) : 0;
 
     bb_cache_update(&(bb_cache_update_t){ .key = BB_OTA_CHECK_TOPIC, .snap = &snap });
-    bb_cache_post(BB_OTA_CHECK_TOPIC);
+    bb_data_touch(BB_OTA_CHECK_TOPIC);
 }
 
 // ---------------------------------------------------------------------------
@@ -189,21 +188,16 @@ bb_err_t bb_ota_check_init(const bb_ota_check_cfg_t *cfg)
     s_firmware_board[0] = '\0';
     s_parser = bb_release_manifest_parse_github;
 
-    bb_err_t err = bb_event_topic_register(BB_OTA_CHECK_TOPIC, &s_topic);
-    // LCOV_EXCL_START — topic_register failure is defensive (NO_SPACE only)
-    if (err != BB_OK) {
-        return err;
-    }
-    // LCOV_EXCL_STOP
-
+    // SSE/broadcast delivery is a bb_data/bb_data_http composition-root
+    // concern now (B1-1045), not bb_cache's -- BB_CACHE_FLAG_NONE.
     bb_cache_config_t cache_cfg = {
         .key       = BB_OTA_CHECK_TOPIC,
         .snapshot  = NULL,
         .snap_size = sizeof(bb_ota_check_snap_t),
         .serialize = bb_ota_check_serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
+        .flags     = BB_CACHE_FLAG_NONE,
     };
-    err = bb_cache_register(&cache_cfg);
+    bb_err_t err = bb_cache_register(&cache_cfg);
     // LCOV_EXCL_START — cache_register failure is defensive (NO_SPACE only)
     if (err != BB_OK) {
         return err;
@@ -847,7 +841,6 @@ void bb_ota_check_reset_for_test(void)
     memset(&s_cfg, 0, sizeof(s_cfg));
     s_url[0] = '\0';
     s_firmware_board[0] = '\0';
-    s_topic = NULL;
     s_parser = bb_release_manifest_parse_github;
     s_pause_hook = NULL;
     s_resume_hook = NULL;

@@ -9,8 +9,9 @@ config BB_LOG_ROUTES
         logging-only consumers that compose bb_log_http but don't want the
         routes wired.
 
-        The structured log stream is served separately via bb_event at
-        GET /api/events?topic=log (see bb_log_event's BB_LOG_EVENT_AUTO_ATTACH).
+        The structured log stream is served separately via bb_data/
+        bb_data_http at GET /api/events?topic=log (see bb_log_event's
+        "log" bb_data key, B1-1045).
 
 config BB_LOG_SSE_KEEPALIVE_MS
     int "SSE keepalive interval (ms)"

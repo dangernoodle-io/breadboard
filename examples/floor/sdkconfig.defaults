@@ -12,7 +12,6 @@ CONFIG_LOG_DEFAULT_LEVEL=3
 # so leaving these =n also shrinks the component-discovery closure itself,
 # not just the compiled sources.
 CONFIG_BB_LOG_ROUTES=n
-CONFIG_BB_LOG_EVENT_AUTO_ATTACH=n
 CONFIG_BB_LOG_UDP_SINK=n
 
 # Free size win: smallest floor, not fastest.

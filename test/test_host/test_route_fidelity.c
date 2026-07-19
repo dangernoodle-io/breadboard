@@ -27,6 +27,9 @@
 //   DELETE /api/diag/boot  - returns 204 No Content; no JSON body
 //   POST /api/log/level    - returns 204 No Content on success; JSON only on 400 errors
 // REMOVED ROUTES (no longer registered):
+//   /api/diag/events       - bb_event_routes/bb_event/bb_event_ring dissolved (B1-1045);
+//                            /api/events is now served by bb_data_http (no diag
+//                            equivalent yet -- rebuild tracked B1-1052)
 //   /api/logs              - retired; use GET /api/events?topic=log (structured JSON)
 //   /api/logs/status       - retired with /api/logs
 //   /api/board             - dropped; was superseded by /api/info, itself since removed
@@ -54,11 +57,7 @@
 #include "bb_mdns.h"
 #include "bb_diag.h"
 #include "bb_partition.h"
-#include "bb_event.h"
 #include "bb_ota_check.h"
-#include "bb_event_routes.h"
-#include "bb_event_routes_defaults.h"
-#include "bb_event_ring.h"
 #include "bb_log.h"
 #include "bb_clock.h"
 #include "bb_timer.h"
@@ -204,28 +203,6 @@ static const char k_update_check_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{\"status\":{\"type\":\"string\"}},"
     "\"required\":[\"status\"]}";
-
-// GET /api/diag/events — platform/espidf/bb_event_routes/bb_event_routes_espidf.c
-static const char k_diag_events_schema[] =
-    "{\"type\":\"object\","
-    "\"properties\":{"
-    "\"topics\":{\"type\":\"array\",\"items\":{"
-    "\"type\":\"object\","
-    "\"properties\":{"
-    "\"name\":{\"type\":\"string\"},"
-    "\"ring_capacity\":{\"type\":\"integer\"},"
-    "\"ring_count\":{\"type\":\"integer\"},"
-    "\"last_id\":{\"type\":\"integer\"},"
-    "\"last_post_age_ms\":{\"type\":\"integer\"},"
-    "\"last_size\":{\"type\":\"integer\"}},"
-    "\"required\":[\"name\",\"ring_capacity\",\"ring_count\","
-    "\"last_id\",\"last_post_age_ms\",\"last_size\"]}},"
-    "\"max_clients\":{\"type\":\"integer\"},"
-    "\"active_clients\":{\"type\":\"integer\"},"
-    "\"slot_reuse_deferred\":{\"type\":\"integer\"},"
-    "\"pool_ensure_deferred\":{\"type\":\"integer\"}},"
-    "\"required\":[\"topics\",\"max_clients\",\"active_clients\",\"slot_reuse_deferred\","
-    "\"pool_ensure_deferred\"]}";
 
 // PATCH /api/wifi 202 — platform/espidf/bb_wifi/bb_wifi_routes.c (CONFIG_BB_WIFI_RECONFIGURE)
 static const char k_wifi_patch_202_schema[] =
@@ -515,73 +492,6 @@ static bb_err_t h_update_check(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
-// GET /api/diag/events — mirrors diag_events_handler in
-// platform/espidf/bb_event_routes/bb_event_routes_espidf.c.
-// Uses only public bb_event_routes and bb_event_ring APIs.
-// Requires bb_event_routes_init() to have been called.
-static bb_err_t h_diag_events(bb_http_request_t *req)
-{
-    bb_http_json_obj_stream_t obj;
-    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
-    if (err != BB_OK) return err;
-
-    // Capture now_us once for age computation across all topics.
-    int64_t now_us = (int64_t)bb_timer_now_us();
-
-    bb_http_resp_json_obj_set_arr_begin(&obj, "topics");
-    size_t n = bb_event_routes_topic_count();
-    for (size_t i = 0; i < n; i++) {
-        const char *name = NULL;
-        bb_event_ring_t ring = NULL;
-        if (bb_event_routes_topic_info(i, &name, &ring) != BB_OK) continue;
-
-        bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
-        bb_http_resp_json_obj_set_str(&obj, "name", name ? name : "");
-
-        if (ring) {
-            bb_http_resp_json_obj_set_int(&obj, "ring_capacity", (int64_t)bb_event_ring_capacity(ring));
-            bb_http_resp_json_obj_set_int(&obj, "ring_count",    (int64_t)bb_event_ring_count(ring));
-
-            uint32_t last_id = 0;
-            size_t   last_sz = 0;
-            int64_t  last_us = 0;
-            if (bb_event_ring_last_entry_info(ring, &last_id, &last_sz, &last_us) == BB_OK) {
-                int64_t age_ms = (last_us > 0 && now_us >= last_us)
-                                 ? (now_us - last_us) / 1000
-                                 : 0;
-                bb_http_resp_json_obj_set_int(&obj, "last_id",          (int64_t)last_id);
-                bb_http_resp_json_obj_set_int(&obj, "last_post_age_ms", age_ms);
-                bb_http_resp_json_obj_set_int(&obj, "last_size",        (int64_t)last_sz);
-            } else {
-                bb_http_resp_json_obj_set_int(&obj, "last_id",          0);
-                bb_http_resp_json_obj_set_int(&obj, "last_post_age_ms", 0);
-                bb_http_resp_json_obj_set_int(&obj, "last_size",        0);
-            }
-        } else {
-            bb_http_resp_json_obj_set_int(&obj, "ring_capacity",    0);
-            bb_http_resp_json_obj_set_int(&obj, "ring_count",       0);
-            bb_http_resp_json_obj_set_int(&obj, "last_id",          0);
-            bb_http_resp_json_obj_set_int(&obj, "last_post_age_ms", 0);
-            bb_http_resp_json_obj_set_int(&obj, "last_size",        0);
-        }
-        bb_http_resp_json_obj_set_obj_end(&obj);
-    }
-    bb_http_resp_json_obj_set_arr_end(&obj);
-
-    /* max_clients: mirrors CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS used by the
-     * production handler; bb_event_routes_defaults.h supplies the same
-     * fallback the component uses when building without sdkconfig (host
-     * test environment). */
-    bb_http_resp_json_obj_set_int(&obj, "max_clients",    (int64_t)CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS);
-    bb_http_resp_json_obj_set_int(&obj, "active_clients", (int64_t)bb_event_routes_active_client_count());
-    bb_http_resp_json_obj_set_int(&obj, "slot_reuse_deferred",
-                                   (int64_t)bb_event_routes_slot_reuse_deferred_count());
-    bb_http_resp_json_obj_set_int(&obj, "pool_ensure_deferred",
-                                   (int64_t)bb_event_routes_pool_ensure_deferred_count());
-
-    return bb_http_resp_json_obj_end(&obj);
-}
-
 // GET /api/log/level — mirrors log_level_get_handler in
 // platform/espidf/bb_log_http/bb_log_http.c.
 // Uses only portable bb_log_tag_at / bb_log_level_to_str APIs.
@@ -746,9 +656,9 @@ typedef struct {
 } fidelity_entry_t;
 
 // Table of all audited (route, handler, status, content-type, schema) tuples.
-// Entries that require subsystem state setup (bb_ota_check_init,
-// bb_event_routes_init) are NOT listed here; their test functions below do
-// their own setup and call run_fidelity with a stack-allocated entry.
+// Entries that require subsystem state setup (bb_ota_check_init) are NOT
+// listed here; their test functions below do their own setup and call
+// run_fidelity with a stack-allocated entry.
 static const fidelity_entry_t k_audit[] = {
     { "/api/reboot",            h_reboot,            200, "application/json", k_reboot_schema        },
     { "/api/health",            h_health,            200, "application/json", k_health_schema        },
@@ -913,11 +823,8 @@ void test_fidelity_diag_wifi(void)
 // Routes that require subsystem state setup are tested individually below.
 
 // GET /api/update/status: requires bb_ota_check_init().
-// Also ensures bb_event_init() has run (bb_ota_check_init calls
-// bb_event_topic_register which requires an initialized event bus).
 void test_fidelity_update_status(void)
 {
-    bb_event_init(NULL);          /* idempotent; ensures topic registry ready */
     bb_ota_check_init(NULL);   /* idempotent; uses Kconfig defaults */
 
     const fidelity_entry_t e = {
@@ -933,60 +840,6 @@ void test_fidelity_update_config_get(void)
     const fidelity_entry_t e = {
         "/api/update/config", h_update_config_get, 200,
         "application/json",   k_update_config_schema,
-    };
-    run_fidelity(&e);
-}
-
-// GET /api/diag/events: requires bb_event_routes_init().
-// Uses the minimum valid config; no topics attached → empty topics array.
-void test_fidelity_diag_events(void)
-{
-    static const bb_event_routes_cfg_t cfg = {
-        .max_clients      = 1,
-        .per_client_queue = 2,
-        .ring_capacity    = 2,
-        .ring_max_entry   = 64,
-        .heartbeat_ms     = 1000,
-    };
-    bb_event_routes_init(&cfg);  /* idempotent */
-
-    const fidelity_entry_t e = {
-        "/api/diag/events", h_diag_events, 200,
-        "application/json", k_diag_events_schema,
-    };
-    run_fidelity(&e);
-}
-
-// Branch coverage for last_post_age_ms computation in h_diag_events:
-// attach a topic, post one event (ring gets a non-zero last_us timestamp),
-// then invoke the handler — exercises the positive-age branch.
-// The no-events branch is already covered by test_fidelity_diag_events above.
-void test_fidelity_diag_events_age_ms_branch(void)
-{
-    static const bb_event_routes_cfg_t cfg = {
-        .max_clients      = 1,
-        .per_client_queue = 2,
-        .ring_capacity    = 4,
-        .ring_max_entry   = 64,
-        .heartbeat_ms     = 1000,
-    };
-    bb_event_init(NULL);          /* idempotent */
-    bb_event_routes_init(&cfg);   /* idempotent */
-
-    bb_event_topic_t t;
-    bb_event_topic_register("age.test.topic", &t);
-    bb_event_routes_attach("age.test.topic");
-
-    // Post an event so the ring has a non-zero last_us timestamp.
-    const char *payload = "{\"v\":1}";
-    bb_event_post(t, 0, payload, strlen(payload));
-    bb_event_pump(0);
-
-    // h_diag_events should now hit the (last_us > 0 && now_us >= last_us) branch
-    // and emit a non-negative last_post_age_ms.
-    const fidelity_entry_t e = {
-        "/api/diag/events", h_diag_events, 200,
-        "application/json", k_diag_events_schema,
     };
     run_fidelity(&e);
 }

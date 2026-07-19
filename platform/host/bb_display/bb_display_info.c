@@ -16,8 +16,8 @@ void bb_display_register_info(void)
         .snapshot  = NULL,
         .snap_size = sizeof(bb_display_snap_t),
         .serialize = bb_display_serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
+        .flags     = BB_CACHE_FLAG_NONE,
     };
     bb_cache_register(&cache_cfg);
-    // Host stub: no event bus.
+    // Host stub: no bb_data touch.
 }

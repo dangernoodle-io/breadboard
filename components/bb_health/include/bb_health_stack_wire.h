@@ -1,10 +1,10 @@
 #pragma once
 
 // bb_health_stack_wire — PUBLIC bb_serialize_desc_t (SSOT) for the
-// "health.stack" bb_event topic (B1-1045 PR-2, cutover composition-root
-// ownership decision KB 1454). ADDITIVE-only, INERT: no bb_data_bind() call
-// exists anywhere in this PR -- the composition root (PR-4) is the sole
-// owner of wiring this descriptor to bb_data.
+// "health.stack" bb_data key (B1-1045 PR-2, cutover composition-root
+// ownership decision KB 1454). The composition root
+// (examples/floor/main/floor_app.c, PR-4) owns wiring this descriptor to
+// bb_data via bb_data_bind().
 //
 // Mirrors bb_health_stack_build_json()'s `{"task","free_bytes","low"}` shape
 // (bb_health_stack.h) field-for-field. `free_bytes` is widened from

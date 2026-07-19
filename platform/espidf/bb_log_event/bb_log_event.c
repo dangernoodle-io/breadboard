@@ -1,7 +1,9 @@
-// bb_log_event — ESP-IDF only: "log" bb_event stream topic.
-// Forwards every log line from s_log_vprintf (via its dedicated queue) as
-// structured JSON on the "log" bb_event topic, the primary log transport
-// served at GET /api/events?topic=log. The legacy /api/logs route is retired.
+// bb_log_event — ESP-IDF only: "log" bb_data key. Forwards every log line
+// from s_log_vprintf (via its dedicated queue) as structured JSON, stashing
+// it for bb_log_event_gather() and bumping the "log" bb_data generation
+// (B1-1045) -- the primary log transport, served at GET /api/events?topic=log
+// via the composition root's bb_data_http attach. The legacy /api/logs route
+// is retired.
 //
 // Design: s_log_vprintf has its own event queue (depth BB_LOG_EVENT_QUEUE_LEN);
 // this keeps the hot logging path non-blocking (drop-on-full with counter).
@@ -14,8 +16,7 @@
 #include "../../host/bb_log_event/bb_log_event_parse.h"
 #include "../../../components/bb_log/src/bb_log_internal.h"
 #include "bb_log.h"
-#include "bb_event.h"
-#include "bb_event_routes.h"
+#include "bb_data.h"
 #include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_clock.h"
@@ -51,7 +52,6 @@ typedef struct {
     size_t len;
 } log_event_msg_t;
 
-static bb_event_topic_t s_log_topic = NULL;
 static QueueHandle_t    s_q         = NULL;
 static TaskHandle_t     s_task      = NULL;
 
@@ -77,7 +77,6 @@ static void s_forwarder_task(void *arg)
 
     for (;;) {
         if (xQueueReceive(s_q, &msg, portMAX_DELAY) != pdTRUE) continue;
-        if (!s_log_topic) continue;
 
         bb_log_event_parse(msg.line, msg.len, &level, tag, sizeof(tag),
                            msgbuf, sizeof(msgbuf));
@@ -97,12 +96,12 @@ static void s_forwarder_task(void *arg)
         bb_json_free(obj);
         if (!payload) continue;
 
-        size_t plen = strlen(payload);
-        bb_event_post(s_log_topic, 0, payload, plen + 1);
-        // B1-1045 PR-2 stash (see s_last_log_json banner above) -- pure
-        // store immediately AFTER the existing bb_event_post() call, never
-        // before/replacing it.
+        // B1-1045 PR-4: stash first, THEN bump the "log" bb_data generation
+        // -- a consumer that observes the new generation must always see the
+        // fresh stash, never a stale one (mirrors every other producer's
+        // stash-then-touch ordering).
         bb_strlcpy(s_last_log_json, payload, sizeof(s_last_log_json));
+        bb_data_touch("log");
         bb_json_free_str(payload);
     }
 }
@@ -119,10 +118,10 @@ bb_err_t bb_log_event_gather(bb_log_event_wire_t *dst)
 }
 
 // ---------------------------------------------------------------------------
-// Auto-attach registry init (order 4, after bb_event_routes at order 0)
+// Forwarder queue/task bring-up (B1-1045: no more bb_event topic/route
+// registration -- the "log" key's bb_data binding + /api/events attach are
+// composition-root concerns now, see examples/floor/main/floor_app.c)
 // ---------------------------------------------------------------------------
-
-#if defined(CONFIG_BB_LOG_EVENT_AUTO_ATTACH) && CONFIG_BB_LOG_EVENT_AUTO_ATTACH
 
 static const char k_log_event_schema[] =
     "{\"title\":\"LogEvent\",\"x-sse-topic\":\"log\",\"type\":\"object\","
@@ -137,19 +136,7 @@ bb_err_t bb_log_event_init(bb_http_handle_t server)
 {
     (void)server;
 
-    bb_err_t err = bb_event_topic_register("log", &s_log_topic);
-    if (err != BB_OK) {
-        bb_log_e(TAG, "topic register failed: %d", err);
-        return err;
-    }
-
     bb_openapi_register_topic_schema("log", k_log_event_schema, "LogEvent");
-
-    err = bb_event_routes_attach_ex("log", /*retained=*/false);
-    if (err != BB_OK) {
-        bb_log_w(TAG, "routes attach failed: %d", err);
-        /* non-fatal — topic still usable for direct subscribers */
-    }
 
     s_q = xQueueCreate(BB_LOG_EVENT_QUEUE_LEN, sizeof(log_event_msg_t));
     if (!s_q) {
@@ -176,18 +163,8 @@ bb_err_t bb_log_event_init(bb_http_handle_t server)
 
     bb_log_event_set_queue(s_q);
 
-    bb_log_i(TAG, "log event topic registered and attached");
+    bb_log_i(TAG, "log event forwarder started");
     return BB_OK;
 }
-
-#else /* !CONFIG_BB_LOG_EVENT_AUTO_ATTACH */
-
-bb_err_t bb_log_event_init(bb_http_handle_t server)
-{
-    (void)server;
-    return BB_OK;
-}
-
-#endif /* CONFIG_BB_LOG_EVENT_AUTO_ATTACH */
 
 #endif /* ESP_PLATFORM */

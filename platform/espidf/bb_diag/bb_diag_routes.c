@@ -1,8 +1,7 @@
 #include "bb_diag.h"
 #include "bb_cache.h"
 #include "bb_diag_event_priv.h"
-#include "bb_event.h"
-#include "bb_event_routes.h"
+#include "bb_data.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_json.h"
@@ -40,8 +39,6 @@
 #include "lwip/priv/tcp_priv.h"
 
 static const char *TAG = "bb_diag_routes";
-
-static bb_event_topic_t s_boot_topic = NULL;
 
 // Reboot-reason SSOT (B1-527 PR-A) — latched once at boot by load_reboot_record().
 static bb_reset_source_t s_reboot_src        = BB_RESET_SRC_UNKNOWN;
@@ -200,11 +197,10 @@ static void build_boot_snap(bb_diag_boot_snap_t *snap)
 
 static void diag_boot_publish(void)
 {
-    if (s_boot_topic == NULL) return;
     bb_diag_boot_snap_t snap;
     build_boot_snap(&snap);
     bb_cache_update(&(bb_cache_update_t){ .key = BB_DIAG_BOOT_TOPIC, .snap = &snap });
-    bb_cache_post(BB_DIAG_BOOT_TOPIC);
+    bb_data_touch(BB_DIAG_BOOT_TOPIC);
 }
 
 static bb_err_t panic_get_handler(bb_http_request_t *req)
@@ -971,14 +967,16 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     // Latch the reboot-reason SSOT once, before the first diag_boot_publish().
     load_reboot_record();
 
-    // Register diag.boot in bb_cache (owned struct, serializer shared with SSE).
+    // Register diag.boot in bb_cache (owned struct). SSE/broadcast delivery
+    // is now a bb_data/bb_data_http composition-root concern (B1-1045), not
+    // bb_cache's -- BB_CACHE_FLAG_NONE, no event topic.
     {
         bb_cache_config_t cache_cfg = {
             .key       = BB_DIAG_BOOT_TOPIC,
             .snapshot  = NULL,
             .snap_size = sizeof(bb_diag_boot_snap_t),
             .serialize = bb_diag_boot_serialize,
-            .flags     = BB_CACHE_FLAG_SSE,
+            .flags     = BB_CACHE_FLAG_NONE,
         };
         bb_err_t cerr = bb_cache_register(&cache_cfg);
         if (cerr != BB_OK) {
@@ -986,7 +984,8 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
         }
     }
 
-    // Register retained diag.boot event topic and publish initial snapshot.
+    // Publish the initial snapshot and register the OpenAPI schema for the
+    // "diag.boot" bb_data key (attach/wiring lives at the composition root).
     {
         static const char k_diag_boot_schema[] =
             "{\"title\":\"DiagBoot\",\"x-sse-topic\":\"diag.boot\",\"type\":\"object\","
@@ -1011,25 +1010,12 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
             "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\","
             "\"pending_verify\",\"rolled_back\",\"reboot_reason\",\"reboot_history\"]}";
 
-        bb_err_t terr = bb_event_topic_register(BB_DIAG_BOOT_TOPIC, &s_boot_topic);
-        if (terr != BB_OK) {
-            bb_log_w(TAG, "diag.boot topic register failed: %d", (int)terr);
-        } else {
-            bb_openapi_register_topic_schema(BB_DIAG_BOOT_TOPIC, k_diag_boot_schema, "DiagBoot");
-#if defined(CONFIG_BB_DIAG_AUTO_ATTACH) && CONFIG_BB_DIAG_AUTO_ATTACH
-            {
-                bb_err_t aerr = bb_event_routes_attach_ex(BB_DIAG_BOOT_TOPIC, true);
-                if (aerr != BB_OK) {
-                    bb_log_w(TAG, "auto-attach failed for '" BB_DIAG_BOOT_TOPIC "': %d",
-                             (int)aerr);
-                }
-            }
-#endif
-            // Publish initial retained snapshot and wire the on_validated callback
-            // so the snapshot re-posts when the image self-validates.
-            diag_boot_publish();
-            bb_ota_validator_set_on_validated(diag_boot_publish);
-        }
+        bb_openapi_register_topic_schema(BB_DIAG_BOOT_TOPIC, k_diag_boot_schema, "DiagBoot");
+
+        // Publish initial retained snapshot and wire the on_validated callback
+        // so the snapshot re-touches when the image self-validates.
+        diag_boot_publish();
+        bb_ota_validator_set_on_validated(diag_boot_publish);
     }
 
     bb_log_i(TAG, "diag routes registered");

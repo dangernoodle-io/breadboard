@@ -1,30 +1,10 @@
 menu "breadboard: bb_log_event"
 
-config BB_LOG_EVENT_AUTO_ATTACH
-    bool "Auto-attach 'log' bb_event stream topic to /api/events"
-    default y
-    help
-        When enabled (default), bb_log_event registers a non-retained "log"
-        bb_event stream topic and attaches it to /api/events at regular-tier
-        order 4. This is THE primary log transport — structured JSON served
-        at GET /api/events?topic=log; the legacy /api/logs raw-text SSE
-        route has been retired.
-
-        Each log line is forwarded as structured JSON:
-        {"ts":<ms>,"level":"I|W|E|D|V|?","tag":"<tag>","msg":"<text>"}
-
-        The forwarder feeds from a dedicated queue (see BB_LOG_EVENT_QUEUE_LEN)
-        inside bb_log's s_log_vprintf so the hot logging path is never blocked.
-
-        Disable only if you want the log topic available to direct bb_event
-        subscribers without surfacing it on /api/events.
-
 config BB_LOG_EVENT_QUEUE_LEN
     int "Log event forwarder queue depth"
     default 48 if SPIRAM
     default 24
     range 8 256
-    depends on BB_LOG_EVENT_AUTO_ATTACH
     help
         Number of slots in the off-hot-path forwarder queue between
         bb_log's s_log_vprintf and the bb_log_event forwarder task. Each slot

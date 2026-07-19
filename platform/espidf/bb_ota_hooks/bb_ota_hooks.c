@@ -6,8 +6,7 @@
 #include <string.h>
 
 #ifdef ESP_PLATFORM
-#include "bb_event.h"
-#include "bb_event_routes.h"
+#include "bb_data.h"
 #include "bb_openapi.h"
 #include "bb_http_server.h"
 #endif
@@ -40,10 +39,6 @@ static int                      s_last_pct;
 // (updated unconditionally by bb_ota_emit_progress(), portable). Read by
 // bb_ota_hooks_gather() below.
 static char                     s_last_via[16];
-
-#ifdef ESP_PLATFORM
-static bb_event_topic_t s_ota_progress_topic = NULL;
-#endif
 
 static const char *TAG = "bb_ota";
 
@@ -207,26 +202,15 @@ void bb_ota_emit_progress(const char *via, bb_ota_phase_t phase, int pct)
         case BB_OTA_PHASE_FAIL:     bb_log_w(TAG, "OTA %s: failed", via);    break;
     }
 
-    // Stash last progress for bb_ota_hooks_gather() (Model-B egress). This is
-    // intentionally BEFORE — and outside the guard of — the ESP_PLATFORM
-    // bb_event_post() block below: the gather is host-testable, so these
-    // statics must update on every platform. (log/health stash AFTER their
-    // post because their stash lives in the same platform-only path.) The
-    // event payload is built only from the local via/phase/pct params, never
-    // these statics, so this ordering never affects the emitted event.
+    // Stash last progress for bb_ota_hooks_gather() (Model-B egress) BEFORE
+    // bumping the "ota.progress" bb_data generation below -- the gather is
+    // host-testable, so these statics must update on every platform.
     s_last_phase = phase;
     s_last_pct   = pct;
     bb_strlcpy(s_last_via, via ? via : "", sizeof(s_last_via));
 
 #ifdef ESP_PLATFORM
-    if (s_ota_progress_topic) {
-        int state = (phase == BB_OTA_PHASE_START)    ? 0 :
-                    (phase == BB_OTA_PHASE_PROGRESS)  ? 1 :
-                    (phase == BB_OTA_PHASE_SUCCESS)   ? 2 : 3;
-        char p[96];
-        int n = bb_ota_progress_json(p, sizeof(p), via, state, pct);
-        if (n > 0) bb_event_post(s_ota_progress_topic, pct, p, (size_t)n);
-    }
+    bb_data_touch("ota.progress");
 #endif
 }
 
@@ -279,13 +263,7 @@ static const char k_ota_progress_schema[] =
 bb_err_t bb_ota_hooks_init(bb_http_handle_t server)
 {
     (void)server;
-#if defined(CONFIG_BB_OTA_HOOKS_AUTO_ATTACH) && CONFIG_BB_OTA_HOOKS_AUTO_ATTACH
-    if (bb_event_topic_register("ota.progress", &s_ota_progress_topic) == BB_OK) {
-        bb_openapi_register_topic_schema("ota.progress", k_ota_progress_schema, "OtaProgress");
-        bb_err_t ae = bb_event_routes_attach_ex("ota.progress", true); // retained (B1-546)
-        if (ae != BB_OK) bb_log_w(TAG, "auto-attach failed for 'ota.progress': %d", ae);
-    }
-#endif
+    bb_openapi_register_topic_schema("ota.progress", k_ota_progress_schema, "OtaProgress");
     return BB_OK;
 }
 

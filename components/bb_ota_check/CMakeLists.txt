@@ -7,4 +7,4 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES bb_core bb_release_manifest bb_serialize
-    PRIV_REQUIRES bb_http_client bb_event bb_http bb_http_server bb_log bb_mdns bb_settings bb_openapi bb_system bb_json esp_http_server bb_event_routes bb_timer esp_hw_support bb_cache bb_task bb_str)
+    PRIV_REQUIRES bb_http_client bb_data bb_http bb_http_server bb_log bb_mdns bb_settings bb_openapi bb_system bb_json esp_http_server bb_timer esp_hw_support bb_cache bb_task bb_str)

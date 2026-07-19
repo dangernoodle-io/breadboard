@@ -16,7 +16,6 @@
 #include "bb_clock.h"
 #include "bb_diag_event_priv.h"
 #include "bb_display_info_event_priv.h"
-#include "bb_event.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_ota_check_internal.h"
@@ -36,8 +35,9 @@
 void bb_cache_reset_for_test(void);
 
 // Test helper: mirrors the pre-config-struct bb_cache_register() shape for
-// tests that don't care about flags (defaults to BB_CACHE_FLAG_SSE, matching
-// the old legacy-form behaviour these tests were written against).
+// tests that don't care about flags (B1-1045: BB_CACHE_FLAG_SSE is gone --
+// SSE/broadcast delivery is a bb_data/bb_data_http composition-root concern
+// now, not bb_cache's).
 static bb_err_t reg(const char *key, const void *(*snapshot)(void),
                      size_t snap_size, bb_cache_serialize_fn serialize)
 {
@@ -46,7 +46,7 @@ static bb_err_t reg(const char *key, const void *(*snapshot)(void),
         .snapshot  = snapshot,
         .snap_size = snap_size,
         .serialize = serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
+        .flags     = BB_CACHE_FLAG_NONE,
     };
     return bb_cache_register(&cfg);
 }
@@ -161,7 +161,6 @@ static const bb_cache_fidelity_topic_t s_topics[] = {
 static void reset_all(void)
 {
     bb_cache_reset_for_test();
-    bb_event_init(NULL);
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +178,7 @@ static void assert_fidelity(const bb_cache_fidelity_topic_t *t)
         .snapshot  = t->snapshot,
         .snap_size = t->snap_size,
         .serialize = t->serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
+        .flags     = BB_CACHE_FLAG_NONE,
     };
     err = bb_cache_register(&cfg);
     TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, err, t->name);
@@ -755,77 +754,11 @@ void test_bb_cache_register_key_at_max_length_boundary_succeeds(void)
     TEST_ASSERT_EQUAL_UINT(1, bb_cache_count());
 }
 
-// SSE-flag default preservation: a config struct with flags left at
-// BB_CACHE_FLAG_NONE (zero-init, matching a caller that forgets to migrate
-// the old always-SSE legacy default) must NOT get an SSE event topic —
-// bb_cache_post returns BB_ERR_INVALID_STATE, not BB_OK.
-void test_bb_cache_register_zero_flags_has_no_sse(void)
-{
-    reset_all();
-    bb_cache_config_t cfg = {
-        .key       = "test.cfg.noflags",
-        .snapshot  = NULL,
-        .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize,
-        .flags     = 0, // BB_CACHE_FLAG_NONE, explicit zero-init
-    };
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
-
-    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.cfg.noflags", .snap = &s }));
-
-    bb_err_t err = bb_cache_post("test.cfg.noflags");
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, err);
-}
-
-// SSE-flag default preservation: a migrated caller that explicitly sets
-// .flags = BB_CACHE_FLAG_SSE gets identical behaviour to the old always-SSE
-// legacy bb_cache_register() — bb_cache_post succeeds.
-void test_bb_cache_register_explicit_sse_flag_preserves_legacy_behavior(void)
-{
-    reset_all();
-    bb_event_init(NULL);
-    bb_cache_config_t cfg = {
-        .key       = "test.cfg.sseflag",
-        .snapshot  = NULL,
-        .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
-    };
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
-
-    synth_snap_t s = {.value = 2, .flag = true, .ratio = 0.5};
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.cfg.sseflag", .snap = &s }));
-
-    bb_err_t err = bb_cache_post("test.cfg.sseflag");
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-}
-
 // ---------------------------------------------------------------------------
-// Envelope contract (B1-570 PR-3): bb_cache_get_serialized/bb_cache_post wrap
-// the serializer's output as {"ts_ms":<n>,"data":{...}}. bb_cache_serialize_into
+// Envelope contract (B1-570 PR-3): bb_cache_get_serialized wraps the
+// serializer's output as {"ts_ms":<n>,"data":{...}}. bb_cache_serialize_into
 // stays raw (embed-a-section primitive, no envelope).
 // ---------------------------------------------------------------------------
-
-// Small SSE capture helper — subscribes to a key's event topic, posts, drains
-// synchronously (BB_EVENT_HOST_SYNC), and hands back the raw payload bytes.
-static char   s_env_sse_payload[512];
-static size_t s_env_sse_len;
-static int    s_env_sse_calls;
-
-static void env_sse_capture_cb(bb_event_topic_t topic, int32_t id,
-                                const void *data, size_t size, void *user)
-{
-    (void)topic; (void)id; (void)user;
-    s_env_sse_calls++;
-    if (data && size > 0) {
-        size_t n = size - 1;  // strip NUL posted by bb_cache_post
-        if (n >= sizeof(s_env_sse_payload)) n = sizeof(s_env_sse_payload) - 1;
-        memcpy(s_env_sse_payload, data, n);
-        s_env_sse_payload[n] = '\0';
-        s_env_sse_len = n;
-    }
-}
 
 void test_bb_cache_envelope_get_serialized_owned_mode_shape(void)
 {
@@ -945,88 +878,6 @@ void test_bb_cache_envelope_getter_mode_ts_advances_each_read(void)
     // Getter mode: every call re-samples snapshot() AND re-stamps ts_ms
     // (the read IS the sample) — the second read must be no earlier.
     TEST_ASSERT_TRUE(ts2 >= ts1);
-}
-
-void test_bb_cache_envelope_post_sse_shape(void)
-{
-    reset_all();
-    s_env_sse_calls = 0;
-    s_env_sse_len   = 0;
-    s_env_sse_payload[0] = '\0';
-
-    synth_snap_t s = {.value = 9, .flag = false, .ratio = 0.25};
-    bb_cache_config_t cfg = {
-        .key       = "test.env.post",
-        .snapshot  = NULL,
-        .snap_size = sizeof(s),
-        .serialize = synth_serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
-    };
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.env.post", .snap = &s }));
-
-    bb_event_topic_t topic = NULL;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_event_topic_lookup("test.env.post", &topic));
-    bb_event_sub_t sub = NULL;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_event_subscribe(topic, env_sse_capture_cb, NULL, &sub));
-
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_post("test.env.post"));
-    bb_event_pump(0);
-    TEST_ASSERT_EQUAL_INT(1, s_env_sse_calls);
-
-    bb_json_t root = bb_json_parse(s_env_sse_payload, s_env_sse_len);
-    TEST_ASSERT_NOT_NULL(root);
-    double ts = -1;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(root, "ts_ms", &ts));
-    bb_json_t data = bb_json_obj_get_item(root, "data");
-    TEST_ASSERT_NOT_NULL(data);
-    double value = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "value", &value));
-    TEST_ASSERT_EQUAL_INT(9, (int)value);
-
-    bb_json_free(root);
-    bb_event_unsubscribe(sub);
-}
-
-void test_bb_cache_envelope_rest_equals_sse_within_interval(void)
-{
-    // REST (bb_cache_get_serialized) and SSE (bb_cache_post) must produce the
-    // SAME {"ts_ms":n,"data":{...}} bytes when no update() lands in between —
-    // both are owned-mode reads of the same frozen (struct, ts_ms) pair.
-    reset_all();
-    s_env_sse_calls = 0;
-    s_env_sse_len   = 0;
-    s_env_sse_payload[0] = '\0';
-
-    synth_snap_t s = {.value = 11, .flag = true, .ratio = 3.5};
-    bb_cache_config_t cfg = {
-        .key       = "test.env.parity",
-        .snapshot  = NULL,
-        .snap_size = sizeof(s),
-        .serialize = synth_serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
-    };
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.env.parity", .snap = &s }));
-
-    bb_event_topic_t topic = NULL;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_event_topic_lookup("test.env.parity", &topic));
-    bb_event_sub_t sub = NULL;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_event_subscribe(topic, env_sse_capture_cb, NULL, &sub));
-
-    char rest_buf[256];
-    size_t rest_len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_get_serialized("test.env.parity", rest_buf, sizeof(rest_buf), &rest_len));
-
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_post("test.env.parity"));
-    bb_event_pump(0);
-    TEST_ASSERT_EQUAL_INT(1, s_env_sse_calls);
-
-    TEST_ASSERT_EQUAL_UINT(rest_len, s_env_sse_len);
-    TEST_ASSERT_EQUAL_STRING(rest_buf, s_env_sse_payload);
-
-    bb_event_unsubscribe(sub);
 }
 
 void test_bb_cache_envelope_serialize_into_not_enveloped(void)
@@ -1388,23 +1239,22 @@ void test_bb_cache_owned_fallback_serialize_into_seed_not_reinvoked_without_dirt
     TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
 }
 
-// Plain GETTER mode (owned == NULL) reached via bb_cache_serialize_into and
-// bb_cache_post -- the two entry points that share serialize_locked with the
-// owned+fallback path above. Exercises the "e->snapshot && !e->owned" TRUE
-// branch (pure pull-through, no owned buffer, no seeding) in serialize_locked
+// Plain GETTER mode (owned == NULL) reached via bb_cache_serialize_into, the
+// entry point that shares serialize_locked with the owned+fallback path
+// above. Exercises the "e->snapshot && !e->owned" TRUE branch (pure
+// pull-through, no owned buffer, no seeding) in serialize_locked
 // specifically, as distinct from bb_cache_get_serialized's own copy of that
 // same branch (covered elsewhere in this file).
-void test_bb_cache_getter_mode_serialize_into_and_post_pull_through(void)
+void test_bb_cache_getter_mode_serialize_into_pull_through(void)
 {
     reset_all();
-    bb_event_init(NULL);
 
     bb_cache_config_t cfg = {
         .key       = "test.cs.getterpost",
         .snapshot  = env_getter_snapshot,
         .snap_size = 0,
         .serialize = synth_serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
+        .flags     = BB_CACHE_FLAG_NONE,
     };
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
 
@@ -1414,47 +1264,6 @@ void test_bb_cache_getter_mode_serialize_into_and_post_pull_through(void)
     TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "value", &value));
     TEST_ASSERT_EQUAL_INT(3, (int)value);  // s_env_getter_val.value
     bb_json_free(obj);
-
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_post("test.cs.getterpost"));
-}
-
-// The cold-start seed is a read-side effect only -- it must never fire an
-// SSE observer/event. Subscribes to the owned+fallback key's event topic,
-// triggers the seed via a plain read (bb_cache_get_serialized), and asserts
-// the subscriber callback never runs. (bb_cache core has no reactive/notify
-// layer yet -- PR-4b -- so this pins the only observer-like mechanism that
-// exists today: BB_CACHE_FLAG_SSE's bb_event topic, which only bb_cache_post
-// ever posts to.)
-void test_bb_cache_owned_fallback_seed_does_not_fire_sse_observer(void)
-{
-    reset_all();
-    s_env_sse_calls = 0;
-
-    bb_cache_config_t cfg = {
-        .key       = "test.cs.noobserve",
-        .snapshot  = cs_fallback_snapshot,
-        .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
-    };
-    cs_reset();
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
-
-    bb_event_topic_t topic = NULL;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_event_topic_lookup("test.cs.noobserve", &topic));
-    bb_event_sub_t sub = NULL;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_event_subscribe(topic, env_sse_capture_cb, NULL, &sub));
-
-    char buf[256];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_get_serialized("test.cs.noobserve", buf, sizeof(buf), &len));  // seeds
-    bb_event_pump(0);
-
-    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
-    TEST_ASSERT_EQUAL_INT(0, s_env_sse_calls);  // the seed never posted an event
-
-    bb_event_unsubscribe(sub);
 }
 
 // A real bb_cache_update always wins and permanently stops the seed path
@@ -1798,94 +1607,6 @@ void test_bb_cache_register_owned_alloc_failure_returns_no_space(void)
     TEST_ASSERT_FALSE(bb_cache_exists("test.cs.allocfail"));
 }
 
-void test_bb_cache_post_null_key_returns_invalid_arg(void)
-{
-    reset_all();
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_post(NULL));
-}
-
-void test_bb_cache_post_unknown_key_returns_not_found(void)
-{
-    reset_all();
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, bb_cache_post("no.such.post.key"));
-}
-
-// serialize_locked returning non-BB_OK from inside bb_cache_post: a getter
-// with no snapshot data available yields BB_ERR_INVALID_STATE.
-static const void *post_null_getter(void) { return NULL; }
-
-void test_bb_cache_post_serialize_locked_error_propagates(void)
-{
-    reset_all();
-    bb_event_init(NULL);
-    bb_cache_config_t cfg = {
-        .key       = "test.post.nosnap",
-        .snapshot  = post_null_getter,
-        .snap_size = 0,
-        .serialize = synth_serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
-    };
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, bb_cache_post("test.post.nosnap"));
-}
-
-// bb_cache_post's "data" bb_json_obj_new() failure.
-void test_bb_cache_post_data_obj_alloc_failure_returns_no_space(void)
-{
-    reset_all();
-    bb_event_init(NULL);
-    bb_cache_config_t cfg = {
-        .key = "test.post.dataoom", .snapshot = NULL, .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize, .flags = BB_CACHE_FLAG_SSE,
-    };
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
-    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.post.dataoom", .snap = &s }));
-
-    bb_json_host_force_alloc_fail_after(0);  // 1st bb_json_obj_new() call -- "data"
-    bb_err_t err = bb_cache_post("test.post.dataoom");
-    bb_json_host_force_alloc_fail_after(-1);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
-}
-
-// bb_cache_post's "root" bb_json_obj_new() failure (data succeeds, root fails).
-void test_bb_cache_post_root_obj_alloc_failure_returns_no_space(void)
-{
-    reset_all();
-    bb_event_init(NULL);
-    bb_cache_config_t cfg = {
-        .key = "test.post.rootoom", .snapshot = NULL, .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize, .flags = BB_CACHE_FLAG_SSE,
-    };
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
-    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.post.rootoom", .snap = &s }));
-
-    bb_json_host_force_alloc_fail_after(1);  // 2nd bb_json_obj_new() call -- "root"
-    bb_err_t err = bb_cache_post("test.post.rootoom");
-    bb_json_host_force_alloc_fail_after(-1);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
-}
-
-// bb_cache_post's final bb_json_serialize(root) failure.
-void test_bb_cache_post_serialize_failure_returns_no_space(void)
-{
-    reset_all();
-    bb_event_init(NULL);
-    bb_cache_config_t cfg = {
-        .key = "test.post.serfail", .snapshot = NULL, .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize, .flags = BB_CACHE_FLAG_SSE,
-    };
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
-    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.post.serfail", .snap = &s }));
-
-    bb_json_host_force_serialize_fail_after(0);
-    bb_err_t err = bb_cache_post("test.post.serfail");
-    bb_json_host_force_serialize_fail_after(-1);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
-}
-
 void test_bb_cache_serialize_into_null_args_return_invalid_arg(void)
 {
     reset_all();
@@ -1894,34 +1615,6 @@ void test_bb_cache_serialize_into_null_args_return_invalid_arg(void)
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_serialize_into(NULL, obj));
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_serialize_into("test.si.args", NULL));
     bb_json_free(obj);
-}
-
-void test_bb_cache_post_serialized_null_args_return_invalid_arg(void)
-{
-    reset_all();
-    reg("test.ps.args", NULL, sizeof(synth_snap_t), synth_serialize);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_post_serialized(NULL, "{}", 2));
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_post_serialized("test.ps.args", NULL, 0));
-}
-
-void test_bb_cache_post_serialized_unknown_key_returns_not_found(void)
-{
-    reset_all();
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, bb_cache_post_serialized("no.such.ps.key", "{}", 2));
-}
-
-// bb_cache_post_serialized on a key registered WITHOUT SSE returns
-// BB_ERR_INVALID_STATE (event_topic read under the lock is NULL).
-void test_bb_cache_post_serialized_no_sse_returns_invalid_state(void)
-{
-    reset_all();
-    bb_cache_config_t cfg = {
-        .key = "test.ps.nosse", .snapshot = NULL, .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize, .flags = BB_CACHE_FLAG_NONE,
-    };
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE,
-        bb_cache_post_serialized("test.ps.nosse", "{}", 2));
 }
 
 void test_bb_cache_get_serialized_null_args_return_invalid_arg(void)
@@ -2019,8 +1712,8 @@ typedef struct {
     int poisoned_count;       // observed a value that belongs to the OTHER key
 } mt_churn_result_t;
 
-// Registers key with SSE so every reader entry point (including
-// bb_cache_post/post_serialized) can be exercised against the churning slot.
+// Registers key so every reader entry point can be exercised against the
+// churning slot.
 static bb_err_t mt_churn_register(const char *key)
 {
     bb_cache_config_t cfg = {
@@ -2028,7 +1721,7 @@ static bb_err_t mt_churn_register(const char *key)
         .snapshot  = NULL,
         .snap_size = sizeof(mt_churn_snap_t),
         .serialize = mt_churn_serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
+        .flags     = BB_CACHE_FLAG_NONE,
     };
     return bb_cache_register(&cfg);
 }
@@ -2069,10 +1762,9 @@ static void *b1_592_deleter_fn(void *arg)
 
 // Exercises every reader entry point that captures (entry, generation) via
 // find_entry_locked_ref() and re-validates under e->lock: get_serialized,
-// get_raw, update, serialize_into, post, post_serialized. Any return other
-// than BB_OK/BB_ERR_NOT_FOUND/BB_ERR_INVALID_STATE (the last only possible
-// for post/post_serialized before the SSE topic exists) is unexpected;
-// observing the OTHER key's value under this key's name is poisoning.
+// get_raw, update, serialize_into. Any return other than
+// BB_OK/BB_ERR_NOT_FOUND is unexpected; observing the OTHER key's value
+// under this key's name is poisoning.
 static void mt_churn_check_one(const char *key, int expected, mt_churn_result_t *res)
 {
     char buf[128];
@@ -2124,16 +1816,6 @@ static void mt_churn_check_one(const char *key, int expected, mt_churn_result_t 
         }
         bb_json_free(obj);
     }
-    // bb_cache_post/bb_cache_post_serialized are deliberately NOT exercised
-    // in this hot loop: both funnel through bb_event_post's small bounded
-    // queue (CONFIG_BB_EVENT_QUEUE_DEPTH, default 16) with no pump in this
-    // loop to drain it, so a sustained flood would legitimately return
-    // BB_ERR_NO_SPACE (queue full) at a rate that swamps any real signal --
-    // that is a queue-capacity artifact of this test's shape, not a bug.
-    // serialize_locked's entry_matches_locked check (shared by both
-    // bb_cache_post and bb_cache_serialize_into) is already exercised above
-    // via serialize_into; bb_cache_post_serialized's own inline check is
-    // covered by the low-volume, pump-per-call race test below.
 }
 
 static void *b1_592_reader_fn(void *arg)
@@ -2149,7 +1831,6 @@ static void *b1_592_reader_fn(void *arg)
 void test_bb_cache_delete_reader_race_never_poisons_or_crashes(void)
 {
     reset_all();
-    bb_event_init(NULL);
 
     mt_churn_result_t reader_res_a = {0};
     mt_churn_result_t reader_res_b = {0};
@@ -2173,89 +1854,6 @@ void test_bb_cache_delete_reader_race_never_poisons_or_crashes(void)
     // its own value, "test.mt.churnB" deleted.
     TEST_ASSERT_TRUE(bb_cache_exists("test.mt.churn"));
     TEST_ASSERT_FALSE(bb_cache_exists("test.mt.churnB"));
-}
-
-// ---------------------------------------------------------------------------
-// bb_cache_post_serialized's own inline entry_matches_locked re-validation
-// (distinct call site from serialize_locked, which bb_cache_post and
-// bb_cache_serialize_into share and which the race test above already
-// exercises via serialize_into). Deliberately LOW volume with an immediate
-// bb_event_pump(0) after every post -- bb_event_post funnels into a small
-// bounded queue (CONFIG_BB_EVENT_QUEUE_DEPTH, default 16); pumping after
-// every call keeps it drained so this test measures the delete-race
-// behavior, not queue capacity.
-// ---------------------------------------------------------------------------
-
-#define B1_592_POST_ITERS 60000
-
-typedef struct {
-    int unexpected_err_count; // anything other than OK/NOT_FOUND/NO_SPACE
-} post_race_result_t;
-
-static void *b1_592_post_deleter_fn(void *arg)
-{
-    (void)arg;
-    static const char *pattern[3] = {
-        "test.mt.pchurn", "test.mt.pchurn", "test.mt.pchurnB"
-    };
-    for (int i = 0; i < B1_592_POST_ITERS; i++) {
-        const char *cur = pattern[i % 3];
-        bb_cache_delete("test.mt.pchurn");
-        bb_cache_delete("test.mt.pchurnB");
-        mt_churn_register(cur);
-        // A THIRD registry mutation per iteration (matching the "busier
-        // deleter" shape of the get_serialized/get_raw race test above,
-        // which reliably hits its own mismatch branches) -- widens the
-        // window in which a reader's find-then-lock gap spans a full
-        // incarnation change.
-        mt_churn_snap_t s = { .value = 1 };
-        bb_cache_update(&(bb_cache_update_t){ .key = cur, .snap = &s });
-    }
-    bb_cache_delete("test.mt.pchurn");
-    bb_cache_delete("test.mt.pchurnB");
-    mt_churn_register("test.mt.pchurn");
-    return NULL;
-}
-
-static void *b1_592_post_reader_fn(void *arg)
-{
-    post_race_result_t *res = (post_race_result_t *)arg;
-    for (int i = 0; i < B1_592_POST_ITERS; i++) {
-        bb_err_t err = bb_cache_post_serialized("test.mt.pchurn", "{\"value\":0}", 11);
-        bb_event_pump(0);
-        if (err != BB_OK && err != BB_ERR_NOT_FOUND && err != BB_ERR_NO_SPACE) {
-            res->unexpected_err_count++;
-        }
-
-        err = bb_cache_post_serialized("test.mt.pchurnB", "{\"value\":0}", 11);
-        bb_event_pump(0);
-        if (err != BB_OK && err != BB_ERR_NOT_FOUND && err != BB_ERR_NO_SPACE) {
-            res->unexpected_err_count++;
-        }
-    }
-    return NULL;
-}
-
-void test_bb_cache_post_serialized_delete_race_never_crashes(void)
-{
-    reset_all();
-    bb_event_init(NULL);
-
-    post_race_result_t res_a = {0};
-    post_race_result_t res_b = {0};
-
-    pthread_t deleter_tid, reader_tid_a, reader_tid_b;
-    TEST_ASSERT_EQUAL_INT(0, pthread_create(&deleter_tid, NULL, b1_592_post_deleter_fn, NULL));
-    TEST_ASSERT_EQUAL_INT(0, pthread_create(&reader_tid_a, NULL, b1_592_post_reader_fn, &res_a));
-    TEST_ASSERT_EQUAL_INT(0, pthread_create(&reader_tid_b, NULL, b1_592_post_reader_fn, &res_b));
-
-    pthread_join(deleter_tid, NULL);
-    pthread_join(reader_tid_a, NULL);
-    pthread_join(reader_tid_b, NULL);
-
-    TEST_ASSERT_EQUAL_INT(0, res_a.unexpected_err_count);
-    TEST_ASSERT_EQUAL_INT(0, res_b.unexpected_err_count);
-    TEST_ASSERT_TRUE(bb_cache_exists("test.mt.pchurn"));
 }
 
 // ---------------------------------------------------------------------------
@@ -2288,7 +1886,7 @@ static bb_err_t race_register(const char *key)
         .snapshot  = NULL,
         .snap_size = sizeof(race_snap_t),
         .serialize = race_serialize,
-        .flags     = BB_CACHE_FLAG_SSE,
+        .flags     = BB_CACHE_FLAG_NONE,
     };
     return bb_cache_register(&cfg);
 }
@@ -2316,8 +1914,8 @@ static void race_delete_only(const char *key)
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_delete(key));
 }
 
-// Covers serialize_locked's tombstone-mismatch branch (shared by
-// bb_cache_post and bb_cache_serialize_into) via the serialize_into caller.
+// Covers serialize_locked's tombstone-mismatch branch via the
+// serialize_into caller.
 void test_bb_cache_serialize_into_delete_race_returns_not_found(void)
 {
     reset_all();
@@ -2380,27 +1978,6 @@ void test_bb_cache_get_raw_delete_race_returns_not_found(void)
 
     TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
     TEST_ASSERT_TRUE(bb_cache_exists("test.race.getraw"));
-}
-
-// Covers bb_cache_post_serialized's own inline tombstone-mismatch branch --
-// the fifth call site (distinct from serialize_locked, update, get_serialized,
-// and get_raw above). The threaded race test
-// (test_bb_cache_post_serialized_delete_race_never_crashes) exercises this
-// call site too, but only via schedule-dependent thread timing; this
-// deterministic hook test is what actually guarantees the mismatch branch
-// fires on every host/CI combination.
-void test_bb_cache_post_serialized_delete_race_returns_not_found(void)
-{
-    reset_all();
-    bb_event_init(NULL);
-    TEST_ASSERT_EQUAL_INT(BB_OK, race_register("test.race.postser"));
-
-    bb_cache_test_set_race_hook(race_delete_and_reregister);
-
-    bb_err_t err = bb_cache_post_serialized("test.race.postser", "{\"value\":0}", 11);
-
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
-    TEST_ASSERT_TRUE(bb_cache_exists("test.race.postser"));
 }
 
 // Covers entry_matches_locked's key-empty (tombstoned, not re-registered)

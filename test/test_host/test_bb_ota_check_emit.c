@@ -7,8 +7,6 @@
 #include "bb_ota_check_internal.h"
 #include "bb_http_host.h"
 #include "bb_http_client_host.h"
-#include "bb_event.h"
-#include "bb_event_test.h"
 #include "bb_settings.h"
 #include "bb_storage.h"
 #include "fake_nvs_backend.h"
@@ -33,8 +31,6 @@ static void reset_world(void)
     bb_storage_register_backend("nvs", &s_fake_nvs_vtable, NULL);
     bb_ota_check_reset_for_test();
     bb_http_client_clear_mock();
-    bb_event_reset_for_test();
-    bb_event_init(NULL);
 }
 
 // ---------------------------------------------------------------------------

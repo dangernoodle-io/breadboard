@@ -51,3 +51,11 @@ set(COMPONENTS __pio_env ${BB_AUTOWIRE_COMPONENTS})
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(floor)
+
+# B1-1045 PR-4: bb_mdns (a new floor addition, the Model-B egress vehicle
+# expansion) includes bb_core's bb_hw.h, which hard-requires
+# BB_HW_BOARD_HEADER -- floor's single board target is the classic
+# ESP32-D0/WROOM-32 (board = esp32dev in platformio.ini). Mirrors
+# examples/smoke/CMakeLists.txt's board-header wiring.
+idf_build_set_property(COMPILE_OPTIONS "-I${CMAKE_CURRENT_SOURCE_DIR}/board" APPEND)
+idf_build_set_property(COMPILE_OPTIONS "-DBB_HW_BOARD_HEADER=\"esp32_wroom_32.h\"" APPEND)

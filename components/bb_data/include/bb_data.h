@@ -49,7 +49,10 @@ extern "C" {
 // Fixed binding-table capacity -- a handful of composed keys, not an
 // open-ended runtime set (mirrors bb_serialize_format's own small registry
 // sizing rationale). No Kconfig bridge -- this is a compile-time-only
-// constant, not a per-target tunable.
+// constant, not a per-target tunable. The B1-1045 cutover briefly bumped
+// this 8->16 in anticipation of examples/floor binding 8 keys; floor's
+// scope narrowed to 3 (log, diag.meminfo, diag.system), so 8 is ample
+// headroom again.
 #define BB_DATA_MAX_BINDINGS 8
 
 // Max length (including the terminating NUL) of a binding key -- a short

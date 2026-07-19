@@ -137,7 +137,7 @@ components = [
     "bb_attrs", "bb_board", "bb_bqueue", "bb_button",
     "bb_button_events", "bb_button_gpio", "bb_cache", "bb_cache_reactive", "bb_cache_serialize",
     "bb_cache_routes", "bb_collection", "bb_config", "bb_core", "bb_data", "bb_data_http", "bb_diag", "bb_dispatch_cmd",
-    "bb_display", "bb_event", "bb_event_ring", "bb_event_routes",
+    "bb_display",
     "bb_fan", "bb_filter", "bb_fmt", "bb_fsm", "bb_health", "bb_http",
     "bb_http_client", "bb_http_server", "bb_i2c", "bb_json",
     "bb_led", "bb_led_anim", "bb_led_apa102", "bb_led_gpio",
@@ -151,7 +151,6 @@ components = [
     "bb_registry", "bb_release_manifest", "bb_response",
     "bb_scalar", "bb_sensors", "bb_serialize", "bb_serialize_console", "bb_serialize_json",
     "bb_serialize_logfmt", "bb_settings",
-    "bb_sse_writer",
     "bb_storage", "bb_storage_http", "bb_storage_ram", "bb_storage_rtc",
     "bb_str", "bb_system", "bb_task", "bb_task_registry",
     "bb_tcp_client", "bb_temp", "bb_thermal", "bb_timer", "bb_tls_creds",
@@ -208,8 +207,7 @@ components = [
     "bb_board", "bb_manifest", "bb_ota_validator", "bb_system", "bb_openapi",
     "bb_led", "bb_ntp", "bb_led_gpio",
     "bb_led_pwm", "bb_led_apa102", "bb_led_anim", "bb_button", "bb_button_gpio",
-    "bb_button_events", "bb_event", "bb_event_ring", "bb_event_ring_espidf",
-    "bb_event_routes", "bb_event_routes_espidf", "bb_queue_espidf", "bb_ring_diag",
+    "bb_button_events", "bb_queue_espidf", "bb_ring_diag",
     "bb_http_client", "bb_release_manifest", "bb_ota_check", "bb_temp",
     "bb_power", "bb_fan", "bb_sensors", "bb_serialize", "bb_serialize_json", "bb_tls_creds", "bb_mqtt_client",
     "bb_ws_server",
@@ -296,12 +294,22 @@ remove_components = ["bb_wifi_ap"]
 # table and render them via the JSON format backend on every request.
 # bb_meminfo is already in this list (floor's heap-log tick); bb_system is
 # new here solely for its snap descriptor/fill fn.
+#
+# B1-1045 PR-4 (cutover): floor expands into the full Model-B egress vehicle
+# -- bb_log_event binds the "log" bb_data key (the sole dissolved-bb_event
+# producer floor scopes in; the other 5 -- bb_ota_hooks, bb_health, bb_diag,
+# bb_display, bb_ota_check -- stay out of floor's manifest, smoke's own
+# event-cutover rehab is B1-1051); bb_mqtt_client + bb_mdns observe the
+# repointed "wifi" bb_lifecycle service; bb_data_http is the converged SSE/WS
+# broadcaster served at /api/events. Floor's heap-baseline identity moves as
+# a result (near-term measurement vehicle, not smoke's closure).
 components = [
     "bb_log", "bb_meminfo", "bb_timer",
     "bb_wifi", "bb_storage_nvs", "bb_storage_rtc", "bb_settings",
     "bb_http", "bb_http_server", "bb_lifecycle",
     "bb_data", "bb_serialize_json", "bb_system",
     "bb_serialize_console",
+    "bb_log_event", "bb_mqtt_client", "bb_mdns", "bb_data_http",
 ]
 
 [board.floor]

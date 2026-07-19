@@ -1136,17 +1136,20 @@ void test_bb_wifi_classify_lifecycle_lost_ip_is_stop(void)
                           bb_wifi_classify_lifecycle(BB_WIFI_NET_EVT_LOST_IP, NULL, 0));
 }
 
-// REBOOT_DENIED/RECONNECT_PARKED are observe-only telemetry edges -- neither
-// drives a lifecycle transition.
+// REBOOT_DENIED is an observe-only telemetry edge -- it does not drive a
+// lifecycle transition.
 void test_bb_wifi_classify_lifecycle_reboot_denied_is_none(void)
 {
     TEST_ASSERT_EQUAL_INT(BB_LIFECYCLE_ACTION_NONE,
                           bb_wifi_classify_lifecycle(BB_WIFI_NET_EVT_REBOOT_DENIED, NULL, 0));
 }
 
-void test_bb_wifi_classify_lifecycle_reconnect_parked_is_none(void)
+// B1-1045 PR-4 widening: RECONNECT_PARKED (ASSOC_LEAVE parked the reconnect
+// FSM) is "no longer associated" -- the same lifecycle action as a
+// disconnect, so a STOP-driven consumer (e.g. mDNS) still stops on parked.
+void test_bb_wifi_classify_lifecycle_reconnect_parked_is_stop(void)
 {
-    TEST_ASSERT_EQUAL_INT(BB_LIFECYCLE_ACTION_NONE,
+    TEST_ASSERT_EQUAL_INT(BB_LIFECYCLE_ACTION_STOP,
                           bb_wifi_classify_lifecycle(BB_WIFI_NET_EVT_RECONNECT_PARKED, NULL, 0));
 }
 

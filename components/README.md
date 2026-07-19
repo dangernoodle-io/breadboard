@@ -37,9 +37,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_display_spi_common](./bb_display_spi_common/) | — |
 | [bb_display_ssd1306](./bb_display_ssd1306/) | — |
 | [bb_display_st77xx](./bb_display_st77xx/) | — |
-| [bb_event](./bb_event/) | — |
-| [bb_event_ring](./bb_event_ring/) | — |
-| [bb_event_routes](./bb_event_routes/) | — |
 | [bb_fan](./bb_fan/) | — |
 | [bb_fan_emc2101](./bb_fan_emc2101/) | — |
 | [bb_filter](./bb_filter/) | Pure projection over elements carrying `bb_attrs`: given an array of `{attrs, item}` pairs and a selector, returns the matching, priority-sorted subset. Reach for it whenever a consumer needs to pick "the top N by priority/kind/tag" out of a candidate set without building a registry. |
@@ -96,7 +93,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_serialize_json](./bb_serialize_json/) | Hand-rolled, no-heap, bounded-buffer JSON bb_serialize_emit_t backend -- the default wire-format implementation for bb_serialize. |
 | [bb_serialize_logfmt](./bb_serialize_logfmt/) | Hand-rolled, no-heap, bounded-buffer logfmt bb_serialize_emit_t backend -- a second wire-format implementation for bb_serialize, mirroring bb_serialize_json's structure and contract shape. |
 | [bb_settings](./bb_settings/) | bb's default WiFi-credentials store — a wifi-creds field table over `bb_config`, byte-compatible with the credentials `bb_nv_config` already persists. `bb_settings` is bb's opinionated bb-config authority (KB 805/806); `bb_wifi` reads its accessors directly. |
-| [bb_sse_writer](./bb_sse_writer/) | — |
 | [bb_storage](./bb_storage/) | Portable storage facade + backend registry: one `bb_storage_get/set/erase/exists` API dispatching by `bb_storage_addr_t.backend` to whichever backend has registered itself. |
 | [bb_storage_http](./bb_storage_http/) | Backend-agnostic DELETE /api/diag/storage route over the bb_storage facade, plus POST /api/diag/factory-reset (whole-partition erase + reboot) — works for any registered backend (nvs today, ram/rtc/a future sdcard) with no new route component per backend. |
 | [bb_storage_nvs](./bb_storage_nvs/) | ESP-IDF NVS backend for `bb_storage`. |

@@ -1,10 +1,10 @@
 #pragma once
 
 // bb_ota_hooks_wire — PUBLIC bb_serialize_desc_t (SSOT) for the
-// "ota.progress" bb_event topic (B1-1045 PR-2, cutover composition-root
-// ownership decision KB 1454). ADDITIVE-only, INERT: no bb_data_bind() call
-// exists anywhere in this PR -- the composition root (PR-4) is the sole
-// owner of wiring this descriptor to bb_data.
+// "ota.progress" bb_data key (B1-1045 PR-2, cutover composition-root
+// ownership decision KB 1454). The composition root
+// (examples/floor/main/floor_app.c, PR-4) owns wiring this descriptor to
+// bb_data via bb_data_bind().
 //
 // Mirrors bb_ota_progress_json()'s `{"via","state","pct"}` shape
 // (bb_ota_hooks.h) field-for-field. `pct` is widened from `int` to a fixed

@@ -9,7 +9,6 @@
 #include "bb_timer.h"
 #endif
 #include "bb_cache_internal.h"
-#include "bb_event.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_core.h"
@@ -46,7 +45,6 @@ typedef struct {
                                            // reports changed=true unconditionally (see
                                            // maybe_seed_fallback()).
     bb_cache_serialize_fn fn;
-    bb_event_topic_t     event_topic;     // registered event topic handle (NULL if no SSE)
     pthread_mutex_t      lock;            // process-lifetime — see the tombstone/generation
                                            // invariant documented above find_entry_locked_ref().
                                            // NEVER pthread_mutex_destroy'd or re-pthread_mutex_init'd
@@ -267,10 +265,10 @@ static inline bool entry_matches_locked(const bb_cache_entry_t *e, const char *k
 }
 
 // Tear down an entry's owned resources, mirroring bb_cache_reset_for_test's
-// per-entry teardown EXACTLY. Caller holds e->lock. Does NOT touch e->key, e->event_topic,
-// e->generation, or the mutex itself -- those are the caller's responsibility
-// (bb_cache_delete bumps generation and clears key/event_topic itself, from
-// its own scope, after this helper returns).
+// per-entry teardown EXACTLY. Caller holds e->lock. Does NOT touch e->key,
+// e->generation, or the mutex itself -- those are the caller's
+// responsibility (bb_cache_delete bumps generation and clears key itself,
+// from its own scope, after this helper returns).
 static void free_entry_locked(bb_cache_entry_t *e)
 {
     bb_mem_free(e->owned);
@@ -384,8 +382,8 @@ static void maybe_seed_fallback(bb_cache_entry_t *e)
 
 // LAZY age-out eviction floor (B1-592 A3). Called under e->lock immediately
 // after entry_matches_locked() succeeds, from every read call site
-// (serialize_locked, bb_cache_get_serialized, bb_cache_get_raw,
-// bb_cache_post_serialized) and from the SWEEP backstop's sweep_cb() below.
+// (serialize_locked, bb_cache_get_serialized, bb_cache_get_raw) and from the
+// SWEEP backstop's sweep_cb() below.
 //
 // Returns true if the entry was evicted -- e->lock has ALREADY been released
 // by this function and the caller must not touch e any further; the caller's
@@ -488,10 +486,8 @@ static bb_err_t copy_owned_and_capture_locked(bb_cache_entry_t *e, const char *o
 // out_ts_ms, when non-NULL, receives the entry's envelope sample-time: for
 // getter-mode entries this call stamps ts_ms = now (the read IS the sample);
 // for owned-mode entries ts_ms was already stamped by the last bb_cache_update.
-// out_topic, when non-NULL, receives e->event_topic -- read under the same
-// lock+validation so callers (bb_cache_post) never read event_topic unguarded.
 static bb_err_t serialize_locked(bb_cache_entry_t *e, const char *key, uint32_t generation,
-                                  bb_json_t obj, int64_t *out_ts_ms, bb_event_topic_t *out_topic)
+                                  bb_json_t obj, int64_t *out_ts_ms)
 {
     BB_CACHE_TEST_RACE_POINT(key);
     pthread_mutex_lock(&e->lock);
@@ -504,8 +500,6 @@ static bb_err_t serialize_locked(bb_cache_entry_t *e, const char *key, uint32_t 
     if (evict_if_aged_out_locked(e)) {
         return BB_ERR_NOT_FOUND;
     }
-
-    if (out_topic) *out_topic = e->event_topic;
 
     const void *snap;
     if (is_plain_getter(e)) {
@@ -616,14 +610,6 @@ bb_err_t bb_cache_register_ex(const bb_cache_config_t *cfg, bool *out_first_time
         return BB_ERR_INVALID_ARG;
     }
 
-    // Register event topic only when SSE flag is set.
-    // Sink-only entries (no SSE delivery) skip this — bb_cache_post returns
-    // BB_ERR_INVALID_STATE when event_topic is NULL, guarding against misuse.
-    bb_event_topic_t ev_topic = NULL;
-    if (cfg->flags & BB_CACHE_FLAG_SSE) {
-        bb_event_topic_register(cfg->key, &ev_topic);
-    }
-
     // slot->lock is process-lifetime (created once in ensure_init(), never
     // destroyed) -- do NOT touch it here. Every free-slot -> in-use
     // transition (fresh slot or a bb_cache_delete()'d one) bumps generation
@@ -642,7 +628,6 @@ bb_err_t bb_cache_register_ex(const bb_cache_config_t *cfg, bool *out_first_time
     slot->has_value   = false;
     slot->fallback_seeded = false;
     slot->fn          = cfg->serialize;
-    slot->event_topic = ev_topic;
     slot->flags       = cfg->flags;
     slot->cached_json = NULL;
     slot->cached_len  = 0;
@@ -728,11 +713,9 @@ bb_err_t bb_cache_update(const bb_cache_update_t *req)
 // for the same "no concurrent register/delete can observe a half-torn-down
 // slot" reason documented on bb_cache_delete() below). Frees the entry's
 // owned/cached_json buffers, bumps generation (tombstone -- see
-// find_entry_locked_ref()'s doc comment), clears event_topic (Phase-A
-// limitation: bb_event has no topic-unregister primitive, see bb_cache.h's
-// bb_cache_delete() doc comment), and marks the slot free for reuse. Does
-// NOT release s_reg_lock or fire the evict-notify hook -- both callers do
-// that themselves immediately after this returns.
+// find_entry_locked_ref()'s doc comment), and marks the slot free for reuse.
+// Does NOT release s_reg_lock or fire the evict-notify hook -- both callers
+// do that themselves immediately after this returns.
 static void teardown_found_entry_locked(bb_cache_entry_t *e)
 {
     pthread_mutex_lock(&e->lock);
@@ -740,7 +723,6 @@ static void teardown_found_entry_locked(bb_cache_entry_t *e)
     e->generation++;
     pthread_mutex_unlock(&e->lock);
 
-    e->event_topic = NULL;
     e->key[0] = '\0';  // last: marks the slot free for bb_cache_register reuse
 }
 
@@ -844,56 +826,6 @@ bool bb_cache_exists(const char *key)
     return find_entry_locked(key) != NULL;
 }
 
-bb_err_t bb_cache_post(const char *key)
-{
-    if (!key) return BB_ERR_INVALID_ARG;
-
-    ensure_init();
-
-    entry_ref_t ref = find_entry_locked_ref(key);
-    if (!ref.entry) return BB_ERR_NOT_FOUND;
-    bb_cache_entry_t *e = ref.entry;
-
-    // Envelope (B1-570 PR-3): {"ts_ms":N,"data":{...}}. Serialize the
-    // producer's fields into a nested "data" object rather than round-tripping
-    // through a string, then attach ts_ms + data to the envelope root.
-    bb_json_t data = bb_json_obj_new();
-    if (!data) return BB_ERR_NO_SPACE;
-
-    // serialize_locked re-validates (key, generation) under e->lock and also
-    // hands back e->event_topic read under that SAME lock -- bb_cache_post
-    // must never read e->event_topic unguarded (it can change identity the
-    // instant a concurrent delete+re-register races this call).
-    int64_t ts_ms = 0;
-    bb_event_topic_t topic = NULL;
-    bb_err_t err = serialize_locked(e, key, ref.generation, data, &ts_ms, &topic);
-    if (err != BB_OK) {
-        bb_json_free(data);
-        return err;
-    }
-    if (!topic) {
-        bb_json_free(data);
-        return BB_ERR_INVALID_STATE;
-    }
-
-    bb_json_t root = bb_json_obj_new();
-    if (!root) {
-        bb_json_free(data);
-        return BB_ERR_NO_SPACE;
-    }
-    bb_json_obj_set_int(root, "ts_ms", ts_ms);
-    bb_json_obj_set_obj(root, "data", data);  // ownership of data transfers to root
-
-    char *payload = bb_json_serialize(root);
-    bb_json_free(root);
-    if (!payload) return BB_ERR_NO_SPACE;
-
-    size_t len = strlen(payload);
-    err = bb_event_post(topic, 0, payload, len + 1);
-    bb_json_free_str(payload);
-    return err;
-}
-
 bb_err_t bb_cache_serialize_into(const char *key, bb_json_t obj)
 {
     if (!key || !obj) return BB_ERR_INVALID_ARG;
@@ -905,35 +837,7 @@ bb_err_t bb_cache_serialize_into(const char *key, bb_json_t obj)
 
     // No envelope here by design — this call embeds the key's fields directly
     // as a section of a larger composed document (see header comment).
-    return serialize_locked(ref.entry, key, ref.generation, obj, NULL, NULL);
-}
-
-bb_err_t bb_cache_post_serialized(const char *key, const char *json, size_t json_len)
-{
-    if (!key || !json) return BB_ERR_INVALID_ARG;
-
-    ensure_init();
-
-    entry_ref_t ref = find_entry_locked_ref(key);
-    if (!ref.entry) return BB_ERR_NOT_FOUND;
-    bb_cache_entry_t *e = ref.entry;
-
-    BB_CACHE_TEST_RACE_POINT(key);
-    pthread_mutex_lock(&e->lock);
-    if (!entry_matches_locked(e, key, ref.generation)) {
-        pthread_mutex_unlock(&e->lock);
-        return BB_ERR_NOT_FOUND;
-    }
-    if (evict_if_aged_out_locked(e)) {
-        return BB_ERR_NOT_FOUND;
-    }
-    // Read event_topic under the SAME lock+validation, never unguarded.
-    bb_event_topic_t topic = e->event_topic;
-    pthread_mutex_unlock(&e->lock);
-
-    if (!topic) return BB_ERR_INVALID_STATE;
-
-    return bb_event_post(topic, 0, json, json_len + 1);
+    return serialize_locked(ref.entry, key, ref.generation, obj, NULL);
 }
 
 bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t *out_len)
@@ -1397,7 +1301,6 @@ void bb_cache_reset_for_test(void)
             s_entries[i].key[0]      = '\0';
             s_entries[i].snapshot    = NULL;
             s_entries[i].fn          = NULL;
-            s_entries[i].event_topic = NULL;
             s_entries[i].flags       = BB_CACHE_FLAG_NONE;
             s_entries[i].ts_ms       = 0;
             s_entries[i].generation  = 0;

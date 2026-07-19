@@ -161,91 +161,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "170",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "171",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "242",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "243",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "244",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "263",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "264",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "265",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "266",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "267",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "268",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "269",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "270",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "14",
-      "path": "platform/host/bb_event_routes/bb_event_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "15",
-      "path": "platform/host/bb_event_routes/bb_event_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "37",
-      "path": "platform/host/bb_event_routes/bb_event_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "40",
-      "path": "platform/host/bb_event_routes/bb_event_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "27",
       "path": "platform/host/bb_health/bb_health_emit.c",
       "type": "uncovered_line"
@@ -868,16 +783,6 @@
     {
       "id": "97",
       "path": "platform/host/bb_sensors/bb_sensors_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "22",
-      "path": "platform/host/bb_sse_writer/bb_sse_writer_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "5",
-      "path": "platform/host/bb_sse_writer/bb_sse_writer_host.c",
       "type": "uncovered_line"
     },
     {

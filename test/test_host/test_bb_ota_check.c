@@ -4,9 +4,8 @@
 #include "bb_release_manifest.h"
 #include "bb_http_client_host.h"
 #include "bb_http_host.h"
-#include "bb_event.h"
-#include "bb_event_ring.h"
-#include "bb_event_test.h"
+#include "bb_ota_check_wire.h"
+#include "bb_data.h"
 #include "bb_json.h"
 #include "bb_settings.h"
 #include "bb_storage.h"
@@ -85,8 +84,7 @@ static void reset_world(void)
     bb_storage_register_backend("nvs", &s_fake_nvs_vtable, NULL);
     bb_ota_check_reset_for_test();
     bb_http_client_clear_mock();
-    bb_event_reset_for_test();
-    bb_event_init(NULL);
+    bb_data_test_reset();
     g_mock_parser_calls = 0;
     g_pause_calls  = 0;
     g_resume_calls = 0;
@@ -95,6 +93,23 @@ static void reset_world(void)
     g_resume_order = 0;
     g_hook_seq     = 0;
     g_pause_returns = true;
+}
+
+// B1-1045: bb_data gather adapter wrapping bb_ota_check_gather() (its
+// signature already matches bb_data_gather_fn field-for-field minus the
+// unused ctx arg) -- lets tests bind "update.available" and observe
+// bb_data_touch() via bb_data_generation() instead of an event-ring replay.
+static bb_err_t ota_check_gather_adapter(void *dst, void *ctx)
+{
+    (void)ctx;
+    return bb_ota_check_gather((bb_ota_check_snap_t *)dst);
+}
+
+static void bind_ota_check_key(void)
+{
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&(bb_data_binding_t){
+        .key = BB_OTA_CHECK_TOPIC, .desc = &bb_ota_check_wire_desc,
+        .gather = ota_check_gather_adapter, .ctx = NULL }));
 }
 
 // ---------------------------------------------------------------------------
@@ -952,34 +967,26 @@ void test_bb_ota_check_get_status_board_reverts_to_fallback_after_clear(void)
 }
 
 // ---------------------------------------------------------------------------
-// Initial snapshot at init: ring has count=1 immediately after bb_ota_check_init
+// Initial snapshot at init: "update.available" generation bumps only on an
+// explicit bb_ota_check_publish_initial() call (B1-1045: bb_event_ring
+// replay-count assertions replaced by bb_data_generation() polling).
 // ---------------------------------------------------------------------------
 
 void test_bb_ota_check_init_alone_does_not_publish(void)
 {
-    // After init alone (without calling bb_ota_check_publish_initial),
-    // any ring attached to the topic must have count=0. This codifies the
-    // new contract: callers must explicitly call publish_initial after attaching
-    // the ring to populate the state topic.
-    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    // After init alone (without calling bb_ota_check_publish_initial), the
+    // "update.available" bb_data generation must still be 0. This codifies
+    // the contract: callers must explicitly call publish_initial to populate
+    // the state key.
     reset_world();
+    bind_ota_check_key();
 
-    bb_event_topic_t topic = NULL;
-    bb_err_t err = bb_event_topic_register("update.available", &topic);
-    TEST_ASSERT_EQUAL(BB_OK, err);
-
-    bb_event_ring_t ring = NULL;
-    err = bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
-    TEST_ASSERT_EQUAL(BB_OK, err);
-
-    // Init — does NOT post the initial snapshot anymore.
+    // Init — does NOT touch the generation anymore.
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
-    bb_event_pump(0);
 
-    // Ring must have count=0 (no initial publish yet).
-    TEST_ASSERT_EQUAL(0, (int)bb_event_ring_count(ring));
-
-    bb_event_ring_detach(ring);
+    uint32_t gen = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation(BB_OTA_CHECK_TOPIC, &gen));
+    TEST_ASSERT_EQUAL(0, (int)gen);
 }
 
 void test_bb_ota_check_publish_initial_before_init_returns_invalid_state(void)
@@ -988,85 +995,48 @@ void test_bb_ota_check_publish_initial_before_init_returns_invalid_state(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_ota_check_publish_initial());
 }
 
-void test_bb_ota_check_publish_initial_populates_ring(void)
+void test_bb_ota_check_publish_initial_bumps_generation(void)
 {
-    // After init and explicit bb_ota_check_publish_initial, the ring
-    // must have count=1 (the initial snapshot post).
-    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    // After init and explicit bb_ota_check_publish_initial, the
+    // "update.available" generation must have bumped by 1 (the initial
+    // snapshot touch).
     reset_world();
+    bind_ota_check_key();
 
-    bb_event_topic_t topic = NULL;
-    bb_err_t err = bb_event_topic_register("update.available", &topic);
-    TEST_ASSERT_EQUAL(BB_OK, err);
-
-    bb_event_ring_t ring = NULL;
-    err = bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
-    TEST_ASSERT_EQUAL(BB_OK, err);
-
-    // Init — does not post yet.
+    // Init — does not touch yet.
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
-    bb_event_pump(0);
-    TEST_ASSERT_EQUAL(0, (int)bb_event_ring_count(ring));
+    uint32_t gen_after_init = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation(BB_OTA_CHECK_TOPIC, &gen_after_init));
+    TEST_ASSERT_EQUAL(0, (int)gen_after_init);
 
     // Now call publish_initial explicitly.
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_publish_initial());
-    bb_event_pump(0);
+    uint32_t gen_after_publish = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation(BB_OTA_CHECK_TOPIC, &gen_after_publish));
 
-    // Ring must now have count=1.
-    TEST_ASSERT_EQUAL(1, (int)bb_event_ring_count(ring));
-
-    bb_event_ring_detach(ring);
-}
-
-// File-scope state for the snapshot payload inspector.
-static int    s_snap_count   = 0;
-static char   s_snap_payload[512];
-static size_t s_snap_size    = 0;
-
-static void snap_capture(bb_event_topic_t topic, int32_t id,
-                         const void *data, size_t size, void *user)
-{
-    (void)topic; (void)id; (void)user;
-    s_snap_count++;
-    s_snap_size = size;
-    if (size > 0 && data && size < sizeof(s_snap_payload)) {
-        memcpy(s_snap_payload, data, size);
-        s_snap_payload[size] = '\0';
-    }
+    // Generation must now have advanced by exactly 1.
+    TEST_ASSERT_EQUAL(1, (int)gen_after_publish);
 }
 
 void test_bb_ota_check_publish_initial_snapshot_available_is_false(void)
 {
     // The initial snapshot (from publish_initial) must have available=false
-    // (no check has run yet).
-    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    // (no check has run yet). B1-1045: inspect the gathered snapshot struct
+    // directly rather than a replayed SSE payload string.
     reset_world();
-    s_snap_count = 0;
-    s_snap_size  = 0;
-    s_snap_payload[0] = '\0';
-
-    bb_event_topic_t topic = NULL;
-    bb_event_topic_register("update.available", &topic);
-
-    bb_event_ring_t ring = NULL;
-    bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
+    bind_ota_check_key();
 
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
     // Publish the initial snapshot explicitly.
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_publish_initial());
-    // Drain the event queue so the ring captures the post.
-    bb_event_pump(0);
 
-    // Subscribe with replay and inspect the payload.
-    bb_event_sub_t sub = NULL;
-    bb_event_ring_subscribe_with_replay(ring, snap_capture, NULL, &sub);
+    uint32_t gen = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation(BB_OTA_CHECK_TOPIC, &gen));
+    TEST_ASSERT_EQUAL(1, (int)gen);
 
-    TEST_ASSERT_EQUAL(1, s_snap_count);
-    // The payload must contain "available":false
-    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "\"available\":false"));
-
-    bb_event_unsubscribe(sub);
-    bb_event_ring_detach(ring);
+    bb_ota_check_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_gather(&snap));
+    TEST_ASSERT_FALSE(snap.available);
 }
 
 // ---------------------------------------------------------------------------
@@ -1847,106 +1817,70 @@ void test_bb_ota_check_mark_check_on_apply_before_init_returns_invalid_state(voi
 
 void test_bb_ota_check_retained_snapshot_current_after_available_check(void)
 {
-    // Streaming path, available=true. After run_one, subscribe with replay
-    // and verify the replayed payload contains "available":true and "v9.9.9".
-    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    // Streaming path, available=true. After run_one, gather the snapshot
+    // struct directly and verify available=true, latest="v9.9.9" (B1-1045:
+    // replaces the bb_event_ring replay-payload inspection).
     reset_world();
-    s_snap_count = 0;
-    s_snap_size  = 0;
-    s_snap_payload[0] = '\0';
-
-    bb_event_topic_t topic = NULL;
-    bb_event_topic_register("update.available", &topic);
-
-    bb_event_ring_t ring = NULL;
-    bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
+    bind_ota_check_key();
 
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
     bb_ota_check_set_releases_url("http://example.com/r.json");
     bb_ota_check_set_firmware_board("firmware");
 
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_publish_initial());
-    bb_event_pump(0);
 
     bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_run_one());
-    bb_event_pump(0);
 
-    // Subscribe with replay and capture the most recent retained entry.
-    bb_event_sub_t sub = NULL;
-    bb_event_ring_subscribe_with_replay(ring, snap_capture, NULL, &sub);
+    uint32_t gen = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation(BB_OTA_CHECK_TOPIC, &gen));
+    TEST_ASSERT_TRUE(gen >= 1);
 
-    TEST_ASSERT_TRUE(s_snap_count >= 1);
-    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "\"available\":true"));
-    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "v9.9.9"));
-
-    bb_event_unsubscribe(sub);
-    bb_event_ring_detach(ring);
+    bb_ota_check_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_gather(&snap));
+    TEST_ASSERT_TRUE(snap.available);
+    TEST_ASSERT_EQUAL_STRING("v9.9.9", snap.latest);
 }
 
 void test_bb_ota_check_retained_snapshot_current_after_repeated_check(void)
 {
     // Streaming path, available=true on first check. Second check with same
-    // response — retained snapshot must still have available:true and ring
-    // count must grow (unconditional post fires on every successful check).
-    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    // response — retained snapshot must still have available=true and the
+    // generation must grow (unconditional touch fires on every successful
+    // check).
     reset_world();
-    s_snap_count = 0;
-    s_snap_size  = 0;
-    s_snap_payload[0] = '\0';
-
-    bb_event_topic_t topic = NULL;
-    bb_event_topic_register("update.available", &topic);
-
-    bb_event_ring_t ring = NULL;
-    bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
+    bind_ota_check_key();
 
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
     bb_ota_check_set_releases_url("http://example.com/r.json");
     bb_ota_check_set_firmware_board("firmware");
 
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_publish_initial());
-    bb_event_pump(0);
 
     // First check.
     bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_run_one());
-    bb_event_pump(0);
-    size_t count_after_first = bb_event_ring_count(ring);
+    uint32_t gen_after_first = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation(BB_OTA_CHECK_TOPIC, &gen_after_first));
 
-    // Second check with same response — no transition, but must still post.
+    // Second check with same response — no transition, but must still touch.
     bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_run_one());
-    bb_event_pump(0);
-    size_t count_after_second = bb_event_ring_count(ring);
+    uint32_t gen_after_second = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation(BB_OTA_CHECK_TOPIC, &gen_after_second));
 
-    TEST_ASSERT_TRUE(count_after_second > count_after_first);
+    TEST_ASSERT_TRUE(gen_after_second > gen_after_first);
 
-    // Subscribe with replay to inspect latest retained payload.
-    bb_event_sub_t sub = NULL;
-    bb_event_ring_subscribe_with_replay(ring, snap_capture, NULL, &sub);
-
-    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "\"available\":true"));
-
-    bb_event_unsubscribe(sub);
-    bb_event_ring_detach(ring);
+    bb_ota_check_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_gather(&snap));
+    TEST_ASSERT_TRUE(snap.available);
 }
 
 void test_bb_ota_check_retained_snapshot_current_custom_parser_available(void)
 {
-    // Custom parser path, available=true. Verify the replayed payload has
-    // "available":true and "v9.9.9".
-    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    // Custom parser path, available=true.
     reset_world();
-    s_snap_count = 0;
-    s_snap_size  = 0;
-    s_snap_payload[0] = '\0';
-
-    bb_event_topic_t topic = NULL;
-    bb_event_topic_register("update.available", &topic);
-
-    bb_event_ring_t ring = NULL;
-    bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
+    bind_ota_check_key();
 
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
     bb_ota_check_set_releases_url("http://example.com/r.json");
@@ -1954,66 +1888,49 @@ void test_bb_ota_check_retained_snapshot_current_custom_parser_available(void)
     bb_http_client_set_mock_response("anything", 8, 200);
 
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_publish_initial());
-    bb_event_pump(0);
 
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_run_one());
-    bb_event_pump(0);
 
-    bb_event_sub_t sub = NULL;
-    bb_event_ring_subscribe_with_replay(ring, snap_capture, NULL, &sub);
+    uint32_t gen = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation(BB_OTA_CHECK_TOPIC, &gen));
+    TEST_ASSERT_TRUE(gen >= 1);
 
-    TEST_ASSERT_TRUE(s_snap_count >= 1);
-    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "\"available\":true"));
-    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "v9.9.9"));
-
-    bb_event_unsubscribe(sub);
-    bb_event_ring_detach(ring);
+    bb_ota_check_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_gather(&snap));
+    TEST_ASSERT_TRUE(snap.available);
+    TEST_ASSERT_EQUAL_STRING("v9.9.9", snap.latest);
 }
 
 void test_bb_ota_check_retained_snapshot_current_after_repeated_custom_parser_check(void)
 {
-    // Custom parser path. Second run_one also posts (ring count grows).
-    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    // Custom parser path. Second run_one also touches (generation grows).
     reset_world();
-    s_snap_count = 0;
-    s_snap_size  = 0;
-    s_snap_payload[0] = '\0';
-
-    bb_event_topic_t topic = NULL;
-    bb_event_topic_register("update.available", &topic);
-
-    bb_event_ring_t ring = NULL;
-    bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
+    bind_ota_check_key();
 
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
     bb_ota_check_set_releases_url("http://example.com/r.json");
     bb_ota_check_set_parser(mock_parser);
 
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_publish_initial());
-    bb_event_pump(0);
 
     // First check.
     bb_http_client_set_mock_response("anything", 8, 200);
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_run_one());
-    bb_event_pump(0);
-    size_t count_after_first = bb_event_ring_count(ring);
+    uint32_t gen_after_first = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation(BB_OTA_CHECK_TOPIC, &gen_after_first));
 
-    // Second check — no transition, but must still post.
+    // Second check — no transition, but must still touch.
     bb_http_client_set_mock_response("anything", 8, 200);
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_run_one());
-    bb_event_pump(0);
-    size_t count_after_second = bb_event_ring_count(ring);
+    uint32_t gen_after_second = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_generation(BB_OTA_CHECK_TOPIC, &gen_after_second));
 
-    TEST_ASSERT_TRUE(count_after_second > count_after_first);
+    TEST_ASSERT_TRUE(gen_after_second > gen_after_first);
 
-    // Verify last payload is still available:true.
-    bb_event_sub_t sub = NULL;
-    bb_event_ring_subscribe_with_replay(ring, snap_capture, NULL, &sub);
-
-    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "\"available\":true"));
-
-    bb_event_unsubscribe(sub);
-    bb_event_ring_detach(ring);
+    // Verify the gathered snapshot is still available=true.
+    bb_ota_check_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_gather(&snap));
+    TEST_ASSERT_TRUE(snap.available);
 }
 
 // ---------------------------------------------------------------------------

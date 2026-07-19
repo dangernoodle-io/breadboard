@@ -19,7 +19,6 @@
 #include "bb_http_server.h"
 #include "bb_http_client.h"
 #include "bb_log.h"
-#include "bb_event_routes.h"
 #include "bb_claim.h"
 #include "bb_task.h"
 
@@ -296,27 +295,14 @@ bb_err_t bb_ota_check_register_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
     bb_timer_oneshot_start(s_timer, next_interval_us());
 
-#if defined(CONFIG_BB_OTA_CHECK_AUTO_ATTACH) && CONFIG_BB_OTA_CHECK_AUTO_ATTACH
-    {
-        // retained=true: update.available is a state topic — new SSE clients should
-        // always receive the last known value even before the first periodic check fires.
-        // max_entry=512: union payload worst-cases ~430 B; global default (256) is too
-        // small, but only this topic needs the bump (+256 B, not the global ~4 KB cost).
-        bb_err_t attach_err = bb_event_routes_attach_ex2(BB_OTA_CHECK_TOPIC, true, 512);
-        if (attach_err != BB_OK) {
-            bb_log_w(TAG, "auto-attach failed for 'update.available': %d", attach_err);
-        }
-
-        // Now that the ring is attached, publish the initial snapshot so that SSE
-        // clients connecting before the first periodic check (up to
-        // CONFIG_BB_OTA_CHECK_INTERVAL_S seconds) replay this entry rather than
-        // seeing empty state.
-        err = bb_ota_check_publish_initial();
-        if (err != BB_OK) {
-            bb_log_w(TAG, "failed to publish initial snapshot: %d", err);
-        }
+    // Publish the initial snapshot so a bb_data consumer reading before the
+    // first periodic check (up to CONFIG_BB_OTA_CHECK_INTERVAL_S seconds)
+    // sees this entry rather than empty state. Attach/wiring to /api/events
+    // is a composition-root concern now (B1-1045).
+    err = bb_ota_check_publish_initial();
+    if (err != BB_OK) {
+        bb_log_w(TAG, "failed to publish initial snapshot: %d", err);
     }
-#endif
 
     bb_log_i(TAG, "registered /api/update/status; period=%" PRIu32 " s (on-demand worker)",
              (uint32_t)CONFIG_BB_OTA_CHECK_INTERVAL_S);

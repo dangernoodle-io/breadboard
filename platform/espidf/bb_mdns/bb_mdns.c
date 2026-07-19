@@ -2,7 +2,7 @@
 #include "bb_mdns_lifecycle.h"
 #include "bb_mdns_refresh_decision.h"
 #include "bb_wifi.h"
-#include "bb_event.h"
+#include "bb_lifecycle.h"
 #include "bb_http_server.h"
 #include "bb_timer.h"
 #include "bb_queue.h"
@@ -46,13 +46,18 @@ static SemaphoreHandle_t s_subs_mutex    = NULL;
 // portable bb_mdns_lifecycle started→stopped transition is not atomic.
 static SemaphoreHandle_t s_lifecycle_mutex = NULL;
 static uint32_t         s_evt_drop_count = 0;
-// wifi.net subscription (KB 820 PR3) — replaces the legacy single-slot
-// got-IP/disconnect hooks bb_wifi used to expose. Written exactly once from
-// the single-threaded early-init composition root (bb_mdns_init) and never
-// read or mutated from the wifi_net_handler dispatch context, so (unlike
-// s_pending_start in bb_mqtt_client_espidf.c) it needs no atomic/lock.
-// Outlives WiFi cycles.
-static bb_event_sub_t   s_wifi_net_sub = NULL;
+// "wifi" bb_lifecycle service handle + one-time observer-registration guard
+// (B1-1045, replaces the legacy wifi.net bb_event subscription). Written
+// exactly once from the single-threaded early-init composition root
+// (bb_mdns_init) and never mutated from mdns_wifi_observer's dispatch
+// context, so (unlike s_pending_start in bb_mqtt_client_espidf.c) they need
+// no atomic/lock. Outlive WiFi cycles. Assumption: single-caller,
+// single-thread-at-init -- the composition root calls bb_mdns_init()
+// exactly once from app_main, never concurrently from multiple tasks (see
+// examples/floor/main/floor_app.c). If that ever changes, this guard needs
+// a lock.
+static bb_lifecycle_svc_t s_wifi_svc              = BB_LIFECYCLE_SVC_INVALID;
+static bool                s_wifi_observer_attached = false;
 // B1-539: browse refresh cycles skipped because mdns_browse_delete's enqueue
 // failed (queue full / no memory) — recreate is deferred to the next tick to
 // avoid issuing mdns_browse_new against a not-yet-torn-down browse.
@@ -841,6 +846,18 @@ static const bb_mdns_lifecycle_adapter_t s_lc_adapter = {
     .mdns_send_bye = mdns_send_bye_impl,
 };
 
+static bool mdns_lifecycle_lock(void)
+{
+    if (!s_lifecycle_mutex) return false;
+    xSemaphoreTake(s_lifecycle_mutex, portMAX_DELAY);
+    return true;
+}
+
+static void mdns_lifecycle_unlock(void)
+{
+    if (s_lifecycle_mutex) xSemaphoreGive(s_lifecycle_mutex);
+}
+
 static void bb_mdns_start_internal(void)
 {
     bb_mdns_lifecycle_result_t res = bb_mdns_lifecycle_start(&s_lc, &s_lc_adapter);
@@ -866,13 +883,24 @@ static void bb_mdns_start_internal(void)
 // called bb_mdns_deinit() and want to re-arm without waiting for the next
 // wifi got-IP event. Safe to call before bb_mdns_init() — becomes a no-op
 // until init has run (guarded by s_lifecycle_mutex check).
+//
+// B1-1045 mqtt/mdns start-race review: bb_mdns_start() can be entered from
+// two concurrent paths -- the bb_mdns_init() register-then-recheck
+// bb_wifi_has_ip() call and the mdns_wifi_observer() async ->RUNNING
+// callback. bb_mdns_start_internal() (and thus bb_mdns_lifecycle_start()'s
+// read-modify-write of s_lc.started) MUST run under s_lifecycle_mutex --
+// same as bb_mdns_on_disconnect()/bb_mdns_deinit()'s stop path -- so the
+// two paths can't both observe started==false and double-init.
 void bb_mdns_start(void)
 {
     // Guard: if not initialized yet, be a no-op until bb_mdns_init() runs
-    if (!s_lifecycle_mutex) return;
+    if (!mdns_lifecycle_lock()) return;
 
     bb_mdns_start_internal();
-    if (bb_mdns_lifecycle_is_started(&s_lc)) {
+    bool started = bb_mdns_lifecycle_is_started(&s_lc);
+    mdns_lifecycle_unlock();
+
+    if (started) {
         char instance_name[BB_MDNS_INSTANCE_NAME_MAX];
         mdns_build_instance_name(instance_name, sizeof(instance_name));
         mdns_instance_name_set(instance_name);
@@ -976,18 +1004,6 @@ static void browse_refresh_timer_stop(void)
     s_browse_refresh_timer = NULL;
 }
 
-static bool mdns_lifecycle_lock(void)
-{
-    if (!s_lifecycle_mutex) return false;
-    xSemaphoreTake(s_lifecycle_mutex, portMAX_DELAY);
-    return true;
-}
-
-static void mdns_lifecycle_unlock(void)
-{
-    if (s_lifecycle_mutex) xSemaphoreGive(s_lifecycle_mutex);
-}
-
 static void bb_mdns_on_disconnect(void)
 {
     if (!mdns_lifecycle_lock()) return;
@@ -1036,30 +1052,21 @@ static void bb_mdns_shutdown(void)
     bb_mdns_deinit();
 }
 
-// wifi.net subscriber (KB 820 PR3). GOT_IP starts mDNS; DISCONNECT/LOST_IP
-// tear it down — bb_mdns_start/bb_mdns_on_disconnect are both idempotent, so
-// this collapses cleanly with LOST_IP's DISCONNECT cascade (bb_wifi.c).
-static void wifi_net_handler(bb_event_topic_t topic, int32_t id,
-                             const void *data, size_t size, void *user)
+// "wifi" bb_lifecycle observer (B1-1045, replaces the legacy wifi.net
+// bb_event subscriber). The ->RUNNING edge starts mDNS; any exit from
+// RUNNING tears it down -- bb_mdns_start/bb_mdns_on_disconnect are both
+// idempotent, so this collapses cleanly with every STOP-mapped wifi.net
+// edge (DISCONNECT/LOST_IP/RECONNECT_PARKED, see bb_wifi_classify_lifecycle
+// in platform/host/bb_wifi/bb_wifi_emit.c -- the widened classifier is what
+// preserves mDNS's stop-on-parked behavior here).
+static void mdns_wifi_observer(const bb_lifecycle_event_t *evt, void *user)
 {
-    (void)topic; (void)data; (void)size; (void)user;
-    switch ((bb_wifi_net_event_t)id) {
-    case BB_WIFI_NET_EVT_GOT_IP:
+    (void)user;
+    if (evt->svc != s_wifi_svc) return;
+    if (evt->new_state == BB_LIFECYCLE_RUNNING && evt->old_state != BB_LIFECYCLE_RUNNING) {
         bb_mdns_start();
-        break;
-    case BB_WIFI_NET_EVT_DISCONNECT:
-    case BB_WIFI_NET_EVT_LOST_IP:
+    } else if (evt->old_state == BB_LIFECYCLE_RUNNING && evt->new_state != BB_LIFECYCLE_RUNNING) {
         bb_mdns_on_disconnect();
-        break;
-    case BB_WIFI_NET_EVT_REBOOT_DENIED:
-        // Escalation denied, fell back to backoff -- still associated (or
-        // about to retry); no mDNS lifecycle action needed.
-        break;
-    case BB_WIFI_NET_EVT_RECONNECT_PARKED:
-        // ASSOC_LEAVE parked the reconnect FSM (PR7, B1-994/B1-806) -- no
-        // longer associated, same lifecycle action as a disconnect.
-        bb_mdns_on_disconnect();
-        break;
     }
 }
 
@@ -1138,22 +1145,23 @@ void bb_mdns_init(void)
     // Create the coalescing flush timer (one-shot, 50 ms window).
     flush_timer_ensure_created();
 
-    // Subscribe to wifi.net (KB 820 PR3) — subscribe FIRST, then check
-    // has_ip and fire once: bb_event has no retain, so checking before
-    // subscribing would leak a missed got-IP edge in the narrow race window.
-    if (!s_wifi_net_sub) {
-        bb_event_topic_t topic = NULL;
-        if (bb_event_topic_register(BB_WIFI_EVENT_TOPIC, &topic) == BB_OK) {
-            if (bb_event_subscribe(topic, wifi_net_handler, NULL, &s_wifi_net_sub) == BB_OK) {
+    // Observe the "wifi" bb_lifecycle service — register FIRST, then check
+    // has_ip and fire once: bb_lifecycle_observe_async has no replay of past
+    // transitions, so checking before registering would leak a missed
+    // ->RUNNING edge in the narrow race window.
+    if (!s_wifi_observer_attached) {
+        if (bb_lifecycle_find("wifi", &s_wifi_svc) == BB_OK) {
+            if (bb_lifecycle_observe_async(mdns_wifi_observer, NULL) == BB_OK) {
                 if (bb_wifi_has_ip()) bb_mdns_start();
             } else {
-                bb_log_w(TAG, "bb_event_subscribe(%s) failed — mDNS will not "
-                              "auto start/stop on wifi.net edges", BB_WIFI_EVENT_TOPIC);
+                bb_log_w(TAG, "lifecycle_observe_async(wifi) failed — mDNS will not "
+                              "auto start/stop on wifi ->RUNNING edges");
             }
         } else {
-            bb_log_w(TAG, "bb_event_topic_register(%s) failed — mDNS will not "
-                          "auto start/stop on wifi.net edges", BB_WIFI_EVENT_TOPIC);
+            bb_log_w(TAG, "lifecycle_find(wifi) failed — mDNS will not "
+                          "auto start/stop on wifi ->RUNNING edges");
         }
+        s_wifi_observer_attached = true;
     }
     esp_register_shutdown_handler(bb_mdns_shutdown);
 }

@@ -25,8 +25,9 @@ extern "C" {
 #define BB_ROUTE_UPDATE_STATUS   "/api/update/status"
 
 // bb_ota_check — periodically poll a release manifest URL, compare semver
-// to the running firmware version, and on state change post a bb_event topic
-// `update.available` plus update an mDNS TXT key `update=<value>`.
+// to the running firmware version, and on state change bump the
+// `update.available` bb_data generation plus update an mDNS TXT key
+// `update=<value>`.
 //
 // Values for the mDNS `update=` TXT and /api/update/status `available` field:
 //   - `unknown` pre-check (status.available=false, latest="")
@@ -82,20 +83,18 @@ typedef struct {
 } bb_ota_check_status_t;
 
 // Idempotent. cfg=NULL uses Kconfig defaults.
-// NOTE: bb_ota_check_init does NOT post an initial snapshot; callers must
-// call bb_ota_check_publish_initial() after attaching a ring to the topic
-// (via bb_event_routes_attach_ex or bb_event_ring_attach_ex) to ensure SSE
-// clients connecting before the first periodic check see the last known state.
+// NOTE: bb_ota_check_init does NOT publish an initial snapshot; callers must
+// call bb_ota_check_publish_initial() (after the composition root has
+// bb_data_bind()'d/bb_data_http_attach()'d "update.available") so a consumer
+// connecting before the first periodic check sees the last known state.
 bb_err_t bb_ota_check_init(const bb_ota_check_cfg_t *cfg);
 
-// Publish an initial snapshot to the update.available topic. Must be called
-// after bb_ota_check_init and after attaching a ring/routes (e.g. via
-// bb_event_routes_attach_ex(..., true) with retained=true). This ensures SSE
-// clients connecting before the first periodic check (up to
-// CONFIG_BB_OTA_CHECK_INTERVAL_S seconds) replay this entry rather than
-// seeing empty state. The initial state has available=false, current=<running>,
-// latest="", download_url="", last_check_ok=false. Returns BB_ERR_INVALID_STATE
-// if init hasn't run.
+// Publish an initial snapshot to the update.available bb_data key. Must be
+// called after bb_ota_check_init. This ensures a consumer connecting before
+// the first periodic check (up to CONFIG_BB_OTA_CHECK_INTERVAL_S seconds)
+// sees this entry rather than empty state. The initial state has
+// available=false, current=<running>, latest="", download_url="",
+// last_check_ok=false. Returns BB_ERR_INVALID_STATE if init hasn't run.
 bb_err_t bb_ota_check_publish_initial(void);
 
 // Releases URL (string is copied into a fixed-size internal buffer).

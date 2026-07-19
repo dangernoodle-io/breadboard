@@ -25,23 +25,4 @@ config BB_DISPLAY_FONT_8X16
 
 endmenu
 
-# B1-893: re-homed from the deleted bb_display_info satellite Kconfig
-# verbatim -- health.display's cache/SSE surface is independent of bb_info
-# and stays live. Symbol name kept as BB_DISPLAY_INFO_AUTO_ATTACH on
-# relocation: it is tracked by the di_legacy fence's auto_attach_kconfig
-# marker by (type, symbol) identity, not file path, so renaming it would
-# read as a new marker rather than a pure move -- see scripts/bbtool/README.md.
-config BB_DISPLAY_INFO_AUTO_ATTACH
-    bool "Auto-attach health.display to /api/events"
-    default n
-    depends on BB_EVENT_ROUTES_AUTOREGISTER
-    help
-        When enabled, bb_display_register_info attaches the "health.display"
-        topic to the bb_event_routes SSE stream so /api/events surfaces it
-        without an explicit consumer call. Disable if a consumer wants the
-        bb_event topic for internal logic only.
-        Default n (opt-in): enable only on boards whose hardware this
-        telemetry describes; without it the display panel source is never
-        attached.
-
 endmenu

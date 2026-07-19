@@ -19,9 +19,7 @@
 #include "bb_button.h"
 #include "bb_button_gpio.h"
 #include "bb_button_events.h"
-#include "bb_event.h"
 #ifdef ESP_PLATFORM
-#include "bb_event_routes.h"
 #include "bb_ota_check.h"
 #include "bb_temp.h"
 #include "bb_ws_server.h"
@@ -74,40 +72,6 @@ static void btn_events_cb(const bb_button_events_event_t *e, void *user) {
     }
     bb_log_i(TAG, "bb_button_events: %s (held_ms=%lu)", kind_str, (unsigned long)e->held_ms);
 }
-
-// === bb_event demo ===
-#if defined(CONFIG_BB_SMOKE_EVENT) && CONFIG_BB_SMOKE_EVENT
-
-static int32_t s_heartbeat_counter = 0;
-
-static void heartbeat_handler(bb_event_topic_t topic, int32_t id,
-                              const void *data, size_t size, void *user)
-{
-    (void)topic;
-    (void)data;
-    (void)size;
-    (void)user;
-    bb_log_i(TAG, "bb_event heartbeat: id=%ld", (long)id);
-}
-
-// wifi.net demo subscriber (KB 820 PR3) -- proves the generic emit seam's
-// publish path end to end on device. entry_espidf.c's
-// bb_wifi_set_emit(bb_event_emit) handwire feeds BB_WIFI_EVENT_TOPIC once
-// bb_event is up; bb_event_topic_register is idempotent (returns the same
-// handle for a duplicate name), so this just registers again rather than
-// requiring a lookup-only path.
-static void wifi_net_handler(bb_event_topic_t topic, int32_t id,
-                             const void *data, size_t size, void *user)
-{
-    (void)topic;
-    (void)user;
-    if (!data || size < sizeof(bb_wifi_event_payload_t)) return;
-    const bb_wifi_event_payload_t *payload = (const bb_wifi_event_payload_t *)data;
-    bb_log_i(TAG, "bb_event wifi.net: evt=%ld ip=%s reason=%s", (long)id,
-            payload->ip, bb_wifi_disc_reason_str(payload->disc_reason));
-}
-
-#endif // CONFIG_BB_SMOKE_EVENT
 
 static bb_err_t ping_handler(bb_http_request_t *req) {
     bb_http_resp_set_header(req, "Content-Type", "text/plain");
@@ -406,42 +370,6 @@ void smoke_app_setup(void) {
     // codegen-composed entry.
     bb_http_register_route(bb_http_server_get_handle(), BB_HTTP_GET, "/ping", ping_handler);
 
-#if defined(CONFIG_BB_SMOKE_EVENT) && CONFIG_BB_SMOKE_EVENT
-    bb_event_topic_t heartbeat_topic = NULL;
-    if (bb_event_topic_register("smoke.heartbeat", &heartbeat_topic) == BB_OK) {
-        bb_event_sub_t sub = NULL;
-        if (bb_event_subscribe(heartbeat_topic, heartbeat_handler, NULL, &sub) == BB_OK) {
-            bb_log_i(TAG, "bb_event: heartbeat demo ready");
-        } else {
-            bb_log_w(TAG, "bb_event: subscribe failed");
-        }
-#ifdef ESP_PLATFORM
-        // Surface the heartbeat topic on /api/events for end-to-end SSE smoke.
-        if (bb_event_routes_attach("smoke.heartbeat") != BB_OK) {
-            bb_log_w(TAG, "bb_event_routes: attach failed");
-        }
-#endif
-    } else {
-        bb_log_w(TAG, "bb_event: topic register failed");
-    }
-
-    bb_event_topic_t wifi_net_topic = NULL;
-    if (bb_event_topic_register(BB_WIFI_EVENT_TOPIC, &wifi_net_topic) == BB_OK) {
-        bb_event_sub_t wifi_net_sub = NULL;
-        if (bb_event_subscribe(wifi_net_topic, wifi_net_handler, NULL, &wifi_net_sub) == BB_OK) {
-            bb_log_i(TAG, "bb_event: wifi.net demo ready");
-            // Baseline-post AFTER subscribe so the current-state event is
-            // actually delivered -- bb_event has no retain, so posting
-            // before a subscriber exists would silently no-op.
-            bb_wifi_emit_baseline();
-        } else {
-            bb_log_w(TAG, "bb_event: wifi.net subscribe failed");
-        }
-    } else {
-        bb_log_w(TAG, "bb_event: wifi.net topic register failed");
-    }
-#endif
-
 #ifdef ESP_PLATFORM
     // bb_meminfo heap baseline: boot line immediately, then hand off to a
     // bb_timer MODE-A periodic job on the shared bb_timer_disp task.
@@ -503,31 +431,4 @@ void smoke_app_setup(void) {
 
 void smoke_app_loop(void) {
     bb_http_server_poll();
-
-#if defined(CONFIG_BB_SMOKE_EVENT) && CONFIG_BB_SMOKE_EVENT
-    static uint32_t s_last_heartbeat_ms = 0;
-    static const uint32_t s_heartbeat_interval_ms = 1000;
-
-    // Get current time
-#ifdef ARDUINO
-    uint32_t now_ms = millis();
-#else
-    extern uint32_t esp_timer_get_time(void);
-    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
-#endif
-
-    // Post heartbeat every ~1000ms
-    if (now_ms - s_last_heartbeat_ms >= s_heartbeat_interval_ms) {
-        s_last_heartbeat_ms = now_ms;
-        bb_event_topic_t topic = NULL;
-        if (bb_event_topic_lookup("smoke.heartbeat", &topic) == BB_OK) {
-            bb_event_post(topic, s_heartbeat_counter++, NULL, 0);
-        }
-    }
-
-    // Arduino: pump the event queue
-#ifdef ARDUINO
-    bb_event_pump(0);
-#endif
-#endif // CONFIG_BB_SMOKE_EVENT
 }

@@ -31,8 +31,8 @@
 //                       allocation.
 //
 // Envelope contract (B1-570 PR-3, BREAKING wire change).
-// bb_cache_get_serialized() and bb_cache_post() wrap the serializer's output
-// as {"ts_ms": <sample-time-ms>, "data": {...}} -- "data" is exactly what
+// bb_cache_get_serialized() wraps the serializer's output as
+// {"ts_ms": <sample-time-ms>, "data": {...}} -- "data" is exactly what
 // cfg->serialize wrote (producers do NOT emit their own ts_ms field anymore).
 // bb_cache owns the timestamp: owned-mode keys are stamped at
 // bb_cache_update() (right after the copy-in, or overridden via
@@ -94,10 +94,8 @@ extern "C" {
 /** Flags passed to bb_cache_config_t.flags to control per-key behaviour. */
 typedef uint32_t bb_cache_flags_t;
 
-/** No special flags — owned struct, no SSE event topic registered. */
+/** No special flags — owned struct. */
 #define BB_CACHE_FLAG_NONE  (0u)
-/** Register an SSE event topic so bb_cache_post can fan out to SSE clients. */
-#define BB_CACHE_FLAG_SSE   (1u << 0)
 
 // ---------------------------------------------------------------------------
 // Age-out eviction (B1-592 A3)
@@ -164,8 +162,7 @@ typedef void (*bb_cache_serialize_fn)(bb_json_t obj, const void *snap);
 //   key        — registry identity string (e.g. "net.health"). COPIED into
 //                the registry (up to BB_CACHE_KEY_MAX-1 chars, NUL-
 //                terminated) — the caller does NOT need to keep it alive
-//                past the bb_cache_register() call. Becomes the wire SSE
-//                event topic only when flags has BB_CACHE_FLAG_SSE.
+//                past the bb_cache_register() call.
 //   snapshot   — nullable getter fn: returns a pointer to the canonical
 //                struct. Pass NULL for plain OWNED mode (bb_cache owns the
 //                struct; copy in via bb_cache_update()). Pass non-NULL with
@@ -176,13 +173,12 @@ typedef void (*bb_cache_serialize_fn)(bb_json_t obj, const void *snap);
 //                should own a buffer for this key -- i.e. snapshot == NULL
 //                (plain OWNED, mandatory) or snapshot != NULL (OWNED+FALLBACK,
 //                optional). Ignored (may be 0) for plain GETTER mode.
-//   serialize  — serializer fn invoked by both post and serialize_into.
-//   flags      — BB_CACHE_FLAG_* bitmask. Use BB_CACHE_FLAG_SSE to also
-//                register an event topic for SSE fan-out via bb_cache_post.
-//                Use BB_CACHE_FLAG_NONE for sink-only entries that do not
-//                need SSE delivery. Zero-initializing flags is equivalent
-//                to BB_CACHE_FLAG_NONE — callers that need SSE MUST set
-//                this explicitly.
+//   serialize  — serializer fn invoked by serialize_into (and the memoized
+//                bb_cache_get_serialized() path).
+//   flags      — BB_CACHE_FLAG_* bitmask. BB_CACHE_FLAG_NONE (0) is the only
+//                value today; SSE/broadcast delivery is a bb_data/
+//                bb_data_http composition-root concern (B1-1045), not
+//                bb_cache's.
 //   eviction   — bb_cache_eviction_t. Zero-initializing (policy ==
 //                BB_CACHE_EVICT_PINNED) preserves today's never-auto-free
 //                behavior. BB_CACHE_EVICT_AGE_OUT is only valid on OWNED
@@ -279,47 +275,19 @@ bb_err_t bb_cache_update(const bb_cache_update_t *req);
 //
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
 // Returns BB_ERR_INVALID_ARG if key is NULL.
-//
-// KNOWN PHASE-A LIMITATION (B1-592): bb_cache has no coupling to bb_event's
-// topic lifecycle. Deleting a key registered with BB_CACHE_FLAG_SSE frees the
-// bb_cache_entry_t but does NOT unregister the underlying bb_event_topic_t --
-// bb_event has no topic-unregister primitive today. The event topic handle is
-// leaked for the remaining process life (a subsequent bb_cache_register() of
-// the same key registers a NEW event topic and overwrites the field; the old
-// topic handle is simply abandoned, not freed). This is acceptable for the
-// current callers (e.g. an ingress router evicting a stale routed-topic key) but is
-// a real leak for any consumer that deletes+re-registers SSE-flagged keys in
-// a hot loop. A bb_event topic-unregister primitive is tracked as a follow-up.
 bb_err_t bb_cache_delete(const char *key);
 
 // Returns true if key is currently registered, false otherwise (including
 // when bb_cache has not yet been initialized).
 bool bb_cache_exists(const char *key);
 
-// Serialize the cached struct into a fresh bb_json obj, wrap it in the
-// envelope ({"ts_ms":N,"data":{...}} — see the header-level comment above),
-// and post the resulting JSON via bb_event_post to the registered event
-// topic. Does NOT touch any ring — ring attachment is the caller's
-// responsibility.
-// Returns BB_ERR_NOT_FOUND if the key is not registered.
-// Returns BB_ERR_INVALID_STATE if the key has no SSE event topic
-// (registered with BB_CACHE_FLAG_NONE).
-bb_err_t bb_cache_post(const char *key);
-
 // Serialize the cached struct's raw fields into a caller-supplied bb_json
 // obj — NOT enveloped (no ts_ms/data wrapper). Use this to embed a key as a
 // section of a larger composed document (e.g. /api/health aggregating
-// multiple keys); use bb_cache_get_serialized/bb_cache_post for the
-// standalone wire contract.
+// multiple keys); use bb_cache_get_serialized for the standalone wire
+// contract.
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
 bb_err_t bb_cache_serialize_into(const char *key, bb_json_t obj);
-
-// Post a pre-serialized payload to the key's SSE event channel.
-// Use this when the caller has ALREADY serialized the snapshot. Avoids the
-// extra serialize call that bb_cache_post would perform.
-// Returns BB_ERR_INVALID_STATE when the key has no SSE event topic.
-// Returns BB_ERR_NOT_FOUND if the key is not registered.
-bb_err_t bb_cache_post_serialized(const char *key, const char *json, size_t json_len);
 
 // Memoized serialization — the core of serialize-once, COPY-OUT under the lock.
 //
