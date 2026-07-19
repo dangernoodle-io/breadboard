@@ -75,7 +75,7 @@ static bb_task_entry_t s_pool[BB_TASK_REGISTRY_MAX];
 // test_seed() call rejected because the pool was full. s_hwm_warned fires
 // the warning once, mirroring bb_registry_register's own fire-once HWM idiom
 // (components/bb_registry) and bb_dispatch_api_add's CAP-margin idiom
-// (components/bb_http_server/src/bb_dispatch_api.c).
+// (components/bb_http_server/src/route_registry.c).
 static uint32_t s_dropped;
 static bool     s_hwm_warned;
 

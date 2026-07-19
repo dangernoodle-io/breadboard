@@ -6,7 +6,6 @@ idf_component_register(
          "src/bb_http_body.c"
          "src/route_registry.c"
          "src/bb_http_json_obj.c"
-         "src/bb_dispatch_api.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_http
     PRIV_REQUIRES bb_log bb_json esp_http_server esp_event bb_str

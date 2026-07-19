@@ -65,6 +65,51 @@ bb_err_t bb_http_register_route_descriptor_only(const bb_route_t *route);
 // Return the number of descriptors currently in the registry.
 size_t bb_http_route_registry_count(void);
 
+// ---------------------------------------------------------------------------
+// API dispatch table — (method,path) -> handler exact-match lookup for
+// /api/* routes. Used internally by the ESP-IDF and host bb_http backends;
+// exposed here (rather than a separate header) because it is a thin module
+// inside bb_http_server, not a standalone public surface.
+// ---------------------------------------------------------------------------
+
+// Dispatch table capacity.  Override at build time via Kconfig or -D.
+#ifdef CONFIG_BB_DISPATCH_API_CAP
+#define BB_DISPATCH_API_CAP CONFIG_BB_DISPATCH_API_CAP
+#else
+#define BB_DISPATCH_API_CAP 64
+#endif
+
+// Result codes returned by bb_dispatch_api_lookup().
+typedef enum {
+    BB_DISPATCH_API_HIT,             /* exact path+method match; *out_handler set */
+    BB_DISPATCH_API_METHOD_MISMATCH, /* path exists, method differs → caller returns 405 */
+    BB_DISPATCH_API_MISS,            /* no such path → caller returns 404 */
+} bb_dispatch_api_result_t;
+
+// Clear the dispatch table (use in tests and re-init).
+void bb_dispatch_api_reset(void);
+
+// Append a route.
+// path must have static/registry-lifetime storage duration — the table
+// stores the raw pointer, not a copy (safe for the intended
+// string-literal-at-init usage).
+// Returns BB_OK on success, or BB_ERR_NO_SPACE when the table is full.
+// Caller should log the overflow — it is non-fatal.
+bb_err_t bb_dispatch_api_add(bb_http_method_t method, const char *path,
+                             bb_http_handler_fn handler);
+
+// Look up by method + URI.  Query strings (everything from '?' onward) are
+// stripped before comparison.  Matching is exact (not prefix).
+// Sets *out_handler on HIT; leaves *out_handler unchanged otherwise.
+// Handles NULL uri and NULL out_handler defensively (returns MISS).
+bb_dispatch_api_result_t bb_dispatch_api_lookup(bb_http_method_t method,
+                                                const char *uri,
+                                                bb_http_handler_fn *out_handler);
+
+// Return the number of routes currently in the table.  Useful for tests and
+// telemetry.
+size_t bb_dispatch_api_count(void);
+
 // Response helpers — usable inside a handler.
 bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code);
 bb_err_t bb_http_resp_set_type(bb_http_request_t *req, const char *mime);
