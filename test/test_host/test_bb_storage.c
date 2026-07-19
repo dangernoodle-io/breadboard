@@ -415,6 +415,249 @@ void test_bb_storage_register_backend_overflow_returns_no_space(void)
 }
 
 /* ---------------------------------------------------------------------------
+ * list_entries/get_stats (B1-767 PR5): optional pair validation at
+ * registration (mirrors get_typed/set_typed above), fail-closed
+ * BB_ERR_UNSUPPORTED on a backend that leaves the pair NULL (bb_storage_ram
+ * deliberately does), facade-level NULL-arg/unknown-backend guards, and a
+ * fake backend proving entries/stats + the ns_or_dir==NULL "all namespaces"
+ * convention + loud-truncation contract pass through unmodified.
+ *
+ * The fake backend's fns/state/register helper are defined first so the
+ * pair-validation tests below can register a genuine list_entries/get_stats
+ * fn ptr instead of an unsafe incompatible-cast stub.
+ * ---------------------------------------------------------------------------*/
+static const bb_storage_entry_t s_fake_entries[] = {
+    { .ns_or_dir = "wifi", .key = "ssid", .enc = BB_STORAGE_ENC_STR, .len = 4 },
+    { .ns_or_dir = "wifi", .key = "pass", .enc = BB_STORAGE_ENC_STR, .len = 8 },
+    { .ns_or_dir = "cfg",  .key = "mode", .enc = BB_STORAGE_ENC_U8,  .len = 1 },
+};
+static const char *s_last_list_ns_or_dir;
+static bool        s_last_list_ns_or_dir_was_null;
+
+static bb_err_t fake_enum_list_entries(void *impl, const char *ns_or_dir, bb_storage_entry_t *out,
+                                        size_t cap, size_t *count)
+{
+    (void)impl;
+    s_last_list_ns_or_dir = ns_or_dir;
+    s_last_list_ns_or_dir_was_null = (ns_or_dir == NULL);
+
+    size_t total = sizeof(s_fake_entries) / sizeof(s_fake_entries[0]);
+    *count = total;
+    size_t n = (total < cap) ? total : cap;
+    for (size_t i = 0; i < n; i++) {
+        out[i] = s_fake_entries[i];
+    }
+    return BB_OK;
+}
+
+static bb_err_t fake_enum_get_stats(void *impl, bb_storage_stats_t *out)
+{
+    (void)impl;
+    out->used_bytes       = 128;
+    out->free_bytes       = 896;
+    out->total_bytes      = 1024;
+    out->namespace_count  = 2;
+    return BB_OK;
+}
+
+static void register_fake_enum_backend(void)
+{
+    s_last_list_ns_or_dir = "unset";
+    s_last_list_ns_or_dir_was_null = false;
+    bb_storage_vtable_t vt = {
+        .get           = stub_get,
+        .set           = stub_set,
+        .erase         = stub_erase,
+        .exists        = stub_exists,
+        .list_entries  = fake_enum_list_entries,
+        .get_stats     = fake_enum_get_stats,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_register_backend("fake_enum", &vt, NULL));
+}
+
+void test_bb_storage_register_backend_list_entries_without_get_stats_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_storage_vtable_t vt = {
+        .get = stub_get, .set = stub_set, .erase = stub_erase, .exists = stub_exists,
+        .list_entries = fake_enum_list_entries,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_register_backend("partial_enum1", &vt, NULL));
+}
+
+void test_bb_storage_register_backend_get_stats_without_list_entries_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_storage_vtable_t vt = {
+        .get = stub_get, .set = stub_set, .erase = stub_erase, .exists = stub_exists,
+        .get_stats = fake_enum_get_stats,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_register_backend("partial_enum2", &vt, NULL));
+}
+
+void test_bb_storage_register_backend_both_enum_null_succeeds(void)
+{
+    reset_all();
+    bb_storage_vtable_t vt = {
+        .get = stub_get, .set = stub_set, .erase = stub_erase, .exists = stub_exists,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_register_backend("no_enum", &vt, NULL));
+}
+
+void test_bb_storage_list_entries_null_backend_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    bb_storage_entry_t out[1];
+    size_t count = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_list_entries(NULL, NULL, out, 1, &count));
+}
+
+void test_bb_storage_list_entries_null_count_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    bb_storage_entry_t out[1];
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_list_entries("ram", NULL, out, 1, NULL));
+}
+
+void test_bb_storage_list_entries_null_out_with_nonzero_cap_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    size_t count = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_list_entries("ram", NULL, NULL, 1, &count));
+}
+
+void test_bb_storage_list_entries_zero_cap_null_out_is_ok_arg(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    size_t count = 0;
+    // ram leaves list_entries NULL, so this still resolves to UNSUPPORTED --
+    // this test only proves cap==0 with out==NULL clears the INVALID_ARG
+    // guard (size-probe shape), not a successful listing.
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_storage_list_entries("ram", NULL, NULL, 0, &count));
+}
+
+void test_bb_storage_list_entries_unknown_backend_returns_not_found(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    bb_storage_entry_t out[1];
+    size_t count = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_storage_list_entries("does_not_exist", NULL, out, 1, &count));
+}
+
+void test_bb_storage_list_entries_ram_backend_returns_unsupported(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    bb_storage_entry_t out[1];
+    size_t count = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_storage_list_entries("ram", NULL, out, 1, &count));
+}
+
+void test_bb_storage_get_stats_null_backend_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    bb_storage_stats_t stats;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_get_stats(NULL, &stats));
+}
+
+void test_bb_storage_get_stats_null_out_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_get_stats("ram", NULL));
+}
+
+void test_bb_storage_get_stats_unknown_backend_returns_not_found(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    bb_storage_stats_t stats;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_storage_get_stats("does_not_exist", &stats));
+}
+
+void test_bb_storage_get_stats_ram_backend_returns_unsupported(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    bb_storage_stats_t stats;
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_storage_get_stats("ram", &stats));
+}
+
+void test_bb_storage_register_backend_both_enum_set_succeeds(void)
+{
+    reset_all();
+    register_fake_enum_backend();
+}
+
+void test_bb_storage_list_entries_dispatches_entries_through_from_backend(void)
+{
+    reset_all();
+    register_fake_enum_backend();
+
+    bb_storage_entry_t out[8] = {0};
+    size_t count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_list_entries("fake_enum", "wifi", out, 8, &count));
+    TEST_ASSERT_EQUAL(3, count);
+    TEST_ASSERT_EQUAL_STRING("wifi", out[0].ns_or_dir);
+    TEST_ASSERT_EQUAL_STRING("ssid", out[0].key);
+    TEST_ASSERT_EQUAL(BB_STORAGE_ENC_STR, out[0].enc);
+    TEST_ASSERT_EQUAL(4, out[0].len);
+    TEST_ASSERT_EQUAL_STRING("mode", out[2].key);
+}
+
+void test_bb_storage_list_entries_null_ns_or_dir_passes_through_as_all_namespaces(void)
+{
+    reset_all();
+    register_fake_enum_backend();
+
+    bb_storage_entry_t out[8] = {0};
+    size_t count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_list_entries("fake_enum", NULL, out, 8, &count));
+    TEST_ASSERT_TRUE(s_last_list_ns_or_dir_was_null);
+}
+
+void test_bb_storage_list_entries_truncation_reports_true_count_over_cap(void)
+{
+    reset_all();
+    register_fake_enum_backend();
+
+    bb_storage_entry_t out[1] = {0};
+    size_t count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_list_entries("fake_enum", NULL, out, 1, &count));
+    TEST_ASSERT_EQUAL(3, count);
+    TEST_ASSERT_EQUAL_STRING("ssid", out[0].key);
+}
+
+void test_bb_storage_get_stats_dispatches_stats_through_from_backend(void)
+{
+    reset_all();
+    register_fake_enum_backend();
+
+    bb_storage_stats_t stats = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_get_stats("fake_enum", &stats));
+    TEST_ASSERT_EQUAL(128, stats.used_bytes);
+    TEST_ASSERT_EQUAL(896, stats.free_bytes);
+    TEST_ASSERT_EQUAL(1024, stats.total_bytes);
+    TEST_ASSERT_EQUAL(2, stats.namespace_count);
+}
+
+/* ---------------------------------------------------------------------------
  * bb_storage_ram-specific overflow/validation branches
  * ---------------------------------------------------------------------------*/
 void test_bb_storage_ram_set_table_full_returns_no_space(void)

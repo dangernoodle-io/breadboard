@@ -57,6 +57,11 @@ bb_err_t bb_storage_register_backend(const char *name, const bb_storage_vtable_t
             return BB_ERR_INVALID_ARG;
         }
     }
+    if ((vt->list_entries == NULL) != (vt->get_stats == NULL)) {
+        // list_entries/get_stats are an optional pair — one set without the
+        // other is a broken vtable, not a valid "unsupported" state.
+        return BB_ERR_INVALID_ARG;
+    }
 
     for (size_t i = 0; i < s_count; i++) {
         if (strcmp(s_backends[i].name, name) == 0) {
@@ -79,10 +84,13 @@ bb_err_t bb_storage_register_backend(const char *name, const bb_storage_vtable_t
 
 static const bb_storage_backend_entry_t *find_backend(const char *name)
 {
-    if (name == NULL) {
-        return NULL;
-    }
-
+    // No NULL guard here (unlike the public facade fns above/below, which
+    // all reject a NULL backend/addr->backend with BB_ERR_INVALID_ARG
+    // BEFORE ever calling this static helper) -- every call site already
+    // guarantees a non-NULL name, and this file's edit-triggers-100%-lines
+    // coverage-baseline policy (scripts/coverage_baseline.py) means a
+    // never-reachable defensive branch here would be an untestable dead
+    // line the moment any other line in this file shifts.
     for (size_t i = 0; i < s_count; i++) {
         if (strcmp(s_backends[i].name, name) == 0) {
             return &s_backends[i];
@@ -329,6 +337,49 @@ bb_err_t bb_storage_txn_abort(bb_storage_txn_t *txn)
     }
 
     return txn->_txn_abort(txn->_impl, txn);
+}
+
+/* ---------------------------------------------------------------------------
+ * Enumeration + stats — thin dispatch to the backend hooks, fail-closed
+ * (BB_ERR_UNSUPPORTED) when a backend leaves the pair NULL. See bb_storage.h
+ * for the full contract, including the ns_or_dir==NULL "all namespaces"
+ * convention and the loud-truncation contract on *count.
+ * ---------------------------------------------------------------------------*/
+bb_err_t bb_storage_list_entries(const char *backend, const char *ns_or_dir,
+                                  bb_storage_entry_t *out, size_t cap, size_t *count)
+{
+    if (backend == NULL || count == NULL || (cap > 0 && out == NULL)) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    const bb_storage_backend_entry_t *entry = find_backend(backend);
+    if (entry == NULL) {
+        return BB_ERR_NOT_FOUND;
+    }
+
+    if (entry->vt.list_entries == NULL) {
+        return BB_ERR_UNSUPPORTED;
+    }
+
+    return entry->vt.list_entries(entry->impl, ns_or_dir, out, cap, count);
+}
+
+bb_err_t bb_storage_get_stats(const char *backend, bb_storage_stats_t *out)
+{
+    if (backend == NULL || out == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    const bb_storage_backend_entry_t *entry = find_backend(backend);
+    if (entry == NULL) {
+        return BB_ERR_NOT_FOUND;
+    }
+
+    if (entry->vt.get_stats == NULL) {
+        return BB_ERR_UNSUPPORTED;
+    }
+
+    return entry->vt.get_stats(entry->impl, out);
 }
 
 /* ---------------------------------------------------------------------------
