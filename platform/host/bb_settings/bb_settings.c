@@ -10,7 +10,6 @@
 #include "bb_config.h"
 #include "bb_config_staged.h"
 #include "bb_storage.h"
-#include "bb_manifest.h"
 #include "bb_settings_creds_boot_decide.h"
 #include <string.h>
 
@@ -59,22 +58,32 @@ static const char *TAG = "bb_settings";
 // caller, just a silently-degraded mirror). Editing either side, check the
 // other.
 static const bb_config_field_t s_wifi_ssid_field = {
-    .id      = "wifi.ssid",
-    .type    = BB_CONFIG_STR,
-    .addr    = { .backend = "nvs", .ns_or_dir = BB_SETTINGS_WIFI_NS, .key = BB_SETTINGS_WIFI_SSID_KEY },
-    .max_len = 32,
-    .label   = "WiFi SSID",
-    .group   = "network",
+    .id                = "wifi.ssid",
+    .type              = BB_CONFIG_STR,
+    .addr              = { .backend = "nvs", .ns_or_dir = BB_SETTINGS_WIFI_NS, .key = BB_SETTINGS_WIFI_SSID_KEY },
+    .max_len           = 32,
+    .label             = "WiFi SSID",
+    .group             = "network",
+    // provisioning_only/reboot_required: metadata-only (not part of the NVS
+    // byte-compat surface -- see max_len/addr/key above), filled in here to
+    // match the values the now-deleted s_creds_boot_manifest_keys[] carried
+    // (B1-708 PR7 -- these were "carried but unconsumed" per bb_config.h
+    // until this overlay became the schema consumer).
+    .provisioning_only = true,
+    .reboot_required   = true,
 };
 
 static const bb_config_field_t s_wifi_pass_field = {
-    .id      = "wifi.pass",
-    .type    = BB_CONFIG_STR,
-    .addr    = { .backend = "nvs", .ns_or_dir = BB_SETTINGS_WIFI_NS, .key = BB_SETTINGS_WIFI_PASS_KEY },
-    .max_len = 64,
-    .label   = "WiFi Password",
-    .group   = "network",
-    .secret  = true,
+    .id                = "wifi.pass",
+    .type              = BB_CONFIG_STR,
+    .addr              = { .backend = "nvs", .ns_or_dir = BB_SETTINGS_WIFI_NS, .key = BB_SETTINGS_WIFI_PASS_KEY },
+    .max_len           = 64,
+    .label             = "WiFi Password",
+    .group             = "network",
+    .secret            = true,
+    // provisioning_only/reboot_required: see s_wifi_ssid_field's comment above.
+    .provisioning_only = true,
+    .reboot_required   = true,
 };
 
 // Live NVS "provisioned" flag (distinct from s_wifi_rtc_provisioned_field
@@ -84,11 +93,14 @@ static const bb_config_field_t s_wifi_pass_field = {
 // 1) call. Used only by bb_settings_creds_boot_init's heal branch below to
 // re-stamp the flag after an RTC-mirror-driven creds restore.
 static const bb_config_field_t s_wifi_provisioned_field = {
-    .id    = "wifi.provisioned",
-    .type  = BB_CONFIG_BOOL,
-    .addr  = { .backend = "nvs", .ns_or_dir = BB_SETTINGS_WIFI_NS, .key = BB_SETTINGS_PROVISIONED_KEY },
-    .label = "Provisioning completed flag",
-    .group = "network",
+    .id              = "wifi.provisioned",
+    .type            = BB_CONFIG_BOOL,
+    .addr            = { .backend = "nvs", .ns_or_dir = BB_SETTINGS_WIFI_NS, .key = BB_SETTINGS_PROVISIONED_KEY },
+    .label           = "Provisioning completed flag",
+    .group           = "network",
+    // reboot_required: metadata-only, see s_wifi_ssid_field's comment above
+    // (matches s_creds_boot_manifest_keys[]'s prior "provisioned" entry).
+    .reboot_required = true,
 };
 
 // Pending-creds field keys/max-lengths byte-for-byte matched to
@@ -662,48 +674,53 @@ bb_err_t bb_settings_wifi_rtc_mirror_clear(void)
 // the public contract of each).
 // ---------------------------------------------------------------------------
 
-// /api/manifest key table for the wifi_ssid/wifi_pass/provisioned NVS keys
-// (namespace BB_SETTINGS_WIFI_NS = "bb_cfg"), moved verbatim from bb_nv.c's
-// s_bb_cfg_keys -- same key names/types/max_len/desc/reboot_required/
-// provisioning_only per entry, byte-for-byte, just re-homed.
-static const bb_manifest_nv_t s_creds_boot_manifest_keys[] = {
-    {
-        .key                = BB_SETTINGS_WIFI_SSID_KEY,
-        .type               = "str",
-        .default_           = NULL,
-        .max_len            = 32,
-        .desc               = "WiFi SSID",
-        .reboot_required    = true,
-        .provisioning_only  = true,
-    },
-    {
-        .key                = BB_SETTINGS_WIFI_PASS_KEY,
-        .type               = "str",
-        .default_           = NULL,
-        .max_len            = 63,
-        .desc               = "WiFi password",
-        .reboot_required    = true,
-        .provisioning_only  = true,
-    },
-    {
-        .key                = BB_SETTINGS_PROVISIONED_KEY,
-        .type               = "bool",
-        .default_           = "false",
-        .max_len            = 0,
-        .desc               = "Provisioning completed flag (set after first successful config save; "
-                              "pre-seed via direct NVS write to skip AP-mode boot, e.g. for "
-                              "factory flash workflows)",
-        .reboot_required    = true,
-        .provisioning_only  = false,
-    },
+// bb_config_type_t -> schema type string, parallel to bb_config_type_to_enc
+// (components/bb_config) -- pure, stateless, no storage access. Only the
+// types s_overlay_fields below actually uses (BOOL, STR) are distinguished;
+// anything else defaults to "str" -- widen this (mirroring the fuller
+// "str"|"u8"|"u16"|"u32"|"i32"|"blob"|"bool" vocabulary the old
+// bb_manifest_nv_t.type hand-typed literals used) if/when the overlay's
+// field scope grows to cover a scalar-numeric field.
+static const char *bb_settings_config_type_to_str(bb_config_type_t t)
+{
+    switch (t) {
+    case BB_CONFIG_BOOL:
+        return "bool";
+    case BB_CONFIG_STR:
+    default:
+        return "str";
+    }
+}
+
+// The bb_config_field_t literals this overlay covers -- same 3 live "bb_cfg"
+// keys the old s_creds_boot_manifest_keys[] enumerated (wifi_ssid/wifi_pass/
+// provisioned), NOT the pending-creds or RTC-mirror fields (least-surprise
+// scope match, see bb_settings.h). Pointers into the `static const`
+// bb_config_field_t literals declared above -- read-only, nothing here
+// mutates addr/key/max_len.
+static const bb_config_field_t *const s_overlay_fields[] = {
+    &s_wifi_ssid_field,
+    &s_wifi_pass_field,
+    &s_wifi_provisioned_field,
 };
 
-// Register bb_cfg NVS keys with /api/manifest. Portable (bb_manifest_register_nv
-// has no ESP-IDF deps) -- moved verbatim from bb_nv_config_manifest_init.
-bb_err_t bb_settings_creds_boot_manifest_init(void)
+size_t bb_settings_nv_overlay_entries(bb_settings_nv_overlay_entry_t *out, size_t cap)
 {
-    return bb_manifest_register_nv(BB_SETTINGS_WIFI_NS, s_creds_boot_manifest_keys,
-                                   sizeof(s_creds_boot_manifest_keys) / sizeof(s_creds_boot_manifest_keys[0]));
+    size_t total = sizeof(s_overlay_fields) / sizeof(s_overlay_fields[0]);
+    size_t n = (out == NULL) ? 0 : (cap < total ? cap : total);
+
+    for (size_t i = 0; i < n; i++) {
+        const bb_config_field_t *f = s_overlay_fields[i];
+        out[i].ns_or_dir         = f->addr.ns_or_dir;
+        out[i].key               = f->addr.key;
+        out[i].type_str          = bb_settings_config_type_to_str(f->type);
+        out[i].label             = f->label;
+        out[i].secret            = f->secret;
+        out[i].provisioning_only = f->provisioning_only;
+        out[i].reboot_required   = f->reboot_required;
+    }
+
+    return total;
 }
 
 // Moved verbatim from bb_nv_config_init (platform/espidf/bb_nv/bb_nv.c) --

@@ -1047,7 +1047,13 @@ void test_json_obj_set_num_emit_key_error(void);
 void test_bb_settings_creds_boot_init_success(void);
 void test_bb_settings_creds_boot_wifi_ssid_empty_after_init(void);
 void test_bb_settings_creds_boot_wifi_pass_empty_after_init(void);
-void test_bb_settings_creds_boot_init_registers_bb_cfg_keys(void);
+
+// Forward declarations from test_bb_settings_nv_overlay.c
+void test_bb_settings_nv_overlay_entries_returns_known_count(void);
+void test_bb_settings_nv_overlay_entries_wifi_pass_is_secret(void);
+void test_bb_settings_nv_overlay_entries_provisioned_is_not_secret(void);
+void test_bb_settings_nv_overlay_entries_truncates_at_small_cap(void);
+void test_bb_settings_nv_overlay_entries_cap_zero_still_reports_total(void);
 
 // Forward declarations from test_bb_settings_creds_boot_decide.c
 void test_bb_settings_creds_boot_decide_none_when_both_absent(void);
@@ -5747,12 +5753,19 @@ int main(void) {
     RUN_TEST(test_json_obj_set_null_emit_key_error);
     RUN_TEST(test_json_obj_set_num_emit_key_error);
 
-    // bb_settings creds-boot shell + manifest tests (B1-963: relocated from
-    // bb_nv_config_init/_manifest_init)
+    // bb_settings creds-boot shell tests (B1-963: relocated from
+    // bb_nv_config_init)
     RUN_TEST(test_bb_settings_creds_boot_init_success);
     RUN_TEST(test_bb_settings_creds_boot_wifi_ssid_empty_after_init);
     RUN_TEST(test_bb_settings_creds_boot_wifi_pass_empty_after_init);
-    RUN_TEST(test_bb_settings_creds_boot_init_registers_bb_cfg_keys);
+
+    // bb_settings_nv_overlay_entries pure-function tests (B1-708 PR7:
+    // replaces the deleted bb_manifest registration)
+    RUN_TEST(test_bb_settings_nv_overlay_entries_returns_known_count);
+    RUN_TEST(test_bb_settings_nv_overlay_entries_wifi_pass_is_secret);
+    RUN_TEST(test_bb_settings_nv_overlay_entries_provisioned_is_not_secret);
+    RUN_TEST(test_bb_settings_nv_overlay_entries_truncates_at_small_cap);
+    RUN_TEST(test_bb_settings_nv_overlay_entries_cap_zero_still_reports_total);
 
     // bb_settings_creds_boot_decide pure-function tests (B1-963: relocated
     // from bb_nv_creds_boot_decide)

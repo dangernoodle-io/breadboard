@@ -1,7 +1,5 @@
 #include "unity.h"
 #include "bb_settings.h"
-#include "bb_manifest.h"
-#include "bb_json.h"
 #include "bb_storage.h"
 #include "fake_nvs_backend.h"
 #include <string.h>
@@ -47,36 +45,4 @@ void test_bb_settings_creds_boot_wifi_pass_empty_after_init(void)
     char pass[70] = {0};
     size_t len = 0;
     TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_settings_wifi_pass_get(pass, sizeof(pass), &len));
-}
-
-void test_bb_settings_creds_boot_init_registers_bb_cfg_keys(void)
-{
-    bb_manifest_clear();
-    bb_err_t err = bb_settings_creds_boot_init();
-    TEST_ASSERT_EQUAL(BB_OK, err);
-    err = bb_settings_creds_boot_manifest_init();
-    TEST_ASSERT_EQUAL(BB_OK, err);
-
-    bb_json_t doc = bb_manifest_emit();
-    TEST_ASSERT_NOT_NULL(doc);
-
-    char *json = bb_json_serialize(doc);
-    TEST_ASSERT_NOT_NULL(json);
-
-    // Namespace present
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"namespace\":\"bb_cfg\""));
-    // Remaining keys present (hostname/timezone migrated to bb_settings,
-    // B1-754/B1-750 -- they no longer appear in this manifest; likewise
-    // mdns_en/update_check_en/display_en, B1-750 -- their /api/manifest
-    // registration is a known, accepted gap, B1-936).
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"wifi_ssid\""));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"wifi_pass\""));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"provisioned\""));
-    TEST_ASSERT_NULL(strstr(json, "\"key\":\"mdns_en\""));
-    TEST_ASSERT_NULL(strstr(json, "\"key\":\"update_check_en\""));
-    TEST_ASSERT_NULL(strstr(json, "\"key\":\"display_en\""));
-
-    bb_json_free_str(json);
-    bb_json_free(doc);
-    bb_manifest_clear();
 }
