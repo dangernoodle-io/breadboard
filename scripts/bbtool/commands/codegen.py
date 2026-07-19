@@ -36,8 +36,10 @@ from cmake_parse import ConditionalSetError
 from composition import (
     DEFAULT_OUT_REL as COMPOSITION_DEFAULT_OUT_REL,
     DEFAULT_PLATFORM,
+    check_format_registry_backends,
     render_cmake_fragment as render_components_fragment,
     resolve_composition,
+    resolve_composition_with_graph,
 )
 from commands.wire import (
     DEFAULT_OUT_REL as WIRE_DEFAULT_OUT_REL,
@@ -146,7 +148,16 @@ def run(args: argparse.Namespace) -> int:
             return 1
 
         # REQUIRES/components-fragment resolution -- board-parameterized.
-        components = resolve_composition(root, names, args.platform)
+        # Also returns the already-built component graph so the B1-985
+        # backend-registry check below reuses it (no re-derivation).
+        components, graph = resolve_composition_with_graph(root, names, args.platform)
+
+        # B1-985: warn (non-fatal) when the resolved composition pulls a
+        # format-registry consumer (bb_cache_serialize, bb_data) but zero
+        # bb_serialize_* backends -- see composition.py's docstring.
+        warning = check_format_registry_backends(root, components, graph)
+        if warning:
+            print(warning, file=sys.stderr)
 
         # WIRE resolution -- deliberately board-invariant (see docstring
         # above); reuse `components` when the two requested sets are

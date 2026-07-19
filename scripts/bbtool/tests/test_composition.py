@@ -15,7 +15,12 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from boards import ManifestError
-from composition import render_cmake_fragment, resolve_composition
+from composition import (
+    check_format_registry_backends,
+    render_cmake_fragment,
+    resolve_composition,
+    resolve_composition_with_graph,
+)
 
 
 def _write(path: Path, content: str = "") -> None:
@@ -23,7 +28,7 @@ def _write(path: Path, content: str = "") -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _make_component(root: Path, name: str, requires=None, priv_requires=None) -> None:
+def _make_component(root: Path, name: str, requires=None, priv_requires=None, src: str = None) -> None:
     body = "idf_component_register(\n"
     if requires:
         body += f"    REQUIRES {' '.join(requires)}\n"
@@ -33,6 +38,8 @@ def _make_component(root: Path, name: str, requires=None, priv_requires=None) ->
     comp = root / "components" / name
     _write(comp / "CMakeLists.txt", body)
     _write(comp / "include" / f"{name}.h", "#pragma once\n")
+    if src is not None:
+        _write(comp / "src" / f"{name}.c", src)
 
 
 def _fixture_root(tmp: str) -> Path:
@@ -93,6 +100,148 @@ class TestRenderCmakeFragment(unittest.TestCase):
     def test_empty_composition_components_is_just_main(self):
         text = render_cmake_fragment([])
         self.assertIn("set(BB_AUTOWIRE_COMPONENTS main )", text)
+
+
+_RENDER_CALL_SRC = (
+    "#include \"bb_serialize_format.h\"\n"
+    "void consume(bb_format_t fmt) { bb_serialize_format_get_render(fmt); }\n"
+)
+_REGISTER_CALL_SRC = (
+    "#include \"bb_serialize_format.h\"\n"
+    "void backend_init(void) { bb_serialize_format_register(0, 0); }\n"
+)
+
+
+class TestCheckFormatRegistryBackends(unittest.TestCase):
+    """B1-985 (precedent B1-981, reworked to real call-site detection): warn
+    when a format-registry consumer -- a component whose C sources actually
+    call the registry's render lookup/dispatch entry points -- is composed
+    with zero components whose sources call bb_serialize_format_register().
+    A mis-composition like this compiles fine, then returns
+    BB_ERR_UNSUPPORTED for every format at runtime with no build-time
+    signal."""
+
+    def _check(self, root: Path, names):
+        components, graph = resolve_composition_with_graph(str(root), names, platform="espidf")
+        return check_format_registry_backends(str(root), components, graph)
+
+    def test_consumer_with_zero_backends_warns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_serialize")
+            _make_component(root, "bb_consumer", requires=["bb_serialize"], src=_RENDER_CALL_SRC)
+            warning = self._check(root, ["bb_serialize", "bb_consumer"])
+            self.assertIsNotNone(warning)
+            self.assertIn("bb_consumer", warning)
+            self.assertIn("bb_serialize_*", warning)
+
+    def test_consumer_with_a_backend_does_not_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_serialize")
+            _make_component(
+                root, "bb_serialize_json", requires=["bb_serialize"], src=_REGISTER_CALL_SRC,
+            )
+            _make_component(root, "bb_consumer", requires=["bb_serialize"], src=_RENDER_CALL_SRC)
+            warning = self._check(root, ["bb_serialize", "bb_serialize_json", "bb_consumer"])
+            self.assertIsNone(warning)
+
+    def test_no_consumer_reachable_does_not_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_serialize")
+            _make_component(root, "bb_unrelated")
+            warning = self._check(root, ["bb_serialize", "bb_unrelated"])
+            self.assertIsNone(warning)
+
+    def test_registry_not_composed_does_not_warn(self):
+        """Guard tested directly against `check_format_registry_backends`
+        (not via `resolve_composition_with_graph`, whose closure would
+        transitively pull bb_serialize in anyway since bb_consumer REQUIRES
+        it) -- a components list that genuinely omits the registry itself
+        must short-circuit with no warning."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_serialize")
+            _make_component(root, "bb_consumer", requires=["bb_serialize"], src=_RENDER_CALL_SRC)
+            warning = check_format_registry_backends(str(root), ["bb_consumer"], {})
+            self.assertIsNone(warning)
+
+    def test_type_only_requirer_does_not_warn(self):
+        """A component that REQUIRES bb_serialize purely for the
+        bb_serialize_desc_t TYPE (e.g. bb_tcp_client/bb_mqtt_client/
+        bb_http_client/bb_meminfo/bb_system in the real tree) but never calls
+        a registry render entry point is NOT a consumer -- no warning, even
+        with zero backends composed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_serialize")
+            _make_component(
+                root, "bb_type_only_requirer", requires=["bb_serialize"],
+                src="#include \"bb_serialize_format.h\"\nconst bb_serialize_desc_t *desc;\n",
+            )
+            warning = self._check(root, ["bb_serialize", "bb_type_only_requirer"])
+            self.assertIsNone(warning)
+
+    def test_non_registering_serialize_prefixed_helper_is_not_a_backend(self):
+        """A `bb_serialize_*`-prefixed component that never actually calls
+        bb_serialize_format_register() must NOT satisfy the backend check --
+        name-prefix alone is insufficient (this is the detection this PR
+        replaces)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_serialize")
+            _make_component(
+                root, "bb_serialize_helper", requires=["bb_serialize"],
+                src="#include \"bb_serialize_format.h\"\nvoid helper(void) {}\n",
+            )
+            _make_component(root, "bb_consumer", requires=["bb_serialize"], src=_RENDER_CALL_SRC)
+            warning = self._check(root, ["bb_serialize", "bb_serialize_helper", "bb_consumer"])
+            self.assertIsNotNone(warning)
+            self.assertIn("bb_consumer", warning)
+
+    def test_comment_mentioning_register_does_not_mask_a_real_consumer(self):
+        """A component whose C source carries a COMMENT mentioning
+        bb_serialize_format_register() (e.g. a docstring cross-reference,
+        exactly like platform/espidf/bb_cache_serialize's render path)
+        alongside a REAL bb_serialize_format_get_render() call must still be
+        classified as a consumer -- comment text must never satisfy the
+        backend check or suppress consumer detection. Fails on pre-fix code
+        (raw-text scan matches the comment, misclassifying the component as
+        a backend and silently swallowing the warning)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_serialize")
+            _make_component(
+                root, "bb_cache_serialize_alike", requires=["bb_serialize"],
+                src=(
+                    "#include \"bb_serialize_format.h\"\n"
+                    "// dispatches through the registry (bb_serialize_format_register()). See\n"
+                    "// bb_serialize_format.h for details.\n"
+                    "void render(bb_format_t fmt) { bb_serialize_format_get_render(fmt); }\n"
+                ),
+            )
+            warning = self._check(root, ["bb_serialize", "bb_cache_serialize_alike"])
+            self.assertIsNotNone(warning)
+            self.assertIn("bb_cache_serialize_alike", warning)
+
+    def test_parse_only_consumer_is_detected(self):
+        """A component that only calls bb_serialize_format_get_parse()
+        (ingest side, no render) is still a consumer -- it fails the same
+        silent way at runtime if composed with zero backends."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_serialize")
+            _make_component(
+                root, "bb_parse_consumer", requires=["bb_serialize"],
+                src=(
+                    "#include \"bb_serialize_format.h\"\n"
+                    "void ingest(bb_format_t fmt) { bb_serialize_format_get_parse(fmt); }\n"
+                ),
+            )
+            warning = self._check(root, ["bb_serialize", "bb_parse_consumer"])
+            self.assertIsNotNone(warning)
+            self.assertIn("bb_parse_consumer", warning)
 
 
 if __name__ == "__main__":
