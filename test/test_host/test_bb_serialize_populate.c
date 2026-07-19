@@ -1085,6 +1085,47 @@ void test_bb_serialize_populate_str_n_and_ref_are_unsupported(void)
 }
 
 // ---------------------------------------------------------------------------
+// 13a2. ARR cardinality == BB_ARR_STREAM targets a pull iterator, not
+// caller-prewired contiguous storage -- rejected BB_ERR_UNSUPPORTED by the
+// pre-flight scan (B1-1077 PR-2), same precedent as STR_N/REF above,
+// distinct from the max_items==0 misconfiguration (BB_ERR_INVALID_ARG,
+// see test_bb_serialize_populate_arr_max_items_zero_returns_invalid_arg).
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    bb_serialize_arr_stream_t items;
+} arr_stream_snap_t;
+
+static const bb_serialize_field_t s_arr_stream_fields[] = {
+    { .key = "items", .type = BB_TYPE_ARR, .offset = offsetof(arr_stream_snap_t, items),
+      .cardinality = BB_ARR_STREAM, .elem_type = BB_TYPE_OBJ, .elem_size = sizeof(elem_t),
+      .children = s_elem_fields, .n_children = 2 },
+};
+
+static const bb_serialize_desc_t s_arr_stream_desc = {
+    .type_name = "arr_stream_snap_t",
+    .fields = s_arr_stream_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(arr_stream_snap_t),
+};
+
+void test_bb_serialize_populate_arr_stream_cardinality_is_unsupported(void)
+{
+    arr_stream_snap_t dst = {
+        .items = { .next = NULL, .iter_ctx = (void *)0x1234, .row_size = 99 },
+    };
+
+    bb_err_t rc = bb_serialize_populate(&s_arr_stream_desc, &dst, &s_probe_src);
+
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, rc);
+    // Rejected during the pre-flight scan, before any scatter -- dst is
+    // fully untouched.
+    TEST_ASSERT_NULL(dst.items.next);
+    TEST_ASSERT_EQUAL_PTR((void *)0x1234, dst.items.iter_ctx);
+    TEST_ASSERT_EQUAL_UINT(99, dst.items.row_size);
+}
+
+// ---------------------------------------------------------------------------
 // 13b. BB_TYPE_REF alone (no STR_N sibling) is also pre-flight-rejected --
 // exercises the REF arm of the switch in populate_check_fields() directly,
 // distinct from the STR_N arm covered above.

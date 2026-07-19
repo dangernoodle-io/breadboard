@@ -86,20 +86,6 @@ config BB_DIAG_SECTION_SCRATCH_BYTES
         the storage/nvs and storage/partitions sections' snapshots
         (~1.3KB / ~1KB at their default caps) with headroom.
 
-config BB_DIAG_STORAGE_NVS_ENTRY_CAP
-    int "storage/nvs section: max NVS entry rows per response"
-    default 16
-    range 1 64
-    depends on BB_DIAG_SECTIONS
-    help
-        Caller-allocated array capacity for the GET /api/diag/storage/nvs
-        section's entry list. bb_storage_list_entries() always reports the
-        TRUE total entry count even when it exceeds this cap (loud
-        truncation, never silent) -- see bb_diag_storage_nvs_snap_t's
-        entry_count field. Real device inventory today (bb_cfg + IDF's
-        nvs.net80211 + phy namespaces) is roughly 12-16 entries; the
-        default leaves headroom.
-
 config BB_DIAG_STORAGE_PARTITIONS_ROW_CAP
     int "storage/partitions section: max partition rows per response"
     default 16

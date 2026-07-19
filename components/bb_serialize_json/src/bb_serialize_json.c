@@ -512,6 +512,10 @@ static size_t bb_json_bound_value(const bb_serialize_field_t *f, unsigned depth)
         return 2 + c;
     }
     case BB_TYPE_ARR: {
+        // BB_ARR_STREAM's row count isn't known statically -- unbounded,
+        // same convention as max_items == 0 below (which every STREAM field
+        // also naturally has, since it carries no destination capacity).
+        if (f->cardinality == BB_ARR_STREAM) return SIZE_MAX;
         if (f->max_items == 0) return SIZE_MAX;
         size_t eb = bb_json_bound_elem(f, depth);
         if (eb == SIZE_MAX) return SIZE_MAX;
