@@ -7,12 +7,7 @@
 
 static const bb_serialize_format_entry_t s_json_format_entry = {
     .render = bb_serialize_json_render,
-    // bb_serialize_json_scan_bounded's signature doesn't match
-    // bb_serialize_render_fn -- it's this backend's ingest (read-side) entry
-    // point, stored under the registry's deliberately opaque `const void *`
-    // parse field. A lookup caller casts it back to
-    // `bb_err_t (*)(const char *, size_t, const bb_serialize_json_ingest_t *)`.
-    .parse = (const void *)bb_serialize_json_scan_bounded,
+    .parse  = bb_serialize_json_parse_bytes,
 };
 
 bb_err_t bb_serialize_json_register_format(void)

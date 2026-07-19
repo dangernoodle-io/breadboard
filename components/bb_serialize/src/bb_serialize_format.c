@@ -51,7 +51,7 @@ bb_serialize_render_fn bb_serialize_format_get_render(bb_format_t fmt)
     return entry ? entry->render : NULL;
 }
 
-const void *bb_serialize_format_get_parse(bb_format_t fmt)
+bb_serialize_parse_fn bb_serialize_format_get_parse(bb_format_t fmt)
 {
     const bb_serialize_format_entry_t *entry = bb_serialize_format_lookup(fmt);
     return entry ? entry->parse : NULL;
