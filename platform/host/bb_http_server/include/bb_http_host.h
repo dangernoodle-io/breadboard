@@ -53,6 +53,12 @@ void bb_http_host_capture_set_query_param(const char *key, const char *val);
 // remain valid until after the handler returns. Pass NULL to clear.
 void bb_http_host_capture_set_query_string(const char *query_string);
 
+// Inject the request URI consulted by bb_http_req_uri. Must be called after
+// bb_http_host_capture_begin and before invoking the handler. The string is
+// referenced (not copied) and must remain valid until after the handler
+// returns. Pass NULL to clear any previously injected URI.
+void bb_http_host_capture_set_req_uri(const char *uri);
+
 // Disarm the active capture slot and populate *out with the intercepted response.
 // Returns BB_OK on success, BB_ERR_INVALID_ARG on NULL args or if req does not
 // match the active slot.

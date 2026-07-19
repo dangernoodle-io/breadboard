@@ -4,6 +4,7 @@
 #include "bb_http_server.h"
 #include "bb_http_host.h"
 #include <stddef.h>
+#include <string.h>
 
 void test_bb_http_query_token_present_bare(void)
 {
@@ -250,4 +251,153 @@ void test_bb_http_req_query_has_key_legacy_single_param_absent(void)
     bb_http_host_capture_begin(&req);
     bb_http_host_capture_set_query_param("format", "json");
     TEST_ASSERT_FALSE(bb_http_req_query_has_key(req, "other"));
+}
+
+// ===========================================================================
+// bb_http_req_uri (host backend round-trip)
+// ===========================================================================
+
+void test_bb_http_req_uri_round_trip(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_uri("/api/x/y");
+
+    char out[32];
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_req_uri(req, out, sizeof(out)));
+    TEST_ASSERT_EQUAL_STRING("/api/x/y", out);
+}
+
+void test_bb_http_req_uri_strips_query_string(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_uri("/api/x/y?foo=bar");
+
+    char out[32];
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_req_uri(req, out, sizeof(out)));
+    TEST_ASSERT_EQUAL_STRING("/api/x/y", out);
+}
+
+void test_bb_http_req_uri_truncates_when_too_small(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_uri("/api/long/path/here");
+
+    char out[8];
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_req_uri(req, out, sizeof(out)));
+    TEST_ASSERT_EQUAL_STRING("/api/lo", out);
+    TEST_ASSERT_EQUAL(7, (int)strlen(out));
+}
+
+void test_bb_http_req_uri_no_uri_injected_returns_empty(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    char out[32];
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_req_uri(req, out, sizeof(out)));
+    TEST_ASSERT_EQUAL_STRING("", out);
+}
+
+void test_bb_http_req_uri_null_req_returns_invalid_arg(void)
+{
+    char out[32];
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+        bb_http_req_uri(NULL, out, sizeof(out)));
+}
+
+void test_bb_http_req_uri_null_out_returns_invalid_arg(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_http_req_uri(req, NULL, 32));
+}
+
+void test_bb_http_req_uri_zero_cap_returns_invalid_arg(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    char out[32];
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_http_req_uri(req, out, 0));
+}
+
+// ===========================================================================
+// Trivial host-backend accessors/stubs — no real server, exercised directly.
+// ===========================================================================
+
+void test_bb_http_req_recv_no_active_capture_returns_zero(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);   // disarms the slot
+    bb_http_host_capture_free(&cap);
+
+    char buf[8];
+    // req is a stale pointer — no active capture, and no body to read.
+    TEST_ASSERT_EQUAL(0, bb_http_req_recv(req, buf, sizeof(buf)));
+}
+
+void test_bb_http_req_recv_no_body_injected_returns_zero(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    char buf[8];
+    TEST_ASSERT_EQUAL(0, bb_http_req_recv(req, buf, sizeof(buf)));
+}
+
+void test_bb_http_req_sockfd_returns_negative_one(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    TEST_ASSERT_EQUAL(-1, bb_http_req_sockfd(req));
+}
+
+void test_bb_http_server_lifecycle_stubs_are_noop_ok(void)
+{
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_server_stop());
+    TEST_ASSERT_NULL(bb_http_server_get_handle());
+    bb_http_server_poll();  // no-op; just must not crash
+}
+
+void test_bb_http_unregister_route_is_noop_ok(void)
+{
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_http_unregister_route(NULL, BB_HTTP_GET, "/api/x"));
+}
+
+void test_bb_http_server_ensure_started_returns_ok(void)
+{
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_server_ensure_started());
+}
+
+// ===========================================================================
+// bb_http_req_query_key_value — legacy single key=value injection path
+// (bb_http_host_capture_set_query_param, distinct from the multi-param
+// query_string parser exercised above).
+// ===========================================================================
+
+void test_bb_http_req_query_key_value_legacy_single_param_matches(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_query_param("format", "json");
+
+    char out[16];
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_req_query_key_value(req, "format", out, sizeof(out)));
+    TEST_ASSERT_EQUAL_STRING("json", out);
+}
+
+void test_bb_http_req_query_key_value_legacy_single_param_buffer_too_small(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_query_param("format", "json");
+
+    char out[2];
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+        bb_http_req_query_key_value(req, "format", out, sizeof(out)));
 }

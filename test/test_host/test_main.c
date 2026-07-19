@@ -935,6 +935,8 @@ void test_json_arr_multiple_items(void);
 void test_json_arr_emit_null_item(void);
 void test_json_arr_emit_null_stream(void);
 void test_json_arr_end_null_stream(void);
+void test_json_arr_emit_unregistered_req_returns_invalid_state(void);
+void test_json_arr_end_serialize_failure_falls_back_to_null(void);
 
 // Forward declarations from test_bb_http_json_obj_stream.c
 void test_resp_no_content_sets_204_empty_body(void);
@@ -1075,6 +1077,16 @@ void test_dispatch_api_dup_same_method_and_path_dropped(void);
 void test_dispatch_api_dup_different_method_same_path_both_kept(void);
 void test_dispatch_api_dup_null_path_not_dup_detected(void);
 void test_dispatch_api_dup_scan_skips_null_path_existing_entry(void);
+void test_dispatch_api_exact_wins_over_wildcard_wildcard_first(void);
+void test_dispatch_api_exact_wins_over_wildcard_exact_first(void);
+void test_dispatch_api_wildcard_longest_prefix_wins(void);
+void test_dispatch_api_wildcard_longest_prefix_wins_reverse_order(void);
+void test_dispatch_api_wildcard_miss(void);
+void test_dispatch_api_wildcard_method_mismatch(void);
+void test_dispatch_api_exact_method_mismatch_not_rescued_by_wildcard(void);
+void test_dispatch_api_exact_routes_unaffected_by_wildcard_presence(void);
+void test_dispatch_api_wildcard_tie_break_first_registered_wins(void);
+void test_dispatch_api_dup_wildcard_pattern_dropped(void);
 
 // Forward declarations from test_bb_storage.c
 void test_bb_storage_ram_set_get_round_trip(void);
@@ -2538,6 +2550,21 @@ void test_bb_http_req_query_has_key_multi_param_present(void);
 void test_bb_http_req_query_has_key_multi_param_absent(void);
 void test_bb_http_req_query_has_key_legacy_single_param_present(void);
 void test_bb_http_req_query_has_key_legacy_single_param_absent(void);
+void test_bb_http_req_uri_round_trip(void);
+void test_bb_http_req_uri_strips_query_string(void);
+void test_bb_http_req_uri_truncates_when_too_small(void);
+void test_bb_http_req_uri_no_uri_injected_returns_empty(void);
+void test_bb_http_req_uri_null_req_returns_invalid_arg(void);
+void test_bb_http_req_uri_null_out_returns_invalid_arg(void);
+void test_bb_http_req_uri_zero_cap_returns_invalid_arg(void);
+void test_bb_http_req_recv_no_active_capture_returns_zero(void);
+void test_bb_http_req_recv_no_body_injected_returns_zero(void);
+void test_bb_http_req_sockfd_returns_negative_one(void);
+void test_bb_http_server_lifecycle_stubs_are_noop_ok(void);
+void test_bb_http_unregister_route_is_noop_ok(void);
+void test_bb_http_server_ensure_started_returns_ok(void);
+void test_bb_http_req_query_key_value_legacy_single_param_matches(void);
+void test_bb_http_req_query_key_value_legacy_single_param_buffer_too_small(void);
 
 // Forward declarations from test_bb_http_body.c
 void test_bb_http_body_happy_path(void);
@@ -4977,6 +5004,21 @@ int main(void) {
     RUN_TEST(test_bb_http_req_query_has_key_multi_param_absent);
     RUN_TEST(test_bb_http_req_query_has_key_legacy_single_param_present);
     RUN_TEST(test_bb_http_req_query_has_key_legacy_single_param_absent);
+    RUN_TEST(test_bb_http_req_uri_round_trip);
+    RUN_TEST(test_bb_http_req_uri_strips_query_string);
+    RUN_TEST(test_bb_http_req_uri_truncates_when_too_small);
+    RUN_TEST(test_bb_http_req_uri_no_uri_injected_returns_empty);
+    RUN_TEST(test_bb_http_req_uri_null_req_returns_invalid_arg);
+    RUN_TEST(test_bb_http_req_uri_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_http_req_uri_zero_cap_returns_invalid_arg);
+    RUN_TEST(test_bb_http_req_recv_no_active_capture_returns_zero);
+    RUN_TEST(test_bb_http_req_recv_no_body_injected_returns_zero);
+    RUN_TEST(test_bb_http_req_sockfd_returns_negative_one);
+    RUN_TEST(test_bb_http_server_lifecycle_stubs_are_noop_ok);
+    RUN_TEST(test_bb_http_unregister_route_is_noop_ok);
+    RUN_TEST(test_bb_http_server_ensure_started_returns_ok);
+    RUN_TEST(test_bb_http_req_query_key_value_legacy_single_param_matches);
+    RUN_TEST(test_bb_http_req_query_key_value_legacy_single_param_buffer_too_small);
 
     // bb_http_req_recv_body_alloc helper (B1-335)
     RUN_TEST(test_bb_http_body_happy_path);
@@ -5567,6 +5609,8 @@ int main(void) {
     RUN_TEST(test_json_arr_emit_null_item);
     RUN_TEST(test_json_arr_emit_null_stream);
     RUN_TEST(test_json_arr_end_null_stream);
+    RUN_TEST(test_json_arr_emit_unregistered_req_returns_invalid_state);
+    RUN_TEST(test_json_arr_end_serialize_failure_falls_back_to_null);
 
     // Streaming JSON object tests
     RUN_TEST(test_resp_no_content_sets_204_empty_body);
@@ -7883,6 +7927,16 @@ int main(void) {
     RUN_TEST(test_dispatch_api_dup_different_method_same_path_both_kept);
     RUN_TEST(test_dispatch_api_dup_null_path_not_dup_detected);
     RUN_TEST(test_dispatch_api_dup_scan_skips_null_path_existing_entry);
+    RUN_TEST(test_dispatch_api_exact_wins_over_wildcard_wildcard_first);
+    RUN_TEST(test_dispatch_api_exact_wins_over_wildcard_exact_first);
+    RUN_TEST(test_dispatch_api_wildcard_longest_prefix_wins);
+    RUN_TEST(test_dispatch_api_wildcard_longest_prefix_wins_reverse_order);
+    RUN_TEST(test_dispatch_api_wildcard_miss);
+    RUN_TEST(test_dispatch_api_wildcard_method_mismatch);
+    RUN_TEST(test_dispatch_api_exact_method_mismatch_not_rescued_by_wildcard);
+    RUN_TEST(test_dispatch_api_exact_routes_unaffected_by_wildcard_presence);
+    RUN_TEST(test_dispatch_api_wildcard_tie_break_first_registered_wins);
+    RUN_TEST(test_dispatch_api_dup_wildcard_pattern_dropped);
 
     // bb_storage tests
     RUN_TEST(test_bb_storage_ram_set_get_round_trip);

@@ -2,6 +2,7 @@
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_json.h"
+#include "bb_json_test_hooks.h"
 #include <string.h>
 
 // Test: bb_http_resp_json_arr_begin rejects NULL req
@@ -188,4 +189,43 @@ void test_json_arr_end_null_stream(void)
 {
     bb_err_t err = bb_http_resp_json_arr_end(NULL);
     TEST_ASSERT_EQUAL(err, BB_ERR_INVALID_ARG);
+}
+
+// Test: emit against a stream whose _req was never registered via begin()
+// (stream_get_arr's side-table lookup misses) returns BB_ERR_INVALID_STATE.
+// Exercises the "no matching entry" fallthrough of the internal side-table
+// helper, distinct from test_json_arr_emit_after_end (which short-circuits
+// earlier on the _open==0 check).
+void test_json_arr_emit_unregistered_req_returns_invalid_state(void)
+{
+    bb_http_json_stream_t stream;
+    memset(&stream, 0, sizeof(stream));
+    bb_http_request_t *unregistered_req = (bb_http_request_t *)&(int){99};
+    stream._req  = unregistered_req;
+    stream._err  = BB_OK;
+    stream._open = 1;
+
+    bb_json_t item = bb_json_obj_new();
+    bb_err_t err = bb_http_resp_json_arr_emit(&stream, item);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+
+    bb_json_free(item);
+}
+
+// Test: end() falls back to "null" element when bb_json_serialize fails on
+// the buffered array — exercises bb_http_resp_send_json's serialize-failure
+// fallback (internal to the host backend, only reachable via end()).
+void test_json_arr_end_serialize_failure_falls_back_to_null(void)
+{
+    bb_http_request_t *req = (bb_http_request_t *)&(int){42};
+    bb_http_json_stream_t stream;
+
+    bb_err_t err = bb_http_resp_json_arr_begin(req, &stream);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_json_host_force_serialize_fail_after(0);
+    err = bb_http_resp_json_arr_end(&stream);
+    bb_json_host_force_serialize_fail_after(-1);
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
 }
