@@ -29,9 +29,9 @@
 #include "bb_wifi.h"
 #include "bb_data.h"
 #include "bb_data_http.h"
-#include "bb_meminfo_heap_snap.h"
 #include "bb_system_snap.h"
 #include "bb_diag_section.h"
+#include "bb_diag_meminfo.h"
 #include "bb_diag_storage_nvs.h"
 #include "bb_diag_storage_partitions.h"
 #include "bb_serialize_json.h"
@@ -84,17 +84,13 @@ static void heap_log_tick(void *arg)
     bb_serialize_console_heap_report("tick");
 }
 
-// bb_diag section fill adapters: bb_diag_fill_fn's signature is untyped
-// (void *dst, const bb_diag_fill_args_t *args); each snap's own _fill() fn
-// takes its typed pointer, so these thin shims are the only cast needed.
+// bb_diag section fill adapter: bb_diag_fill_fn's signature is untyped
+// (void *dst, const bb_diag_fill_args_t *args); bb_system_snap_fill()'s
+// typed pointer needs this thin shim as the only cast. "meminfo"'s adapter
+// now lives in bb_diag_meminfo.c (heap reconciliation, B1-diag-dissolution
+// -- promoted to a shared section file so smoke's codegen gets it too).
 // Neither "meminfo" nor "system" declares query_keys -- args->query is
 // always NULL for these two sections.
-static bb_err_t diag_fill_meminfo(void *dst, const bb_diag_fill_args_t *args)
-{
-    (void)args;
-    return bb_meminfo_heap_snap_fill((bb_meminfo_heap_snap_t *)dst);
-}
-
 static bb_err_t diag_fill_system(void *dst, const bb_diag_fill_args_t *args)
 {
     (void)args;
@@ -255,11 +251,9 @@ void app_main(void)
     // RUNNING-entry observer branch (which re-fires on every pause/resume).
     // The /api/diag/* route dispatch itself (bb_diag_sections_init(), which
     // DOES need the server handle) stays in http_lifecycle_observer.
-    err = bb_diag_register_section(&(bb_diag_section_t){
-        .name = "meminfo", .desc = "heap memory snapshot",
-        .snap_desc = &bb_meminfo_heap_snap_desc, .fill = diag_fill_meminfo });
+    err = bb_diag_meminfo_register();
     if (err != BB_OK) {
-        bb_log_w(TAG, "diag_register_section(meminfo) failed (%d)", (int)err);
+        bb_log_w(TAG, "diag_meminfo_register failed (%d)", (int)err);
     }
     err = bb_diag_register_section(&(bb_diag_section_t){
         .name = "system", .desc = "system info snapshot",

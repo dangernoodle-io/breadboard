@@ -6,8 +6,9 @@ idf_component_register(
          "src/bb_http_body.c"
          "src/route_registry.c"
          "src/bb_http_json_obj.c"
+         "src/bb_http_serialize_stream.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_http
+    REQUIRES bb_core bb_http bb_serialize_json
     PRIV_REQUIRES bb_log bb_json esp_http_server esp_event bb_str
 )
 

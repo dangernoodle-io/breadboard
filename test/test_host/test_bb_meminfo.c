@@ -22,14 +22,21 @@ void test_bb_meminfo_get_host_zeroes_snapshot(void)
     TEST_ASSERT_EQUAL_size_t(0, m.default_region.min_ever_free);
     TEST_ASSERT_EQUAL_size_t(0, m.default_region.largest_free_block);
     TEST_ASSERT_EQUAL_size_t(0, m.default_region.total);
+    TEST_ASSERT_EQUAL_size_t(0, m.default_region.allocated);
 
     TEST_ASSERT_EQUAL_size_t(0, m.internal.free);
     TEST_ASSERT_EQUAL_size_t(0, m.internal.min_ever_free);
     TEST_ASSERT_EQUAL_size_t(0, m.internal.largest_free_block);
     TEST_ASSERT_EQUAL_size_t(0, m.internal.total);
+    TEST_ASSERT_EQUAL_size_t(0, m.internal.allocated);
 
     TEST_ASSERT_EQUAL_size_t(0, m.dma.free);
     TEST_ASSERT_EQUAL_size_t(0, m.spiram.free);
+    TEST_ASSERT_EQUAL_size_t(0, m.exec.free);
+    TEST_ASSERT_EQUAL_size_t(0, m.exec.min_ever_free);
+    TEST_ASSERT_EQUAL_size_t(0, m.exec.largest_free_block);
+    TEST_ASSERT_EQUAL_size_t(0, m.exec.total);
+    TEST_ASSERT_EQUAL_size_t(0, m.exec.allocated);
 
     TEST_ASSERT_EQUAL_size_t(0, m.esp_min_free_heap);
     TEST_ASSERT_EQUAL_size_t(0, m.mem_outstanding_bytes);

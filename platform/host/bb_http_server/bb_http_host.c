@@ -28,6 +28,9 @@ static bool s_force_set_type_fail = false;
 static bool s_force_send_chunk_fail = false;
 // Test hook: force send_chunk to fail only on the terminator call (buf==NULL)
 static bool s_force_send_chunk_term_fail = false;
+// Test hook: total bb_http_resp_send_chunk() call count since the active
+// capture slot was armed (see bb_http_host_send_chunk_call_count doc comment)
+static size_t s_send_chunk_call_count = 0;
 
 // ============================================================================
 // Capture slot (single, host tests are single-threaded)
@@ -282,8 +285,14 @@ bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str)
     return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
+size_t bb_http_host_send_chunk_call_count(void)
+{
+    return s_send_chunk_call_count;
+}
+
 bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int len)
 {
+    s_send_chunk_call_count++;
     if (s_force_send_chunk_fail) return BB_ERR_NO_SPACE;
     if (s_force_send_chunk_term_fail && buf == NULL) return BB_ERR_NO_SPACE;
     capture_slot_t *cap = capture_find(req);
@@ -475,6 +484,7 @@ void bb_http_host_capture_begin(bb_http_request_t **out_req)
     s_cap.has_acao     = false;
     s_cap.has_acapn    = false;
     memset(s_cap.content_type, 0, sizeof(s_cap.content_type));
+    s_send_chunk_call_count = 0;
     if (out_req) *out_req = req;
 }
 

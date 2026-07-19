@@ -29,6 +29,7 @@ typedef struct {
     uint64_t min_ever_free;
     uint64_t largest_free_block;
     uint64_t total;
+    uint64_t allocated;
 } bb_meminfo_heap_snap_region_t;
 
 // Root -- mirrors bb_meminfo_snapshot_t field-for-field (bb_meminfo.h),
@@ -38,6 +39,7 @@ typedef struct {
     bb_meminfo_heap_snap_region_t internal;
     bb_meminfo_heap_snap_region_t dma;
     bb_meminfo_heap_snap_region_t spiram;
+    bb_meminfo_heap_snap_region_t exec;
 
     uint64_t esp_min_free_heap;
 

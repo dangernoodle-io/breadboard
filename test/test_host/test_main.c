@@ -429,6 +429,11 @@ void test_bb_serialize_json_render_deep_arr_of_obj(void);
 void test_bb_serialize_json_push_level_guard_manual_overdrive(void);
 void test_bb_serialize_json_pop_level_underflow_guard(void);
 
+// Forward declarations from test_bb_serialize_json_stream.c
+void test_bb_serialize_json_stream_byte_identical_to_render(void);
+void test_bb_serialize_json_stream_multi_flush(void);
+void test_bb_serialize_json_stream_abort_sticky_no_further_flush(void);
+
 // Forward declarations from test_bb_serialize_json_scan.c
 void test_bb_serialize_json_scan_bounded_string_empty(void);
 void test_bb_serialize_json_scan_bounded_string_ascii(void);
@@ -1042,6 +1047,14 @@ void test_json_obj_set_int_emit_key_error(void);
 void test_json_obj_set_bool_emit_key_error(void);
 void test_json_obj_set_null_emit_key_error(void);
 void test_json_obj_set_num_emit_key_error(void);
+
+// Forward declarations from test_bb_http_serialize_stream.c
+void test_http_serialize_stream_happy_path(void);
+void test_http_serialize_stream_null_req_invalid_arg(void);
+void test_http_serialize_stream_null_desc_invalid_arg(void);
+void test_http_serialize_stream_null_snap_invalid_arg(void);
+void test_http_serialize_stream_set_type_fail_short_circuits(void);
+void test_http_serialize_stream_send_chunk_fail_propagates_original_error(void);
 
 // Forward declarations from test_bb_settings_creds_boot.c
 void test_bb_settings_creds_boot_init_success(void);
@@ -3604,6 +3617,11 @@ void test_bb_diag_storage_nvs_fill_enc_name_out_of_range_falls_back_to_blob(void
 void test_bb_diag_storage_nvs_fill_null_dst_returns_invalid_arg(void);
 void test_bb_diag_storage_nvs_desc_fits_scratch(void);
 
+// Forward declarations from test_bb_diag_meminfo.c
+void test_bb_diag_meminfo_fill_rejects_null_dst(void);
+void test_bb_diag_meminfo_fill_host_zeroes_snapshot(void);
+void test_bb_diag_meminfo_desc_fits_scratch(void);
+
 // Forward declarations from test_bb_diag_storage_partitions.c
 void test_bb_diag_storage_partitions_fill_widens_rows(void);
 void test_bb_diag_storage_partitions_fill_running_and_next_ota_flags(void);
@@ -5447,6 +5465,11 @@ int main(void) {
     RUN_TEST(test_bb_diag_storage_nvs_fill_null_dst_returns_invalid_arg);
     RUN_TEST(test_bb_diag_storage_nvs_desc_fits_scratch);
 
+    // bb_diag_meminfo tests
+    RUN_TEST(test_bb_diag_meminfo_fill_rejects_null_dst);
+    RUN_TEST(test_bb_diag_meminfo_fill_host_zeroes_snapshot);
+    RUN_TEST(test_bb_diag_meminfo_desc_fits_scratch);
+
     // bb_diag_storage_partitions tests
     RUN_TEST(test_bb_diag_storage_partitions_fill_widens_rows);
     RUN_TEST(test_bb_diag_storage_partitions_fill_running_and_next_ota_flags);
@@ -5828,6 +5851,13 @@ int main(void) {
     RUN_TEST(test_json_obj_set_bool_emit_key_error);
     RUN_TEST(test_json_obj_set_null_emit_key_error);
     RUN_TEST(test_json_obj_set_num_emit_key_error);
+
+    RUN_TEST(test_http_serialize_stream_happy_path);
+    RUN_TEST(test_http_serialize_stream_null_req_invalid_arg);
+    RUN_TEST(test_http_serialize_stream_null_desc_invalid_arg);
+    RUN_TEST(test_http_serialize_stream_null_snap_invalid_arg);
+    RUN_TEST(test_http_serialize_stream_set_type_fail_short_circuits);
+    RUN_TEST(test_http_serialize_stream_send_chunk_fail_propagates_original_error);
 
     // bb_settings creds-boot shell tests (B1-963: relocated from
     // bb_nv_config_init)
@@ -9624,6 +9654,10 @@ int main(void) {
     RUN_TEST(test_bb_serialize_json_render_deep_arr_of_obj);
     RUN_TEST(test_bb_serialize_json_push_level_guard_manual_overdrive);
     RUN_TEST(test_bb_serialize_json_pop_level_underflow_guard);
+
+    RUN_TEST(test_bb_serialize_json_stream_byte_identical_to_render);
+    RUN_TEST(test_bb_serialize_json_stream_multi_flush);
+    RUN_TEST(test_bb_serialize_json_stream_abort_sticky_no_further_flush);
 
     RUN_TEST(test_bb_serialize_json_scan_bounded_string_empty);
     RUN_TEST(test_bb_serialize_json_scan_bounded_string_ascii);

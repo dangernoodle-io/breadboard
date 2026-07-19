@@ -10,6 +10,15 @@ config BB_SERIALIZE_JSON_F64_DECIMALS
         default of 6). No snprintf/locale involved -- purely a scale-
         and-round hand-rolled formatter.
 
+config BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES
+    int "Stream-render internal flush buffer size (bytes)"
+    default 768
+    range 128 4096
+    help
+        Size of bb_serialize_json_stream_render()'s internal stack buffer;
+        flush_fn is invoked each time it fills. Must fit the calling task's
+        stack (e.g. httpd, CONFIG_BB_HTTP_TASK_STACK_SIZE) with headroom.
+
 config BB_SERIALIZE_JSON_SCRATCH_MAX_BYTES
     int "Shared key/number/literal reassembly scratch size (bytes) for the JSON scanner"
     default 64

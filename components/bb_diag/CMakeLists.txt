@@ -4,6 +4,7 @@ set(_diag_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_event_common.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_boot_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_section.c"
+    "${CMAKE_CURRENT_LIST_DIR}/bb_diag_meminfo.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_storage_nvs.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_storage_partitions.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag/bb_diag_panic.c"
@@ -45,11 +46,15 @@ endif()
 # bb_diag_storage_partitions.c call bb_settings_nv_overlay_entries() and
 # bb_partition_list()/bb_partition_row_wire_from_info() directly; bb_storage
 # was already required above (bb_diag_panic.c). No bb_data dependency.
+# bb_meminfo: PRIVATE (heap reconciliation, B1-diag-dissolution) --
+# bb_diag_meminfo.c calls bb_meminfo_heap_snap_fill() directly; the "meminfo"
+# section is a thin bb_diag_fill_fn adapter over bb_meminfo's own SSOT
+# snapshot, never exposed by bb_diag_meminfo.h itself.
 idf_component_register(
     SRCS ${_diag_srcs}
     INCLUDE_DIRS "include" "."
     REQUIRES bb_core bb_http_server bb_serialize
-    PRIV_REQUIRES bb_log bb_http bb_json bb_cache bb_config bb_storage bb_ntp bb_openapi bb_system bb_ota_validator bb_data bb_task_registry bb_task espcoredump lwip nvs_flash esp_partition esp_app_format bb_str bb_registry bb_partition bb_settings
+    PRIV_REQUIRES bb_log bb_http bb_json bb_cache bb_config bb_storage bb_ntp bb_openapi bb_system bb_ota_validator bb_data bb_task_registry bb_task espcoredump lwip nvs_flash esp_partition esp_app_format bb_str bb_registry bb_partition bb_settings bb_meminfo
 )
 
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)

@@ -21,6 +21,33 @@
 #define BB_SERIALIZE_JSON_F64_DECIMALS 6
 #endif
 
+// ---------------------------------------------------------------------------
+// Kconfig bridge -- CONFIG_BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES -> a C
+// default. Never shadow the generated symbol with a bare #ifndef.
+// ---------------------------------------------------------------------------
+#ifdef CONFIG_BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES
+#define BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES CONFIG_BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES
+#else
+#define BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES 768
+#endif
+
+// Build-enforced counterpart to the "no single walker-driven put() exceeds
+// the flush buffer" invariant bb_json_put()'s `n > ctx->cap` branch below
+// relies on being unreachable (see its LCOV_EXCL_LINE comment). The largest
+// single put() call any descriptor-driven emit path can make is a u64/i64
+// digit string (bb_json_write_u64/_i64: at most 21 bytes, sign + 20 decimal
+// digits) or a single \uXXXX control-char escape unit (bb_json_escape_write:
+// 6 bytes) -- 32 is a safe floor well above either. As long as the flush
+// buffer stays >= this floor, that branch is provably dead for any walker-
+// driven caller; a Kconfig value below the floor would make it reachable,
+// so this is checked at compile time rather than left as a comment-only
+// invariant.
+_Static_assert(BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES >= 32,
+               "BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES must be >= 32 -- "
+               "smaller than the largest single walker-driven put() call "
+               "(a 21-byte u64/i64 digit string), which would make the "
+               "excluded bb_json_put() n > ctx->cap branch reachable");
+
 // 10^N table, N in [0, 15] -- covers the Kconfig knob's full range.
 static const double s_pow10[16] = {
     1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7,
@@ -35,12 +62,39 @@ static const double s_pow10[16] = {
 // Low-level bounded writers -- every byte written funnels through these.
 // ---------------------------------------------------------------------------
 
+// Flushes whatever's currently buffered via ctx->flush_fn (a no-op if
+// unbound, already poisoned, or the buffer is empty). Polls
+// ctx->flush_failed after the flush call and, if the caller has signaled
+// abort, sets the sticky synthetic BB_ERR_INVALID_STATE so every subsequent
+// bb_json_put() short-circuits (no further flush_fn calls) -- see
+// bb_serialize_json_stream_render()'s doc comment for why this specific
+// code is reused as the abort signal.
+static void bb_json_flush(bb_serialize_json_ctx_t *ctx)
+{
+    if (ctx->err != BB_OK || !ctx->flush_fn || ctx->len == 0) return;
+    ctx->flush_fn(ctx->flush_ctx, ctx->buf, ctx->len);
+    ctx->len = 0;
+    if (ctx->flush_failed && *ctx->flush_failed) ctx->err = BB_ERR_INVALID_STATE;  // sticky abort
+}
+
 static void bb_json_put(bb_serialize_json_ctx_t *ctx, const char *s, size_t n)
 {
     if (ctx->err != BB_OK) return;
     if (ctx->len + n > ctx->cap) {
-        ctx->err = BB_ERR_NO_SPACE;
-        return;
+        if (!ctx->flush_fn) {
+            ctx->err = BB_ERR_NO_SPACE;  // unchanged bounded all-or-nothing behavior
+            return;
+        }
+        bb_json_flush(ctx);
+        if (ctx->err != BB_OK) return;
+        // Defensive: no walker-driven single put() call (max key/number/
+        // literal/escape-unit width) can ever exceed the Kconfig-floored
+        // 128-byte-minimum flush buffer -- untestable without a hand-rolled
+        // emit callback bypassing the walker entirely.
+        if (n > ctx->cap) {
+            ctx->err = BB_ERR_NO_SPACE;  // LCOV_EXCL_LINE -- single write larger than the whole flush buffer
+            return;  // LCOV_EXCL_LINE
+        }
     }
     memcpy(ctx->buf + ctx->len, s, n);
     ctx->len += n;
@@ -318,6 +372,9 @@ void bb_serialize_json_ctx_init(bb_serialize_json_ctx_t *ctx, char *buf, size_t 
     ctx->depth = 0;
     ctx->stack[0].is_array = false;
     ctx->stack[0].have_child = false;
+    ctx->flush_fn = NULL;
+    ctx->flush_ctx = NULL;
+    ctx->flush_failed = NULL;
 }
 
 bb_serialize_emit_t bb_serialize_json_emit(bb_serialize_json_ctx_t *ctx)
@@ -380,6 +437,33 @@ bb_err_t bb_serialize_json_render_ref(const bb_serialize_desc_t *desc, const voi
                                        bb_serialize_ref_resolve_fn resolve, void *resolve_ctx)
 {
     return bb_json_render_impl(desc, snap, buf, cap, out_len, resolve, resolve_ctx);
+}
+
+// Distinct entry point from bb_json_render_impl() above -- NOT routed
+// through bb_serialize_format_render() (that dispatch stays bounded/
+// unchanged). Drives the walker against a small internal stack buffer,
+// flushing through `flush_fn` whenever it fills, so an arbitrarily large
+// document renders through a small, bounded working set. See the header's
+// doc comment for the abort/error-code contract.
+bb_err_t bb_serialize_json_stream_render(const bb_serialize_desc_t *desc, const void *snap,
+                                          bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
+                                          const volatile bool *flush_failed)
+{
+    char buf[BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES];
+    bb_serialize_json_ctx_t ctx;
+    bb_serialize_json_ctx_init(&ctx, buf, sizeof(buf));
+    ctx.flush_fn = flush_fn;
+    ctx.flush_ctx = flush_ctx;
+    ctx.flush_failed = flush_failed;
+
+    bb_serialize_emit_t emit = bb_serialize_json_emit(&ctx);
+
+    bb_json_putc(&ctx, '{');
+    bb_serialize_walk_ref(desc, snap, &emit, NULL, NULL);
+    bb_json_putc(&ctx, '}');
+    bb_json_flush(&ctx);  // flush the tail
+
+    return ctx.err;
 }
 
 // ---------------------------------------------------------------------------

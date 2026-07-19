@@ -34,6 +34,9 @@ typedef struct {
     size_t min_ever_free;      // heap_caps_get_minimum_free_size (watermark)
     size_t largest_free_block; // heap_caps_get_largest_free_block
     size_t total;              // heap_caps_get_total_size
+    size_t allocated;          // heap_caps_get_info's multi_heap_info_t.total_allocated_bytes
+                                // (folded in from the legacy /api/diag/heap route --
+                                // see bb_meminfo_heap_snap.h's file header)
 } bb_meminfo_region_t;
 
 typedef struct {
@@ -52,6 +55,11 @@ typedef struct {
 
     // MALLOC_CAP_SPIRAM. All fields 0 on boards with no PSRAM.
     bb_meminfo_region_t spiram;
+
+    // MALLOC_CAP_EXEC -- executable heap (IRAM). Folded in from the legacy
+    // /api/diag/heap route (heap reconciliation, B1-diag-dissolution); not
+    // surfaced by any bb_board accessor.
+    bb_meminfo_region_t exec;
 
     // esp_get_minimum_free_heap_size() — IDF's classic overall watermark,
     // distinct from heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
