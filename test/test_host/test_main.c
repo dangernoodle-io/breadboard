@@ -1156,6 +1156,24 @@ void test_bb_storage_ram_set_table_full_returns_no_space(void);
 void test_bb_storage_ram_set_value_too_large_returns_no_space(void);
 void test_bb_storage_ram_set_key_too_long_returns_invalid_arg(void);
 void test_bb_storage_ram_register_twice_returns_invalid_state(void);
+void test_bb_storage_register_backend_list_entries_without_get_stats_returns_invalid_arg(void);
+void test_bb_storage_register_backend_get_stats_without_list_entries_returns_invalid_arg(void);
+void test_bb_storage_register_backend_both_enum_null_succeeds(void);
+void test_bb_storage_list_entries_null_backend_returns_invalid_arg(void);
+void test_bb_storage_list_entries_null_count_returns_invalid_arg(void);
+void test_bb_storage_list_entries_null_out_with_nonzero_cap_returns_invalid_arg(void);
+void test_bb_storage_list_entries_zero_cap_null_out_is_ok_arg(void);
+void test_bb_storage_list_entries_unknown_backend_returns_not_found(void);
+void test_bb_storage_list_entries_ram_backend_returns_unsupported(void);
+void test_bb_storage_get_stats_null_backend_returns_invalid_arg(void);
+void test_bb_storage_get_stats_null_out_returns_invalid_arg(void);
+void test_bb_storage_get_stats_unknown_backend_returns_not_found(void);
+void test_bb_storage_get_stats_ram_backend_returns_unsupported(void);
+void test_bb_storage_register_backend_both_enum_set_succeeds(void);
+void test_bb_storage_list_entries_dispatches_entries_through_from_backend(void);
+void test_bb_storage_list_entries_null_ns_or_dir_passes_through_as_all_namespaces(void);
+void test_bb_storage_list_entries_truncation_reports_true_count_over_cap(void);
+void test_bb_storage_get_stats_dispatches_stats_through_from_backend(void);
 
 // Forward declarations from test_bb_storage_rtc.c
 void test_bb_storage_rtc_cold_boot_all_keys_not_found(void);
@@ -8006,6 +8024,24 @@ int main(void) {
     RUN_TEST(test_bb_storage_ram_set_value_too_large_returns_no_space);
     RUN_TEST(test_bb_storage_ram_set_key_too_long_returns_invalid_arg);
     RUN_TEST(test_bb_storage_ram_register_twice_returns_invalid_state);
+    RUN_TEST(test_bb_storage_register_backend_list_entries_without_get_stats_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_register_backend_get_stats_without_list_entries_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_register_backend_both_enum_null_succeeds);
+    RUN_TEST(test_bb_storage_list_entries_null_backend_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_list_entries_null_count_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_list_entries_null_out_with_nonzero_cap_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_list_entries_zero_cap_null_out_is_ok_arg);
+    RUN_TEST(test_bb_storage_list_entries_unknown_backend_returns_not_found);
+    RUN_TEST(test_bb_storage_list_entries_ram_backend_returns_unsupported);
+    RUN_TEST(test_bb_storage_get_stats_null_backend_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_get_stats_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_get_stats_unknown_backend_returns_not_found);
+    RUN_TEST(test_bb_storage_get_stats_ram_backend_returns_unsupported);
+    RUN_TEST(test_bb_storage_register_backend_both_enum_set_succeeds);
+    RUN_TEST(test_bb_storage_list_entries_dispatches_entries_through_from_backend);
+    RUN_TEST(test_bb_storage_list_entries_null_ns_or_dir_passes_through_as_all_namespaces);
+    RUN_TEST(test_bb_storage_list_entries_truncation_reports_true_count_over_cap);
+    RUN_TEST(test_bb_storage_get_stats_dispatches_stats_through_from_backend);
 
     // bb_storage_rtc tests
     RUN_TEST(test_bb_storage_rtc_cold_boot_all_keys_not_found);

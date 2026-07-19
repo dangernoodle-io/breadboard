@@ -36,4 +36,16 @@ config BB_STORAGE_TXN_VALUE_MAX_BYTES
         non-NUL bytes -- a lower cap would make staging a max-length WiFi
         password through the "rtc" backend always spuriously fail.
 
+config BB_STORAGE_ENTRY_LIST_CAP
+    int "Recommended bb_storage_list_entries() caller-side array capacity"
+    default 32
+    help
+        NOT enforced inside bb_storage -- bb_storage_list_entries() is a
+        pure caller-allocated-array API and never itself consults this
+        value (see bb_storage.h). Documents the recommended
+        bb_storage_entry_t[] array size for callers enumerating a
+        backend's entries (e.g. bb_storage_nvs, the storage diag section)
+        so they share one house-wide cap instead of each picking an
+        arbitrary number.
+
 endmenu

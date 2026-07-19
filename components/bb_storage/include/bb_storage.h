@@ -62,6 +62,25 @@ extern "C" {
 // itself (see bb_storage_nvs.c's nvs_txn_set key-length guard).
 #define BB_STORAGE_TXN_KEY_MAX_BYTES 32
 
+// Recommended (NOT enforced) caller-side bb_storage_entry_t[] array
+// capacity for bb_storage_list_entries() — a pure caller-allocated-array
+// API that never itself consults this value (see its contract comment
+// below). Deliberately host-default-only, unlike the CONFIG_ bridges
+// above: on ESP_PLATFORM, downstream code (e.g. PR6's bb_storage_nvs,
+// PR9's diag storage section) reads CONFIG_BB_STORAGE_ENTRY_LIST_CAP
+// straight out of sdkconfig.h itself, so bridging it to a bare
+// BB_STORAGE_ENTRY_LIST_CAP macro here would risk exactly the
+// kconfig-bridge-shadow bug this project's lint guards against (a
+// same-named #ifndef fallback silently shadowing the real generated
+// Kconfig symbol). Host builds have no sdkconfig, so this header still
+// supplies the plain default there, purely so host code/tests can share
+// one named constant instead of a magic 32.
+#ifndef ESP_PLATFORM
+#ifndef BB_STORAGE_ENTRY_LIST_CAP
+#define BB_STORAGE_ENTRY_LIST_CAP 32
+#endif
+#endif
+
 // Address of a stored value, resolved against a registered backend by
 // addr->backend. See the field-meaning table in the file header comment.
 typedef struct {
@@ -83,6 +102,33 @@ typedef enum {
     BB_STORAGE_ENC_U32,
     BB_STORAGE_ENC_I32,
 } bb_storage_enc_t;
+
+// One enumerated entry, as returned by bb_storage_list_entries(). Field
+// meaning mirrors bb_storage_addr_t's backend-specific table in the file
+// header comment (ns_or_dir/key), plus the stored value's encoding + byte
+// length. Fixed-size char arrays (no heap): 16 bytes each covers the real
+// NVS namespace/key limit (15 chars + NUL, NVS_KEY_NAME_MAX_SIZE=16) that
+// bb_storage_addr_t's comment above already documents for the "nvs"
+// backend; other backends reuse the same shape for uniformity.
+typedef struct {
+    char             ns_or_dir[16];
+    char             key[16];
+    bb_storage_enc_t enc;
+    size_t           len;
+} bb_storage_entry_t;
+
+// Aggregate usage stats for one backend, as returned by
+// bb_storage_get_stats(). Field granularity is backend-specific — e.g. the
+// NVS backend (PR6) reports NVS-entry-based accounting (entries * 32-byte
+// slots), not exact raw partition byte accounting; see that backend's own
+// header for the caveat. namespace_count is the number of distinct
+// ns_or_dir values currently holding at least one entry.
+typedef struct {
+    size_t used_bytes;
+    size_t free_bytes;
+    size_t total_bytes;
+    size_t namespace_count;
+} bb_storage_stats_t;
 
 // Forward declaration so the dispatch fn-ptr fields below and the vtable's
 // txn_set/txn_commit/txn_abort members (declared further down, once this
@@ -187,6 +233,28 @@ typedef struct {
                          const void *buf, size_t len);
     bb_err_t (*txn_commit)(void *impl, bb_storage_txn_t *txn);  // ATOMIC + DURABLE
     bb_err_t (*txn_abort)(void *impl, bb_storage_txn_t *txn);
+
+    // Optional pair — both NULL or both set (validated at registration),
+    // same fail-closed contract as erase_namespace/erase_all: a backend
+    // that leaves this pair NULL makes bb_storage_list_entries()/
+    // bb_storage_get_stats() return BB_ERR_UNSUPPORTED, never a silent
+    // empty list or zeroed stats.
+    //
+    // list_entries: enumerate stored entries. `ns_or_dir == NULL` means
+    // "all namespaces/dirs" — the caller is asking for the whole backend's
+    // inventory, not one namespace's. This mirrors ESP-IDF's own
+    // nvs_entry_find(), which accepts a NULL namespace filter for exactly
+    // this reason; PR6's NVS backend implements list_entries directly on
+    // top of it. Always writes the TRUE total entry count to *count, even
+    // when it exceeds `cap` (mirrors bb_storage_get's "would-have-written"
+    // truncation contract) — a caller detects truncation via
+    // (*count > cap); count > cap is NOT itself an error.
+    bb_err_t (*list_entries)(void *impl, const char *ns_or_dir, bb_storage_entry_t *out,
+                              size_t cap, size_t *count);
+
+    // get_stats: aggregate usage stats for the whole backend (not scoped to
+    // one namespace).
+    bb_err_t (*get_stats)(void *impl, bb_storage_stats_t *out);
 } bb_storage_vtable_t;
 
 // Clear the backend registry (test/re-init use only).
@@ -195,12 +263,14 @@ void bb_storage_test_reset(void);
 // Register a backend under `name`. `name` must have static/registry-lifetime
 // storage duration — the registry stores the raw pointer, not a copy (safe
 // for the intended string-literal-at-init usage). `vt` is copied by value.
-// get_typed/set_typed are validated as a pair — one NULL and the other set
-// is rejected the same as a missing mandatory member.
+// get_typed/set_typed and list_entries/get_stats are each validated as a
+// pair — one NULL and the other set is rejected the same as a missing
+// mandatory member.
 // Returns:
 //   BB_OK                 on success
 //   BB_ERR_INVALID_ARG    name, vt, any mandatory vt member is NULL, or
-//                         get_typed/set_typed are not both NULL or both set
+//                         get_typed/set_typed (or list_entries/get_stats)
+//                         are not both NULL or both set
 //   BB_ERR_NO_SPACE        registry is full (BB_STORAGE_MAX_BACKENDS)
 //   BB_ERR_INVALID_STATE   name already registered (first registration
 //                          wins; the duplicate is logged and dropped)
@@ -350,6 +420,44 @@ bb_err_t bb_storage_txn_commit(bb_storage_txn_t *txn);
 // call on a poisoned, already-closed, or never-begun txn.
 // Returns BB_ERR_INVALID_ARG for a NULL txn, BB_OK otherwise.
 bb_err_t bb_storage_txn_abort(bb_storage_txn_t *txn);
+
+/* ---------------------------------------------------------------------------
+ * Enumeration + stats — portable, host-fakeable NVS-style inventory.
+ *
+ * Both fns are OPTIONAL per backend (vtable list_entries/get_stats are an
+ * optional pair, both-set-or-both-NULL, validated at registration same as
+ * get_typed/set_typed above) — a backend that leaves the pair NULL (e.g.
+ * bb_storage_ram, bb_storage_rtc) makes both calls return
+ * BB_ERR_UNSUPPORTED, never a silent empty list or zeroed stats.
+ * --------------------------------------------------------------------------- */
+
+// List stored entries under `ns_or_dir` on `backend` into caller-allocated
+// `out` (capacity `cap`, no heap). `ns_or_dir == NULL` means "all
+// namespaces/dirs" — see the list_entries vtable member's contract comment
+// above. *count is always set to the TRUE total number of matching entries,
+// even when it exceeds `cap` (mirrors bb_storage_get's "would-have-written"
+// truncation contract) — (*count > cap) is how a caller detects truncation;
+// it is NOT itself an error.
+// Returns:
+//   BB_OK                 listed (see truncation note above)
+//   BB_ERR_INVALID_ARG    backend is NULL, count is NULL, or out is NULL
+//                         while cap > 0
+//   BB_ERR_NOT_FOUND      no backend registered under `backend`
+//   BB_ERR_UNSUPPORTED    the backend does not implement list_entries
+//                         (vtable list_entries is NULL)
+bb_err_t bb_storage_list_entries(const char *backend, const char *ns_or_dir,
+                                  bb_storage_entry_t *out, size_t cap, size_t *count);
+
+// Read aggregate usage stats for `backend` into *out. Not scoped to one
+// namespace — see bb_storage_stats_t's field comments for backend-specific
+// accounting granularity caveats.
+// Returns:
+//   BB_OK                 stats read
+//   BB_ERR_INVALID_ARG    backend or out is NULL
+//   BB_ERR_NOT_FOUND      no backend registered under `backend`
+//   BB_ERR_UNSUPPORTED    the backend does not implement get_stats
+//                         (vtable get_stats is NULL)
+bb_err_t bb_storage_get_stats(const char *backend, bb_storage_stats_t *out);
 
 /* ---------------------------------------------------------------------------
  * Backend-internal helper — NOT part of the application-facing API above.
