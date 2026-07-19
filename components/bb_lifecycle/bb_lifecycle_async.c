@@ -1,8 +1,7 @@
-// bb_lifecycle — optional async observer dispatch (B1-1034). Fully gated by
-// BB_LIFECYCLE_ASYNC (Kconfig-bridged, C default 0) so bb_bqueue/bb_task
-// symbol refs drop out cleanly when off -- the always-built sync core
-// (bb_lifecycle.c) has no platform/queue/task dependency of its own and
-// calls the stubs at the bottom of this file unconditionally.
+// bb_lifecycle — async observer dispatch (B1-1034). Always compiled --
+// the always-built sync core (bb_lifecycle.c) has no platform/queue/task
+// dependency of its own and calls into this file's notify/invoke seam
+// unconditionally.
 //
 // One shared queue + one shared drain task, lazily created on the FIRST
 // bb_lifecycle_observe_async() call. The drain task never mutates lifecycle
@@ -22,27 +21,6 @@
 #include "bb_lifecycle.h"
 #include "bb_lifecycle_priv.h"
 
-// ---------------------------------------------------------------------------
-// Kconfig -> C-default bridges (see bb_lifecycle.c's identical rationale).
-// BB_LIFECYCLE_ASYNC mirrors bb_cache_reactive.h's BB_CACHE_REACTIVE_ENABLE
-// bridge pattern -- host builds set it directly via build flag (bypassing
-// the ESP_PLATFORM sdkconfig include below).
-// ---------------------------------------------------------------------------
-#ifdef ESP_PLATFORM
-#include "sdkconfig.h"
-#ifdef CONFIG_BB_LIFECYCLE_ASYNC
-#define BB_LIFECYCLE_ASYNC CONFIG_BB_LIFECYCLE_ASYNC
-#endif
-#endif
-#ifndef BB_LIFECYCLE_ASYNC
-#define BB_LIFECYCLE_ASYNC 0
-#endif
-
-#if BB_LIFECYCLE_ASYNC
-
-// bb_bqueue/bb_task/bb_once/bb_lock/bb_log/bb_clock refs live ENTIRELY inside
-// this #if -- the CONFIG_BB_LIFECYCLE_ASYNC=n build below never includes or
-// references any of them.
 #include "bb_bqueue.h"
 #include "bb_task.h"
 #include "bb_once.h"
@@ -321,40 +299,6 @@ void bb_lifecycle_async_reset_for_test(void)
     atomic_store(&s_drop_log_last_ms, BB_LIFECYCLE_ASYNC_DROP_LOG_UNSET);
 }
 #endif
-
-#else /* !BB_LIFECYCLE_ASYNC */
-
-bb_err_t bb_lifecycle_observe_async(bb_lifecycle_observer_fn cb, void *user)
-{
-    (void)cb;
-    (void)user;
-    return BB_ERR_UNSUPPORTED;
-}
-
-void bb_lifecycle_priv_async_notify(const bb_lifecycle_event_t *evt)
-{
-    (void)evt; // unreachable: no async slot can exist in this build
-}
-
-#ifdef BB_LIFECYCLE_TESTING
-bb_err_t bb_lifecycle_async_test_drain_once(uint32_t timeout_ms)
-{
-    (void)timeout_ms;
-    return BB_ERR_UNSUPPORTED;
-}
-
-size_t bb_lifecycle_async_test_dropped(void)
-{
-    return 0;
-}
-
-void bb_lifecycle_async_reset_for_test(void)
-{
-    // no-op: no once-guard/queue/rate-limit state exists in this build
-}
-#endif
-
-#endif /* BB_LIFECYCLE_ASYNC */
 
 #ifdef BB_LIFECYCLE_TESTING
 void bb_lifecycle_async_drain_dispatch_for_test(const bb_lifecycle_event_t *evt)

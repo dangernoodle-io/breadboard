@@ -40,21 +40,10 @@ config BB_LIFECYCLE_REASON_MAX
         Pause reason strings longer than this are truncated on intern; two
         reasons sharing the same truncated prefix map to the same bit.
 
-config BB_LIFECYCLE_ASYNC
-    bool "Enable async observer dispatch (bb_lifecycle_observe_async)"
-    default n
-    help
-        Opt-in (B1-1034): a shared queue + drain task, lazily created on the
-        first bb_lifecycle_observe_async() call, decouples an async
-        observer's callback from the emitter task. When disabled (the
-        default), bb_lifecycle_observe_async() always returns
-        BB_ERR_UNSUPPORTED and no queue/task is compiled in.
-
 config BB_LIFECYCLE_ASYNC_QUEUE_DEPTH
     int "Async observer queue depth"
     default 8
     range 1 64
-    depends on BB_LIFECYCLE_ASYNC
     help
         Bounded-MPSC capacity of the shared async dispatch queue. A full
         queue drops the event (bb_bqueue_dropped() counter; rate-limited
@@ -64,18 +53,15 @@ config BB_LIFECYCLE_ASYNC_TASK_STACK
     int "Async observer drain task stack (bytes)"
     default 3072
     range 2048 8192
-    depends on BB_LIFECYCLE_ASYNC
 
 config BB_LIFECYCLE_ASYNC_TASK_PRIORITY
     int "Async observer drain task priority"
     default 3
     range 1 20
-    depends on BB_LIFECYCLE_ASYNC
 
 config BB_LIFECYCLE_ASYNC_TASK_CORE
     int "Async observer drain task core affinity (-1 = no affinity)"
     default -1
     range -1 1
-    depends on BB_LIFECYCLE_ASYNC
 
 endmenu

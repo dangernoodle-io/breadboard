@@ -117,9 +117,6 @@ smoke-esp32-boot-status: smoke-gen-esp32 ## Build smoke with BB_OTA_BOOT_STATUS_
 smoke-esp32-autofan: smoke-gen-esp32 ## Build smoke with BB_FAN_AUTOFAN=y (autofan compile gate)
 	$(PIO) run -d examples/smoke -e esp32-autofan
 
-smoke-esp32-lifecycle-async: smoke-gen-esp32 ## Build smoke with CONFIG_BB_LIFECYCLE_ASYNC=y (bb_lifecycle async observer dispatch compile gate)
-	$(PIO) run -d examples/smoke -e esp32-lifecycle-async
-
 smoke-esp32c3: smoke-gen-esp32c3 ## Build smoke example for ESP32-C3-DevKitM-1
 	$(PIO) run -d examples/smoke -e esp32c3
 

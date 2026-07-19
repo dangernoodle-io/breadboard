@@ -1,6 +1,5 @@
-// Tests for bb_lifecycle's optional async observer dispatch (B1-1034).
-// Host build MUST compile with BB_LIFECYCLE_ASYNC=1 (see platformio.ini) or
-// every path below is compiled out and uncovered.
+// Tests for bb_lifecycle's async observer dispatch (B1-1034), always
+// compiled.
 //
 // Concurrency-test hygiene (see test_bb_bqueue.c / test_bb_tcp_client.c for
 // the same precedent): NEVER TEST_ASSERT while a worker pthread is still
@@ -529,14 +528,3 @@ void test_bb_lifecycle_async_observe_during_drain_no_torn_read(void)
     TEST_ASSERT_EQUAL(RACE_WRITER_OBSERVERS, after - before);
 }
 
-// ---------------------------------------------------------------------------
-// (g) BB_ERR_UNSUPPORTED when CONFIG_BB_LIFECYCLE_ASYNC=n: this host test
-// binary is itself built with BB_LIFECYCLE_ASYNC=1 (platformio.ini), so the
-// gate-off runtime path cannot be exercised in THIS binary -- the #else
-// branch in bb_lifecycle_async.c (bb_lifecycle_observe_async() always
-// returning BB_ERR_UNSUPPORTED, and every other symbol in that branch
-// referencing zero bb_bqueue/bb_task types) is exercised by the DEFAULT
-// build (CONFIG_BB_LIFECYCLE_ASYNC=n, the shipped default) via `make smoke`
-// (env:esp32, no override) -- a compile gate, not a runtime assertion, for
-// the disabled path. See bb_lifecycle_async.c's #else block.
-// ---------------------------------------------------------------------------
