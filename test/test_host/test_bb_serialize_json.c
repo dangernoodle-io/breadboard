@@ -640,6 +640,30 @@ void test_bb_serialize_json_bound_unbounded_arr_is_size_max(void)
     TEST_ASSERT_EQUAL_UINT(SIZE_MAX, bb_serialize_json_bound(&s_unbounded_arr_desc));
 }
 
+// BB_ARR_STREAM's row count isn't known statically (B1-1077 PR-2) --
+// unbounded, same convention as max_items == 0 above (which every STREAM
+// field also naturally has, since it declares no destination capacity).
+typedef struct {
+    bb_serialize_arr_stream_t a;
+} stream_arr_snap_t;
+
+static const bb_serialize_field_t s_stream_arr_fields[] = {
+    { .key = "a", .type = BB_TYPE_ARR, .offset = offsetof(stream_arr_snap_t, a),
+      .cardinality = BB_ARR_STREAM, .elem_type = BB_TYPE_OBJ, .elem_size = 8 },
+};
+
+static const bb_serialize_desc_t s_stream_arr_desc = {
+    .type_name = "stream_arr_snap_t",
+    .fields = s_stream_arr_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(stream_arr_snap_t),
+};
+
+void test_bb_serialize_json_bound_stream_cardinality_is_size_max(void)
+{
+    TEST_ASSERT_EQUAL_UINT(SIZE_MAX, bb_serialize_json_bound(&s_stream_arr_desc));
+}
+
 // Array-of-OBJ whose element schema itself contains an unbounded field --
 // propagates SIZE_MAX up through elem_bound()'s OBJ recursion branch.
 typedef struct {

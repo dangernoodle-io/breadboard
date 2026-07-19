@@ -77,37 +77,59 @@ static void walk_fields(const bb_serialize_field_t *fields, uint16_t n_fields,
             break;
         }
         case BB_TYPE_ARR: {
-            bb_serialize_arr_t arr;
-            memcpy(&arr, p, sizeof(arr));
             emit->begin_arr(emit->ctx, f->key);
-            if (arr.items) {
-                // NULL items with count > 0 is caller UB -- degrade to an
-                // empty array (begin_arr/end_arr only) rather than deref.
-                if (f->elem_type == BB_TYPE_OBJ) {
-                    if (depth < BB_SERIALIZE_MAX_DEPTH) {
-                        const uint8_t *base = (const uint8_t *)arr.items;
-                        for (size_t j = 0; j < arr.count; j++) {
-                            const uint8_t *elem = base + j * f->elem_size;
-                            emit->begin_obj(emit->ctx, NULL);
-                            walk_fields(f->children, f->n_children, elem, emit, depth + 1,
-                                        resolve, resolve_ctx);
-                            emit->end_obj(emit->ctx);
-                        }
+            if (f->cardinality == BB_ARR_STREAM) {
+                // Pull iterator, not a pre-materialized contiguous array --
+                // see bb_serialize.h's bb_serialize_arr_stream_t doc.
+                // reg-time validation (bb_diag_register_section()) already
+                // enforces elem_type == BB_TYPE_OBJ for a STREAM field; the
+                // walker trusts the descriptor here, same as every other
+                // shape below.
+                bb_serialize_arr_stream_t carrier;
+                memcpy(&carrier, p, sizeof(carrier));
+                if (carrier.next && depth < BB_SERIALIZE_MAX_DEPTH) {
+                    uint8_t row_buf[BB_SERIALIZE_MAX_ROW_BYTES];  // one buffer per STREAM field, reused per row
+                    while (carrier.next(carrier.iter_ctx, row_buf)) {
+                        emit->begin_obj(emit->ctx, NULL);
+                        walk_fields(f->children, f->n_children, row_buf, emit, depth + 1,
+                                    resolve, resolve_ctx);
+                        emit->end_obj(emit->ctx);
                     }
-                } else {
-                    // elem_type == BB_TYPE_STR: items is const char *const *.
-                    // Bounded the same way as the embedded-STR path: NEVER
-                    // strlen -- an element that isn't NUL-terminated within
-                    // f->max_len yields exactly max_len bytes, not an OOB
-                    // read past the caller's buffer.
-                    const char *const *items = (const char *const *)arr.items;
-                    for (size_t j = 0; j < arr.count; j++) {
-                        const char *s = items[j];
-                        if (s) {
-                            size_t n = strnlen(s, f->max_len);
-                            emit->emit_str(emit->ctx, NULL, s, n);
-                        } else {
-                            emit->emit_null(emit->ctx, NULL);
+                }
+            } else {
+                // BB_ARR_FIXED (the zero-init default) -- byte-identical to
+                // the walker's original behavior, untouched.
+                bb_serialize_arr_t arr;
+                memcpy(&arr, p, sizeof(arr));
+                if (arr.items) {
+                    // NULL items with count > 0 is caller UB -- degrade to an
+                    // empty array (begin_arr/end_arr only) rather than deref.
+                    if (f->elem_type == BB_TYPE_OBJ) {
+                        if (depth < BB_SERIALIZE_MAX_DEPTH) {
+                            const uint8_t *base = (const uint8_t *)arr.items;
+                            for (size_t j = 0; j < arr.count; j++) {
+                                const uint8_t *elem = base + j * f->elem_size;
+                                emit->begin_obj(emit->ctx, NULL);
+                                walk_fields(f->children, f->n_children, elem, emit, depth + 1,
+                                            resolve, resolve_ctx);
+                                emit->end_obj(emit->ctx);
+                            }
+                        }
+                    } else {
+                        // elem_type == BB_TYPE_STR: items is const char *const *.
+                        // Bounded the same way as the embedded-STR path: NEVER
+                        // strlen -- an element that isn't NUL-terminated within
+                        // f->max_len yields exactly max_len bytes, not an OOB
+                        // read past the caller's buffer.
+                        const char *const *items = (const char *const *)arr.items;
+                        for (size_t j = 0; j < arr.count; j++) {
+                            const char *s = items[j];
+                            if (s) {
+                                size_t n = strnlen(s, f->max_len);
+                                emit->emit_str(emit->ctx, NULL, s, n);
+                            } else {
+                                emit->emit_null(emit->ctx, NULL);
+                            }
                         }
                     }
                 }

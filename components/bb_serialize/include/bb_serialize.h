@@ -89,6 +89,79 @@ typedef struct {
 // walker in that case.
 typedef bb_serialize_arr_t bb_serialize_arr_str_t;
 
+// ---------------------------------------------------------------------------
+// Streamed-array carrier -- the BB_ARR_STREAM alternative to
+// bb_serialize_arr_t. A BB_TYPE_ARR field whose descriptor sets
+// `.cardinality = BB_ARR_STREAM` carries this struct at its offset instead:
+// a pull iterator over rows, rather than a pre-materialized contiguous
+// array. Lets a producer with an unbounded/unknown-at-registration-time row
+// count (e.g. live NVS inventory) stream elements one at a time -- no fixed
+// caller-side capacity, no silent truncation. `cardinality` defaults to 0
+// (BB_ARR_FIXED) for every existing descriptor that never sets it, so the
+// walker's original arr.items/arr.count path stays byte-identical unless a
+// descriptor explicitly opts in.
+// ---------------------------------------------------------------------------
+
+typedef enum {
+    BB_ARR_FIXED  = 0,  // default -- bb_serialize_arr_t carrier (existing behavior)
+    BB_ARR_STREAM = 1,  // bb_serialize_arr_stream_t carrier -- pull iterator
+} bb_serialize_arr_cardinality_t;
+
+// One row -> `row_out` (a caller-owned buffer of at least `row_size` bytes,
+// reused per row -- the walker never keeps more than one row's bytes alive
+// at a time). Returns true if a row was written, false once the source is
+// exhausted (no further calls follow a false return for the same walk).
+//
+// MUST return false in bounded time (i.e. terminate after a finite number
+// of calls for any one walk) -- the walker's `while (carrier.next(...))`
+// loop (bb_serialize_walk.c) has NO row-count cap of its own. This is a
+// deliberate no-caps-fights-the-design-principle choice, not an oversight:
+// the only shipped wiring is bb_serialize_arr_stream_from_buf()'s iterator,
+// which is inherently bounded by its backing buffer's `count`, `row_out`'s
+// stack footprint is O(1) per row, and a JSON emit backend streams (no
+// unbounded heap growth) -- so a non-terminating `next` is an ITERATOR
+// LIVENESS bug in the callback, never a walker memory-safety issue. A
+// future non-arena-backed iterator producer (one without an inherent
+// backing-store bound) should supply its own termination bound internally.
+typedef bool (*bb_serialize_iter_next_fn)(void *iter_ctx, void *row_out);
+
+// Streamed-array runtime carrier, located at a BB_TYPE_ARR field's offset
+// when `.cardinality == BB_ARR_STREAM`. `row_size` is defensive assert-only
+// (expected to equal the field's own `elem_size`) -- not consulted by the
+// walker itself.
+typedef struct {
+    bb_serialize_iter_next_fn next;
+    void                     *iter_ctx;
+    size_t                    row_size;
+} bb_serialize_arr_stream_t;
+
+// Walker-safety constant: the largest single row a BB_ARR_STREAM field may
+// produce, sized generously above any real diag-section row shape. Fixed
+// #define (like BB_SERIALIZE_MAX_DEPTH below), not a Kconfig knob -- it
+// bounds a stack buffer the walker itself allocates per STREAM field.
+#define BB_SERIALIZE_MAX_ROW_BYTES 256
+
+// Generic, pure, no-heap BB_ARR_STREAM iterator over a caller-owned flat
+// buffer -- reusable by every iter section rather than each hand-rolling
+// its own next() over a contiguous array. `state` is caller-owned storage
+// that MUST outlive the walk (typically a member of the snapshot struct
+// itself, since the snapshot lives across the walk/render call).
+typedef struct {
+    const uint8_t *base;
+    size_t         count;
+    size_t         elem_size;
+    size_t         idx;
+} bb_serialize_arr_buf_iter_t;
+
+// Wires `state` to iterate `buf` (an array of `count` elements, each
+// `elem_size` bytes) and returns the resulting carrier. Pure, no heap --
+// `next()` returns false once `idx >= count` (never dereferences `buf` in
+// that case, so `buf == NULL, count == 0` is safe and yields an
+// immediately-exhausted iterator).
+bb_serialize_arr_stream_t bb_serialize_arr_stream_from_buf(bb_serialize_arr_buf_iter_t *state,
+                                                             const void *buf, size_t count,
+                                                             size_t elem_size);
+
 // Optional per-field presence predicate. NULL means always-present. Lets a
 // field be omitted conditionally (e.g. a zero/unset timestamp) without a
 // distinct field type.
@@ -163,6 +236,17 @@ typedef struct bb_serialize_field_s {
     // BB_TYPE_ARR + elem_type == BB_TYPE_OBJ only: the element stride, i.e.
     // sizeof(the element struct). Unused for all other types.
     uint16_t                           elem_size;
+
+    // BB_TYPE_ARR only: which runtime carrier lives at `offset` --
+    // bb_serialize_arr_t (BB_ARR_FIXED, the zero-init default) or
+    // bb_serialize_arr_stream_t (BB_ARR_STREAM). Every existing descriptor
+    // leaves this unset (0 == BB_ARR_FIXED), so the walker's original
+    // FIXED-array path is unaffected unless a descriptor explicitly opts
+    // into BB_ARR_STREAM. Unused for all other types. BB_ARR_STREAM is
+    // rejected by bb_serialize_populate() (BB_ERR_UNSUPPORTED, same
+    // precedent as STR_N/REF) and bb_serialize_json_bound() (SIZE_MAX,
+    // unbounded) -- neither has a scatter/sizing story for a pull iterator.
+    bb_serialize_arr_cardinality_t     cardinality;
 
     // BB_TYPE_REF only: the REGISTRY lookup key passed to a
     // bb_serialize_ref_resolve_fn to find the referenced sibling's

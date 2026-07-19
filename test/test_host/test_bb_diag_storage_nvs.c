@@ -1,9 +1,14 @@
-// Tests for bb_diag_storage_nvs -- exercises bb_diag_storage_nvs_fill()
+// Tests for bb_diag_storage_nvs -- exercises bb_diag_storage_nvs_iter()
 // (the exact production code path, no mirror) against a fake "nvs"
 // bb_storage backend (mirrors test_bb_storage.c's fake-backend idiom) and
 // the REAL bb_settings_nv_overlay_entries() (host-portable schema source).
+// BB_ARR_STREAM conversion (no fixed row-count cap): B1-1077 PR-2 -- every
+// test drives the section's real two-phase (COUNT then FILL) contract, the
+// same sequence the ESP-IDF dispatcher (platform/espidf/bb_diag/
+// bb_diag_section_dispatch.c) drives around one request.
 #include "unity.h"
 #include "bb_diag_storage_nvs.h"
+#include "bb_mem_test.h"
 #include "bb_storage.h"
 
 #include <stdio.h>
@@ -16,6 +21,8 @@
  * ---------------------------------------------------------------------------*/
 static const bb_storage_entry_t *s_fixture;
 static size_t                    s_fixture_count;
+static size_t                    s_list_entries_call_count;
+static size_t                    s_list_entries_fail_on_call;  // 0 = never fail
 
 static bb_err_t stub_get(void *impl, const bb_storage_addr_t *addr, void *buf, size_t cap, size_t *out_len)
 {
@@ -43,9 +50,15 @@ static bb_err_t fake_nvs_list_entries(void *impl, const char *ns_or_dir, bb_stor
                                        size_t cap, size_t *count)
 {
     (void)impl; (void)ns_or_dir;
+    s_list_entries_call_count++;
+    if (s_list_entries_fail_on_call != 0 && s_list_entries_call_count == s_list_entries_fail_on_call) {
+        return BB_ERR_INVALID_STATE;
+    }
     *count = s_fixture_count;
     size_t n = s_fixture_count < cap ? s_fixture_count : cap;
-    for (size_t i = 0; i < n; i++) out[i] = s_fixture[i];
+    for (size_t i = 0; i < n; i++) {
+        if (out) out[i] = s_fixture[i];
+    }
     return BB_OK;
 }
 
@@ -70,6 +83,8 @@ static void reset_all(void)
     bb_storage_test_reset();
     s_fixture = NULL;
     s_fixture_count = 0;
+    s_list_entries_call_count = 0;
+    s_list_entries_fail_on_call = 0;
 }
 
 static void register_fake_nvs(void)
@@ -113,6 +128,30 @@ static void set_fixture(const bb_storage_entry_t *entries, size_t count)
 }
 
 /* ---------------------------------------------------------------------------
+ * Two-phase test helper -- drives the SAME COUNT-then-FILL sequence the
+ * ESP-IDF dispatcher drives, against a caller-owned row buffer standing in
+ * for the dispatcher's arena. Returns the phase-2 result; `*out_rows` and
+ * `*out_row_count` give the caller the composed rows to assert against.
+ * ---------------------------------------------------------------------------*/
+#define TEST_ROW_CAP 64
+static bb_diag_storage_nvs_row_t s_test_rows[TEST_ROW_CAP];
+
+static bb_err_t run_iter(bb_diag_storage_nvs_snap_t *snap, size_t *out_row_count)
+{
+    size_t count = 0;
+    bb_err_t rc = bb_diag_storage_nvs_iter(snap, NULL, 0, &count, NULL);
+    if (rc != BB_OK) {
+        *out_row_count = 0;
+        return rc;
+    }
+    TEST_ASSERT_TRUE(count <= TEST_ROW_CAP);
+
+    rc = bb_diag_storage_nvs_iter(snap, s_test_rows, count, &count, NULL);
+    *out_row_count = count;
+    return rc;
+}
+
+/* ---------------------------------------------------------------------------
  * Fixtures
  * ---------------------------------------------------------------------------*/
 static const bb_storage_entry_t s_entries_basic[] = {
@@ -128,16 +167,17 @@ static const bb_storage_entry_t s_entries_basic[] = {
 /* ---------------------------------------------------------------------------
  * Match/no-match against the bb_settings schema overlay
  * ---------------------------------------------------------------------------*/
-void test_bb_diag_storage_nvs_fill_matches_schema_for_known_key(void)
+void test_bb_diag_storage_nvs_iter_matches_schema_for_known_key(void)
 {
     reset_all();
     register_fake_nvs();
     set_fixture(s_entries_basic, S_ENTRIES_BASIC_N);
 
     bb_diag_storage_nvs_snap_t snap;
-    TEST_ASSERT_EQUAL(BB_OK, bb_diag_storage_nvs_fill(&snap, NULL));
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, run_iter(&snap, &row_count));
 
-    const bb_diag_storage_nvs_row_t *row = &snap.entries_items[0];
+    const bb_diag_storage_nvs_row_t *row = &s_test_rows[0];
     TEST_ASSERT_EQUAL_STRING("bb_cfg", row->ns_or_dir);
     TEST_ASSERT_EQUAL_STRING("wifi_ssid", row->key);
     TEST_ASSERT_TRUE(row->has_schema);
@@ -151,16 +191,17 @@ void test_bb_diag_storage_nvs_fill_matches_schema_for_known_key(void)
 
 // Proves the merge is per-KEY, not per-namespace: "hostname" shares
 // "bb_cfg" with "wifi_ssid" but is not itself an overlay key.
-void test_bb_diag_storage_nvs_fill_no_match_same_namespace(void)
+void test_bb_diag_storage_nvs_iter_no_match_same_namespace(void)
 {
     reset_all();
     register_fake_nvs();
     set_fixture(s_entries_basic, S_ENTRIES_BASIC_N);
 
     bb_diag_storage_nvs_snap_t snap;
-    TEST_ASSERT_EQUAL(BB_OK, bb_diag_storage_nvs_fill(&snap, NULL));
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, run_iter(&snap, &row_count));
 
-    const bb_diag_storage_nvs_row_t *row = &snap.entries_items[1];
+    const bb_diag_storage_nvs_row_t *row = &s_test_rows[1];
     TEST_ASSERT_EQUAL_STRING("bb_cfg", row->ns_or_dir);
     TEST_ASSERT_EQUAL_STRING("hostname", row->key);
     TEST_ASSERT_FALSE(row->has_schema);
@@ -175,53 +216,57 @@ void test_bb_diag_storage_nvs_fill_no_match_same_namespace(void)
 /* ---------------------------------------------------------------------------
  * ESP-system-namespace denylist -- exact match, not prefix
  * ---------------------------------------------------------------------------*/
-void test_bb_diag_storage_nvs_fill_flags_net80211_system(void)
+void test_bb_diag_storage_nvs_iter_flags_net80211_system(void)
 {
     reset_all();
     register_fake_nvs();
     set_fixture(s_entries_basic, S_ENTRIES_BASIC_N);
 
     bb_diag_storage_nvs_snap_t snap;
-    TEST_ASSERT_EQUAL(BB_OK, bb_diag_storage_nvs_fill(&snap, NULL));
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, run_iter(&snap, &row_count));
 
-    TEST_ASSERT_TRUE(snap.entries_items[2].system);
+    TEST_ASSERT_TRUE(s_test_rows[2].system);
 }
 
-void test_bb_diag_storage_nvs_fill_flags_phy_system(void)
+void test_bb_diag_storage_nvs_iter_flags_phy_system(void)
 {
     reset_all();
     register_fake_nvs();
     set_fixture(s_entries_basic, S_ENTRIES_BASIC_N);
 
     bb_diag_storage_nvs_snap_t snap;
-    TEST_ASSERT_EQUAL(BB_OK, bb_diag_storage_nvs_fill(&snap, NULL));
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, run_iter(&snap, &row_count));
 
-    TEST_ASSERT_TRUE(snap.entries_items[3].system);
+    TEST_ASSERT_TRUE(s_test_rows[3].system);
 }
 
 // "phy_extra" must NOT match "phy" -- exact string-equal, never a prefix.
-void test_bb_diag_storage_nvs_fill_phy_extra_not_system(void)
+void test_bb_diag_storage_nvs_iter_phy_extra_not_system(void)
 {
     reset_all();
     register_fake_nvs();
     set_fixture(s_entries_basic, S_ENTRIES_BASIC_N);
 
     bb_diag_storage_nvs_snap_t snap;
-    TEST_ASSERT_EQUAL(BB_OK, bb_diag_storage_nvs_fill(&snap, NULL));
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, run_iter(&snap, &row_count));
 
-    TEST_ASSERT_FALSE(snap.entries_items[4].system);
+    TEST_ASSERT_FALSE(s_test_rows[4].system);
 }
 
-void test_bb_diag_storage_nvs_fill_plain_entry_not_system_not_schema(void)
+void test_bb_diag_storage_nvs_iter_plain_entry_not_system_not_schema(void)
 {
     reset_all();
     register_fake_nvs();
     set_fixture(s_entries_basic, S_ENTRIES_BASIC_N);
 
     bb_diag_storage_nvs_snap_t snap;
-    TEST_ASSERT_EQUAL(BB_OK, bb_diag_storage_nvs_fill(&snap, NULL));
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, run_iter(&snap, &row_count));
 
-    const bb_diag_storage_nvs_row_t *row = &snap.entries_items[5];
+    const bb_diag_storage_nvs_row_t *row = &s_test_rows[5];
     TEST_ASSERT_FALSE(row->system);
     TEST_ASSERT_FALSE(row->has_schema);
     TEST_ASSERT_EQUAL_STRING_LEN("str", row->type_str.ptr, row->type_str.len);
@@ -230,86 +275,95 @@ void test_bb_diag_storage_nvs_fill_plain_entry_not_system_not_schema(void)
 /* ---------------------------------------------------------------------------
  * Stats + row/entry counts
  * ---------------------------------------------------------------------------*/
-void test_bb_diag_storage_nvs_fill_stats_populated(void)
+void test_bb_diag_storage_nvs_iter_stats_populated(void)
 {
     reset_all();
     register_fake_nvs();
     set_fixture(s_entries_basic, S_ENTRIES_BASIC_N);
 
     bb_diag_storage_nvs_snap_t snap;
-    TEST_ASSERT_EQUAL(BB_OK, bb_diag_storage_nvs_fill(&snap, NULL));
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, run_iter(&snap, &row_count));
 
     TEST_ASSERT_EQUAL_UINT64(100, snap.used_bytes);
     TEST_ASSERT_EQUAL_UINT64(900, snap.free_bytes);
     TEST_ASSERT_EQUAL_UINT64(1000, snap.total_bytes);
     TEST_ASSERT_EQUAL_UINT64(4, snap.namespace_count);
     TEST_ASSERT_EQUAL_UINT64(S_ENTRIES_BASIC_N, snap.entry_count);
-    TEST_ASSERT_EQUAL_UINT(S_ENTRIES_BASIC_N, snap.entries.count);
-    TEST_ASSERT_EQUAL_PTR(snap.entries_items, snap.entries.items);
+    TEST_ASSERT_EQUAL_UINT(S_ENTRIES_BASIC_N, row_count);
 }
 
 /* ---------------------------------------------------------------------------
- * Truncation -- entry_count reports the TRUE total even when it exceeds
- * BB_DIAG_STORAGE_NVS_ENTRY_CAP; entries.count is capped.
+ * No-truncation -- BB_ARR_STREAM carries no fixed row-count cap; a fixture
+ * well past the OLD fixed-cap default (16) round-trips every row.
  * ---------------------------------------------------------------------------*/
-static bb_storage_entry_t s_entries_overflow[BB_DIAG_STORAGE_NVS_ENTRY_CAP + 4];
+static bb_storage_entry_t s_entries_large[40];
 
-static void build_overflow_fixture(void)
+static void build_large_fixture(void)
 {
-    for (size_t i = 0; i < BB_DIAG_STORAGE_NVS_ENTRY_CAP + 4; i++) {
-        s_entries_overflow[i].ns_or_dir[0] = '\0';
-        strncpy(s_entries_overflow[i].ns_or_dir, "bb_mqtt", sizeof(s_entries_overflow[i].ns_or_dir) - 1);
-        s_entries_overflow[i].ns_or_dir[sizeof(s_entries_overflow[i].ns_or_dir) - 1] = '\0';
-        snprintf(s_entries_overflow[i].key, sizeof(s_entries_overflow[i].key), "k%02u", (unsigned)i);
-        s_entries_overflow[i].enc = BB_STORAGE_ENC_BLOB;
-        s_entries_overflow[i].len = 1;
+    for (size_t i = 0; i < 40; i++) {
+        s_entries_large[i].ns_or_dir[0] = '\0';
+        strncpy(s_entries_large[i].ns_or_dir, "bb_mqtt", sizeof(s_entries_large[i].ns_or_dir) - 1);
+        s_entries_large[i].ns_or_dir[sizeof(s_entries_large[i].ns_or_dir) - 1] = '\0';
+        snprintf(s_entries_large[i].key, sizeof(s_entries_large[i].key), "k%02u", (unsigned)i);
+        s_entries_large[i].enc = BB_STORAGE_ENC_BLOB;
+        s_entries_large[i].len = i;
     }
 }
 
-void test_bb_diag_storage_nvs_fill_truncates_when_over_cap(void)
+void test_bb_diag_storage_nvs_iter_no_truncation_at_40_rows(void)
 {
     reset_all();
     register_fake_nvs();
-    build_overflow_fixture();
-    set_fixture(s_entries_overflow, BB_DIAG_STORAGE_NVS_ENTRY_CAP + 4);
+    build_large_fixture();
+    set_fixture(s_entries_large, 40);
 
     bb_diag_storage_nvs_snap_t snap;
-    TEST_ASSERT_EQUAL(BB_OK, bb_diag_storage_nvs_fill(&snap, NULL));
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, run_iter(&snap, &row_count));
 
-    TEST_ASSERT_EQUAL_UINT64(BB_DIAG_STORAGE_NVS_ENTRY_CAP + 4, snap.entry_count);
-    TEST_ASSERT_EQUAL_UINT(BB_DIAG_STORAGE_NVS_ENTRY_CAP, snap.entries.count);
+    TEST_ASSERT_EQUAL_UINT64(40, snap.entry_count);
+    TEST_ASSERT_EQUAL_UINT(40, row_count);
+    for (size_t i = 0; i < 40; i++) {
+        char expected_key[16];
+        snprintf(expected_key, sizeof(expected_key), "k%02u", (unsigned)i);
+        TEST_ASSERT_EQUAL_STRING(expected_key, s_test_rows[i].key);
+        TEST_ASSERT_EQUAL_UINT64(i, s_test_rows[i].len);
+    }
 }
 
-void test_bb_diag_storage_nvs_fill_empty_backend_is_stats_only(void)
+void test_bb_diag_storage_nvs_iter_empty_backend_is_stats_only(void)
 {
     reset_all();
     register_fake_nvs();
     set_fixture(NULL, 0);
 
     bb_diag_storage_nvs_snap_t snap;
-    TEST_ASSERT_EQUAL(BB_OK, bb_diag_storage_nvs_fill(&snap, NULL));
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, run_iter(&snap, &row_count));
 
     TEST_ASSERT_EQUAL_UINT64(0, snap.entry_count);
-    TEST_ASSERT_EQUAL_UINT(0, snap.entries.count);
+    TEST_ASSERT_EQUAL_UINT(0, row_count);
     TEST_ASSERT_EQUAL_UINT64(100, snap.used_bytes);
 }
 
 /* ---------------------------------------------------------------------------
  * get_stats/list_entries BB_ERR_UNSUPPORTED passthrough
  * ---------------------------------------------------------------------------*/
-void test_bb_diag_storage_nvs_fill_unsupported_backend_passthrough(void)
+void test_bb_diag_storage_nvs_iter_unsupported_backend_passthrough(void)
 {
     reset_all();
     register_fake_nvs_no_enum();
 
     bb_diag_storage_nvs_snap_t snap;
-    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_diag_storage_nvs_fill(&snap, NULL));
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, run_iter(&snap, &row_count));
 }
 
 // list_entries succeeds (>=1 entry), get_stats fails -- distinct branch from
 // the "unsupported backend" test above, which never reaches get_stats at all
 // because list_entries short-circuits first.
-void test_bb_diag_storage_nvs_fill_get_stats_fails_after_list_entries_ok(void)
+void test_bb_diag_storage_nvs_iter_get_stats_fails_after_list_entries_ok(void)
 {
     reset_all();
     register_fake_nvs_stats_fails();
@@ -317,7 +371,8 @@ void test_bb_diag_storage_nvs_fill_get_stats_fails_after_list_entries_ok(void)
 
     bb_diag_storage_nvs_snap_t snap;
     memset(&snap, 0xAA, sizeof(snap));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_diag_storage_nvs_fill(&snap, NULL));
+    size_t row_count = 0xAA;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_diag_storage_nvs_iter(&snap, NULL, 0, &row_count, NULL));
 
     // snap was zeroed at fn entry then never populated past the get_stats
     // failure -- confirm no partial stats leak through.
@@ -325,7 +380,65 @@ void test_bb_diag_storage_nvs_fill_get_stats_fails_after_list_entries_ok(void)
     TEST_ASSERT_EQUAL_UINT64(0, snap.free_bytes);
     TEST_ASSERT_EQUAL_UINT64(0, snap.total_bytes);
     TEST_ASSERT_EQUAL_UINT64(0, snap.namespace_count);
-    TEST_ASSERT_EQUAL_UINT(0, snap.entries.count);
+    TEST_ASSERT_EQUAL_UINT64(0, snap.entry_count);
+}
+
+/* ---------------------------------------------------------------------------
+ * Phase-2-only failure modes -- distinct branches from phase 1's own
+ * list_entries/get_stats checks above.
+ * ---------------------------------------------------------------------------*/
+
+// A backend whose enumeration succeeds at phase 1 (COUNT) but fails on its
+// SECOND call (phase 2, FILL) -- proves phase 2 propagates its own
+// list_entries() failure rather than assuming success because phase 1 did.
+void test_bb_diag_storage_nvs_iter_phase2_list_entries_failure_propagates(void)
+{
+    reset_all();
+    register_fake_nvs();
+    set_fixture(s_entries_basic, S_ENTRIES_BASIC_N);
+    // Each iter() call (both phases) makes its own unbounded cap=0
+    // list_entries() probe up front (to re-derive entry_count/stats), plus
+    // phase 2 makes a SECOND, bounded call for the actual rows -- so the
+    // call sequence across TWO iter() invocations is: [1] phase-1's probe,
+    // [2] phase-2's own probe, [3] phase-2's bounded fetch. Fail on call #3
+    // to hit phase 2's OWN list_entries() error check specifically (lines
+    // distinct from either probe's -- see bb_diag_storage_nvs_iter()).
+    s_list_entries_fail_on_call = 3;
+
+    bb_diag_storage_nvs_snap_t snap;
+    size_t row_count = 0;
+    bb_err_t rc = bb_diag_storage_nvs_iter(&snap, NULL, 0, &row_count, NULL);
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL_UINT64(S_ENTRIES_BASIC_N, row_count);
+
+    rc = bb_diag_storage_nvs_iter(&snap, s_test_rows, row_count, &row_count, NULL);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, rc);
+}
+
+static void *fail_alloc(size_t sz) { (void)sz; return NULL; }
+
+// Phase 2's internal staging allocation (bb_malloc_prefer_spiram) failing
+// closed -- BB_ERR_NO_MEM, no partial/garbage rows written into the caller's
+// arena.
+void test_bb_diag_storage_nvs_iter_phase2_staging_alloc_failure_returns_no_mem(void)
+{
+    reset_all();
+    register_fake_nvs();
+    set_fixture(s_entries_basic, S_ENTRIES_BASIC_N);
+
+    bb_diag_storage_nvs_snap_t snap;
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_storage_nvs_iter(&snap, NULL, 0, &row_count, NULL));
+    TEST_ASSERT_EQUAL_UINT64(S_ENTRIES_BASIC_N, row_count);
+
+    memset(s_test_rows, 0xAA, sizeof(s_test_rows));
+    bb_mem_set_alloc_hook(fail_alloc);
+    bb_err_t rc = bb_diag_storage_nvs_iter(&snap, s_test_rows, row_count, &row_count, NULL);
+    bb_mem_set_alloc_hook(NULL);
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_MEM, rc);
+    // Arena untouched -- still the 0xAA canary, never partially written.
+    TEST_ASSERT_EQUAL_HEX8(0xAA, ((const uint8_t *)s_test_rows)[0]);
 }
 
 /* ---------------------------------------------------------------------------
@@ -340,46 +453,63 @@ static const bb_storage_entry_t s_entries_enc_names[] = {
 };
 #define S_ENTRIES_ENC_NAMES_N (sizeof(s_entries_enc_names) / sizeof(s_entries_enc_names[0]))
 
-void test_bb_diag_storage_nvs_fill_enc_name_scalar_types(void)
+void test_bb_diag_storage_nvs_iter_enc_name_scalar_types(void)
 {
     reset_all();
     register_fake_nvs();
     set_fixture(s_entries_enc_names, S_ENTRIES_ENC_NAMES_N);
 
     bb_diag_storage_nvs_snap_t snap;
-    TEST_ASSERT_EQUAL(BB_OK, bb_diag_storage_nvs_fill(&snap, NULL));
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, run_iter(&snap, &row_count));
 
-    TEST_ASSERT_FALSE(snap.entries_items[0].has_schema);
-    TEST_ASSERT_EQUAL_STRING_LEN("u32", snap.entries_items[0].type_str.ptr, snap.entries_items[0].type_str.len);
+    TEST_ASSERT_FALSE(s_test_rows[0].has_schema);
+    TEST_ASSERT_EQUAL_STRING_LEN("u32", s_test_rows[0].type_str.ptr, s_test_rows[0].type_str.len);
 
-    TEST_ASSERT_FALSE(snap.entries_items[1].has_schema);
-    TEST_ASSERT_EQUAL_STRING_LEN("u8", snap.entries_items[1].type_str.ptr, snap.entries_items[1].type_str.len);
+    TEST_ASSERT_FALSE(s_test_rows[1].has_schema);
+    TEST_ASSERT_EQUAL_STRING_LEN("u8", s_test_rows[1].type_str.ptr, s_test_rows[1].type_str.len);
 }
 
-void test_bb_diag_storage_nvs_fill_enc_name_out_of_range_falls_back_to_blob(void)
+void test_bb_diag_storage_nvs_iter_enc_name_out_of_range_falls_back_to_blob(void)
 {
     reset_all();
     register_fake_nvs();
     set_fixture(s_entries_enc_names, S_ENTRIES_ENC_NAMES_N);
 
     bb_diag_storage_nvs_snap_t snap;
-    TEST_ASSERT_EQUAL(BB_OK, bb_diag_storage_nvs_fill(&snap, NULL));
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_OK, run_iter(&snap, &row_count));
 
-    const bb_diag_storage_nvs_row_t *row = &snap.entries_items[2];
+    const bb_diag_storage_nvs_row_t *row = &s_test_rows[2];
     TEST_ASSERT_FALSE(row->has_schema);
     TEST_ASSERT_EQUAL_STRING_LEN("blob", row->type_str.ptr, row->type_str.len);
 }
 
-void test_bb_diag_storage_nvs_fill_null_dst_returns_invalid_arg(void)
+/* ---------------------------------------------------------------------------
+ * Argument validation
+ * ---------------------------------------------------------------------------*/
+void test_bb_diag_storage_nvs_iter_null_dst_returns_invalid_arg(void)
 {
     reset_all();
     register_fake_nvs();
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_diag_storage_nvs_fill(NULL, NULL));
+    size_t row_count = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_diag_storage_nvs_iter(NULL, NULL, 0, &row_count, NULL));
+}
+
+void test_bb_diag_storage_nvs_iter_null_row_count_returns_invalid_arg(void)
+{
+    reset_all();
+    register_fake_nvs();
+    bb_diag_storage_nvs_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_diag_storage_nvs_iter(&snap, NULL, 0, NULL, NULL));
 }
 
 /* ---------------------------------------------------------------------------
- * Registration fits the shared scratch buffer -- turns the "confirm both
- * split snapshots fit" requirement into an actual regression test.
+ * Registration fits the shared scratch buffer -- turns the "confirm the
+ * (now much smaller, no fixed-cap-array) snapshot fits" requirement into an
+ * actual regression test, and proves the section registers as an `iter`
+ * section (exactly one BB_ARR_STREAM field, elem_type OBJ, elem_size within
+ * BB_SERIALIZE_MAX_ROW_BYTES).
  * ---------------------------------------------------------------------------*/
 void test_bb_diag_storage_nvs_desc_fits_scratch(void)
 {
@@ -389,7 +519,7 @@ void test_bb_diag_storage_nvs_desc_fits_scratch(void)
         .name         = "storage/nvs",
         .desc         = "test",
         .snap_desc    = &bb_diag_storage_nvs_desc,
-        .fill         = bb_diag_storage_nvs_fill,
+        .iter         = bb_diag_storage_nvs_iter,
         .ctx          = NULL,
         .query_keys   = NULL,
         .n_query_keys = 0,

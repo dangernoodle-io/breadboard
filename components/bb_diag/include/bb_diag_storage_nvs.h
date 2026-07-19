@@ -15,7 +15,8 @@
 // `system` bool rather than hidden, so the section reports TRUE total NVS
 // usage while still letting a UI distinguish app-owned from IDF-owned rows.
 //
-// bb_diag_storage_nvs_fill() is pure/portable (no ESP-IDF type in the
+// `entries` is a BB_ARR_STREAM field (B1-1077 PR-2) -- no fixed row-count
+// cap. bb_diag_storage_nvs_iter() is pure/portable (no ESP-IDF type in the
 // loop) -- directly host-callable, so host tests exercise the exact
 // production code path. bb_diag_storage_nvs_register() is the only
 // ESP-IDF-gated symbol here (it calls bb_diag_register_section(), which is
@@ -30,19 +31,6 @@
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-// ---------------------------------------------------------------------------
-// Capacity (Kconfig bridge -- pattern from bb_storage.h/bb_diag_section_priv.h)
-// ---------------------------------------------------------------------------
-#ifdef ESP_PLATFORM
-#include "sdkconfig.h"
-#endif
-#ifdef CONFIG_BB_DIAG_STORAGE_NVS_ENTRY_CAP
-#define BB_DIAG_STORAGE_NVS_ENTRY_CAP CONFIG_BB_DIAG_STORAGE_NVS_ENTRY_CAP
-#endif
-#ifndef BB_DIAG_STORAGE_NVS_ENTRY_CAP
-#define BB_DIAG_STORAGE_NVS_ENTRY_CAP 16
 #endif
 
 // One NVS entry row -- LIVE (ns_or_dir/key/len/system) merged with SCHEMA
@@ -63,37 +51,54 @@ typedef struct {
     bool                  reboot_required;
 } bb_diag_storage_nvs_row_t;
 
-// Section snapshot. `entries`/`entries_items` follow the same storage/carrier
-// split as bb_diag_boot_wire_t's reboot_history (bb_diag_boot_wire.h):
-// `entries_items` is the backing row storage, `entries` is the
-// bb_serialize_arr_t the descriptor's BB_TYPE_ARR field actually points at.
-// `entry_count` is the TRUE total (may exceed BB_DIAG_STORAGE_NVS_ENTRY_CAP;
-// `entries.count` is capped at the array's capacity).
+// Section snapshot. `entries` is the descriptor's BB_TYPE_ARR
+// (cardinality == BB_ARR_STREAM) field's runtime carrier, wired by
+// bb_diag_storage_nvs_iter()'s phase 2 to the dispatcher's row arena via
+// bb_serialize_arr_stream_from_buf() -- `entries_iter_state` is that call's
+// CALLER-OWNED iterator state, kept here (rather than a local in the iter
+// fn) because `dst` (this struct) must outlive the walk/render call that
+// follows iter's phase-2 return. `entry_count` is the TRUE total row count
+// (phase 1's report; unbounded, never capped).
 typedef struct {
-    bb_diag_storage_nvs_row_t entries_items[BB_DIAG_STORAGE_NVS_ENTRY_CAP];
-    bb_serialize_arr_t        entries;
-    uint64_t                  entry_count;
-    uint64_t                  used_bytes;
-    uint64_t                  free_bytes;
-    uint64_t                  total_bytes;
-    uint64_t                  namespace_count;
+    bb_serialize_arr_stream_t   entries;
+    bb_serialize_arr_buf_iter_t entries_iter_state;
+    uint64_t                    entry_count;
+    uint64_t                    used_bytes;
+    uint64_t                    free_bytes;
+    uint64_t                    total_bytes;
+    uint64_t                    namespace_count;
 } bb_diag_storage_nvs_snap_t;
 
 extern const bb_serialize_desc_t bb_diag_storage_nvs_desc;
 
-// Fill hook (bb_diag_fill_fn signature) -- pure/portable, `args->query` is
-// always NULL for this section (no query_keys declared). Populates `dst`
-// (a bb_diag_storage_nvs_snap_t) from bb_storage's "nvs" backend +
-// bb_settings' schema overlay. Returns whatever bb_storage_list_entries()/
-// bb_storage_get_stats() return (e.g. BB_ERR_UNSUPPORTED if no "nvs"
-// backend with list_entries/get_stats is registered); BB_ERR_INVALID_ARG if
-// dst is NULL.
-bb_err_t bb_diag_storage_nvs_fill(void *dst, const bb_diag_fill_args_t *args);
+// Two-phase iter hook (bb_diag_iter_fn signature) -- pure/portable,
+// `args->query` is always NULL for this section (no query_keys declared).
+//
+// Phase 1 (row_arena == NULL, row_cap == 0): populates `dst`'s scalar
+// fields (used_bytes/free_bytes/total_bytes/namespace_count/entry_count)
+// from bb_storage's "nvs" backend and reports the TRUE live entry count via
+// `*row_count`; wires `dst->entries` to an empty stream (defensive -- the
+// dispatcher never renders a phase-1-only `dst`).
+//
+// Phase 2 (row_arena != NULL, row_cap = phase 1's reported count):
+// re-enumerates live entries (bounded by `row_cap`) into a section-owned
+// temporary staging buffer, merges each against the bb_settings schema
+// overlay (byte-identical merge logic to the prior fixed-cap fill()), and
+// composes the resulting bb_diag_storage_nvs_row_t rows into `row_arena`.
+// Wires `dst->entries` to the arena via bb_serialize_arr_stream_from_buf()
+// and reports the actual row count via `*row_count` (<= row_cap).
+//
+// Returns whatever bb_storage_list_entries()/bb_storage_get_stats() return
+// (e.g. BB_ERR_UNSUPPORTED if no "nvs" backend with list_entries/get_stats
+// is registered); BB_ERR_NO_MEM if phase 2's internal staging allocation
+// fails; BB_ERR_INVALID_ARG if `dst` or `row_count` is NULL.
+bb_err_t bb_diag_storage_nvs_iter(void *dst, void *row_arena, size_t row_cap,
+                                   size_t *row_count, const bb_diag_fill_args_t *args);
 
 #ifdef ESP_PLATFORM
 // Registers this section as "storage/nvs" (GET /api/diag/storage/nvs) via
 // bb_diag_register_section(). NOT called anywhere in this PR -- floor
-// wiring + on-device stack-headroom validation are deferred to PR11/12.
+// wiring + on-device stack-headroom validation are deferred to a later PR.
 bb_err_t bb_diag_storage_nvs_register(void);
 #endif
 

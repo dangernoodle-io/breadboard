@@ -234,6 +234,24 @@ void test_bb_diag_dispatch_miss_wrong_prefix_returns_not_found(void);
 void test_bb_diag_dispatch_miss_unregistered_name_returns_null(void);
 void test_bb_diag_dispatch_query_threading(void);
 void test_bb_diag_dispatch_fill_failure_propagates(void);
+void test_bb_diag_register_section_both_fill_and_iter_set_returns_invalid_arg(void);
+void test_bb_diag_register_section_iter_success(void);
+void test_bb_diag_register_section_fill_section_stream_elem_size_is_zero(void);
+void test_bb_diag_section_stream_elem_size_null_sec_returns_zero(void);
+void test_bb_diag_section_stream_elem_size_out_of_bounds_pointer_returns_zero(void);
+void test_bb_diag_section_stream_elem_size_misaligned_pointer_returns_zero(void);
+void test_bb_diag_register_section_fill_with_stream_field_returns_invalid_arg(void);
+void test_bb_diag_register_section_iter_zero_stream_fields_returns_invalid_arg(void);
+void test_bb_diag_register_section_iter_two_stream_fields_returns_invalid_arg(void);
+void test_bb_diag_register_section_iter_stream_elem_type_not_obj_returns_invalid_arg(void);
+void test_bb_diag_register_section_iter_stream_elem_size_exceeds_max_row_bytes_returns_no_space(void);
+void test_bb_diag_register_section_iter_stream_elem_size_zero_returns_invalid_arg(void);
+void test_bb_diag_register_section_iter_stream_nested_in_obj_child_returns_invalid_arg(void);
+void test_bb_diag_register_section_iter_stream_nested_in_arr_of_obj_returns_invalid_arg(void);
+void test_bb_diag_register_section_iter_stream_nested_via_mid_arr_of_obj_returns_invalid_arg(void);
+void test_bb_diag_register_section_iter_stream_with_clean_sibling_obj_succeeds(void);
+void test_bb_diag_register_section_iter_stream_with_scalar_arr_sibling_succeeds(void);
+void test_bb_diag_register_section_fill_stream_nested_beyond_max_depth_fail_open_succeeds(void);
 
 // Forward declarations from test_bb_data_http.c
 void test_bb_data_http_init_idempotent(void);
@@ -352,6 +370,7 @@ void test_bb_serialize_populate_arr_present_null_items_degrades_to_zero(void);
 void test_bb_serialize_populate_arr_of_obj_stops_on_first_miss(void);
 void test_bb_serialize_populate_arr_capacity_bounds_at_max_items(void);
 void test_bb_serialize_populate_arr_max_items_zero_returns_invalid_arg(void);
+void test_bb_serialize_populate_arr_stream_cardinality_is_unsupported(void);
 void test_bb_serialize_populate_arr_of_str(void);
 void test_bb_serialize_populate_arr_of_str_stops_on_first_miss(void);
 void test_bb_serialize_populate_str_get_false_leaves_default(void);
@@ -416,6 +435,7 @@ void test_bb_serialize_json_bound_flat(void);
 void test_bb_serialize_json_bound_null_desc(void);
 void test_bb_serialize_json_bound_unbounded_str_n_is_size_max(void);
 void test_bb_serialize_json_bound_unbounded_arr_is_size_max(void);
+void test_bb_serialize_json_bound_stream_cardinality_is_size_max(void);
 void test_bb_serialize_json_bound_unbounded_arr_of_obj_element_is_size_max(void);
 void test_bb_serialize_json_bound_unbounded_arr_str_elem_max_len_is_size_max(void);
 void test_bb_serialize_json_bound_unbounded_nested_obj_is_size_max(void);
@@ -630,6 +650,14 @@ void test_bb_serialize_nested_arr_render_matches_golden(void);
 void test_bb_serialize_nested_arr_populate_roundtrip_matches_fixture(void);
 void test_bb_serialize_nested_arr_at_max_depth_render_populate_roundtrip(void);
 void test_bb_serialize_nested_arr_over_max_depth_populate_fails_closed(void);
+
+// Forward declarations from test_bb_serialize_arr_stream.c (B1-1077 PR-2)
+void test_bb_serialize_arr_stream_render_zero_rows(void);
+void test_bb_serialize_arr_stream_render_forty_rows_no_truncation(void);
+void test_bb_serialize_arr_stream_null_next_emits_empty_array(void);
+void test_bb_serialize_arr_stream_depth_guard_bails_past_max_depth(void);
+void test_bb_serialize_arr_stream_from_buf_iterates_and_exhausts(void);
+void test_bb_serialize_arr_stream_from_buf_null_buf_zero_count_is_safe(void);
 
 // Forward declarations from test_bb_serialize_compose.c (B1-1055)
 void test_bb_serialize_compose_object_shape_json_golden(void);
@@ -3625,20 +3653,23 @@ void test_bb_partition_serialize_walk_nvs_row(void);
 void test_bb_partition_serialize_walk_ota0_row(void);
 
 // Forward declarations from test_bb_diag_storage_nvs.c
-void test_bb_diag_storage_nvs_fill_matches_schema_for_known_key(void);
-void test_bb_diag_storage_nvs_fill_no_match_same_namespace(void);
-void test_bb_diag_storage_nvs_fill_flags_net80211_system(void);
-void test_bb_diag_storage_nvs_fill_flags_phy_system(void);
-void test_bb_diag_storage_nvs_fill_phy_extra_not_system(void);
-void test_bb_diag_storage_nvs_fill_plain_entry_not_system_not_schema(void);
-void test_bb_diag_storage_nvs_fill_stats_populated(void);
-void test_bb_diag_storage_nvs_fill_truncates_when_over_cap(void);
-void test_bb_diag_storage_nvs_fill_empty_backend_is_stats_only(void);
-void test_bb_diag_storage_nvs_fill_unsupported_backend_passthrough(void);
-void test_bb_diag_storage_nvs_fill_get_stats_fails_after_list_entries_ok(void);
-void test_bb_diag_storage_nvs_fill_enc_name_scalar_types(void);
-void test_bb_diag_storage_nvs_fill_enc_name_out_of_range_falls_back_to_blob(void);
-void test_bb_diag_storage_nvs_fill_null_dst_returns_invalid_arg(void);
+void test_bb_diag_storage_nvs_iter_matches_schema_for_known_key(void);
+void test_bb_diag_storage_nvs_iter_no_match_same_namespace(void);
+void test_bb_diag_storage_nvs_iter_flags_net80211_system(void);
+void test_bb_diag_storage_nvs_iter_flags_phy_system(void);
+void test_bb_diag_storage_nvs_iter_phy_extra_not_system(void);
+void test_bb_diag_storage_nvs_iter_plain_entry_not_system_not_schema(void);
+void test_bb_diag_storage_nvs_iter_stats_populated(void);
+void test_bb_diag_storage_nvs_iter_no_truncation_at_40_rows(void);
+void test_bb_diag_storage_nvs_iter_empty_backend_is_stats_only(void);
+void test_bb_diag_storage_nvs_iter_unsupported_backend_passthrough(void);
+void test_bb_diag_storage_nvs_iter_get_stats_fails_after_list_entries_ok(void);
+void test_bb_diag_storage_nvs_iter_phase2_list_entries_failure_propagates(void);
+void test_bb_diag_storage_nvs_iter_phase2_staging_alloc_failure_returns_no_mem(void);
+void test_bb_diag_storage_nvs_iter_enc_name_scalar_types(void);
+void test_bb_diag_storage_nvs_iter_enc_name_out_of_range_falls_back_to_blob(void);
+void test_bb_diag_storage_nvs_iter_null_dst_returns_invalid_arg(void);
+void test_bb_diag_storage_nvs_iter_null_row_count_returns_invalid_arg(void);
 void test_bb_diag_storage_nvs_desc_fits_scratch(void);
 
 // Forward declarations from test_bb_diag_meminfo.c
@@ -5473,20 +5504,23 @@ int main(void) {
     RUN_TEST(test_bb_partition_serialize_walk_ota0_row);
 
     // bb_diag_storage_nvs tests
-    RUN_TEST(test_bb_diag_storage_nvs_fill_matches_schema_for_known_key);
-    RUN_TEST(test_bb_diag_storage_nvs_fill_no_match_same_namespace);
-    RUN_TEST(test_bb_diag_storage_nvs_fill_flags_net80211_system);
-    RUN_TEST(test_bb_diag_storage_nvs_fill_flags_phy_system);
-    RUN_TEST(test_bb_diag_storage_nvs_fill_phy_extra_not_system);
-    RUN_TEST(test_bb_diag_storage_nvs_fill_plain_entry_not_system_not_schema);
-    RUN_TEST(test_bb_diag_storage_nvs_fill_stats_populated);
-    RUN_TEST(test_bb_diag_storage_nvs_fill_truncates_when_over_cap);
-    RUN_TEST(test_bb_diag_storage_nvs_fill_empty_backend_is_stats_only);
-    RUN_TEST(test_bb_diag_storage_nvs_fill_unsupported_backend_passthrough);
-    RUN_TEST(test_bb_diag_storage_nvs_fill_get_stats_fails_after_list_entries_ok);
-    RUN_TEST(test_bb_diag_storage_nvs_fill_enc_name_scalar_types);
-    RUN_TEST(test_bb_diag_storage_nvs_fill_enc_name_out_of_range_falls_back_to_blob);
-    RUN_TEST(test_bb_diag_storage_nvs_fill_null_dst_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_matches_schema_for_known_key);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_no_match_same_namespace);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_flags_net80211_system);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_flags_phy_system);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_phy_extra_not_system);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_plain_entry_not_system_not_schema);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_stats_populated);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_no_truncation_at_40_rows);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_empty_backend_is_stats_only);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_unsupported_backend_passthrough);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_get_stats_fails_after_list_entries_ok);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_phase2_list_entries_failure_propagates);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_phase2_staging_alloc_failure_returns_no_mem);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_enc_name_scalar_types);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_enc_name_out_of_range_falls_back_to_blob);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_null_dst_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_storage_nvs_iter_null_row_count_returns_invalid_arg);
     RUN_TEST(test_bb_diag_storage_nvs_desc_fits_scratch);
 
     // bb_diag_meminfo tests
@@ -9557,6 +9591,7 @@ int main(void) {
     RUN_TEST(test_bb_serialize_populate_arr_of_obj_stops_on_first_miss);
     RUN_TEST(test_bb_serialize_populate_arr_capacity_bounds_at_max_items);
     RUN_TEST(test_bb_serialize_populate_arr_max_items_zero_returns_invalid_arg);
+    RUN_TEST(test_bb_serialize_populate_arr_stream_cardinality_is_unsupported);
     RUN_TEST(test_bb_serialize_populate_arr_of_str);
     RUN_TEST(test_bb_serialize_populate_arr_of_str_stops_on_first_miss);
     RUN_TEST(test_bb_serialize_populate_str_get_false_leaves_default);
@@ -9690,6 +9725,7 @@ int main(void) {
     RUN_TEST(test_bb_serialize_json_bound_null_desc);
     RUN_TEST(test_bb_serialize_json_bound_unbounded_str_n_is_size_max);
     RUN_TEST(test_bb_serialize_json_bound_unbounded_arr_is_size_max);
+    RUN_TEST(test_bb_serialize_json_bound_stream_cardinality_is_size_max);
     RUN_TEST(test_bb_serialize_json_bound_unbounded_arr_of_obj_element_is_size_max);
     RUN_TEST(test_bb_serialize_json_bound_unbounded_arr_str_elem_max_len_is_size_max);
     RUN_TEST(test_bb_serialize_json_bound_unbounded_nested_obj_is_size_max);
@@ -9900,6 +9936,14 @@ int main(void) {
     RUN_TEST(test_bb_serialize_nested_arr_at_max_depth_render_populate_roundtrip);
     RUN_TEST(test_bb_serialize_nested_arr_over_max_depth_populate_fails_closed);
 
+    // bb_serialize_arr_stream (B1-1077 PR-2)
+    RUN_TEST(test_bb_serialize_arr_stream_render_zero_rows);
+    RUN_TEST(test_bb_serialize_arr_stream_render_forty_rows_no_truncation);
+    RUN_TEST(test_bb_serialize_arr_stream_null_next_emits_empty_array);
+    RUN_TEST(test_bb_serialize_arr_stream_depth_guard_bails_past_max_depth);
+    RUN_TEST(test_bb_serialize_arr_stream_from_buf_iterates_and_exhausts);
+    RUN_TEST(test_bb_serialize_arr_stream_from_buf_null_buf_zero_count_is_safe);
+
     RUN_TEST(test_bb_serialize_compose_object_shape_json_golden);
     RUN_TEST(test_bb_serialize_compose_peak_depth_independent_of_entry_count);
     RUN_TEST(test_bb_serialize_compose_empty_returns_ok_zero_calls);
@@ -10109,6 +10153,24 @@ int main(void) {
     RUN_TEST(test_bb_diag_dispatch_miss_unregistered_name_returns_null);
     RUN_TEST(test_bb_diag_dispatch_query_threading);
     RUN_TEST(test_bb_diag_dispatch_fill_failure_propagates);
+    RUN_TEST(test_bb_diag_register_section_both_fill_and_iter_set_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_iter_success);
+    RUN_TEST(test_bb_diag_register_section_fill_section_stream_elem_size_is_zero);
+    RUN_TEST(test_bb_diag_section_stream_elem_size_null_sec_returns_zero);
+    RUN_TEST(test_bb_diag_section_stream_elem_size_out_of_bounds_pointer_returns_zero);
+    RUN_TEST(test_bb_diag_section_stream_elem_size_misaligned_pointer_returns_zero);
+    RUN_TEST(test_bb_diag_register_section_fill_with_stream_field_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_iter_zero_stream_fields_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_iter_two_stream_fields_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_iter_stream_elem_type_not_obj_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_iter_stream_elem_size_exceeds_max_row_bytes_returns_no_space);
+    RUN_TEST(test_bb_diag_register_section_iter_stream_elem_size_zero_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_iter_stream_nested_in_obj_child_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_iter_stream_nested_in_arr_of_obj_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_iter_stream_nested_via_mid_arr_of_obj_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_iter_stream_with_clean_sibling_obj_succeeds);
+    RUN_TEST(test_bb_diag_register_section_iter_stream_with_scalar_arr_sibling_succeeds);
+    RUN_TEST(test_bb_diag_register_section_fill_stream_nested_beyond_max_depth_fail_open_succeeds);
 
     RUN_TEST(test_bb_data_http_init_idempotent);
     RUN_TEST(test_bb_data_http_init_max_clients_over_cap_returns_invalid_arg);

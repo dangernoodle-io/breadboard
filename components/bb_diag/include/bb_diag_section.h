@@ -66,6 +66,29 @@ typedef struct {
 // bb_data_gather_fn: `args` is never NULL; `args->query` may be NULL.
 typedef bb_err_t (*bb_diag_fill_fn)(void *dst, const bb_diag_fill_args_t *args);
 
+// Two-phase iter hook -- the BB_ARR_STREAM alternative to `fill`, for a
+// section whose snap_desc declares exactly one top-level BB_TYPE_ARR field
+// with `.cardinality == BB_ARR_STREAM` (reg-time-enforced, see
+// bb_diag_register_section() below). Driven around ONE request by the
+// ESP-IDF dispatcher (platform/espidf/bb_diag/bb_diag_section_dispatch.c),
+// which owns the row arena -- the section never allocates it:
+//
+//   Phase 1 COUNT: row_arena == NULL, row_cap == 0 -> fill `dst`'s scalar
+//   fields (everything except the STREAM field itself) and report the true
+//   row count via `*row_count`; write NO rows (there is no arena yet).
+//
+//   Phase 2 FILL: row_arena = the dispatcher's arena (row_cap elements,
+//   each the STREAM field's elem_size bytes, sized from phase 1's count) ->
+//   fill up to row_cap rows into row_arena, re-derive `dst`'s scalar fields,
+//   and wire `dst`'s carrier field to the arena (typically via
+//   bb_serialize_arr_stream_from_buf(), using iterator state that lives
+//   inside `dst` itself so it survives the walk that follows this call).
+//   Reports the actual row count written via `*row_count` -- may be less
+//   than row_cap (a source that shrank between phase 1 and phase 2), never
+//   more.
+typedef bb_err_t (*bb_diag_iter_fn)(void *dst, void *row_arena, size_t row_cap,
+                                     size_t *row_count, const bb_diag_fill_args_t *args);
+
 // One section's registration. `snap_desc` is BORROWED -- the caller (the
 // producer component) keeps it alive for the process lifetime, typically a
 // static const. `name`/`desc`/`query_keys` strings must likewise outlive
@@ -74,7 +97,8 @@ typedef struct {
     const char                *name;       // derives GET /api/diag/<name>; strlen() < BB_DIAG_SECTION_NAME_MAX
     const char                *desc;       // human-readable; not wired to bb_openapi in this PR
     const bb_serialize_desc_t *snap_desc;  // BORROWED SSOT
-    bb_diag_fill_fn             fill;
+    bb_diag_fill_fn             fill;      // XOR iter -- exactly one set
+    bb_diag_iter_fn             iter;      // XOR fill -- exactly one set
     void                       *ctx;
     const char *const         *query_keys;   // NULL-ok
     size_t                      n_query_keys; // <= BB_SERIALIZE_QUERY_MAX_PARAMS (4)
@@ -82,7 +106,7 @@ typedef struct {
 
 // Registers `section`. Copies its fields (not the pointer) into the
 // registry's own table -- `section` itself may be a stack temporary, but
-// every pointer field it carries (name/desc/snap_desc/fill/ctx/query_keys)
+// every pointer field it carries (name/desc/snap_desc/fill/iter/ctx/query_keys)
 // must remain valid for the process lifetime.
 //
 // First-registration wins: a duplicate `name` is REJECTED
@@ -91,15 +115,33 @@ typedef struct {
 // intentional override-on-rebind semantics, which serves a different,
 // disjoint-producer use case).
 //
-// Returns BB_ERR_INVALID_ARG if `section`, `section->name`, `section->snap_desc`,
-// or `section->fill` is NULL; if strlen(section->name) >= BB_DIAG_SECTION_NAME_MAX;
-// or if section->n_query_keys > BB_SERIALIZE_QUERY_MAX_PARAMS.
+// Exactly one of `fill`/`iter` must be set (both or neither is
+// BB_ERR_INVALID_ARG). A `fill` section is rejected (BB_ERR_INVALID_ARG) if
+// any top-level snap_desc field has `.cardinality == BB_ARR_STREAM` -- fill
+// only ever populates a caller-owned scratch snapshot in one shot, with no
+// two-phase arena to wire a STREAM carrier against. An `iter` section's
+// snap_desc must declare EXACTLY ONE top-level BB_TYPE_ARR field with
+// `.cardinality == BB_ARR_STREAM` (else BB_ERR_INVALID_ARG); that field's
+// elem_type must be BB_TYPE_OBJ (else BB_ERR_INVALID_ARG), its elem_size
+// must be NONZERO (else BB_ERR_INVALID_ARG -- an unset elem_size is an
+// authoring mistake, not a legitimate zero-byte row) and must fit
+// BB_SERIALIZE_MAX_ROW_BYTES (else BB_ERR_NO_SPACE, mirroring the
+// snap_size-exceeds-scratch reject below) -- all checked here, once, at
+// registration time, rather than per request.
+//
+// Returns BB_ERR_INVALID_ARG if `section`, `section->name`, or
+// `section->snap_desc` is NULL; if `section->fill`/`section->iter` are both
+// set or both NULL; if strlen(section->name) >= BB_DIAG_SECTION_NAME_MAX;
+// if section->n_query_keys > BB_SERIALIZE_QUERY_MAX_PARAMS; or if the
+// fill/iter stream-field validation above fails.
 // Returns BB_ERR_INVALID_STATE if `section->name` is already registered.
 // Returns BB_ERR_NO_SPACE if the table is full (BB_DIAG_SECTION_TABLE_CAP
-// distinct names already registered), OR if
+// distinct names already registered), if
 // section->snap_desc->snap_size exceeds CONFIG_BB_DIAG_SECTION_SCRATCH_BYTES
-// (the shared scratch buffer every dispatched request renders into) -- a
-// loud, attach-time reject rather than a silent per-request truncation.
+// (the shared scratch buffer every dispatched request renders into), or if
+// an `iter` section's stream field's elem_size exceeds
+// BB_SERIALIZE_MAX_ROW_BYTES -- all loud, attach-time rejects rather than a
+// silent per-request truncation.
 bb_err_t bb_diag_register_section(const bb_diag_section_t *section);
 
 #if CONFIG_BB_DIAG_SECTIONS

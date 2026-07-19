@@ -1,9 +1,12 @@
 // bb_diag_storage_nvs -- see bb_diag_storage_nvs.h for the section contract.
-// Pure/portable fill: bb_storage_list_entries()/bb_storage_get_stats() (PR5)
-// merged by (ns_or_dir, key) with bb_settings_nv_overlay_entries() (PR7).
+// Pure/portable two-phase iter: bb_storage_list_entries()/
+// bb_storage_get_stats() (PR5) merged by (ns_or_dir, key) with
+// bb_settings_nv_overlay_entries() (PR7). BB_ARR_STREAM conversion (no
+// fixed row-count cap): B1-1077 PR-2.
 
 #include "bb_diag_storage_nvs.h"
 
+#include "bb_mem.h"
 #include "bb_settings.h"
 #include "bb_storage.h"
 #include "bb_str.h"
@@ -87,7 +90,7 @@ static const bb_serialize_field_t s_snap_fields[] = {
     { .key = "entries", .type = BB_TYPE_ARR,
       .offset = offsetof(bb_diag_storage_nvs_snap_t, entries),
       .elem_type = BB_TYPE_OBJ, .elem_size = sizeof(bb_diag_storage_nvs_row_t),
-      .max_items = BB_DIAG_STORAGE_NVS_ENTRY_CAP,
+      .cardinality = BB_ARR_STREAM,
       .children = s_row_fields,
       .n_children = sizeof(s_row_fields) / sizeof(s_row_fields[0]) },
     { .key = "entry_count", .type = BB_TYPE_U64,
@@ -125,17 +128,51 @@ static const bb_settings_nv_overlay_entry_t *find_overlay_match(
     return NULL;
 }
 
-bb_err_t bb_diag_storage_nvs_fill(void *dst, const bb_diag_fill_args_t *args)
+// Composes one bb_diag_storage_nvs_row_t from a live bb_storage_entry_t plus
+// the schema overlay -- the exact merge logic the prior fixed-cap fill()
+// used, factored out so phase 2 below stays a plain per-entry loop.
+static void compose_row(bb_diag_storage_nvs_row_t *row, const bb_storage_entry_t *live,
+                         const bb_settings_nv_overlay_entry_t *overlay, size_t overlay_count)
+{
+    memset(row, 0, sizeof(*row));
+
+    bb_strlcpy(row->ns_or_dir, live->ns_or_dir, sizeof(row->ns_or_dir));
+    bb_strlcpy(row->key, live->key, sizeof(row->key));
+    row->len    = (uint64_t)live->len;
+    row->system = is_system_namespace(row->ns_or_dir);
+
+    const bb_settings_nv_overlay_entry_t *match =
+        find_overlay_match(overlay, overlay_count, row->ns_or_dir, row->key);
+    if (match) {
+        row->has_schema        = true;
+        row->type_str.ptr      = match->type_str;
+        row->type_str.len      = strlen(match->type_str);
+        row->label.ptr         = match->label;
+        row->label.len         = strlen(match->label);
+        row->secret            = match->secret;
+        row->provisioning_only = match->provisioning_only;
+        row->reboot_required   = match->reboot_required;
+    } else {
+        const char *fallback = enc_name(live->enc);
+        row->has_schema   = false;
+        row->type_str.ptr = fallback;
+        row->type_str.len = strlen(fallback);
+        row->label.ptr    = NULL;
+        row->label.len    = 0;
+    }
+}
+
+bb_err_t bb_diag_storage_nvs_iter(void *dst, void *row_arena, size_t row_cap,
+                                   size_t *row_count, const bb_diag_fill_args_t *args)
 {
     (void)args;
-    if (!dst) return BB_ERR_INVALID_ARG;
+    if (!dst || !row_count) return BB_ERR_INVALID_ARG;
 
     bb_diag_storage_nvs_snap_t *snap = (bb_diag_storage_nvs_snap_t *)dst;
     memset(snap, 0, sizeof(*snap));
 
-    bb_storage_entry_t live[BB_DIAG_STORAGE_NVS_ENTRY_CAP];
-    size_t             live_total = 0;
-    bb_err_t rc = bb_storage_list_entries("nvs", NULL, live, BB_DIAG_STORAGE_NVS_ENTRY_CAP, &live_total);
+    size_t   live_total = 0;
+    bb_err_t rc = bb_storage_list_entries("nvs", NULL, NULL, 0, &live_total);
     if (rc != BB_OK) return rc;
 
     bb_storage_stats_t stats;
@@ -143,49 +180,51 @@ bb_err_t bb_diag_storage_nvs_fill(void *dst, const bb_diag_fill_args_t *args)
     rc = bb_storage_get_stats("nvs", &stats);
     if (rc != BB_OK) return rc;
 
-    bb_settings_nv_overlay_entry_t overlay[BB_SETTINGS_NV_OVERLAY_CAP];
-    size_t overlay_total = bb_settings_nv_overlay_entries(overlay, BB_SETTINGS_NV_OVERLAY_CAP);
-    size_t overlay_count = overlay_total < BB_SETTINGS_NV_OVERLAY_CAP ? overlay_total : BB_SETTINGS_NV_OVERLAY_CAP;
-
-    size_t n = live_total < BB_DIAG_STORAGE_NVS_ENTRY_CAP ? live_total : BB_DIAG_STORAGE_NVS_ENTRY_CAP;
-    for (size_t i = 0; i < n; i++) {
-        bb_diag_storage_nvs_row_t *row = &snap->entries_items[i];
-
-        bb_strlcpy(row->ns_or_dir, live[i].ns_or_dir, sizeof(row->ns_or_dir));
-        bb_strlcpy(row->key, live[i].key, sizeof(row->key));
-        row->len    = (uint64_t)live[i].len;
-        row->system = is_system_namespace(row->ns_or_dir);
-
-        const bb_settings_nv_overlay_entry_t *match =
-            find_overlay_match(overlay, overlay_count, row->ns_or_dir, row->key);
-        if (match) {
-            row->has_schema         = true;
-            row->type_str.ptr       = match->type_str;
-            row->type_str.len       = strlen(match->type_str);
-            row->label.ptr          = match->label;
-            row->label.len          = strlen(match->label);
-            row->secret             = match->secret;
-            row->provisioning_only  = match->provisioning_only;
-            row->reboot_required    = match->reboot_required;
-        } else {
-            const char *fallback = enc_name(live[i].enc);
-            row->has_schema   = false;
-            row->type_str.ptr = fallback;
-            row->type_str.len = strlen(fallback);
-            row->label.ptr    = NULL;
-            row->label.len    = 0;
-        }
-    }
-
-    snap->entries.items = snap->entries_items;
-    snap->entries.count = n;
-    snap->entry_count   = (uint64_t)live_total;
-
+    snap->entry_count     = (uint64_t)live_total;
     snap->used_bytes      = (uint64_t)stats.used_bytes;
     snap->free_bytes      = (uint64_t)stats.free_bytes;
     snap->total_bytes     = (uint64_t)stats.total_bytes;
     snap->namespace_count = (uint64_t)stats.namespace_count;
 
+    if (!row_arena || row_cap == 0) {
+        // Phase 1 (count-only) -- no arena yet, wire an empty stream so a
+        // direct (non-dispatcher) caller of a phase-1-only `dst` still
+        // renders `entries:[]` rather than reading an unwired carrier.
+        *row_count = live_total;
+        snap->entries = bb_serialize_arr_stream_from_buf(&snap->entries_iter_state, NULL, 0,
+                                                           sizeof(bb_diag_storage_nvs_row_t));
+        return BB_OK;
+    }
+
+    // Phase 2: re-enumerate live entries into a section-owned temporary
+    // staging buffer (distinct from `row_arena`, which the DISPATCHER owns
+    // and frees -- see bb_diag_section_dispatch.c) bounded by `row_cap`
+    // (phase 1's reported count), then compose each into `row_arena[i]`.
+    bb_storage_entry_t *live = bb_malloc_prefer_spiram(row_cap * sizeof(bb_storage_entry_t));
+    if (!live) return BB_ERR_NO_MEM;
+
+    size_t live_n = 0;
+    rc = bb_storage_list_entries("nvs", NULL, live, row_cap, &live_n);
+    if (rc != BB_OK) {
+        bb_mem_free(live);
+        return rc;
+    }
+
+    bb_settings_nv_overlay_entry_t overlay[BB_SETTINGS_NV_OVERLAY_CAP];
+    size_t overlay_total = bb_settings_nv_overlay_entries(overlay, BB_SETTINGS_NV_OVERLAY_CAP);
+    size_t overlay_count = overlay_total < BB_SETTINGS_NV_OVERLAY_CAP ? overlay_total : BB_SETTINGS_NV_OVERLAY_CAP;
+
+    size_t n = live_n < row_cap ? live_n : row_cap;
+    bb_diag_storage_nvs_row_t *rows = (bb_diag_storage_nvs_row_t *)row_arena;
+    for (size_t i = 0; i < n; i++) {
+        compose_row(&rows[i], &live[i], overlay, overlay_count);
+    }
+
+    bb_mem_free(live);
+
+    *row_count     = n;
+    snap->entries = bb_serialize_arr_stream_from_buf(&snap->entries_iter_state, row_arena, n,
+                                                       sizeof(bb_diag_storage_nvs_row_t));
     return BB_OK;
 }
 
@@ -196,7 +235,7 @@ bb_err_t bb_diag_storage_nvs_register(void)
         .name         = "storage/nvs",
         .desc         = "NVS storage inventory (live entries + schema overlay)",
         .snap_desc    = &bb_diag_storage_nvs_desc,
-        .fill         = bb_diag_storage_nvs_fill,
+        .iter         = bb_diag_storage_nvs_iter,
         .ctx          = NULL,
         .query_keys   = NULL,
         .n_query_keys = 0,

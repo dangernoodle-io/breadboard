@@ -51,6 +51,10 @@ static bb_err_t populate_check_fields(const bb_serialize_field_t *fields, uint16
             // frame at the current depth regardless of what it holds, same
             // accounting as OBJ above.
             if (depth >= BB_SERIALIZE_MAX_DEPTH) return BB_ERR_NO_SPACE;
+            // BB_ARR_STREAM targets a pull iterator, not caller-prewired
+            // contiguous storage -- no scatter convention yet, same
+            // "unsupported" precedent as STR_N/REF above.
+            if (f->cardinality == BB_ARR_STREAM) return BB_ERR_UNSUPPORTED;
             // max_items is populate's destination CAPACITY -- 0 means "no
             // storage to write into", which populate treats as a loud
             // misconfiguration rather than JSON's 0-means-unbounded.

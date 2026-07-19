@@ -44,6 +44,16 @@
 // not registered.
 const bb_diag_section_t *bb_diag_section_find(const char *name);
 
+// Reads the cached stream-field element size for `sec` -- a section pointer
+// previously returned by bb_diag_section_find() (i.e. `&slot->section` for
+// some registered slot; the accessor recovers the owning slot from `sec`'s
+// own address). Cached at registration time by bb_diag_register_section()'s
+// iter-section stream-field validation, so the ESP-IDF dispatcher can size
+// its row arena (`row_count * elem_size`) without re-scanning `sec->snap_desc`
+// on every request. Returns 0 for a fill-based section (unused there) or a
+// NULL `sec`.
+size_t bb_diag_section_stream_elem_size(const bb_diag_section_t *sec);
+
 // Extracts the "<name>" segment from a request URI of the form
 // "/api/diag/<name>" (query string, if any, already stripped by the
 // caller -- same contract as bb_http_req_uri()) into `out` (capacity

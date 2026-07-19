@@ -11,7 +11,9 @@
 #include "bb_http_serialize_stream.h"
 #include "bb_http_server.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 
+#include <stdint.h>
 #include <string.h>
 
 static const char *TAG = "bb_diag_section_dispatch";
@@ -61,11 +63,51 @@ static bb_err_t diag_section_dispatch(bb_http_request_t *req)
         return respond_error(req, 500, "{\"error\":\"query build failed\"}");
     }
 
-    char scratch[BB_DIAG_SECTION_SCRATCH_BYTES];
     bb_diag_fill_args_t fill_args = {
         .ctx   = sec->ctx,
         .query = sec->n_query_keys > 0 ? &query : NULL,
     };
+
+    if (sec->iter) {
+        // Two-phase, arena-owned-by-the-dispatcher iter path (see
+        // bb_diag_section.h's bb_diag_iter_fn doc). No defensive row-count
+        // backstop knob -- bb_malloc_prefer_spiram() already fails closed
+        // (NULL -> 500 below, before any chunk reaches the wire).
+        char dst[BB_DIAG_SECTION_SCRATCH_BYTES];
+        size_t row_count = 0;
+        rc = sec->iter(dst, NULL, 0, &row_count, &fill_args);  // phase 1: count
+        if (rc != BB_OK) {
+            return respond_error(req, 500, "{\"error\":\"fill failed\"}");
+        }
+
+        void *arena = NULL;
+        if (row_count > 0) {
+            size_t elem_size = bb_diag_section_stream_elem_size(sec);
+            // Loud reject over a silent size_t multiply wrap -- same
+            // philosophy as the rest of this PR (no defensive row-count
+            // cap, but never trust an unchecked multiply into an
+            // allocation size).
+            if (elem_size != 0 && row_count > SIZE_MAX / elem_size) {
+                return respond_error(req, 500, "{\"error\":\"row count overflow\"}");
+            }
+            arena = bb_malloc_prefer_spiram(row_count * elem_size);
+            if (!arena) {
+                return respond_error(req, 500, "{\"error\":\"arena alloc failed\"}");
+            }
+        }
+
+        rc = sec->iter(dst, arena, row_count, &row_count, &fill_args);  // phase 2: fill
+        if (rc != BB_OK) {
+            bb_mem_free(arena);
+            return respond_error(req, 500, "{\"error\":\"fill failed\"}");
+        }
+
+        rc = bb_http_serialize_stream(req, sec->snap_desc, dst);
+        bb_mem_free(arena);
+        return rc;
+    }
+
+    char scratch[BB_DIAG_SECTION_SCRATCH_BYTES];
     rc = sec->fill(scratch, &fill_args);
     if (rc != BB_OK) {
         return respond_error(req, 500, "{\"error\":\"fill failed\"}");
