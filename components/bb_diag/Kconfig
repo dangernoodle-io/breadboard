@@ -58,4 +58,41 @@ config BB_DIAG_PANIC_TRIGGER
         hardware without physically rebooting the device. NEVER ship to
         production: any unauthenticated caller can crash the firmware.
 
+config BB_DIAG_SECTIONS
+    bool "Build the generic /api/diag/* section registry (wildcard dispatch)"
+    default y
+    help
+        When enabled, bb_diag_sections_init() registers a GET /api/diag/*
+        wildcard route dispatching to whichever section a caller has
+        registered via bb_diag_register_section(). Independent of
+        BB_DIAG_ROUTES (the legacy exact-route panic/coredump handlers) --
+        this registry is a separate, generic seam that will eventually
+        replace those handlers section by section. The portable registry
+        itself (bb_diag_register_section) always builds regardless of this
+        option; only the ESP-IDF wildcard-route dispatcher is gated.
+
+config BB_DIAG_SECTION_SCRATCH_BYTES
+    int "Shared render scratch buffer size (bytes)"
+    default 512
+    range 64 4096
+    depends on BB_DIAG_SECTIONS
+    help
+        Size of the stack buffer a dispatched /api/diag/<name> request
+        fills a section's snapshot into before rendering. Every
+        registered section's snap_desc->snap_size must fit within this
+        bound -- bb_diag_register_section() rejects (BB_ERR_NO_SPACE) any
+        section whose snapshot exceeds it, rather than truncating at
+        request time.
+
+config BB_DIAG_SECTION_QUERY_VALUE_BYTES
+    int "Per-query-param value buffer size (bytes)"
+    default 32
+    range 8 256
+    depends on BB_DIAG_SECTIONS
+    help
+        Size of the stack buffer used to hold one query-string value while
+        threading a section's declared query_keys through to its fill
+        hook. A value longer than this is truncated (same convention as
+        bb_http_req_query_key_value()).
+
 endmenu

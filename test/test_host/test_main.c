@@ -205,6 +205,36 @@ void test_bb_data_touch_null_key_returns_invalid_arg(void);
 void test_bb_data_generation_null_args_return_invalid_arg(void);
 void test_bb_data_render_null_args_return_invalid_arg(void);
 
+// Forward declarations from test_bb_diag_section.c
+void test_bb_diag_register_section_success(void);
+void test_bb_diag_register_section_null_section_returns_invalid_arg(void);
+void test_bb_diag_register_section_null_name_returns_invalid_arg(void);
+void test_bb_diag_register_section_null_snap_desc_returns_invalid_arg(void);
+void test_bb_diag_register_section_null_fill_returns_invalid_arg(void);
+void test_bb_diag_register_section_name_too_long_returns_invalid_arg(void);
+void test_bb_diag_register_section_name_max_boundary_ok(void);
+void test_bb_diag_register_section_too_many_query_keys_returns_invalid_arg(void);
+void test_bb_diag_register_section_null_query_keys_with_nonzero_count_returns_invalid_arg(void);
+void test_bb_diag_register_section_duplicate_name_returns_invalid_state(void);
+void test_bb_diag_register_section_table_full_returns_no_space(void);
+void test_bb_diag_register_section_duplicate_name_wins_over_table_full(void);
+void test_bb_diag_register_section_snap_size_exceeds_scratch_returns_no_space(void);
+void test_bb_diag_section_name_from_uri_extracts_name(void);
+void test_bb_diag_section_name_from_uri_wrong_prefix_returns_not_found(void);
+void test_bb_diag_section_name_from_uri_truncates_to_out_cap(void);
+void test_bb_diag_section_name_from_uri_null_args_return_invalid_arg(void);
+void test_bb_diag_section_find_null_name_returns_null(void);
+void test_bb_diag_section_find_unregistered_returns_null(void);
+void test_bb_diag_section_build_query_no_keys_sets_count_zero(void);
+void test_bb_diag_section_build_query_threads_found_value(void);
+void test_bb_diag_section_build_query_missing_key_omitted(void);
+void test_bb_diag_section_build_query_null_args_return_invalid_arg(void);
+void test_bb_diag_dispatch_hit_renders_json(void);
+void test_bb_diag_dispatch_miss_wrong_prefix_returns_not_found(void);
+void test_bb_diag_dispatch_miss_unregistered_name_returns_null(void);
+void test_bb_diag_dispatch_query_threading(void);
+void test_bb_diag_dispatch_fill_failure_propagates(void);
+
 // Forward declarations from test_bb_data_http.c
 void test_bb_data_http_init_idempotent(void);
 void test_bb_data_http_init_max_clients_over_cap_returns_invalid_arg(void);
@@ -9805,6 +9835,35 @@ int main(void) {
     RUN_TEST(test_bb_data_touch_null_key_returns_invalid_arg);
     RUN_TEST(test_bb_data_generation_null_args_return_invalid_arg);
     RUN_TEST(test_bb_data_render_null_args_return_invalid_arg);
+
+    RUN_TEST(test_bb_diag_register_section_success);
+    RUN_TEST(test_bb_diag_register_section_null_section_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_null_name_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_null_snap_desc_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_null_fill_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_name_too_long_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_name_max_boundary_ok);
+    RUN_TEST(test_bb_diag_register_section_too_many_query_keys_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_null_query_keys_with_nonzero_count_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_register_section_duplicate_name_returns_invalid_state);
+    RUN_TEST(test_bb_diag_register_section_table_full_returns_no_space);
+    RUN_TEST(test_bb_diag_register_section_duplicate_name_wins_over_table_full);
+    RUN_TEST(test_bb_diag_register_section_snap_size_exceeds_scratch_returns_no_space);
+    RUN_TEST(test_bb_diag_section_name_from_uri_extracts_name);
+    RUN_TEST(test_bb_diag_section_name_from_uri_wrong_prefix_returns_not_found);
+    RUN_TEST(test_bb_diag_section_name_from_uri_truncates_to_out_cap);
+    RUN_TEST(test_bb_diag_section_name_from_uri_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_diag_section_find_null_name_returns_null);
+    RUN_TEST(test_bb_diag_section_find_unregistered_returns_null);
+    RUN_TEST(test_bb_diag_section_build_query_no_keys_sets_count_zero);
+    RUN_TEST(test_bb_diag_section_build_query_threads_found_value);
+    RUN_TEST(test_bb_diag_section_build_query_missing_key_omitted);
+    RUN_TEST(test_bb_diag_section_build_query_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_diag_dispatch_hit_renders_json);
+    RUN_TEST(test_bb_diag_dispatch_miss_wrong_prefix_returns_not_found);
+    RUN_TEST(test_bb_diag_dispatch_miss_unregistered_name_returns_null);
+    RUN_TEST(test_bb_diag_dispatch_query_threading);
+    RUN_TEST(test_bb_diag_dispatch_fill_failure_propagates);
 
     RUN_TEST(test_bb_data_http_init_idempotent);
     RUN_TEST(test_bb_data_http_init_max_clients_over_cap_returns_invalid_arg);
