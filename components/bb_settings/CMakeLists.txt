@@ -9,7 +9,7 @@ idf_component_register(
 
 # bb_settings is a portable provider over bb_config (no ESP-IDF deps) --
 # compiles unchanged on host and ESP-IDF, filed under platform/host/ only,
-# mirroring bb_config and bb_dispatch_cmd.
+# mirroring bb_config.
 #
 # bb_storage is PRIV_REQUIRES: the pending-creds writers' .c uses
 # bb_config_staged_*() (atomic multi-field commit, now a bb_config

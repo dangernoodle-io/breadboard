@@ -9,7 +9,7 @@ idf_component_register(
 
 # bb_config is a portable typed layer over bb_storage (no ESP-IDF deps) --
 # compiles unchanged on host and ESP-IDF, filed under platform/host/ only,
-# mirroring bb_storage and bb_dispatch_cmd. bb_config_staged.c is a second TU
+# mirroring bb_storage. bb_config_staged.c is a second TU
 # in this component: a stateful staged-write session over the same typed
 # layer, reusing bb_config's own encode path -- it adds no dependency beyond
 # bb_storage/bb_core (its txn vtable already lives inside bb_storage), so it

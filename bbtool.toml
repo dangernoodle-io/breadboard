@@ -136,7 +136,7 @@ paths = []
 components = [
     "bb_attrs", "bb_board", "bb_bqueue", "bb_button",
     "bb_button_events", "bb_button_gpio", "bb_cache", "bb_cache_reactive", "bb_cache_serialize",
-    "bb_cache_routes", "bb_collection", "bb_config", "bb_core", "bb_data", "bb_data_http", "bb_diag", "bb_dispatch_cmd",
+    "bb_cache_routes", "bb_collection", "bb_config", "bb_core", "bb_data", "bb_data_http", "bb_diag",
     "bb_display",
     "bb_fan", "bb_filter", "bb_fmt", "bb_fsm", "bb_health", "bb_http",
     "bb_http_client", "bb_http_server", "bb_i2c", "bb_json",
@@ -213,7 +213,7 @@ components = [
     "bb_ws_server",
     "bb_registry", "bb_partition", "bb_task_registry", "bb_task",
     "bb_mem_arena", "bb_pool", "bb_udp_frame", "bb_udp_client",
-    "bb_dispatch_cmd", "bb_meminfo", "bb_timer", "bb_config",
+    "bb_meminfo", "bb_timer", "bb_config",
     "bb_storage_nvs", "bb_storage_http", "bb_storage_rtc", "bb_bqueue",
     "bb_fsm", "bb_lifecycle", "bb_tcp_client", "bb_serialize_console",
 ]

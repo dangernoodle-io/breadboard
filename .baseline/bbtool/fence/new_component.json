@@ -81,11 +81,6 @@
       "type": "component"
     },
     {
-      "id": "bb_dispatch_cmd",
-      "path": "components/bb_dispatch_cmd",
-      "type": "component"
-    },
-    {
       "id": "bb_display",
       "path": "components/bb_display",
       "type": "component"

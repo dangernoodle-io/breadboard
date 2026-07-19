@@ -1,7 +1,7 @@
 // bb_settings — default WiFi-credentials store backed by bb_config.
 //
 // Portable (no ESP-IDF deps): compiled on host and ESP-IDF, mirroring
-// bb_config and bb_dispatch_cmd. The field table below targets the SAME
+// bb_config. The field table below targets the SAME
 // NVS namespace/keys bb_nv_config already uses ("bb_cfg"/"wifi_ssid"/
 // "wifi_pass") -- see components/bb_settings/include/bb_settings.h for the
 // byte-compat rationale.
