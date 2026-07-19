@@ -31,6 +31,9 @@
 #include "bb_data_http.h"
 #include "bb_meminfo_heap_snap.h"
 #include "bb_system_snap.h"
+#include "bb_diag_section.h"
+#include "bb_diag_storage_nvs.h"
+#include "bb_diag_storage_partitions.h"
 #include "bb_serialize_json.h"
 #include "bb_log_event.h"
 #include "bb_log_event_wire.h"
@@ -81,31 +84,18 @@ static void heap_log_tick(void *arg)
     bb_serialize_console_heap_report("tick");
 }
 
-// bb_data egress buffer (JSON render) -- sized to provably exceed the
-// theoretical worst-case bb_serialize_json_bound() of any bound descriptor,
-// not a guessed constant. bb_serialize_json_bound() computed against this
-// branch's descriptors (11 uint64 leaves in bb_meminfo_heap_snap_desc, the
-// largest -- 20-digit-max per-integer worst case, 6x-per-char key/string
-// escape-expansion bound, plus structural punctuation) returns 2319 bytes;
-// every producer descriptor stays well under that. Every /api/diag/* route
-// and the /api/events broadcaster share this one constant, each call/sweep
-// owns its own stack buffer (no static/shared scratch, reentrant).
-// Rounded up generously over the 2319 worst case for headroom against a
-// future field addition.
-#define FLOOR_DIAG_RENDER_BUF_SIZE 2560
-
-// bb_data gather adapters: bb_data_gather_fn's signature is untyped
-// (void *dst, const bb_data_gather_args_t *args); each snap's own
-// _fill()/_gather() fn takes its typed pointer, so these thin shims are the
-// only cast needed. None of these three keys take request-scoped query
-// params yet -- args->query is ignored.
-static bb_err_t gather_meminfo(void *dst, const bb_data_gather_args_t *args)
+// bb_diag section fill adapters: bb_diag_fill_fn's signature is untyped
+// (void *dst, const bb_diag_fill_args_t *args); each snap's own _fill() fn
+// takes its typed pointer, so these thin shims are the only cast needed.
+// Neither "meminfo" nor "system" declares query_keys -- args->query is
+// always NULL for these two sections.
+static bb_err_t diag_fill_meminfo(void *dst, const bb_diag_fill_args_t *args)
 {
     (void)args;
     return bb_meminfo_heap_snap_fill((bb_meminfo_heap_snap_t *)dst);
 }
 
-static bb_err_t gather_system(void *dst, const bb_data_gather_args_t *args)
+static bb_err_t diag_fill_system(void *dst, const bb_diag_fill_args_t *args)
 {
     (void)args;
     return bb_system_snap_fill((bb_system_snap_t *)dst);
@@ -119,47 +109,6 @@ static bb_err_t gather_log(void *dst, const bb_data_gather_args_t *args)
 {
     (void)args;
     return bb_log_event_gather((bb_log_event_wire_t *)dst);
-}
-
-// Common render+respond body for a /api/diag/* handler: renders `key` via
-// bb_data_render() into the caller's `scratch`/`buf`, then finishes the HTTP
-// response. Content-Type is set on BOTH the success and the 500 paths (the
-// 500 branch's JSON error body needs it too -- bb_http_resp_sendstr() itself
-// does not set Content-Type).
-static bb_err_t floor_diag_render(bb_http_request_t *req, const char *key,
-                                   void *scratch, size_t scratch_cap)
-{
-    char   buf[FLOOR_DIAG_RENDER_BUF_SIZE];
-    size_t len = 0;
-
-    bb_data_render_req_t render_req = {
-        .fmt = BB_FORMAT_JSON, .key = key, .query = NULL,
-        .scratch = scratch, .scratch_cap = scratch_cap,
-        .buf = buf, .buf_cap = sizeof(buf), .out_len = &len,
-    };
-    bb_err_t rc = bb_data_render(&render_req);
-    bb_http_resp_set_type(req, "application/json");
-    if (rc != BB_OK) {
-        bb_http_resp_set_status(req, 500);
-        return bb_http_resp_sendstr(req, "{\"error\":\"render failed\"}");
-    }
-    return bb_http_resp_sendstr(req, buf);
-}
-
-// GET /api/diag/meminfo -- fresh render every request (no cache): gather ->
-// bb_data_render() -> JSON bytes, via the shared floor_diag_render() helper.
-static bb_err_t meminfo_get_handler(bb_http_request_t *req)
-{
-    bb_meminfo_heap_snap_t scratch;
-    return floor_diag_render(req, "diag.meminfo", &scratch, sizeof(scratch));
-}
-
-// GET /api/diag/system -- same shape as meminfo_get_handler, over the
-// bb_system snapshot.
-static bb_err_t system_get_handler(bb_http_request_t *req)
-{
-    bb_system_snap_t scratch;
-    return floor_diag_render(req, "diag.system", &scratch, sizeof(scratch));
 }
 
 // GET /api/events?topic=<key> -- the bb_data_http broadcaster route (B1-1045
@@ -201,15 +150,16 @@ static void http_lifecycle_observer(const bb_lifecycle_event_t *evt, void *user)
             // variant -- deliberate: floor has no bb_openapi dependency and
             // must not gain one (it's the minimal measurement rig), so these
             // routes are intentionally absent from the OpenAPI spec walk.
-            bb_err_t route_err = bb_http_register_route(
-                server, BB_HTTP_GET, "/api/diag/meminfo", meminfo_get_handler);
+            // PR11 (B1-diag-dissolution): register the GET /api/diag/*
+            // wildcard dispatcher -- this DOES need the server handle, so it
+            // stays here on the RUNNING-entry edge. The four sections it
+            // serves are registered once, composition-time, in app_main()
+            // (they write to bb_diag's global section table, no server
+            // handle needed, and this observer branch re-fires on every
+            // pause/resume, which would otherwise reject them as dupes).
+            bb_err_t route_err = bb_diag_sections_init(server);
             if (route_err != BB_OK) {
-                bb_log_w(TAG, "route /api/diag/meminfo failed (%d)", (int)route_err);
-            }
-            route_err = bb_http_register_route(
-                server, BB_HTTP_GET, "/api/diag/system", system_get_handler);
-            if (route_err != BB_OK) {
-                bb_log_w(TAG, "route /api/diag/system failed (%d)", (int)route_err);
+                bb_log_w(TAG, "diag_sections_init failed (%d)", (int)route_err);
             }
             // B1-1045: start the bb_data_http broadcaster task (idempotent)
             // and serve /api/events off it now that the server is up.
@@ -298,17 +248,32 @@ void app_main(void)
     if (err != BB_OK) {
         bb_log_w(TAG, "serialize_json_register_format failed (%d)", (int)err);
     }
-    err = bb_data_bind(&(bb_data_binding_t){
-        .key = "diag.meminfo", .desc = &bb_meminfo_heap_snap_desc,
-        .gather = gather_meminfo, .ctx = NULL });
+
+    // bb_diag sections: composition-time-only, once -- these write to
+    // bb_diag's global section table (reject-on-duplicate) and need no
+    // server handle, so they belong here rather than in the "http" service's
+    // RUNNING-entry observer branch (which re-fires on every pause/resume).
+    // The /api/diag/* route dispatch itself (bb_diag_sections_init(), which
+    // DOES need the server handle) stays in http_lifecycle_observer.
+    err = bb_diag_register_section(&(bb_diag_section_t){
+        .name = "meminfo", .desc = "heap memory snapshot",
+        .snap_desc = &bb_meminfo_heap_snap_desc, .fill = diag_fill_meminfo });
     if (err != BB_OK) {
-        bb_log_w(TAG, "data_bind(diag.meminfo) failed (%d)", (int)err);
+        bb_log_w(TAG, "diag_register_section(meminfo) failed (%d)", (int)err);
     }
-    err = bb_data_bind(&(bb_data_binding_t){
-        .key = "diag.system", .desc = &bb_system_snap_desc,
-        .gather = gather_system, .ctx = NULL });
+    err = bb_diag_register_section(&(bb_diag_section_t){
+        .name = "system", .desc = "system info snapshot",
+        .snap_desc = &bb_system_snap_desc, .fill = diag_fill_system });
     if (err != BB_OK) {
-        bb_log_w(TAG, "data_bind(diag.system) failed (%d)", (int)err);
+        bb_log_w(TAG, "diag_register_section(system) failed (%d)", (int)err);
+    }
+    err = bb_diag_storage_nvs_register();
+    if (err != BB_OK) {
+        bb_log_w(TAG, "diag_storage_nvs_register failed (%d)", (int)err);
+    }
+    err = bb_diag_storage_partitions_register();
+    if (err != BB_OK) {
+        bb_log_w(TAG, "diag_storage_partitions_register failed (%d)", (int)err);
     }
 
     // B1-1045 PR-4: bind the "log" dissolved-bb_event producer key. Its
@@ -341,25 +306,6 @@ void app_main(void)
         if (err != BB_OK) {
             bb_log_w(TAG, "data_http_attach(%s) failed (%d)", producers[i].key, (int)err);
         }
-    }
-
-    // Composition-time guard: bb_serialize_json_bound() is the true
-    // worst-case byte count for rendering each bound descriptor as JSON --
-    // verify both /api/diag/* descriptors stay within FLOOR_DIAG_RENDER_BUF_SIZE
-    // here, once, rather than discovering a future field addition via a
-    // silent BB_ERR_NO_SPACE truncation on real hardware. Not a hard assert
-    // (a device-side over-bound is a code defect, not a runtime condition
-    // worth crashing boot over) -- log an error loudly enough to be
-    // unmissable in CI/bench boot output.
-    size_t meminfo_bound = bb_serialize_json_bound(&bb_meminfo_heap_snap_desc);
-    if (meminfo_bound > FLOOR_DIAG_RENDER_BUF_SIZE) {
-        bb_log_e(TAG, "diag.meminfo worst-case JSON (%zu) exceeds FLOOR_DIAG_RENDER_BUF_SIZE (%d)",
-                 meminfo_bound, FLOOR_DIAG_RENDER_BUF_SIZE);
-    }
-    size_t system_bound = bb_serialize_json_bound(&bb_system_snap_desc);
-    if (system_bound > FLOOR_DIAG_RENDER_BUF_SIZE) {
-        bb_log_e(TAG, "diag.system worst-case JSON (%zu) exceeds FLOOR_DIAG_RENDER_BUF_SIZE (%d)",
-                 system_bound, FLOOR_DIAG_RENDER_BUF_SIZE);
     }
 
     // Now safe: the "wifi" lifecycle service is registered/started and

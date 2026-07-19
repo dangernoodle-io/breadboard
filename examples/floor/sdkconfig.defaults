@@ -17,3 +17,8 @@ CONFIG_BB_LOG_UDP_SINK=n
 # Free size win: smallest floor, not fastest.
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 CONFIG_NEWLIB_NANO_FORMAT=y
+
+# INTERIM scaffold (B1-1077): bb_diag dispatcher needs ~7.5KB stack
+# (storage/nvs worst-case); right-size or move buffers to heap once the
+# full /api/diag surface is migrated + measured.
+CONFIG_BB_HTTP_TASK_STACK_SIZE=16384
