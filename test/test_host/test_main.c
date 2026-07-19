@@ -2468,6 +2468,23 @@ void test_bb_str_kv_parse_double_comma_is_skipped(void);
 void test_bb_str_kv_parse_key_and_value_with_internal_spaces(void);
 void test_bb_str_kv_parse_last_pair_with_no_trailing_comma(void);
 void test_bb_str_kv_parse_value_at_string_end_no_delimiters(void);
+void test_bb_str_hex_to_bytes_null_returns_zero(void);
+void test_bb_str_hex_to_bytes_empty_string_returns_zero(void);
+void test_bb_str_hex_to_bytes_basic(void);
+void test_bb_str_hex_to_bytes_uppercase(void);
+void test_bb_str_hex_to_bytes_odd_length_drops_dangling_nibble(void);
+void test_bb_str_hex_to_bytes_invalid_char_stops_at_prefix(void);
+void test_bb_str_hex_to_bytes_invalid_char_in_second_nibble_stops(void);
+void test_bb_str_hex_to_bytes_max_out_truncates(void);
+void test_bb_str_hex_to_bytes_max_out_zero_writes_nothing(void);
+void test_bb_str_bytes_to_hex_basic(void);
+void test_bb_str_bytes_to_hex_is_lowercase(void);
+void test_bb_str_bytes_to_hex_zero_len(void);
+void test_bb_str_bytes_to_hex_cap_zero_writes_nothing(void);
+void test_bb_str_bytes_to_hex_cap_one_writes_only_nul(void);
+void test_bb_str_bytes_to_hex_cap_truncates_to_whole_pairs(void);
+void test_bb_str_hex_bytes_roundtrip_varied_lengths(void);
+void test_bb_str_hex_bytes_roundtrip_zero_length(void);
 
 // Forward declarations from test_bb_scalar.c
 void test_bb_scalar_parse_bool_table_driven(void);
@@ -2514,6 +2531,13 @@ void test_bb_num_i64_to_dec_int64_max(void);
 void test_bb_num_i64_to_dec_zero_cap_is_noop(void);
 void test_bb_num_i64_to_dec_negative_cap_one_writes_only_nul(void);
 void test_bb_num_i64_to_dec_negative_truncates_to_sign_only(void);
+void test_bb_num_bswap32_known_vector(void);
+void test_bb_num_bswap32_zero(void);
+void test_bb_num_bswap32_all_ones(void);
+void test_bb_num_bswap32_words_stratum_prevhash_sample(void);
+void test_bb_num_bswap32_words_single_group(void);
+void test_bb_num_bswap32_words_zero_len_is_noop(void);
+void test_bb_num_bswap32_words_non_multiple_of_4_leaves_trailing_bytes_untouched(void);
 
 // Forward declarations from test_bb_fmt.c
 void test_bb_fmt_hex_zero_nbytes_returns_zero_and_terminates(void);
@@ -6702,6 +6726,23 @@ int main(void) {
     RUN_TEST(test_bb_str_kv_parse_key_and_value_with_internal_spaces);
     RUN_TEST(test_bb_str_kv_parse_last_pair_with_no_trailing_comma);
     RUN_TEST(test_bb_str_kv_parse_value_at_string_end_no_delimiters);
+    RUN_TEST(test_bb_str_hex_to_bytes_null_returns_zero);
+    RUN_TEST(test_bb_str_hex_to_bytes_empty_string_returns_zero);
+    RUN_TEST(test_bb_str_hex_to_bytes_basic);
+    RUN_TEST(test_bb_str_hex_to_bytes_uppercase);
+    RUN_TEST(test_bb_str_hex_to_bytes_odd_length_drops_dangling_nibble);
+    RUN_TEST(test_bb_str_hex_to_bytes_invalid_char_stops_at_prefix);
+    RUN_TEST(test_bb_str_hex_to_bytes_invalid_char_in_second_nibble_stops);
+    RUN_TEST(test_bb_str_hex_to_bytes_max_out_truncates);
+    RUN_TEST(test_bb_str_hex_to_bytes_max_out_zero_writes_nothing);
+    RUN_TEST(test_bb_str_bytes_to_hex_basic);
+    RUN_TEST(test_bb_str_bytes_to_hex_is_lowercase);
+    RUN_TEST(test_bb_str_bytes_to_hex_zero_len);
+    RUN_TEST(test_bb_str_bytes_to_hex_cap_zero_writes_nothing);
+    RUN_TEST(test_bb_str_bytes_to_hex_cap_one_writes_only_nul);
+    RUN_TEST(test_bb_str_bytes_to_hex_cap_truncates_to_whole_pairs);
+    RUN_TEST(test_bb_str_hex_bytes_roundtrip_varied_lengths);
+    RUN_TEST(test_bb_str_hex_bytes_roundtrip_zero_length);
 
     // bb_scalar tests
     RUN_TEST(test_bb_scalar_parse_bool_table_driven);
@@ -6748,6 +6789,13 @@ int main(void) {
     RUN_TEST(test_bb_num_i64_to_dec_zero_cap_is_noop);
     RUN_TEST(test_bb_num_i64_to_dec_negative_cap_one_writes_only_nul);
     RUN_TEST(test_bb_num_i64_to_dec_negative_truncates_to_sign_only);
+    RUN_TEST(test_bb_num_bswap32_known_vector);
+    RUN_TEST(test_bb_num_bswap32_zero);
+    RUN_TEST(test_bb_num_bswap32_all_ones);
+    RUN_TEST(test_bb_num_bswap32_words_stratum_prevhash_sample);
+    RUN_TEST(test_bb_num_bswap32_words_single_group);
+    RUN_TEST(test_bb_num_bswap32_words_zero_len_is_noop);
+    RUN_TEST(test_bb_num_bswap32_words_non_multiple_of_4_leaves_trailing_bytes_untouched);
 
     // bb_fmt tests
     RUN_TEST(test_bb_fmt_hex_zero_nbytes_returns_zero_and_terminates);

@@ -5,6 +5,11 @@
 // Pure C, no ESP-IDF or platform dependencies. Compiled identically on host
 // and ESP-IDF (mirrors the bb_str shape: single implementation under
 // platform/host/bb_num/, no espidf-specific variant needed).
+//
+/**
+ * @brief Portable numeric helpers: clamp, decimal formatting, and 32-bit
+ * byte-order (bswap) primitives. Pure C, no heap.
+ */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -53,6 +58,23 @@ size_t bb_num_u64_to_dec(char *buf, size_t cap, uint64_t v);
 // bb_num_u64_to_dec() -- `buf` is always NUL-terminated for any `cap > 0`,
 // even when there is only room for the sign or nothing at all.
 size_t bb_num_i64_to_dec(char *buf, size_t cap, int64_t v);
+
+// bb_num_bswap32 / bb_num_bswap32_words — raw-value / in-place byte-order
+// REVERSAL helpers. These are distinct from bb_core/bb_byte_order.h's
+// alignment-safe TYPED endian load/store (bb_load_be32/bb_store_le32/etc):
+// use the bb_byte_order.h helpers when reading/writing a typed value from a
+// byte buffer; use these when reversing an already-in-hand register value,
+// or reversing a buffer's bytes in place.
+
+// bb_num_bswap32 — reverse the byte order of a 32-bit word (e.g. big-endian
+// <-> little-endian conversion for a single word).
+uint32_t bb_num_bswap32(uint32_t v);
+
+// bb_num_bswap32_words — reverse the byte order of EACH consecutive 4-byte
+// group in `buf`, in place (e.g. per-word endian conversion of a stratum
+// prevhash, NOT a whole-buffer reversal). `len` must be a multiple of 4;
+// any remainder bytes past the last full 4-byte group are left untouched.
+void bb_num_bswap32_words(uint8_t *buf, size_t len);
 
 #ifdef __cplusplus
 }

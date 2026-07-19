@@ -23,7 +23,7 @@ Public symbols use the `bb_` prefix.
 | `bb_log` | private | — | [bb_log](../README.md) |
 | `bb_queue` | public | — | [bb_queue](../README.md) |
 | `bb_registry` | private | — | [bb_registry](../README.md) |
-| `bb_str` | private | — | [bb_str](../README.md) |
+| `bb_str` | private | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. | [bb_str](../bb_str/README.md) |
 | `bb_task` | private | — | [bb_task](../README.md) |
 | `freertos` | private | — | freertos |
 | `lwip` | private | — | lwip |

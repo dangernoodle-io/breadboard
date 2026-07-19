@@ -51,7 +51,7 @@ component's forwarder task.
 | `bb_log` | public | — | [bb_log](../README.md) |
 | `bb_openapi` | public | — | [bb_openapi](../README.md) |
 | `bb_serialize` | public | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
-| `bb_str` | private | — | [bb_str](../README.md) |
+| `bb_str` | private | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. | [bb_str](../bb_str/README.md) |
 | `bb_task` | public | — | [bb_task](../README.md) |
 <!-- END bbtool:deps -->
 

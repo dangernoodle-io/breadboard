@@ -66,7 +66,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_mqtt_client](./bb_mqtt_client/) | — |
 | [bb_mqtt_info](./bb_mqtt_info/) | — |
 | [bb_ntp](./bb_ntp/) | — |
-| [bb_num](./bb_num/) | — |
+| [bb_num](./bb_num/) | Portable numeric helpers: clamp, decimal formatting, and 32-bit byte-order (bswap) primitives. Pure C, no heap. |
 | [bb_openapi](./bb_openapi/) | — |
 | [bb_ota_boot](./bb_ota_boot/) | — |
 | [bb_ota_check](./bb_ota_check/) | — |
@@ -97,7 +97,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_storage_nvs](./bb_storage_nvs/) | ESP-IDF NVS backend for `bb_storage`. |
 | [bb_storage_ram](./bb_storage_ram/) | In-memory `bb_storage` backend — the reference implementation, a fixed-capacity key/value table with no heap allocation. |
 | [bb_storage_rtc](./bb_storage_rtc/) | Warm-reboot RTC-mirror `bb_storage` backend for WiFi credentials. |
-| [bb_str](./bb_str/) | — |
+| [bb_str](./bb_str/) | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. Pure C, no heap. |
 | [bb_system](./bb_system/) | — |
 | [bb_task](./bb_task/) | — |
 | [bb_task_registry](./bb_task_registry/) | — |
