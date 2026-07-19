@@ -371,3 +371,197 @@ void test_dispatch_api_high_watermark_warn(void)
     }
     TEST_ASSERT_EQUAL(BB_DISPATCH_API_CAP, (int)bb_dispatch_api_count());
 }
+
+/* ---------------------------------------------------------------------------
+ * Wildcard routing — scoped-prefix dispatch
+ * ---------------------------------------------------------------------------*/
+
+/* Exact wins over a same-prefix wildcard — wildcard registered FIRST. */
+void test_dispatch_api_exact_wins_over_wildcard_wildcard_first(void)
+{
+    bb_dispatch_api_reset();
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_other));
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/x/y", handler_get_x));
+
+    bb_http_handler_fn out = NULL;
+    bb_dispatch_api_result_t res =
+        bb_dispatch_api_lookup(BB_HTTP_GET, "/api/x/y", &out);
+
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_HIT, res);
+    TEST_ASSERT_EQUAL_PTR(handler_get_x, out);
+}
+
+/* Exact wins over a same-prefix wildcard — exact registered FIRST. */
+void test_dispatch_api_exact_wins_over_wildcard_exact_first(void)
+{
+    bb_dispatch_api_reset();
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/x/y", handler_get_x));
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_other));
+
+    bb_http_handler_fn out = NULL;
+    bb_dispatch_api_result_t res =
+        bb_dispatch_api_lookup(BB_HTTP_GET, "/api/x/y", &out);
+
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_HIT, res);
+    TEST_ASSERT_EQUAL_PTR(handler_get_x, out);
+}
+
+/* Longest-prefix wins across two registered wildcards. */
+void test_dispatch_api_wildcard_longest_prefix_wins(void)
+{
+    bb_dispatch_api_reset();
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_get_x));
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/x/y/*", handler_other));
+
+    bb_http_handler_fn out = NULL;
+    bb_dispatch_api_result_t res =
+        bb_dispatch_api_lookup(BB_HTTP_GET, "/api/x/y/z", &out);
+
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_HIT, res);
+    TEST_ASSERT_EQUAL_PTR(handler_other, out);
+}
+
+/* Longest-prefix wins regardless of registration order (broader added last). */
+void test_dispatch_api_wildcard_longest_prefix_wins_reverse_order(void)
+{
+    bb_dispatch_api_reset();
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/x/y/*", handler_other));
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_get_x));
+
+    bb_http_handler_fn out = NULL;
+    bb_dispatch_api_result_t res =
+        bb_dispatch_api_lookup(BB_HTTP_GET, "/api/x/y/z", &out);
+
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_HIT, res);
+    TEST_ASSERT_EQUAL_PTR(handler_other, out);
+}
+
+/* Wildcard MISS: uri doesn't match any registered prefix -> 404 path. */
+void test_dispatch_api_wildcard_miss(void)
+{
+    bb_dispatch_api_reset();
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_get_x));
+
+    bb_http_handler_fn out = NULL;
+    bb_dispatch_api_result_t res =
+        bb_dispatch_api_lookup(BB_HTTP_GET, "/api/z/y", &out);
+
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_MISS, res);
+    TEST_ASSERT_NULL(out);
+}
+
+/* Wildcard prefix hit but wrong method -> METHOD_MISMATCH (405 path). */
+void test_dispatch_api_wildcard_method_mismatch(void)
+{
+    bb_dispatch_api_reset();
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_get_x));
+
+    bb_http_handler_fn out = NULL;
+    bb_dispatch_api_result_t res =
+        bb_dispatch_api_lookup(BB_HTTP_POST, "/api/x/y", &out);
+
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_METHOD_MISMATCH, res);
+    TEST_ASSERT_NULL(out);
+}
+
+/* Exact-path-but-method-mismatch still returns METHOD_MISMATCH even when a
+ * broader wildcard would have matched — the exact route claims the path. */
+void test_dispatch_api_exact_method_mismatch_not_rescued_by_wildcard(void)
+{
+    bb_dispatch_api_reset();
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_POST, "/api/x/y", handler_get_x));
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_other));
+
+    bb_http_handler_fn out = NULL;
+    bb_dispatch_api_result_t res =
+        bb_dispatch_api_lookup(BB_HTTP_GET, "/api/x/y", &out);
+
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_METHOD_MISMATCH, res);
+    TEST_ASSERT_NULL(out);
+}
+
+/* Regression: every existing exact /api/* route still resolves correctly
+ * with a wildcard entry also present. */
+void test_dispatch_api_exact_routes_unaffected_by_wildcard_presence(void)
+{
+    bb_dispatch_api_reset();
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/a", handler_get_x));
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_POST, "/api/b", handler_post_x));
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/wild/*", handler_other));
+
+    bb_http_handler_fn out_a = NULL;
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_HIT,
+        bb_dispatch_api_lookup(BB_HTTP_GET, "/api/a", &out_a));
+    TEST_ASSERT_EQUAL_PTR(handler_get_x, out_a);
+
+    bb_http_handler_fn out_b = NULL;
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_HIT,
+        bb_dispatch_api_lookup(BB_HTTP_POST, "/api/b", &out_b));
+    TEST_ASSERT_EQUAL_PTR(handler_post_x, out_b);
+
+    bb_http_handler_fn out_wild = NULL;
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_HIT,
+        bb_dispatch_api_lookup(BB_HTTP_GET, "/api/wild/anything", &out_wild));
+    TEST_ASSERT_EQUAL_PTR(handler_other, out_wild);
+}
+
+/* Tie-break on equal prefix_len between two same-path wildcards registered
+ * under different methods (allowed — dup-detection only rejects identical
+ * (method,path) pairs, see test_dispatch_api_dup_different_method_same_path_
+ * both_kept). Exercises the `>` (not `>=`) tie-break in Pass 2: the
+ * first-registered wildcard wins the tie even though a later, method-correct
+ * wildcard registered at the same prefix would otherwise satisfy the
+ * request — first registration wins, documented behavior. */
+void test_dispatch_api_wildcard_tie_break_first_registered_wins(void)
+{
+    bb_dispatch_api_reset();
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_get_x));
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_POST, "/api/x/*", handler_post_x));
+    TEST_ASSERT_EQUAL(2, (int)bb_dispatch_api_count());
+
+    /* GET matches the first-registered entry directly -> HIT. */
+    bb_http_handler_fn out_get = NULL;
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_HIT,
+        bb_dispatch_api_lookup(BB_HTTP_GET, "/api/x/y", &out_get));
+    TEST_ASSERT_EQUAL_PTR(handler_get_x, out_get);
+
+    /* POST: the tie-break keeps the first-registered (GET) entry as "best"
+     * since the POST entry's equal prefix_len does not beat it (`>`, not
+     * `>=`), so the correctly-matching POST wildcard is never considered —
+     * METHOD_MISMATCH, not HIT. */
+    bb_http_handler_fn out_post = NULL;
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_METHOD_MISMATCH,
+        bb_dispatch_api_lookup(BB_HTTP_POST, "/api/x/y", &out_post));
+    TEST_ASSERT_NULL(out_post);
+}
+
+/* Duplicate wildcard pattern (same method,path) is rejected the same way as
+ * an exact duplicate. */
+void test_dispatch_api_dup_wildcard_pattern_dropped(void)
+{
+    bb_dispatch_api_reset();
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_get_x));
+    TEST_ASSERT_EQUAL(1, (int)bb_dispatch_api_count());
+
+    bb_err_t err = bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_other);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    TEST_ASSERT_EQUAL(1, (int)bb_dispatch_api_count());
+}

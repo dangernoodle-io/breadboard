@@ -48,6 +48,9 @@ typedef struct {
     // injected raw query string for multi-param tests (not owned; caller ensures lifetime)
     // e.g. "schema&format=json" — parsed on demand by bb_http_req_query_key_value
     const char        *query_string;
+    // injected request URI (not owned; caller ensures lifetime); consulted by
+    // bb_http_req_uri
+    const char        *req_uri;
     // captured CORS headers (for test assertions)
     bool               has_acao;  // Access-Control-Allow-Origin was set
     bool               has_acapn; // Access-Control-Allow-Private-Network was set
@@ -330,6 +333,17 @@ int bb_http_req_sockfd(bb_http_request_t *req)
     return -1;
 }
 
+bb_err_t bb_http_req_uri(bb_http_request_t *req, char *out, size_t out_cap)
+{
+    if (!req || !out || out_cap == 0) return BB_ERR_INVALID_ARG;
+    capture_slot_t *cap = capture_find(req);
+
+    const char *uri = (cap && cap->req_uri) ? cap->req_uri : "";
+
+    // Strip query string, matching the ESP-IDF backend's contract.
+    return bb_http_uri_strip_query_copy(uri, out, out_cap);
+}
+
 bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,
                                      char *out, size_t out_len)
 {
@@ -457,6 +471,7 @@ void bb_http_host_capture_begin(bb_http_request_t **out_req)
     s_cap.query_key    = NULL;
     s_cap.query_val    = NULL;
     s_cap.query_string = NULL;
+    s_cap.req_uri      = NULL;
     s_cap.has_acao     = false;
     s_cap.has_acapn    = false;
     memset(s_cap.content_type, 0, sizeof(s_cap.content_type));
@@ -478,6 +493,11 @@ void bb_http_host_capture_set_query_param(const char *key, const char *val)
 void bb_http_host_capture_set_query_string(const char *query_string)
 {
     s_cap.query_string = query_string;
+}
+
+void bb_http_host_capture_set_req_uri(const char *uri)
+{
+    s_cap.req_uri = uri;
 }
 
 bb_err_t bb_http_host_capture_end(bb_http_request_t *req,
@@ -587,11 +607,17 @@ bb_err_t bb_http_resp_json_arr_emit(bb_http_json_stream_t *stream,
 
     bb_json_t cloned = bb_json_parse(json_str, 0);
     bb_json_free_str(json_str);
+    // LCOV_EXCL_START — json_str is host cJSON's own PrintUnformatted output
+    // of a valid tree, which cJSON_Parse always round-trips successfully; no
+    // host fault-injection hook exists for bb_json_parse (unlike
+    // bb_json_serialize's bb_json_host_force_serialize_fail_after), so this
+    // fallback is unreachable from the host harness.
     if (!cloned) {
         // Parse failed; append null
         bb_json_arr_append_string(arr, "null");
         return BB_OK;
     }
+    // LCOV_EXCL_STOP
 
     bb_json_arr_append_obj(arr, cloned);
     return BB_OK;

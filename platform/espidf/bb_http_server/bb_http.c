@@ -720,6 +720,17 @@ int bb_http_req_sockfd(bb_http_request_t *req)
     return httpd_req_to_sockfd(http_req);
 }
 
+bb_err_t bb_http_req_uri(bb_http_request_t *req, char *out, size_t out_cap)
+{
+    httpd_req_t *http_req = (httpd_req_t *)req;
+    if (!http_req || !out || out_cap == 0) return BB_ERR_INVALID_ARG;
+
+    // req->uri holds the path (plus any query string) — strip the query
+    // string to match the dispatch-lookup contract (mirrors
+    // api_dispatch_handler's own stripping).
+    return bb_http_uri_strip_query_copy(http_req->uri, out, out_cap);
+}
+
 bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,
                                      char *out, size_t out_len)
 {

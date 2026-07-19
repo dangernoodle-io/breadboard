@@ -1,6 +1,7 @@
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_log.h"
+#include "bb_str.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -186,6 +187,8 @@ typedef struct {
     bb_http_method_t  method;
     const char       *path;
     bb_http_handler_fn handler;
+    bool               is_wildcard;  // path's last byte is '*' at add time
+    size_t             prefix_len;   // strlen(path)-1 when is_wildcard; unused otherwise
 } bb_dispatch_api_entry_t;
 
 // File-scope state — no heap, no ESP, s_ prefix per house rules
@@ -228,9 +231,14 @@ bb_err_t bb_dispatch_api_add(bb_http_method_t method, const char *path,
         }
     }
 
-    s_dispatch[s_dispatch_count].method  = method;
-    s_dispatch[s_dispatch_count].path    = path;
-    s_dispatch[s_dispatch_count].handler = handler;
+    size_t plen = path ? strlen(path) : 0;
+    bool   is_wildcard = plen > 0 && path[plen - 1] == '*';
+
+    s_dispatch[s_dispatch_count].method      = method;
+    s_dispatch[s_dispatch_count].path        = path;
+    s_dispatch[s_dispatch_count].handler     = handler;
+    s_dispatch[s_dispatch_count].is_wildcard = is_wildcard;
+    s_dispatch[s_dispatch_count].prefix_len  = is_wildcard ? plen - 1 : 0;
     s_dispatch_count++;
 
     // High-watermark warn: fire once when count crosses CAP-8.
@@ -244,6 +252,15 @@ bb_err_t bb_dispatch_api_add(bb_http_method_t method, const char *path,
     return BB_OK;
 }
 
+// Two-pass, order-independent lookup:
+//   Pass 1 (exact entries only): an exact path match always wins, regardless
+//   of registration order relative to any wildcard entry. A path match with a
+//   mismatched method is remembered — an exact route claims its path even
+//   under a method mismatch, so a wildcard must never rescue it.
+//   Pass 2 (wildcard entries, only run when pass 1 found no exact PATH
+//   match): among wildcard entries whose prefix matches uri, the longest
+//   matching prefix wins (most-specific route). Method match on that entry
+//   is a HIT; mismatch is METHOD_MISMATCH; no wildcard prefix match is MISS.
 bb_dispatch_api_result_t bb_dispatch_api_lookup(bb_http_method_t method,
                                                 const char *uri,
                                                 bb_http_handler_fn *out_handler)
@@ -258,9 +275,15 @@ bb_dispatch_api_result_t bb_dispatch_api_lookup(bb_http_method_t method,
         path_len++;
     }
 
-    bool path_matched = false;
+    // -------------------------------------------------------------------
+    // Pass 1: exact entries only.
+    // -------------------------------------------------------------------
+    bool exact_path_matched = false;
 
     for (size_t i = 0; i < s_dispatch_count; i++) {
+        if (s_dispatch[i].is_wildcard) {
+            continue;
+        }
         const char *entry_path = s_dispatch[i].path;
         if (entry_path == NULL) {
             continue;
@@ -276,7 +299,7 @@ bb_dispatch_api_result_t bb_dispatch_api_lookup(bb_http_method_t method,
         }
 
         // Path matches.
-        path_matched = true;
+        exact_path_matched = true;
 
         if (s_dispatch[i].method == method) {
             *out_handler = s_dispatch[i].handler;
@@ -284,10 +307,72 @@ bb_dispatch_api_result_t bb_dispatch_api_lookup(bb_http_method_t method,
         }
     }
 
-    return path_matched ? BB_DISPATCH_API_METHOD_MISMATCH : BB_DISPATCH_API_MISS;
+    if (exact_path_matched) {
+        // An exact route claims this path; a wildcard must not rescue it.
+        return BB_DISPATCH_API_METHOD_MISMATCH;
+    }
+
+    // -------------------------------------------------------------------
+    // Pass 2: wildcard entries — longest matching prefix wins.
+    // -------------------------------------------------------------------
+    size_t best_prefix_len = 0;
+    bool   best_found      = false;
+    bool   best_method_ok  = false;
+    bb_http_handler_fn best_handler = NULL;
+
+    for (size_t i = 0; i < s_dispatch_count; i++) {
+        if (!s_dispatch[i].is_wildcard) {
+            continue;
+        }
+        // entry_path is guaranteed non-NULL here: is_wildcard is only ever
+        // set true when path is non-NULL and ends in '*' (see
+        // bb_dispatch_api_add), so a NULL-path entry always has
+        // is_wildcard == false and is filtered out by the check above.
+        const char *entry_path = s_dispatch[i].path;
+        if (!uri_pattern_match(entry_path, uri)) {
+            continue;
+        }
+
+        // Longest prefix wins; ties keep the first-found (registration order).
+        if (!best_found || s_dispatch[i].prefix_len > best_prefix_len) {
+            best_found      = true;
+            best_prefix_len = s_dispatch[i].prefix_len;
+            best_method_ok  = (s_dispatch[i].method == method);
+            best_handler    = s_dispatch[i].handler;
+        }
+    }
+
+    if (!best_found) {
+        return BB_DISPATCH_API_MISS;
+    }
+    if (!best_method_ok) {
+        return BB_DISPATCH_API_METHOD_MISMATCH;
+    }
+
+    *out_handler = best_handler;
+    return BB_DISPATCH_API_HIT;
 }
 
 size_t bb_dispatch_api_count(void)
 {
     return s_dispatch_count;
+}
+
+// ---------------------------------------------------------------------------
+// Shared bb_http_req_uri() helper — strip query string, truncate-copy path
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_http_uri_strip_query_copy(const char *uri, char *out, size_t out_cap)
+{
+    if (!uri || !out || out_cap == 0) return BB_ERR_INVALID_ARG;
+
+    const char *q = strchr(uri, '?');
+    size_t path_len = q ? (size_t)(q - uri) : strlen(uri);
+    size_t copy_len = path_len < out_cap ? path_len : out_cap - 1;
+
+    // bb_strlcpy copies from a NUL-terminated src; uri may have a query
+    // string beyond path_len, so bound the copy via out_cap and NUL it at
+    // copy_len ourselves rather than relying on bb_strlcpy's own strlen(src).
+    bb_strlcpy(out, uri, copy_len + 1);
+    return BB_OK;
 }

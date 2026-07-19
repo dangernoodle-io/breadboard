@@ -93,13 +93,30 @@ void bb_dispatch_api_reset(void);
 // path must have static/registry-lifetime storage duration — the table
 // stores the raw pointer, not a copy (safe for the intended
 // string-literal-at-init usage).
+// A path whose last byte is '*' registers a wildcard-prefix entry (same
+// suffix-wildcard semantics as httpd_uri_match_wildcard); anything else is
+// an exact entry. A duplicate (method, path) — exact or wildcard — is
+// rejected the same way (BB_ERR_INVALID_STATE), first registration wins.
 // Returns BB_OK on success, or BB_ERR_NO_SPACE when the table is full.
 // Caller should log the overflow — it is non-fatal.
 bb_err_t bb_dispatch_api_add(bb_http_method_t method, const char *path,
                              bb_http_handler_fn handler);
 
 // Look up by method + URI.  Query strings (everything from '?' onward) are
-// stripped before comparison.  Matching is exact (not prefix).
+// stripped before comparison.
+//
+// Two-pass, order-independent matching:
+//   1. Exact entries: an exact path match always wins, regardless of
+//      registration order relative to any wildcard entry. A path match with
+//      a mismatched method is remembered as METHOD_MISMATCH — an exact
+//      route claims its path even when its method doesn't match; a
+//      wildcard never rescues it.
+//   2. Wildcard entries (only consulted when no exact PATH match exists):
+//      among wildcard entries whose prefix matches the URI, the longest
+//      matching prefix wins (most-specific route). A method match on that
+//      entry is a HIT; a mismatch is METHOD_MISMATCH; no matching prefix is
+//      MISS.
+//
 // Sets *out_handler on HIT; leaves *out_handler unchanged otherwise.
 // Handles NULL uri and NULL out_handler defensively (returns MISS).
 bb_dispatch_api_result_t bb_dispatch_api_lookup(bb_http_method_t method,
@@ -109,6 +126,14 @@ bb_dispatch_api_result_t bb_dispatch_api_lookup(bb_http_method_t method,
 // Return the number of routes currently in the table.  Useful for tests and
 // telemetry.
 size_t bb_dispatch_api_count(void);
+
+// Strip the query string (everything from '?' onward, if any) from uri and
+// copy the path segment into out (capacity out_cap), truncated and always
+// NUL-terminated. Used internally by the ESP-IDF and host bb_http_req_uri()
+// backends, which otherwise each hand-roll the same scan+copy — factored
+// here so both call one implementation. Returns BB_ERR_INVALID_ARG for NULL
+// uri/out or out_cap == 0.
+bb_err_t bb_http_uri_strip_query_copy(const char *uri, char *out, size_t out_cap);
 
 // Response helpers — usable inside a handler.
 bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code);
@@ -275,6 +300,11 @@ bb_err_t bb_http_req_get_header(bb_http_request_t *req, const char *name,
 
 // Return the underlying socket fd for the request (ESP-IDF only; used for SSE eviction).
 int bb_http_req_sockfd(bb_http_request_t *req);
+
+// Copy the request's URI path (query string stripped — same contract the
+// dispatch lookup already uses) into out (capacity out_cap), NUL-terminated,
+// truncated if it doesn't fit. Returns BB_ERR_INVALID_ARG for NULL req/out.
+bb_err_t bb_http_req_uri(bb_http_request_t *req, char *out, size_t out_cap);
 
 // Read a query-string value from the request URL.
 // Returns BB_OK if found; BB_ERR_NOT_FOUND if key is absent.
