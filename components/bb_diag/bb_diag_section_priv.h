@@ -41,11 +41,18 @@
 #define BB_DIAG_SECTION_URI_MAX (16 + BB_DIAG_SECTION_NAME_MAX)
 
 // Bounds the dispatcher's stack buffer for one rendered JSON response.
-// Compile-time-only (not a per-target Kconfig tunable) -- mirrors floor's
-// own FLOOR_DIAG_RENDER_BUF_SIZE non-Kconfig sizing convention
-// (examples/floor/main/floor_app.c); raise if a future section's rendered
-// output outgrows it.
-#define BB_DIAG_SECTION_RENDER_BUF_BYTES 1024
+// Kconfig-bridged (B1-1076 fix -- this was a bare hardcoded 1024 with no
+// tuning knob) via the SAME pattern as BB_DIAG_SECTION_SCRATCH_BYTES above:
+// a section's rendered JSON is textual and larger than its raw struct (a
+// 16-row storage/nvs response is ~3.2-3.7KB), so the shared render buffer
+// must be sized generously enough for every registered section, not just
+// the smallest one -- raise CONFIG_BB_DIAG_SECTION_RENDER_BUF_BYTES if a
+// future section's rendered output outgrows it.
+#ifdef CONFIG_BB_DIAG_SECTION_RENDER_BUF_BYTES
+#define BB_DIAG_SECTION_RENDER_BUF_BYTES CONFIG_BB_DIAG_SECTION_RENDER_BUF_BYTES
+#else
+#define BB_DIAG_SECTION_RENDER_BUF_BYTES 3072
+#endif
 
 // Looks up a registered section by name. Returns NULL if `name` is NULL or
 // not registered.

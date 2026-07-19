@@ -3587,6 +3587,31 @@ void test_bb_partition_serialize_wire_from_info_null_guards(void);
 void test_bb_partition_serialize_walk_nvs_row(void);
 void test_bb_partition_serialize_walk_ota0_row(void);
 
+// Forward declarations from test_bb_diag_storage_nvs.c
+void test_bb_diag_storage_nvs_fill_matches_schema_for_known_key(void);
+void test_bb_diag_storage_nvs_fill_no_match_same_namespace(void);
+void test_bb_diag_storage_nvs_fill_flags_net80211_system(void);
+void test_bb_diag_storage_nvs_fill_flags_phy_system(void);
+void test_bb_diag_storage_nvs_fill_phy_extra_not_system(void);
+void test_bb_diag_storage_nvs_fill_plain_entry_not_system_not_schema(void);
+void test_bb_diag_storage_nvs_fill_stats_populated(void);
+void test_bb_diag_storage_nvs_fill_truncates_when_over_cap(void);
+void test_bb_diag_storage_nvs_fill_empty_backend_is_stats_only(void);
+void test_bb_diag_storage_nvs_fill_unsupported_backend_passthrough(void);
+void test_bb_diag_storage_nvs_fill_get_stats_fails_after_list_entries_ok(void);
+void test_bb_diag_storage_nvs_fill_enc_name_scalar_types(void);
+void test_bb_diag_storage_nvs_fill_enc_name_out_of_range_falls_back_to_blob(void);
+void test_bb_diag_storage_nvs_fill_null_dst_returns_invalid_arg(void);
+void test_bb_diag_storage_nvs_desc_fits_scratch(void);
+
+// Forward declarations from test_bb_diag_storage_partitions.c
+void test_bb_diag_storage_partitions_fill_widens_rows(void);
+void test_bb_diag_storage_partitions_fill_running_and_next_ota_flags(void);
+void test_bb_diag_storage_partitions_fill_row_count_and_carrier(void);
+void test_bb_diag_storage_partitions_fill_null_dst_returns_invalid_arg(void);
+void test_bb_diag_storage_partitions_row_field_count_matches_partition_serialize(void);
+void test_bb_diag_storage_partitions_desc_fits_scratch(void);
+
 // Forward declarations from test_bb_ota_led.c
 void test_ota_led_start_calls_updating(void);
 void test_ota_led_progress_calls_updating_with_pct(void);
@@ -5404,6 +5429,31 @@ int main(void) {
     RUN_TEST(test_bb_partition_serialize_wire_from_info_null_guards);
     RUN_TEST(test_bb_partition_serialize_walk_nvs_row);
     RUN_TEST(test_bb_partition_serialize_walk_ota0_row);
+
+    // bb_diag_storage_nvs tests
+    RUN_TEST(test_bb_diag_storage_nvs_fill_matches_schema_for_known_key);
+    RUN_TEST(test_bb_diag_storage_nvs_fill_no_match_same_namespace);
+    RUN_TEST(test_bb_diag_storage_nvs_fill_flags_net80211_system);
+    RUN_TEST(test_bb_diag_storage_nvs_fill_flags_phy_system);
+    RUN_TEST(test_bb_diag_storage_nvs_fill_phy_extra_not_system);
+    RUN_TEST(test_bb_diag_storage_nvs_fill_plain_entry_not_system_not_schema);
+    RUN_TEST(test_bb_diag_storage_nvs_fill_stats_populated);
+    RUN_TEST(test_bb_diag_storage_nvs_fill_truncates_when_over_cap);
+    RUN_TEST(test_bb_diag_storage_nvs_fill_empty_backend_is_stats_only);
+    RUN_TEST(test_bb_diag_storage_nvs_fill_unsupported_backend_passthrough);
+    RUN_TEST(test_bb_diag_storage_nvs_fill_get_stats_fails_after_list_entries_ok);
+    RUN_TEST(test_bb_diag_storage_nvs_fill_enc_name_scalar_types);
+    RUN_TEST(test_bb_diag_storage_nvs_fill_enc_name_out_of_range_falls_back_to_blob);
+    RUN_TEST(test_bb_diag_storage_nvs_fill_null_dst_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_storage_nvs_desc_fits_scratch);
+
+    // bb_diag_storage_partitions tests
+    RUN_TEST(test_bb_diag_storage_partitions_fill_widens_rows);
+    RUN_TEST(test_bb_diag_storage_partitions_fill_running_and_next_ota_flags);
+    RUN_TEST(test_bb_diag_storage_partitions_fill_row_count_and_carrier);
+    RUN_TEST(test_bb_diag_storage_partitions_fill_null_dst_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_storage_partitions_row_field_count_matches_partition_serialize);
+    RUN_TEST(test_bb_diag_storage_partitions_desc_fits_scratch);
 
     // bb_ota_led tests
     RUN_TEST(test_ota_led_start_calls_updating);
