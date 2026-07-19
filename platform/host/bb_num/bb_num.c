@@ -63,3 +63,26 @@ size_t bb_num_i64_to_dec(char *buf, size_t cap, int64_t v)
     size_t n = bb_num_u64_to_dec(buf + 1, cap - 1, mag);
     return n + 1;
 }
+
+uint32_t bb_num_bswap32(uint32_t v)
+{
+    return ((v & 0x000000ffu) << 24) |
+           ((v & 0x0000ff00u) << 8)  |
+           ((v & 0x00ff0000u) >> 8)  |
+           ((v & 0xff000000u) >> 24);
+}
+
+void bb_num_bswap32_words(uint8_t *buf, size_t len)
+{
+    size_t words = len / 4;
+
+    for (size_t i = 0; i < words; i++) {
+        uint8_t *w = buf + (i * 4);
+        uint8_t tmp = w[0];
+        w[0] = w[3];
+        w[3] = tmp;
+        tmp = w[1];
+        w[1] = w[2];
+        w[2] = tmp;
+    }
+}

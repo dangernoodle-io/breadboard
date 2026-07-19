@@ -25,7 +25,7 @@ Public symbols use the `bb_` prefix.
 | `bb_openapi` | private | — | [bb_openapi](../README.md) |
 | `bb_settings` | private | bb's default WiFi-credentials store — a wifi-creds field table over `bb_config`, byte-compatible with the credentials `bb_nv_config` already persists. `bb_settings` is bb's opinionated bb-config authority (KB 805/806); `bb_wifi` reads its accessors directly. | [bb_settings](../bb_settings/README.md) |
 | `bb_storage` | public | Portable storage facade + backend registry: one `bb_storage_get/set/erase/exists` API dispatching by `bb_storage_addr_t.backend` to whichever backend has registered itself. | [bb_storage](../bb_storage/README.md) |
-| `bb_str` | private | — | [bb_str](../README.md) |
+| `bb_str` | private | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. | [bb_str](../bb_str/README.md) |
 | `bb_system` | private | — | [bb_system](../README.md) |
 | `bb_timer` | private | — | [bb_timer](../README.md) |
 <!-- END bbtool:deps -->

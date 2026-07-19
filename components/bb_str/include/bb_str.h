@@ -5,8 +5,14 @@
 // Pure C, no ESP-IDF or platform dependencies. Compiled identically on host
 // and ESP-IDF (mirrors the bb_queue shape: single implementation under
 // platform/host/bb_str/, no espidf-specific variant needed).
+//
+/**
+ * @brief Portable string-safety helpers: strlcpy/field-fill semantics,
+ * key=value parsing, and hex<->bytes codec. Pure C, no heap.
+ */
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -74,6 +80,31 @@ typedef void (*bb_str_kv_cb_t)(const char *key, size_t key_len,
 /// - Leading, trailing, and duplicate commas produce empty entries, which
 ///   are skipped like any other malformed entry.
 void bb_str_kv_parse(const char *s, bb_str_kv_cb_t cb, void *ctx);
+
+// bb_str_hex_to_bytes — decode the VALID hex prefix of `hex` into up to
+// max_out bytes.
+//
+// Decoding stops (does not consume further input) at the first character
+// that is not an ASCII hex digit [0-9a-fA-F], or at a dangling final odd
+// nibble (a lone hex digit with no partner to complete the byte). Neither
+// case maps to a zero byte or a half-decoded byte — the byte simply isn't
+// produced, and everything decoded before the stopping point is kept.
+//
+// hex == NULL returns 0 and writes nothing.
+//
+// Returns the number of bytes written to `out` (never more than max_out).
+size_t bb_str_hex_to_bytes(const char *hex, uint8_t *out, size_t max_out);
+
+// bb_str_bytes_to_hex — encode `len` bytes as LOWERCASE hex into hex[hex_cap]
+// (hex_cap includes room for the NUL terminator).
+//
+// Always NUL-terminates for hex_cap > 0; truncates safely (whole byte-pairs
+// only — never a lone nibble) like bb_num_u64_to_dec's digit-truncation
+// contract. hex_cap == 0 writes nothing and returns 0.
+//
+// Returns the number of byte-pairs actually written, excluding the NUL
+// terminator (less than len on truncation).
+size_t bb_str_bytes_to_hex(const uint8_t *data, size_t len, char *hex, size_t hex_cap);
 
 #ifdef __cplusplus
 }

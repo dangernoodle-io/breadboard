@@ -95,3 +95,52 @@ void bb_str_kv_parse(const char *s, bb_str_kv_cb_t cb, void *ctx)
         p = comma + 1;
     }
 }
+
+static int bb_str_hex_nibble(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+size_t bb_str_hex_to_bytes(const char *hex, uint8_t *out, size_t max_out)
+{
+    if (!hex) return 0;
+
+    size_t n = 0;
+    while (n < max_out) {
+        int hi = bb_str_hex_nibble(hex[0]);
+        if (hi < 0) break;
+        int lo = bb_str_hex_nibble(hex[1]);
+        if (lo < 0) break;
+
+        out[n] = (uint8_t)((hi << 4) | lo);
+        n++;
+        hex += 2;
+    }
+
+    return n;
+}
+
+static char bb_str_hex_digit(uint8_t nibble)
+{
+    static const char digits[] = "0123456789abcdef";
+    return digits[nibble & 0x0f];
+}
+
+size_t bb_str_bytes_to_hex(const uint8_t *data, size_t len, char *hex, size_t hex_cap)
+{
+    if (hex_cap == 0) return 0;
+
+    size_t max_pairs = (hex_cap - 1) / 2;
+    size_t n = (len < max_pairs) ? len : max_pairs;
+
+    for (size_t i = 0; i < n; i++) {
+        hex[i * 2]     = bb_str_hex_digit((uint8_t)(data[i] >> 4));
+        hex[i * 2 + 1] = bb_str_hex_digit(data[i] & 0x0f);
+    }
+    hex[n * 2] = '\0';
+
+    return n;
+}
