@@ -1,6 +1,7 @@
 #include "bb_storage_nvs.h"
 #include "bb_storage.h"
 #include "bb_storage_nvs_classify_enc.h"
+#include "bb_storage_nvs_classify_nvs_type.h"
 #include "bb_byte_order.h"
 #include "bb_str.h"
 #include "bb_log.h"
@@ -407,6 +408,329 @@ bb_err_t bb_storage_nvs_txn_commit_for_test(bb_storage_txn_t *txn)
 bb_err_t bb_storage_nvs_txn_abort_for_test(bb_storage_txn_t *txn)
 {
     return nvs_txn_abort(NULL, txn);
+}
+#endif
+
+/* ---------------------------------------------------------------------------
+ * Enumeration + stats (PR6, B1-767) — NVS-primitive seam.
+ *
+ * nvs_vt_list_entries/nvs_vt_get_stats below (and the small ops table they
+ * drive, bb_storage_nvs_entry_ops_t, declared in bb_storage_nvs.h) are
+ * portable — compiled on host and device alike — so the
+ * find->next->info->release iteration + value-length-probe orchestration can
+ * be host-tested against a fake without pulling in ESP-IDF's nvs.h. On
+ * device, s_entry_ops defaults to s_real_entry_ops (thin wrappers around the
+ * real nvs_entry_find/_next/_info/_release, nvs_open/nvs_get_blob|
+ * nvs_get_str probe/nvs_close, and nvs_get_stats calls). On host there is no
+ * real backing store, so s_entry_ops starts NULL; a host test must call
+ * bb_storage_nvs_set_entry_ops_for_test() to inject a fake before driving
+ * list_entries_for_test()/get_stats_for_test() — an unset ops table fails
+ * closed (BB_ERR_UNSUPPORTED), never a crash.
+ * ---------------------------------------------------------------------------*/
+
+#ifdef ESP_PLATFORM
+static bb_err_t entry_find_real(const char *ns_or_dir, uint32_t *out_it)
+{
+    nvs_iterator_t it  = NULL;
+    esp_err_t      err = nvs_entry_find(NVS_DEFAULT_PART_NAME, ns_or_dir, NVS_TYPE_ANY, &it);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        *out_it = 0;
+        return BB_ERR_NOT_FOUND;
+    }
+    if (err != ESP_OK) {
+        *out_it = 0;
+        return err;
+    }
+    *out_it = (uint32_t)(uintptr_t)it;
+    return BB_OK;
+}
+
+// INSPECTION-AND-SMOKE-ONLY: device-only real wrapper (#ifdef ESP_PLATFORM), validated by code review + smoke/HW only (B1-943).
+static bb_err_t entry_next_real(uint32_t *it)
+{
+    nvs_iterator_t iter = (nvs_iterator_t)(uintptr_t)(*it);
+    esp_err_t      err  = nvs_entry_next(&iter);
+    if (err == ESP_OK) {
+        *it = (uint32_t)(uintptr_t)iter;
+        return BB_OK;
+    }
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        // Exhausted: nvs_entry_next() already released and NULLed the
+        // iterator internally -- zero *it so the caller's release(it) is a
+        // safe no-op (entry_release_real short-circuits on it==0), never a
+        // double-release.
+        *it = 0;
+        return BB_ERR_NOT_FOUND;
+    }
+    // Genuine mid-iteration error: per ESP-IDF's documented contract, the
+    // iterator is left unmodified (still a live handle) on any error other
+    // than exhaustion -- leave *it pointing at it so nvs_vt_list_entries's
+    // s_entry_ops->release(it) actually frees it. Zeroing here would leak
+    // the iterator (exhausts NVS iterator slots over repeated errors).
+    *it = (uint32_t)(uintptr_t)iter;
+    return err;
+}
+
+static bb_err_t entry_info_real(uint32_t it, char *ns_out, char *key_out, int *raw_type_out)
+{
+    nvs_iterator_t     iter = (nvs_iterator_t)(uintptr_t)it;
+    nvs_entry_info_t   info;
+    esp_err_t          err = nvs_entry_info(iter, &info);
+    if (err != ESP_OK) {
+        return err;
+    }
+    bb_strlcpy(ns_out, info.namespace_name, sizeof(((bb_storage_entry_t *)0)->ns_or_dir));
+    bb_strlcpy(key_out, info.key, sizeof(((bb_storage_entry_t *)0)->key));
+    *raw_type_out = (int)info.type;
+    return BB_OK;
+}
+
+static void entry_release_real(uint32_t it)
+{
+    if (it == 0) {
+        return;
+    }
+    nvs_release_iterator((nvs_iterator_t)(uintptr_t)it);
+}
+
+static bb_err_t entry_open_real(const char *ns, uint32_t *out_handle)
+{
+    nvs_handle_t h;
+    esp_err_t    err = nvs_open(ns, NVS_READONLY, &h);
+    if (err != ESP_OK) {
+        return err;
+    }
+    *out_handle = (uint32_t)h;
+    return BB_OK;
+}
+
+// Best-effort value-length probe: STR/BLOB use the real NVS size-probe call
+// (NULL buf, non-NULL len out); the fixed-width scalar kinds (U8/U16/U32/
+// I32/U64/I64/I8/I16/FLOAT/DOUBLE) report their known width directly (no
+// read needed); any unrecognized raw_type returns an error so the caller
+// falls back to len=0 -- this fn never crashes, only reports success/failure
+// honestly (the orchestration decides how to treat a failure).
+static bb_err_t entry_probe_len_real(uint32_t handle, const char *key, int raw_type, size_t *out_len)
+{
+    nvs_handle_t h = (nvs_handle_t)handle;
+
+    switch (raw_type) {
+    case BB_STORAGE_NVS_RAW_TYPE_STR: {
+        size_t probed = 0;
+        esp_err_t err = nvs_get_str(h, key, NULL, &probed);
+        if (err != ESP_OK) {
+            return err;
+        }
+        // nvs_get_str's probed length includes the NUL terminator; report
+        // the string content length (excluding it) to match bb_storage's
+        // len-without-NUL convention.
+        size_t str_len = 0;
+        if (probed > 0) {
+            str_len = probed - 1;
+        }
+        *out_len = str_len;
+        return BB_OK;
+    }
+    case BB_STORAGE_NVS_RAW_TYPE_BLOB:
+        *out_len = 0;
+        return nvs_get_blob(h, key, NULL, out_len);
+    case BB_STORAGE_NVS_RAW_TYPE_U8:
+    case BB_STORAGE_NVS_RAW_TYPE_I8:
+        *out_len = 1;
+        return BB_OK;
+    case BB_STORAGE_NVS_RAW_TYPE_U16:
+    case BB_STORAGE_NVS_RAW_TYPE_I16:
+        *out_len = 2;
+        return BB_OK;
+    case BB_STORAGE_NVS_RAW_TYPE_U32:
+    case BB_STORAGE_NVS_RAW_TYPE_I32:
+        *out_len = 4;
+        return BB_OK;
+    case BB_STORAGE_NVS_RAW_TYPE_U64:
+    case BB_STORAGE_NVS_RAW_TYPE_I64:
+        *out_len = 8;
+        return BB_OK;
+    case BB_STORAGE_NVS_RAW_TYPE_FLOAT:
+        *out_len = 4;
+        return BB_OK;
+    case BB_STORAGE_NVS_RAW_TYPE_DOUBLE:
+        *out_len = 8;
+        return BB_OK;
+    default:
+        return BB_ERR_UNSUPPORTED;
+    }
+}
+
+static void entry_close_real(uint32_t handle)
+{
+    nvs_close((nvs_handle_t)handle);
+}
+
+static bb_err_t entry_stats_real(size_t *used_entries, size_t *free_entries, size_t *total_entries)
+{
+    nvs_stats_t st;
+    esp_err_t   err = nvs_get_stats(NVS_DEFAULT_PART_NAME, &st);
+    if (err != ESP_OK) {
+        return err;
+    }
+    *used_entries  = st.used_entries;
+    *free_entries  = st.free_entries;
+    *total_entries = st.total_entries;
+    return BB_OK;
+}
+
+static const bb_storage_nvs_entry_ops_t s_real_entry_ops = {
+    .find      = entry_find_real,
+    .next      = entry_next_real,
+    .info      = entry_info_real,
+    .release   = entry_release_real,
+    .open      = entry_open_real,
+    .probe_len = entry_probe_len_real,
+    .close     = entry_close_real,
+    .stats     = entry_stats_real,
+};
+
+static const bb_storage_nvs_entry_ops_t *s_entry_ops = &s_real_entry_ops;
+#else
+// Host: no real NVS to back the entry ops — a test must inject a fake via
+// bb_storage_nvs_set_entry_ops_for_test() before driving list_entries_for_test()/
+// get_stats_for_test(); an unset ops table fails every call closed
+// (BB_ERR_UNSUPPORTED).
+static const bb_storage_nvs_entry_ops_t *s_entry_ops = NULL;
+#endif
+
+#ifdef BB_STORAGE_NVS_TESTING
+void bb_storage_nvs_set_entry_ops_for_test(const bb_storage_nvs_entry_ops_t *ops)
+{
+#ifdef ESP_PLATFORM
+    s_entry_ops = (ops != NULL) ? ops : &s_real_entry_ops;
+#else
+    s_entry_ops = ops;
+#endif
+}
+#endif
+
+// One enumerated entry's value-length probe: opens a short-lived read-only
+// handle, probes, closes -- a probe failure at ANY step (open or probe) is
+// loud-but-non-fatal: logged as a WARN and reported as len=0, never aborting
+// the rest of the enumeration (PR6 contract).
+static size_t probe_entry_len(const bb_storage_nvs_entry_ops_t *ops, const char *ns, const char *key,
+                               int raw_type)
+{
+    uint32_t handle = 0;
+    bb_err_t err     = ops->open(ns, &handle);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "list_entries: len probe open '%s' failed (%d), reporting len=0", ns, err);
+        return 0;
+    }
+
+    size_t len = 0;
+    err = ops->probe_len(handle, key, raw_type, &len);
+    ops->close(handle);
+
+    if (err != BB_OK) {
+        bb_log_w(TAG, "list_entries: len probe '%s/%s' failed (%d), reporting len=0", ns, key, err);
+        return 0;
+    }
+    return len;
+}
+
+// Iteration orchestration: find -> (info, probe_len) -> next, repeated until
+// the iterator is exhausted. Writes at most `cap` entries into `out` but
+// always counts every entry found into *count (loud truncation, mirrors
+// bb_storage_get's "would-have-written" contract -- see bb_storage.h).
+static bb_err_t nvs_vt_list_entries(void *impl, const char *ns_or_dir, bb_storage_entry_t *out,
+                                    size_t cap, size_t *count)
+{
+    (void)impl;
+
+    if (s_entry_ops == NULL) {
+        return BB_ERR_UNSUPPORTED;
+    }
+
+    uint32_t it  = 0;
+    bb_err_t err = s_entry_ops->find(ns_or_dir, &it);
+    if (err == BB_ERR_NOT_FOUND) {
+        *count = 0;
+        return BB_OK;
+    }
+    if (err != BB_OK) {
+        return err;
+    }
+
+    size_t n = 0;
+    for (;;) {
+        char ns_buf[16]  = {0};
+        char key_buf[16] = {0};
+        int  raw_type    = 0;
+
+        bb_err_t ierr = s_entry_ops->info(it, ns_buf, key_buf, &raw_type);
+        if (ierr == BB_OK) {
+            if (n < cap) {
+                bb_strlcpy(out[n].ns_or_dir, ns_buf, sizeof(out[n].ns_or_dir));
+                bb_strlcpy(out[n].key, key_buf, sizeof(out[n].key));
+                out[n].enc = bb_storage_nvs_classify_nvs_type(raw_type);
+                out[n].len = probe_entry_len(s_entry_ops, ns_buf, key_buf, raw_type);
+            }
+            n++;
+        } else {
+            bb_log_w(TAG, "list_entries: nvs_entry_info failed (%d), skipping entry", ierr);
+        }
+
+        err = s_entry_ops->next(&it);
+        if (err == BB_ERR_NOT_FOUND) {
+            break;  // exhausted; the real nvs_entry_next already released the iterator
+        }
+        if (err != BB_OK) {
+            s_entry_ops->release(it);
+            return err;
+        }
+    }
+
+    *count = n;
+    return BB_OK;
+}
+
+// NVS reports usage in fixed 32-byte entry slots, not raw partition bytes —
+// used/free/total_bytes below are an approximation (entries * 32), NOT exact
+// byte accounting against the underlying flash partition. Documented per the
+// PR6 spec decision (cheaper than cross-referencing bb_partition for the real
+// NVS partition size, which would add a false cross-component dependency for
+// a cosmetic byte-accuracy gain). namespace_count is not cheaply available
+// from nvs_get_stats and is left 0 (see bb_storage_stats_t's field comment).
+#define BB_STORAGE_NVS_STATS_ENTRY_BYTES 32u
+
+static bb_err_t nvs_vt_get_stats(void *impl, bb_storage_stats_t *out)
+{
+    (void)impl;
+
+    if (s_entry_ops == NULL) {
+        return BB_ERR_UNSUPPORTED;
+    }
+
+    size_t used = 0, free_e = 0, total = 0;
+    bb_err_t err = s_entry_ops->stats(&used, &free_e, &total);
+    if (err != BB_OK) {
+        return err;
+    }
+
+    out->used_bytes      = used * BB_STORAGE_NVS_STATS_ENTRY_BYTES;
+    out->free_bytes      = free_e * BB_STORAGE_NVS_STATS_ENTRY_BYTES;
+    out->total_bytes     = total * BB_STORAGE_NVS_STATS_ENTRY_BYTES;
+    out->namespace_count = 0;
+    return BB_OK;
+}
+
+#ifdef BB_STORAGE_NVS_TESTING
+bb_err_t bb_storage_nvs_list_entries_for_test(const char *ns_or_dir, bb_storage_entry_t *out,
+                                               size_t cap, size_t *count)
+{
+    return nvs_vt_list_entries(NULL, ns_or_dir, out, cap, count);
+}
+
+bb_err_t bb_storage_nvs_get_stats_for_test(bb_storage_stats_t *out)
+{
+    return nvs_vt_get_stats(NULL, out);
 }
 #endif
 
@@ -1257,6 +1581,8 @@ static const bb_storage_vtable_t s_nvs_vtable = {
     .txn_set         = nvs_txn_set,
     .txn_commit      = nvs_txn_commit,
     .txn_abort       = nvs_txn_abort,
+    .list_entries    = nvs_vt_list_entries,
+    .get_stats       = nvs_vt_get_stats,
 };
 
 bb_err_t bb_storage_nvs_register(void)

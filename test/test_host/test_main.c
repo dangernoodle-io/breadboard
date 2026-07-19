@@ -1407,6 +1407,32 @@ void test_bb_storage_nvs_classify_enc_u32(void);
 void test_bb_storage_nvs_classify_enc_i32(void);
 void test_bb_storage_nvs_classify_enc_unknown_defaults_to_blob(void);
 
+// Forward declarations from test_bb_storage_nvs_classify_nvs_type.c
+void test_bb_storage_nvs_classify_nvs_type_str(void);
+void test_bb_storage_nvs_classify_nvs_type_u8(void);
+void test_bb_storage_nvs_classify_nvs_type_u16(void);
+void test_bb_storage_nvs_classify_nvs_type_u32(void);
+void test_bb_storage_nvs_classify_nvs_type_i32(void);
+void test_bb_storage_nvs_classify_nvs_type_blob(void);
+void test_bb_storage_nvs_classify_nvs_type_i8_falls_back_to_blob(void);
+void test_bb_storage_nvs_classify_nvs_type_u64_falls_back_to_blob(void);
+void test_bb_storage_nvs_classify_nvs_type_unknown_defaults_to_blob(void);
+
+// Forward declarations from test_bb_storage_nvs_entries.c (BB_STORAGE_NVS_TESTING)
+#ifdef BB_STORAGE_NVS_TESTING
+void test_bb_storage_nvs_list_entries_maps_entries_enc_and_len(void);
+void test_bb_storage_nvs_list_entries_null_ns_or_dir_reaches_find_as_null(void);
+void test_bb_storage_nvs_list_entries_non_null_ns_or_dir_reaches_find_unchanged(void);
+void test_bb_storage_nvs_list_entries_truncates_loudly_reports_true_count(void);
+void test_bb_storage_nvs_list_entries_probe_failure_reports_len_zero_not_abort(void);
+void test_bb_storage_nvs_list_entries_empty_backend_returns_ok_zero_count(void);
+void test_bb_storage_nvs_list_entries_unset_ops_returns_unsupported(void);
+void test_bb_storage_nvs_get_stats_unset_ops_returns_unsupported(void);
+void test_bb_storage_nvs_get_stats_maps_entries_to_bytes_times_32(void);
+void test_bb_storage_nvs_list_entries_genuine_next_error_releases_live_iterator_once(void);
+void test_bb_storage_nvs_list_entries_info_failure_skips_entry_continues(void);
+#endif
+
 // Forward declarations from test_bb_config_typed.c
 void test_bb_config_type_to_enc_matches_every_type(void);
 void test_bb_config_scalar_width_matches_every_type(void);
@@ -8363,6 +8389,32 @@ int main(void) {
     RUN_TEST(test_bb_storage_nvs_classify_enc_u32);
     RUN_TEST(test_bb_storage_nvs_classify_enc_i32);
     RUN_TEST(test_bb_storage_nvs_classify_enc_unknown_defaults_to_blob);
+
+    // bb_storage_nvs_classify_nvs_type tests
+    RUN_TEST(test_bb_storage_nvs_classify_nvs_type_str);
+    RUN_TEST(test_bb_storage_nvs_classify_nvs_type_u8);
+    RUN_TEST(test_bb_storage_nvs_classify_nvs_type_u16);
+    RUN_TEST(test_bb_storage_nvs_classify_nvs_type_u32);
+    RUN_TEST(test_bb_storage_nvs_classify_nvs_type_i32);
+    RUN_TEST(test_bb_storage_nvs_classify_nvs_type_blob);
+    RUN_TEST(test_bb_storage_nvs_classify_nvs_type_i8_falls_back_to_blob);
+    RUN_TEST(test_bb_storage_nvs_classify_nvs_type_u64_falls_back_to_blob);
+    RUN_TEST(test_bb_storage_nvs_classify_nvs_type_unknown_defaults_to_blob);
+
+#ifdef BB_STORAGE_NVS_TESTING
+    // bb_storage_nvs enumeration orchestration (list_entries/get_stats)
+    RUN_TEST(test_bb_storage_nvs_list_entries_maps_entries_enc_and_len);
+    RUN_TEST(test_bb_storage_nvs_list_entries_null_ns_or_dir_reaches_find_as_null);
+    RUN_TEST(test_bb_storage_nvs_list_entries_non_null_ns_or_dir_reaches_find_unchanged);
+    RUN_TEST(test_bb_storage_nvs_list_entries_truncates_loudly_reports_true_count);
+    RUN_TEST(test_bb_storage_nvs_list_entries_probe_failure_reports_len_zero_not_abort);
+    RUN_TEST(test_bb_storage_nvs_list_entries_empty_backend_returns_ok_zero_count);
+    RUN_TEST(test_bb_storage_nvs_list_entries_unset_ops_returns_unsupported);
+    RUN_TEST(test_bb_storage_nvs_get_stats_unset_ops_returns_unsupported);
+    RUN_TEST(test_bb_storage_nvs_get_stats_maps_entries_to_bytes_times_32);
+    RUN_TEST(test_bb_storage_nvs_list_entries_genuine_next_error_releases_live_iterator_once);
+    RUN_TEST(test_bb_storage_nvs_list_entries_info_failure_skips_entry_continues);
+#endif
 
     // bb_config type-to-enc / scalar-width helper tests
     RUN_TEST(test_bb_config_type_to_enc_matches_every_type);

@@ -80,6 +80,51 @@ typedef struct {
     void     (*close)(uint32_t handle);
 } bb_storage_nvs_txn_ops_t;
 
+// ---------------------------------------------------------------------------
+// Enumeration NVS-primitive seam (PR6, B1-767)
+//
+// nvs_vt_list_entries/nvs_vt_get_stats (bb_storage_nvs.c) drive their
+// find->next->info->release iteration and value-length-probe orchestration
+// through this ops table instead of calling nvs_entry_find/nvs_entry_next/
+// nvs_entry_info/nvs_release_iterator/nvs_open/nvs_get_blob/nvs_get_stats
+// directly — same rationale and shape as bb_storage_nvs_txn_ops_t above:
+// handles/iterators are carried as plain uint32_t (both nvs_handle_t and a
+// cast nvs_iterator_t fit in 32 bits on every ESP32 target), so this seam
+// has no ESP-IDF type in its signature and compiles on host without nvs.h.
+//
+// find/next/info/release drive the enumeration iterator
+// (nvs_entry_find/_next/_info/_release); open/probe_len/close drive a
+// short-lived read-only handle used only to best-effort-probe one entry's
+// stored value length (nvs_open/nvs_get_blob|nvs_get_str probe/nvs_close);
+// stats wraps nvs_get_stats. raw_type is the entry's ESP-IDF nvs_type_t,
+// passed through as a plain int (see bb_storage_nvs_classify_nvs_type.h).
+typedef struct {
+    // ns_or_dir == NULL means "all namespaces" (mirrors ESP-IDF's own
+    // nvs_entry_find NULL-namespace-filter convention -- see bb_storage.h's
+    // list_entries vtable member contract). BB_ERR_NOT_FOUND + *out_it=0
+    // means "nothing matched" (an empty listing, not an error).
+    bb_err_t (*find)(const char *ns_or_dir, uint32_t *out_it);
+    // BB_ERR_NOT_FOUND + *it=0 means the iterator is exhausted (already
+    // released internally by the real nvs_entry_next -- do not call
+    // release() again in that case).
+    bb_err_t (*next)(uint32_t *it);
+    bb_err_t (*info)(uint32_t it, char *ns_out, char *key_out, int *raw_type_out);
+    void     (*release)(uint32_t it);
+
+    bb_err_t (*open)(const char *ns, uint32_t *out_handle);
+    // Best-effort value-length probe for one (ns already opened as
+    // `handle`)/key/raw_type. A probe failure is loud-but-non-fatal at the
+    // orchestration layer (caller logs a WARN and reports len=0) -- this
+    // callback itself just reports success/failure honestly.
+    bb_err_t (*probe_len)(uint32_t handle, const char *key, int raw_type, size_t *out_len);
+    void     (*close)(uint32_t handle);
+
+    // Whole-partition aggregate stats, in NVS entries (NOT bytes -- see
+    // bb_storage_stats_t's field comment in bb_storage.h; the *32 conversion
+    // to bytes happens in the orchestration layer, not here).
+    bb_err_t (*stats)(size_t *used_entries, size_t *free_entries, size_t *total_entries);
+} bb_storage_nvs_entry_ops_t;
+
 #ifdef BB_STORAGE_NVS_TESTING
 // bb_storage.h (bb_storage_txn_t, bb_storage_enc_t) is only needed by the
 // testing-only prototypes below -- kept out of the unconditional include
@@ -104,6 +149,19 @@ bb_err_t bb_storage_nvs_txn_set_for_test(bb_storage_txn_t *txn, const char *key,
                                           const void *buf, size_t len);
 bb_err_t bb_storage_nvs_txn_commit_for_test(bb_storage_txn_t *txn);
 bb_err_t bb_storage_nvs_txn_abort_for_test(bb_storage_txn_t *txn);
+
+// Override the NVS primitives the enumeration path (nvs_vt_list_entries/
+// nvs_vt_get_stats) calls. Pass NULL to clear: on host that makes the
+// enumeration path fail closed (BB_ERR_UNSUPPORTED, never a crash) until a
+// test injects a fake; on-device it reverts to the real ESP-IDF-backed ops.
+void bb_storage_nvs_set_entry_ops_for_test(const bb_storage_nvs_entry_ops_t *ops);
+
+// Direct entry points into the enumeration orchestration, bypassing
+// bb_storage_register_backend()/vtable dispatch — same contract as the
+// bb_storage_vtable_t list_entries/get_stats pair (see bb_storage.h).
+bb_err_t bb_storage_nvs_list_entries_for_test(const char *ns_or_dir, bb_storage_entry_t *out,
+                                               size_t cap, size_t *count);
+bb_err_t bb_storage_nvs_get_stats_for_test(bb_storage_stats_t *out);
 
 #ifndef ESP_PLATFORM
 // Host-only: bb_storage_nvs_flash_init()'s real body only exists under
