@@ -5,7 +5,7 @@
 // {"ts_ms":N,"data":{...}} snapshot straight from bb_cache_get_serialized().
 //
 // Query-param (not path-param) because bb_dispatch_api is exact-match only
-// (components/bb_http_server/include/bb_dispatch_api.h) — a single "/api/cache"
+// (components/bb_http_server/include/bb_http_server.h) — a single "/api/cache"
 // dispatch entry serves every key, filtered by ?key=. Mirrors the ?topic=
 // idiom on GET /api/events (bb_event_routes).
 //

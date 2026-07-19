@@ -9,7 +9,7 @@
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_http_host.h"
-#include "bb_dispatch_api.h"
+/* dispatch API decls now live in bb_http_server.h (included above) */
 #include "bb_http_status.h"
 #include "bb_http_query.h"
 #include "bb_json.h"
