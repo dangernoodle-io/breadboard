@@ -3549,6 +3549,12 @@ void test_bb_partition_list_cap_truncation(void);
 void test_bb_partition_get_running(void);
 void test_bb_partition_get_next_ota(void);
 
+// Forward declarations from test_bb_partition_serialize.c
+void test_bb_partition_serialize_n_fields(void);
+void test_bb_partition_serialize_wire_from_info_null_guards(void);
+void test_bb_partition_serialize_walk_nvs_row(void);
+void test_bb_partition_serialize_walk_ota0_row(void);
+
 // Forward declarations from test_bb_ota_led.c
 void test_ota_led_start_calls_updating(void);
 void test_ota_led_progress_calls_updating_with_pct(void);
@@ -5360,6 +5366,12 @@ int main(void) {
     RUN_TEST(test_bb_partition_list_cap_truncation);
     RUN_TEST(test_bb_partition_get_running);
     RUN_TEST(test_bb_partition_get_next_ota);
+
+    // bb_partition_serialize tests
+    RUN_TEST(test_bb_partition_serialize_n_fields);
+    RUN_TEST(test_bb_partition_serialize_wire_from_info_null_guards);
+    RUN_TEST(test_bb_partition_serialize_walk_nvs_row);
+    RUN_TEST(test_bb_partition_serialize_walk_ota0_row);
 
     // bb_ota_led tests
     RUN_TEST(test_ota_led_start_calls_updating);
