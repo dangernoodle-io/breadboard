@@ -153,13 +153,66 @@ def _http_server_providers(entries: List[InitEntry]) -> List[InitEntry]:
     return [e for e in entries if HTTP_SERVER_PROVIDES_KEY in e.provides]
 
 
-def _emit_call(entry: InitEntry, handle_var: str = None) -> str:
-    arg = handle_var if (entry.server and handle_var) else ""
+def _requires_guard_cond(entry: InitEntry) -> str:
+    return " && ".join(f"bb_app_avail_{tok}" for tok in entry.requires)
+
+
+def _indent_block(body: str) -> str:
+    """Re-indent an already-rendered call block one level deeper (4 spaces),
+    leaving blank lines untouched -- used when wrapping a call in an
+    availability `if` guard."""
+    return "".join(("    " + line if line.strip() else line) for line in body.splitlines(keepends=True))
+
+
+def _guard_requires(entry: InitEntry, body: str) -> str:
+    """Wrap `body` (an already-rendered, 4-space-indented call block) in a
+    `requires=` availability guard (B1-853): only run the call if every
+    required token's provider has already succeeded; otherwise SKIP it (never
+    call it) and log a WARN, rather than letting a dependent run against a
+    failed/skipped provider. `entry.requires` empty -> `body` returned
+    UNCHANGED (byte-identical to the pre-gating call for entries with no
+    `requires=`)."""
+    if not entry.requires:
+        return body
+    cond = _requires_guard_cond(entry)
     return (
+        f"    if ({cond}) {{\n"
+        f"{_indent_block(body)}"
+        f"    }} else {{\n"
+        f'        bb_log_w(BB_APP_INIT_TAG, "skipping {entry.fn}: required provider unavailable");\n'
+        f"    }}\n"
+    )
+
+
+def _emit_provides_avail(entry: InitEntry, guarded_tokens: frozenset, success_expr: str = None) -> str:
+    """After `entry`'s call, mark every token it `provides=` (that some OTHER
+    entry actually gates on via `requires=`, i.e. is in `guarded_tokens`) as
+    available. `success_expr` is the runtime condition under which the entry
+    counts as having succeeded -- `"bb_app_rc == BB_OK"` for a normal
+    `bb_err_t` call; `None` for a void `consumes=` setter or the http-handle
+    capture line, both of which report no `bb_err_t` and are treated as
+    always-succeeding once called (mirrors their existing unconditional
+    treatment elsewhere in this module). Multi-provider tokens: availability
+    is the OR of every provider's success, since each provider only ever sets
+    its flag to `true`, never resets it to `false`."""
+    tokens = [t for t in entry.provides if t in guarded_tokens]
+    if not tokens:
+        return ""
+    sets = "".join(f"    bb_app_avail_{t} = true;\n" for t in tokens)
+    if success_expr is None:
+        return sets
+    return f"    if ({success_expr}) {{\n{_indent_block(sets)}    }}\n"
+
+
+def _emit_call(entry: InitEntry, guarded_tokens: frozenset = frozenset(), handle_var: str = None) -> str:
+    arg = handle_var if (entry.server and handle_var) else ""
+    body = (
         f"    bb_app_rc = {entry.fn}({arg});\n"
         f"    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) {{ "
         f"bb_app_first_err = bb_app_rc; }}\n"
     )
+    body += _emit_provides_avail(entry, guarded_tokens, success_expr="bb_app_rc == BB_OK")
+    return _guard_requires(entry, body)
 
 
 def _value_providers(provides_records: List[ProvidesEntry]) -> Dict[str, str]:
@@ -192,7 +245,8 @@ def _value_providers(provides_records: List[ProvidesEntry]) -> Dict[str, str]:
     return value_providers
 
 
-def _emit_consumes_call(entry: InitEntry, value_providers: Dict[str, str]) -> str:
+def _emit_consumes_call(entry: InitEntry, value_providers: Dict[str, str],
+                         guarded_tokens: frozenset = frozenset()) -> str:
     """Setter-injection emission for an entry with `consumes` set: a plain
     void-shaped `{fn}({symbol}, {ctx});` call (never the `bb_err_t`/`bb_app_rc`
     wrapper `_emit_call` uses — setters return void). Empty string (soft-skip,
@@ -207,17 +261,20 @@ def _emit_consumes_call(entry: InitEntry, value_providers: Dict[str, str]) -> st
     if symbol is None:
         return ""
     ctx_expr = entry.ctx or "NULL"
-    return f"    {entry.fn}({symbol}, {ctx_expr});\n"
+    body = f"    {entry.fn}({symbol}, {ctx_expr});\n"
+    body += _emit_provides_avail(entry, guarded_tokens, success_expr=None)
+    return _guard_requires(entry, body)
 
 
-def _emit_entry(entry: InitEntry, value_providers: Dict[str, str], handle_var: str = None) -> str:
+def _emit_entry(entry: InitEntry, value_providers: Dict[str, str],
+                 guarded_tokens: frozenset = frozenset(), handle_var: str = None) -> str:
     """Dispatch a single tier entry to its emission path: `consumes=` entries
     go through the setter-injection path (never `_emit_call`'s bb_err_t
     convention); every other entry is unaffected, byte-for-byte the same as
     before this path existed."""
     if entry.consumes:
-        return _emit_consumes_call(entry, value_providers)
-    return _emit_call(entry, handle_var)
+        return _emit_consumes_call(entry, value_providers, guarded_tokens)
+    return _emit_call(entry, guarded_tokens, handle_var)
 
 
 def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry] = ()) -> str:
@@ -243,7 +300,12 @@ def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry
         server handle would be captured too early/late relative to the
         tiers that need it); or
       - any server=true entry exists without an http_server provider in the
-        resolved set at all.
+        resolved set at all; or
+      - the http_server-providing entry itself has a non-empty `requires=`
+        (B1-853 — its `__auto_type` handle-capture line can never be
+        conditionally skipped while still producing the typed handle every
+        `server=true` entry downstream depends on, so gating it is not a
+        supported combination — see the check below).
     """
     early = [e for e in ordered if e.tier == "early"]
     pre_http = [e for e in ordered if e.tier == "pre_http"]
@@ -274,17 +336,57 @@ def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry
             f"resolved set provides '{HTTP_SERVER_PROVIDES_KEY}'"
         )
 
+    if has_server and server_entry.requires:
+        raise WireError(
+            f"{server_entry.src_file}:{server_entry.src_line}: fn={server_entry.fn} "
+            f"provides '{HTTP_SERVER_PROVIDES_KEY}' but also declares "
+            f"requires={','.join(server_entry.requires)} -- a server-handle-capture "
+            f"entry's __auto_type line cannot be conditionally skipped while still "
+            f"producing the typed handle every server=true entry depends on "
+            f"(B1-853); remove requires= from this marker"
+        )
+
     value_providers = _value_providers(list(provides_entries))
+
+    # B1-853: every token some entry `requires=` -- these are the only tokens
+    # that get a runtime availability flag + guard; a `provides=` token no one
+    # requires never gets a flag (avoids dead/unused-but-set state). Since
+    # `guarded_tokens` is exactly the union of `.requires` across `ordered`,
+    # `entry.requires` is always a subset of it -- `_guard_requires` need only
+    # check "is `entry.requires` non-empty", never token membership.
+    guarded_tokens = frozenset(tok for e in ordered for tok in e.requires)
 
     headers = _headers_for(ordered)
     include_lines = "\n".join(f'#include "{h.split("/")[-1]}"' for h in headers)
 
-    lines: List[str] = [
+    header_lines: List[str] = [
         "/* Generated by `bbtool codegen` -- DO NOT EDIT, DO NOT COMMIT.",
         " * Regenerated every build (decision #725); source of truth is the",
         " * `// bbtool:init` markers this file was grepped from (decision #735).",
         " */",
         include_lines,
+    ]
+    if guarded_tokens:
+        gating_includes = ['#include <stdbool.h>']
+        if not any(h.split("/")[-1] == "bb_log.h" for h in headers):
+            gating_includes.append('#include "bb_log.h"')
+        header_lines.append("\n".join(gating_includes))
+        avail_block = [
+            "",
+            "/* B1-853: requires=/provides= runtime gating -- a token becomes",
+            " * available once some provides= entry for it returns BB_OK; a",
+            " * requires= entry with an unavailable token is SKIPPED (not",
+            " * called), so a dependent never runs against a failed/skipped",
+            " * provider. Declared at file scope so availability persists",
+            " * across bb_app_init_early()/bb_app_init_rest(). */",
+            '#define BB_APP_INIT_TAG "bb_app_init"',
+        ]
+        avail_block.extend(
+            f"static bool bb_app_avail_{tok} = false;" for tok in sorted(guarded_tokens)
+        )
+        header_lines.append("\n".join(avail_block))
+
+    lines: List[str] = list(header_lines) + [
         "",
         "bb_err_t bb_app_init_early(void)",
         "{",
@@ -293,7 +395,7 @@ def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry
         "",
     ]
     for e in early:
-        text = _emit_entry(e, value_providers)
+        text = _emit_entry(e, value_providers, guarded_tokens)
         if text:
             lines.append(text)
     lines += ["    return bb_app_first_err;", "}", "", "bb_err_t bb_app_init_rest(void)", "{"]
@@ -301,18 +403,28 @@ def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry
 
     pre_http_no_server = [e for e in pre_http if e is not server_entry]
     for e in pre_http_no_server:
-        text = _emit_entry(e, value_providers)
+        text = _emit_entry(e, value_providers, guarded_tokens)
         if text:
             lines.append(text)
 
     handle_var = None
     if has_server:
+        # The http_server-providing entry's `requires=` is a hard WireError
+        # (checked above) -- its __auto_type capture line is therefore always
+        # unguarded, and `handle_var` is always in scope for every downstream
+        # `server=true` call.
         handle_var = "bb_app_http_handle"
         lines.append(f"    __auto_type {handle_var} = {server_entry.fn}();")
+        avail = _emit_provides_avail(server_entry, guarded_tokens, success_expr=None)
+        if avail:
+            # rstrip the trailing "\n" avail already ends with -- "\n".join()
+            # supplies the line break, so appending it unstripped plus the
+            # blank-line separator below would double the blank line.
+            lines.append(avail.rstrip("\n"))
         lines.append("")
 
     for e in regular:
-        text = _emit_entry(e, value_providers, handle_var)
+        text = _emit_entry(e, value_providers, guarded_tokens, handle_var)
         if text:
             lines.append(text)
 

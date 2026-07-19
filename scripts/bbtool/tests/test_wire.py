@@ -174,6 +174,36 @@ class TestRenderSource(unittest.TestCase):
             with self.assertRaises(WireError):
                 render_source(ordered)
 
+    def test_http_server_provider_with_requires_raises(self):
+        """B1-853: a server=true/provides=http_server entry's __auto_type
+        capture line can never be conditionally skipped while still
+        producing the typed handle every downstream server=true call
+        depends on -- an http_server provider that also declares
+        `requires=` must be a hard build-time WireError, not a silent
+        unguarded-capture gap."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)
+            _make_component(
+                root, "bb_http_dep",
+                "#pragma once\n"
+                "// bbtool:init tier=early fn=bb_http_dep_init provides=http_dep\n"
+                "bb_err_t bb_http_dep_init(void);\n",
+            )
+            _make_component(
+                root, "bb_http_gated",
+                "#pragma once\n"
+                "// bbtool:init tier=pre_http fn=bb_http_gated_start "
+                "provides=http_server requires=http_dep\n"
+                "bb_http_handle_t bb_http_gated_start(void);\n",
+            )
+            entries = collect_entries(
+                str(root), ["bb_log", "bb_http_dep", "bb_http_gated", "bb_routes"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                render_source(ordered)
+            self.assertIn("bb_http_gated_start", str(ctx.exception))
+            self.assertIn("requires=", str(ctx.exception))
+
     def test_unchanged_http_fixtures_still_pass_with_default_provides(self):
         """Zero-regression guard: the http_server fixture cases must produce
         identical output whether or not `provides_entries` is passed at all
@@ -338,6 +368,284 @@ class TestNvRequiresStorageRtcHostileOrder(unittest.TestCase):
                 topo_sort(entries)
             self.assertIn("storage_rtc", str(ctx.exception))
             self.assertIn("bb_nv_config_init", str(ctx.exception))
+
+
+def _fixture_root_with_gate_chain(tmp: str) -> Path:
+    """A `provides=x`, B `requires=x provides=y`, C `requires=y` -- a 3-hop
+    chain (B1-853) proving: (1) B is gated on A's success, (2) C is gated on
+    B's success (skip propagation: B skipped -> B never marks y available ->
+    C is also skipped), all tier=early. A plain, unrelated `fn=bb_d_noop`
+    entry with NO `requires=` is included to prove an unguarded entry emits
+    byte-identically to the pre-gating call form."""
+    root = Path(tmp)
+    _make_component(
+        root, "bb_a",
+        "#pragma once\n"
+        "// bbtool:init tier=early fn=bb_a_init provides=x\n"
+        "bb_err_t bb_a_init(void);\n",
+    )
+    _make_component(
+        root, "bb_b",
+        "#pragma once\n"
+        "// bbtool:init tier=early fn=bb_b_init requires=x provides=y\n"
+        "bb_err_t bb_b_init(void);\n",
+    )
+    _make_component(
+        root, "bb_c",
+        "#pragma once\n"
+        "// bbtool:init tier=early fn=bb_c_init requires=y\n"
+        "bb_err_t bb_c_init(void);\n",
+    )
+    _make_component(
+        root, "bb_d",
+        "#pragma once\n"
+        "// bbtool:init tier=early fn=bb_d_noop\n"
+        "bb_err_t bb_d_noop(void);\n",
+    )
+    return root
+
+
+class TestGateDependents(unittest.TestCase):
+    """B1-853: a `requires=` entry must be SKIPPED (not called) when its
+    required token's provider hasn't (yet) succeeded, rather than running
+    unconditionally against a possibly-broken substrate."""
+
+    def test_dependent_is_guarded_on_providers_availability_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_gate_chain(tmp)
+            entries = collect_entries(str(root), ["bb_a", "bb_b", "bb_c", "bb_d"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertIn("static bool bb_app_avail_x = false;", source)
+            self.assertIn(
+                "    if (bb_app_avail_x) {\n"
+                "        bb_app_rc = bb_b_init();\n"
+                "        if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
+                "{ bb_app_first_err = bb_app_rc; }\n"
+                "        if (bb_app_rc == BB_OK) {\n"
+                "            bb_app_avail_y = true;\n"
+                "        }\n"
+                "    } else {\n"
+                '        bb_log_w(BB_APP_INIT_TAG, "skipping bb_b_init: '
+                'required provider unavailable");\n'
+                "    }\n",
+                source,
+            )
+            # A's success marks x available -- unguarded (A has no requires=).
+            self.assertIn(
+                "    bb_app_rc = bb_a_init();\n"
+                "    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
+                "{ bb_app_first_err = bb_app_rc; }\n"
+                "    if (bb_app_rc == BB_OK) {\n"
+                "        bb_app_avail_x = true;\n"
+                "    }\n",
+                source,
+            )
+
+    def test_skip_propagates_transitively_to_downstream_dependent(self):
+        """C `requires=y`, which only bb_b_init `provides=`; the SAME
+        availability-guard machinery gates C on `bb_app_avail_y`, which only
+        becomes true if bb_b_init actually ran and succeeded -- so a skipped
+        (never-called) bb_b_init transitively skips bb_c_init too, with no
+        special-cased propagation logic needed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_gate_chain(tmp)
+            entries = collect_entries(str(root), ["bb_a", "bb_b", "bb_c", "bb_d"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertIn(
+                "    if (bb_app_avail_y) {\n"
+                "        bb_app_rc = bb_c_init();\n"
+                "        if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
+                "{ bb_app_first_err = bb_app_rc; }\n"
+                "    } else {\n"
+                '        bb_log_w(BB_APP_INIT_TAG, "skipping bb_c_init: '
+                'required provider unavailable");\n'
+                "    }\n",
+                source,
+            )
+
+    def test_entry_with_no_requires_emits_byte_identical_unguarded_call(self):
+        """bb_d_noop has no `requires=` -- its call must be emitted exactly
+        as the pre-gating convention (no guard, no availability bookkeeping),
+        even though OTHER entries in the same file are gated."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_gate_chain(tmp)
+            entries = collect_entries(str(root), ["bb_a", "bb_b", "bb_c", "bb_d"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertIn(
+                "    bb_app_rc = bb_d_noop();\n"
+                "    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
+                "{ bb_app_first_err = bb_app_rc; }\n\n",
+                source,
+            )
+            self.assertNotIn("bb_app_avail_", source.split("bb_app_rc = bb_d_noop();")[1].split("\n\n")[0])
+
+    def test_no_requires_anywhere_emits_no_gating_scaffolding_at_all(self):
+        """Zero-regression guard: a composition with no `requires=` markers
+        at all gets NO availability flags, NO extra includes, NO guard -- the
+        whole-file output stays byte-identical to pre-B1-853 codegen."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            entries = collect_entries(str(root), ["bb_meminfo"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertNotIn("bb_app_avail_", source)
+            self.assertNotIn("<stdbool.h>", source)
+            self.assertNotIn("BB_APP_INIT_TAG", source)
+
+
+def _fixture_root_with_multi_provider(tmp: str) -> Path:
+    """Two independent entries both `provides=x` (e.g. two backends of the
+    same capability), and a single dependent `requires=x` -- proves
+    availability is the OR of every provider's success: EITHER provider
+    succeeding must be enough to un-gate the dependent, and the dependent
+    must be ordered after BOTH providers (never interleaved between them)."""
+    root = Path(tmp)
+    _make_component(
+        root, "bb_p1",
+        "#pragma once\n"
+        "// bbtool:init tier=early fn=bb_p1_init provides=x\n"
+        "bb_err_t bb_p1_init(void);\n",
+    )
+    _make_component(
+        root, "bb_p2",
+        "#pragma once\n"
+        "// bbtool:init tier=early fn=bb_p2_init provides=x\n"
+        "bb_err_t bb_p2_init(void);\n",
+    )
+    _make_component(
+        root, "bb_dep",
+        "#pragma once\n"
+        "// bbtool:init tier=early fn=bb_dep_init requires=x\n"
+        "bb_err_t bb_dep_init(void);\n",
+    )
+    return root
+
+
+class TestGateDependentsMultiProvider(unittest.TestCase):
+    """B1-853: multi-provider token -- availability is the OR of every
+    provides= entry's success (each provider only ever sets its flag to
+    `true`, never resets it), never last-writer-wins or first-writer-only."""
+
+    def test_dependent_guarded_on_single_flag_set_by_either_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_multi_provider(tmp)
+            entries = collect_entries(str(root), ["bb_p1", "bb_p2", "bb_dep"], "espidf")
+            source = render_source(topo_sort(entries))
+            # A single flag for token x -- not one per provider.
+            self.assertEqual(source.count("static bool bb_app_avail_x = false;"), 1)
+            # BOTH providers set it (OR semantics), each independently, on
+            # their own success -- never reset to false by the other.
+            self.assertIn(
+                "    bb_app_rc = bb_p1_init();\n"
+                "    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
+                "{ bb_app_first_err = bb_app_rc; }\n"
+                "    if (bb_app_rc == BB_OK) {\n"
+                "        bb_app_avail_x = true;\n"
+                "    }\n",
+                source,
+            )
+            self.assertIn(
+                "    bb_app_rc = bb_p2_init();\n"
+                "    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
+                "{ bb_app_first_err = bb_app_rc; }\n"
+                "    if (bb_app_rc == BB_OK) {\n"
+                "        bb_app_avail_x = true;\n"
+                "    }\n",
+                source,
+            )
+            self.assertIn(
+                "    if (bb_app_avail_x) {\n"
+                "        bb_app_rc = bb_dep_init();\n",
+                source,
+            )
+
+    def test_dependent_ordered_after_both_providers(self):
+        """The dependent must never run interleaved between the two
+        providers -- topo_sort orders it after both, so its guard checks a
+        flag that both providers have already had a chance to set."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_multi_provider(tmp)
+            entries = collect_entries(str(root), ["bb_p1", "bb_p2", "bb_dep"], "espidf")
+            ordered = topo_sort(entries)
+            self.assertEqual(
+                [e.fn for e in ordered],
+                ["bb_p1_init", "bb_p2_init", "bb_dep_init"],
+            )
+            source = render_source(ordered)
+            p1_pos = source.index("bb_p1_init()")
+            p2_pos = source.index("bb_p2_init()")
+            dep_pos = source.index("bb_dep_init()")
+            self.assertLess(p1_pos, dep_pos)
+            self.assertLess(p2_pos, dep_pos)
+
+
+def _fixture_root_with_cross_tier(tmp: str) -> Path:
+    """Provider in tier=early, dependent in tier=pre_http -- a `requires=`
+    satisfied by an EARLIER tier (wire_graph.topo_sort adds no same-tier
+    edge for this case, since tier ordering alone already guarantees it),
+    proving the file-scope static availability flag correctly threads the
+    tier boundary (bb_app_init_early() sets it, bb_app_init_rest() reads
+    it) rather than only ever working within a single tier/function."""
+    root = Path(tmp)
+    _make_component(
+        root, "bb_early_provider",
+        "#pragma once\n"
+        "// bbtool:init tier=early fn=bb_early_provider_init provides=cross_x\n"
+        "bb_err_t bb_early_provider_init(void);\n",
+    )
+    _make_component(
+        root, "bb_late_dep",
+        "#pragma once\n"
+        "// bbtool:init tier=pre_http fn=bb_late_dep_init requires=cross_x\n"
+        "bb_err_t bb_late_dep_init(void);\n",
+    )
+    return root
+
+
+class TestGateDependentsCrossTier(unittest.TestCase):
+    """B1-853: a `requires=` satisfied by an earlier tier's `provides=` must
+    still be gated at RUNTIME (the provider could still fail), even though
+    wire_graph.topo_sort treats cross-tier satisfaction as edge-free (tier
+    ordering alone is enough for static ordering purposes)."""
+
+    def test_provider_sets_flag_in_early_fn_dependent_guarded_in_rest_fn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_cross_tier(tmp)
+            entries = collect_entries(str(root), ["bb_early_provider", "bb_late_dep"], "espidf")
+            source = render_source(topo_sort(entries))
+
+            early_fn = source[source.index("bb_app_init_early(void)"):source.index("bb_app_init_rest(void)")]
+            rest_fn = source[source.index("bb_app_init_rest(void)"):]
+
+            self.assertIn(
+                "    bb_app_rc = bb_early_provider_init();\n"
+                "    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
+                "{ bb_app_first_err = bb_app_rc; }\n"
+                "    if (bb_app_rc == BB_OK) {\n"
+                "        bb_app_avail_cross_x = true;\n"
+                "    }\n",
+                early_fn,
+            )
+            self.assertNotIn("bb_late_dep_init", early_fn)
+
+            self.assertIn(
+                "    if (bb_app_avail_cross_x) {\n"
+                "        bb_app_rc = bb_late_dep_init();\n"
+                "        if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
+                "{ bb_app_first_err = bb_app_rc; }\n"
+                "    } else {\n"
+                '        bb_log_w(BB_APP_INIT_TAG, "skipping bb_late_dep_init: '
+                'required provider unavailable");\n'
+                "    }\n",
+                rest_fn,
+            )
+            # The flag is declared exactly once, at file scope -- before
+            # either function -- so it's the SAME static persisting across
+            # both, not a per-function local.
+            self.assertEqual(source.count("static bool bb_app_avail_cross_x = false;"), 1)
+            self.assertLess(
+                source.index("static bool bb_app_avail_cross_x = false;"),
+                source.index("bb_app_init_early(void)"),
+            )
 
 
 if __name__ == "__main__":
