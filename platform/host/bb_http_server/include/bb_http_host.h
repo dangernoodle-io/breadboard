@@ -91,6 +91,15 @@ void bb_http_host_force_send_chunk_fail(bool fail);
 // Reset to false after the test.
 void bb_http_host_force_send_chunk_term_fail(bool fail);
 
+// Test hook: total number of bb_http_resp_send_chunk() invocations since the
+// active capture slot was armed (bb_http_host_capture_begin), counted on
+// EVERY call regardless of forced-failure return -- lets a test distinguish
+// "the terminator call was attempted (and happened to fail)" from "the
+// terminator was skipped entirely", which the return code alone cannot
+// (both a mid-stream fail and a skipped terminator can leave the same
+// error propagating out). Reset to 0 by bb_http_host_capture_begin.
+size_t bb_http_host_send_chunk_call_count(void);
+
 // Asset wildcard test hooks (mirror the ESP-IDF asset_wildcard_handler logic).
 // Register an asset table via bb_http_register_assets first, then call these.
 

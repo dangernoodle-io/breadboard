@@ -31,6 +31,12 @@ typedef struct {
     bool have_child;
 } bb_serialize_json_level_t;
 
+// Optional chunk-flush sink. When set, bb_json_put()'s buffer-full path
+// flushes(ctx,buf,len)+resets len=0 instead of failing NO_SPACE. NULL (the
+// default) preserves today's exact all-or-nothing bounded behavior byte-for-
+// byte -- existing MQTT/UDP/host bounded consumers unaffected.
+typedef void (*bb_serialize_json_flush_fn)(void *ctx, const char *data, size_t len);
+
 // Writer state -- caller-owned, no heap. `buf`/`cap` are supplied by the
 // caller via bb_serialize_json_ctx_init(); `cap` is the FULL buffer
 // capacity as given -- bb_serialize_json_render() reserves the final byte
@@ -51,6 +57,10 @@ typedef struct {
     // this bound at runtime (BB_ERR_NO_SPACE, no write) so a future change
     // to either constant can't silently reintroduce an OOB write.
     bb_serialize_json_level_t stack[2 * BB_SERIALIZE_MAX_DEPTH + 2];
+
+    bb_serialize_json_flush_fn flush_fn;     // NULL = bounded all-or-nothing
+    void                      *flush_ctx;     // opaque, forwarded to flush_fn
+    const volatile bool       *flush_failed;  // optional caller-owned sticky abort flag
 } bb_serialize_json_ctx_t;
 
 // Initializes `ctx` to an empty writer over `buf`/`cap`. Does not write
@@ -97,6 +107,47 @@ bb_err_t bb_serialize_json_render(const bb_serialize_desc_t *desc, const void *s
 bb_err_t bb_serialize_json_render_ref(const bb_serialize_desc_t *desc, const void *snap,
                                        char *buf, size_t cap, size_t *out_len,
                                        bb_serialize_ref_resolve_fn resolve, void *resolve_ctx);
+
+// Streaming entry point: distinct from bb_serialize_json_render()/
+// bb_serialize_json_render_ref() above -- NOT routed through
+// bb_serialize_format_render() (that dispatch stays bounded/unchanged).
+// Drives the walker against an internal, fixed-size stack buffer
+// (BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES) and invokes `flush_fn(flush_ctx,
+// data, len)` each time that buffer fills, rather than failing NO_SPACE --
+// so an arbitrarily large JSON document can be rendered through a small,
+// bounded working set (e.g. one HTTP chunk at a time).
+//
+// On abort/overflow returns a non-BB_OK bb_err_t. `flush_failed` (if
+// non-NULL) is polled after every flush; once it reads true, a sticky
+// internal error is set and every subsequent write no-ops (so no further
+// flush_fn calls occur after the caller signals abort). The returned
+// bb_err_t reflects JSON-shape-local state or the synthetic abort code
+// (BB_ERR_INVALID_STATE) -- a caller that needs the PRECISE I/O error must
+// capture it in its own flush_ctx.
+//
+// PARTIAL JSON MAY HAVE ALREADY BEEN FLUSHED before an error is detected --
+// a deliberate streaming tradeoff (same as bb_openapi_emit_stream), NOT the
+// all-or-nothing guarantee bb_serialize_json_render() gives.
+//
+// HTTP-LAYER CONSEQENCE (e.g. bb_http_serialize_stream()): once the first
+// chunk has been sent, the response status line and headers are already on
+// the wire -- a render/flush failure that happens AFTER that point (for any
+// reason other than the client disconnecting, which the caller detects and
+// simply stops on) can only surface as a TRUNCATED 200 response body, never
+// a 500. The buffered bb_serialize_json_render() path could still fail
+// before anything is written and let its caller return a clean 500; the
+// streamed path gives that up in exchange for bounded memory. This is an
+// accepted tradeoff, not a bug -- a caller that needs a guaranteed error
+// status for every failure mode must use the buffered render path instead.
+//
+// SCOPE LIMIT: unlike bb_serialize_json_render_ref(), this entry point does
+// NOT accept `resolve`/`resolve_ctx` -- it always drives the plain
+// (non-REF) walker. A descriptor containing a BB_TYPE_REF field that needs
+// pointer-indirection resolution cannot be streamed via this fn (PR-1 scope
+// limit, B1-1077). No current diag descriptor needs REF resolution.
+bb_err_t bb_serialize_json_stream_render(const bb_serialize_desc_t *desc, const void *snap,
+                                          bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
+                                          const volatile bool *flush_failed);
 
 // Computes a worst-case (upper-bound) byte count for rendering `desc` as
 // JSON via bb_serialize_json_render() -- a sizing helper for callers that

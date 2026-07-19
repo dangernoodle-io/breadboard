@@ -8,9 +8,9 @@
 // floor_diag_render() (examples/floor/main/floor_app.c ~L124-164).
 #include "bb_diag_section_priv.h"
 
+#include "bb_http_serialize_stream.h"
 #include "bb_http_server.h"
 #include "bb_log.h"
-#include "bb_serialize_format.h"
 
 #include <string.h>
 
@@ -71,15 +71,7 @@ static bb_err_t diag_section_dispatch(bb_http_request_t *req)
         return respond_error(req, 500, "{\"error\":\"fill failed\"}");
     }
 
-    char   buf[BB_DIAG_SECTION_RENDER_BUF_BYTES];
-    size_t len = 0;
-    rc = bb_serialize_format_render(BB_FORMAT_JSON, sec->snap_desc, scratch, buf, sizeof(buf), &len);
-    if (rc != BB_OK) {
-        return respond_error(req, 500, "{\"error\":\"render failed\"}");
-    }
-
-    bb_http_resp_set_type(req, "application/json");
-    return bb_http_resp_sendstr(req, buf);
+    return bb_http_serialize_stream(req, sec->snap_desc, scratch);
 }
 
 bb_err_t bb_diag_sections_init(bb_http_handle_t server)

@@ -358,9 +358,12 @@ void test_bb_http_req_sockfd_returns_negative_one(void)
 
 void test_bb_http_server_lifecycle_stubs_are_noop_ok(void)
 {
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_server_start());
     TEST_ASSERT_EQUAL(BB_OK, bb_http_server_stop());
     TEST_ASSERT_NULL(bb_http_server_get_handle());
     bb_http_server_poll();  // no-op; just must not crash
+    bb_http_set_cors_methods("GET, POST");  // no-op; just must not crash
+    bb_http_set_cors_headers("Content-Type");  // no-op; just must not crash
 }
 
 void test_bb_http_unregister_route_is_noop_ok(void)

@@ -86,20 +86,6 @@ config BB_DIAG_SECTION_SCRATCH_BYTES
         the storage/nvs and storage/partitions sections' snapshots
         (~1.3KB / ~1KB at their default caps) with headroom.
 
-config BB_DIAG_SECTION_RENDER_BUF_BYTES
-    int "Shared rendered-JSON response buffer size (bytes)"
-    default 3072
-    range 256 8192
-    depends on BB_DIAG_SECTIONS
-    help
-        Size of the dispatcher's stack buffer for one rendered JSON
-        response (B1-1076 fix -- this was previously a bare hardcoded 1024
-        with no Kconfig tuning knob). Rendered JSON is textual and larger
-        than the raw snapshot struct it comes from -- e.g. a 16-row
-        storage/nvs response is ~3.2-3.7KB. Shared across every registered
-        section (mirrors BB_DIAG_SECTION_SCRATCH_BYTES above); raise if a
-        future section's rendered output outgrows it.
-
 config BB_DIAG_STORAGE_NVS_ENTRY_CAP
     int "storage/nvs section: max NVS entry rows per response"
     default 16

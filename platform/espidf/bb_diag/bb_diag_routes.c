@@ -575,6 +575,8 @@ static const bb_route_t s_coredump_get_route = {
 // GET /api/diag/heap[?check=true]
 // Optional query param ?check=true runs heap_caps_check_integrity_all and
 // appends "integrity_ok": bool to the response.
+// retained: live consumers (bbdevice readiness/monitor, bbtool size --heap-from-http)
+// not yet migrated to /api/diag/meminfo
 static bb_err_t heap_get_handler(bb_http_request_t *req)
 {
     struct cap_entry { const char *name; uint32_t caps; };

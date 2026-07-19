@@ -40,20 +40,6 @@
 // per-target Kconfig tunable.
 #define BB_DIAG_SECTION_URI_MAX (16 + BB_DIAG_SECTION_NAME_MAX)
 
-// Bounds the dispatcher's stack buffer for one rendered JSON response.
-// Kconfig-bridged (B1-1076 fix -- this was a bare hardcoded 1024 with no
-// tuning knob) via the SAME pattern as BB_DIAG_SECTION_SCRATCH_BYTES above:
-// a section's rendered JSON is textual and larger than its raw struct (a
-// 16-row storage/nvs response is ~3.2-3.7KB), so the shared render buffer
-// must be sized generously enough for every registered section, not just
-// the smallest one -- raise CONFIG_BB_DIAG_SECTION_RENDER_BUF_BYTES if a
-// future section's rendered output outgrows it.
-#ifdef CONFIG_BB_DIAG_SECTION_RENDER_BUF_BYTES
-#define BB_DIAG_SECTION_RENDER_BUF_BYTES CONFIG_BB_DIAG_SECTION_RENDER_BUF_BYTES
-#else
-#define BB_DIAG_SECTION_RENDER_BUF_BYTES 3072
-#endif
-
 // Looks up a registered section by name. Returns NULL if `name` is NULL or
 // not registered.
 const bb_diag_section_t *bb_diag_section_find(const char *name);

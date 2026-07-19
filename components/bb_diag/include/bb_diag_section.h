@@ -7,11 +7,19 @@
  * component's own init fn) via bb_diag_register_section(); the ESP-IDF
  * dispatcher (bb_diag_sections_init(), platform/espidf/bb_diag/
  * bb_diag_section_dispatch.c) then serves GET /api/diag/<name> for every
- * registered section, rendering its snapshot straight through
- * bb_serialize_format_render() -- NOT through bb_data. bb_diag stays
- * bb_data-free here on purpose: this registry is a smaller, more direct
- * seam than bb_data's binding table, with no wire-format lookup indirection
- * beyond bb_serialize's own format registry.
+ * registered section, streaming its snapshot straight through
+ * bb_http_serialize_stream() (bb_serialize_json's flush-sink bridge, B1-1077
+ * PR-1) -- NOT through bb_data. bb_diag stays bb_data-free here on purpose:
+ * this registry is a smaller, more direct seam than bb_data's binding
+ * table, with no wire-format lookup indirection beyond bb_serialize_json
+ * itself (JSON only -- no format-registry dispatch).
+ *
+ * STREAMING TRADEOFF: because the response is streamed chunk-by-chunk, a
+ * render failure that occurs after the first chunk is already on the wire
+ * (for any reason other than a client disconnect) surfaces to the caller
+ * as a truncated-200 body, never a 500 -- see
+ * bb_serialize_json_stream_render()'s doc comment (bb_serialize_json.h)
+ * for the full tradeoff. Accepted for every section registered here.
  *
  * This PR ships the MECHANISM ONLY -- zero real section names. Producers
  * (meminfo/system/mdns/storage) land in later PRs against this same API.

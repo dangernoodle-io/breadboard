@@ -21,6 +21,8 @@ static const bb_serialize_field_t s_meminfo_region_heap_snap_fields[] = {
       .offset = offsetof(bb_meminfo_heap_snap_region_t, largest_free_block) },
     { .key = "total", .type = BB_TYPE_U64,
       .offset = offsetof(bb_meminfo_heap_snap_region_t, total) },
+    { .key = "allocated", .type = BB_TYPE_U64,
+      .offset = offsetof(bb_meminfo_heap_snap_region_t, allocated) },
 };
 #define BB_MEMINFO_REGION_N_FIELDS \
     (sizeof(s_meminfo_region_heap_snap_fields) / sizeof(s_meminfo_region_heap_snap_fields[0]))
@@ -37,6 +39,9 @@ static const bb_serialize_field_t s_meminfo_heap_snap_fields[] = {
       .children = s_meminfo_region_heap_snap_fields, .n_children = BB_MEMINFO_REGION_N_FIELDS },
     { .key = "spiram", .type = BB_TYPE_OBJ,
       .offset = offsetof(bb_meminfo_heap_snap_t, spiram),
+      .children = s_meminfo_region_heap_snap_fields, .n_children = BB_MEMINFO_REGION_N_FIELDS },
+    { .key = "exec", .type = BB_TYPE_OBJ,
+      .offset = offsetof(bb_meminfo_heap_snap_t, exec),
       .children = s_meminfo_region_heap_snap_fields, .n_children = BB_MEMINFO_REGION_N_FIELDS },
     { .key = "esp_min_free_heap", .type = BB_TYPE_U64,
       .offset = offsetof(bb_meminfo_heap_snap_t, esp_min_free_heap) },
@@ -77,12 +82,14 @@ bb_err_t bb_meminfo_heap_snap_fill(bb_meminfo_heap_snap_t *out)
         { &out->internal,       &snap.internal },
         { &out->dma,            &snap.dma },
         { &out->spiram,         &snap.spiram },
+        { &out->exec,           &snap.exec },
     };
     for (size_t i = 0; i < sizeof(regions) / sizeof(regions[0]); i++) {
         regions[i].dst->free               = (uint64_t)regions[i].src->free;
         regions[i].dst->min_ever_free      = (uint64_t)regions[i].src->min_ever_free;
         regions[i].dst->largest_free_block = (uint64_t)regions[i].src->largest_free_block;
         regions[i].dst->total              = (uint64_t)regions[i].src->total;
+        regions[i].dst->allocated          = (uint64_t)regions[i].src->allocated;
     }
 
     out->esp_min_free_heap = (uint64_t)snap.esp_min_free_heap;

@@ -10,12 +10,20 @@
 #include "esp_system.h"
 #include "soc/soc.h"
 
+// heap_caps_get_info() folds free/total/allocated into one call (matches
+// the legacy /api/diag/heap route's own approach, B1-diag-dissolution heap
+// reconciliation) -- largest_free_block still comes from its own call since
+// it can take a distinct cap mask (see the MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT
+// callers below).
 static void fill_region(bb_meminfo_region_t *r, uint32_t caps, uint32_t largest_caps)
 {
-    r->free               = heap_caps_get_free_size(caps);
+    multi_heap_info_t info;
+    heap_caps_get_info(&info, caps);
+    r->free               = info.total_free_bytes;
     r->min_ever_free      = heap_caps_get_minimum_free_size(caps);
     r->largest_free_block = heap_caps_get_largest_free_block(largest_caps);
     r->total              = heap_caps_get_total_size(caps);
+    r->allocated          = info.total_allocated_bytes;
 }
 
 bb_err_t bb_meminfo_get(bb_meminfo_snapshot_t *out)
@@ -28,6 +36,7 @@ bb_err_t bb_meminfo_get(bb_meminfo_snapshot_t *out)
                 MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     fill_region(&out->dma, MALLOC_CAP_DMA, MALLOC_CAP_DMA);
     fill_region(&out->spiram, MALLOC_CAP_SPIRAM, MALLOC_CAP_SPIRAM);
+    fill_region(&out->exec, MALLOC_CAP_EXEC, MALLOC_CAP_EXEC);
 
     out->esp_min_free_heap = esp_get_minimum_free_heap_size();
 

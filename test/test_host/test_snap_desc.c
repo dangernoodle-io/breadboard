@@ -16,7 +16,10 @@
 
 static void render_eq(const bb_serialize_desc_t *d, const void *snap, const char *golden)
 {
-    char   buf[512];
+    // 768: meminfo's populated golden grew past 512 once the `exec` region +
+    // per-region `allocated` field were folded in (heap reconciliation,
+    // B1-diag-dissolution) -- headroom for both meminfo and system fixtures.
+    char   buf[768];
     size_t n = 0;
 
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_serialize_json_render(d, snap, buf, sizeof buf, &n));
@@ -34,6 +37,7 @@ static void fill_meminfo_region(bb_meminfo_heap_snap_region_t *r, uint64_t base)
     r->min_ever_free      = base + 1;
     r->largest_free_block = base + 2;
     r->total              = base + 3;
+    r->allocated          = base + 4;
 }
 
 void test_snap_desc_meminfo_render_populated(void)
@@ -45,6 +49,7 @@ void test_snap_desc_meminfo_render_populated(void)
     fill_meminfo_region(&snap.internal, 200);
     fill_meminfo_region(&snap.dma, 300);
     fill_meminfo_region(&snap.spiram, 400);
+    fill_meminfo_region(&snap.exec, 450);
     snap.esp_min_free_heap      = 500;
     snap.mem_outstanding_bytes  = 600;
     snap.mem_peak_outstanding   = 700;
@@ -54,10 +59,11 @@ void test_snap_desc_meminfo_render_populated(void)
     snap.dram_static_bytes      = 1100;
 
     render_eq(&bb_meminfo_heap_snap_desc, &snap,
-              "{\"default\":{\"free\":100,\"min_ever_free\":101,\"largest_free_block\":102,\"total\":103},"
-              "\"internal\":{\"free\":200,\"min_ever_free\":201,\"largest_free_block\":202,\"total\":203},"
-              "\"dma\":{\"free\":300,\"min_ever_free\":301,\"largest_free_block\":302,\"total\":303},"
-              "\"spiram\":{\"free\":400,\"min_ever_free\":401,\"largest_free_block\":402,\"total\":403},"
+              "{\"default\":{\"free\":100,\"min_ever_free\":101,\"largest_free_block\":102,\"total\":103,\"allocated\":104},"
+              "\"internal\":{\"free\":200,\"min_ever_free\":201,\"largest_free_block\":202,\"total\":203,\"allocated\":204},"
+              "\"dma\":{\"free\":300,\"min_ever_free\":301,\"largest_free_block\":302,\"total\":303,\"allocated\":304},"
+              "\"spiram\":{\"free\":400,\"min_ever_free\":401,\"largest_free_block\":402,\"total\":403,\"allocated\":404},"
+              "\"exec\":{\"free\":450,\"min_ever_free\":451,\"largest_free_block\":452,\"total\":453,\"allocated\":454},"
               "\"esp_min_free_heap\":500,"
               "\"mem_outstanding_bytes\":600,\"mem_peak_outstanding\":700,\"mem_alloc_fail\":800,"
               "\"rtc_used\":900,\"rtc_total\":1000,\"dram_static_bytes\":1100}");
@@ -94,10 +100,11 @@ void test_snap_desc_meminfo_snap_fill_host_zeroes(void)
     // bb_meminfo_get() zero-fills on host -- bb_meminfo_heap_snap_fill() widens
     // that zeroed snapshot field-for-field, so every field renders 0.
     render_eq(&bb_meminfo_heap_snap_desc, &snap,
-              "{\"default\":{\"free\":0,\"min_ever_free\":0,\"largest_free_block\":0,\"total\":0},"
-              "\"internal\":{\"free\":0,\"min_ever_free\":0,\"largest_free_block\":0,\"total\":0},"
-              "\"dma\":{\"free\":0,\"min_ever_free\":0,\"largest_free_block\":0,\"total\":0},"
-              "\"spiram\":{\"free\":0,\"min_ever_free\":0,\"largest_free_block\":0,\"total\":0},"
+              "{\"default\":{\"free\":0,\"min_ever_free\":0,\"largest_free_block\":0,\"total\":0,\"allocated\":0},"
+              "\"internal\":{\"free\":0,\"min_ever_free\":0,\"largest_free_block\":0,\"total\":0,\"allocated\":0},"
+              "\"dma\":{\"free\":0,\"min_ever_free\":0,\"largest_free_block\":0,\"total\":0,\"allocated\":0},"
+              "\"spiram\":{\"free\":0,\"min_ever_free\":0,\"largest_free_block\":0,\"total\":0,\"allocated\":0},"
+              "\"exec\":{\"free\":0,\"min_ever_free\":0,\"largest_free_block\":0,\"total\":0,\"allocated\":0},"
               "\"esp_min_free_heap\":0,"
               "\"mem_outstanding_bytes\":0,\"mem_peak_outstanding\":0,\"mem_alloc_fail\":0,"
               "\"rtc_used\":0,\"rtc_total\":0,\"dram_static_bytes\":0}");
