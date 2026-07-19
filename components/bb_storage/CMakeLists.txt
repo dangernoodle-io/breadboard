@@ -7,5 +7,5 @@ idf_component_register(
 
 # bb_storage is a portable facade (no ESP-IDF deps, guarded internally by
 # nothing platform-specific) — its impl compiles unchanged on host and
-# ESP-IDF, so it is filed under platform/host/ only, mirroring bb_dispatch_cmd.
+# ESP-IDF, so it is filed under platform/host/ only.
 # bbtool-scaffold-hint: source=platform/host/bb_storage/bb_storage.c

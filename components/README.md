@@ -30,7 +30,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_data](./bb_data/) | bb_data core binding table (B1-832) -- OWNS the `key -> (desc, gather)` binding table for the future bidirectional data path (the B1-828 epic replacing bb_pub + bb_sub + all bb_sink_*). DIRECT: bb_data delegates ONLY the wire-format step to the existing bb_serialize format-dispatch registry (bb_serialize_format.h) -- it does NOT wrap bb_cache or bb_cache_serialize, and has no dependency on either. |
 | [bb_data_http](./bb_data_http/) | bb_data_http -- the converged HTTP SSE/WS push transport (B1-1033, design KB 1443/1444). Dep-light pure core (bb_queue + bb_core only): it NEVER links bb_data or bb_ws_server directly. Instead it calls three INJECTED function-pointer seams -- render, generation-read, and send -- that the composition root wires to real bb_data / bb_ws_server / httpd calls (ESP-IDF) or to test doubles (host). This keeps bb_data_http free to serve any egress transport without a hard dependency on the data or websocket layers. |
 | [bb_diag](./bb_diag/) | — |
-| [bb_dispatch_cmd](./bb_dispatch_cmd/) | — |
 | [bb_display](./bb_display/) | — |
 | [bb_display_ek79007](./bb_display_ek79007/) | — |
 | [bb_display_ili9341](./bb_display_ili9341/) | — |
