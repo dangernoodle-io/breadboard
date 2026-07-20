@@ -12,6 +12,7 @@ from registry import Rule, RULES
 from cmake_parse import parse_requires, ConditionalSetError
 from boards import discover_components, ManifestError
 from composition import resolve_composition
+from discovery import build_index
 
 NAME = "lint"
 HELP = "Run source lint checks"
@@ -1480,15 +1481,11 @@ _EVENT_SUBSCRIBE_RE = re.compile(r'\bbb_event_subscribe\s*\(')
 
 
 def _emit_seam_owner_from_path(root: Path, path: Path) -> Optional[str]:
-    """Derive the owning component name from a source path, mirroring
-    boards.discover_components: components/<name>/... -> name;
-    platform/<plat>/<name>/... -> name."""
-    parts = path.relative_to(root).parts
-    if parts[0] == "components" and len(parts) >= 2:
-        return parts[1]
-    if parts[0] == "platform" and len(parts) >= 3:
-        return parts[2]
-    return None
+    """Derive the owning component name from a source path via the
+    discovery index (B1-979) rather than a hand-rolled path-position
+    encoding: components/<name>/... -> name; platform/<plat>/<name>/... ->
+    name."""
+    return build_index([str(root)]).owner_of_path(path)
 
 
 def _emit_seam_invoke_topic(content: str, invoke: str) -> Optional[str]:

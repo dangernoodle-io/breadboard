@@ -16,8 +16,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from cmake_parse import parse_requires, parse_hints
-
-PLATFORMS = ("host", "espidf", "arduino")
+from discovery import PLATFORMS, build_index
 
 
 class ManifestError(Exception):
@@ -96,20 +95,11 @@ def discover_components(root: str) -> Set[str]:
     """The discovered component universe: every directory name under
     `components/` or `platform/{host,espidf,arduino}/`. This is the SSOT
     validation set — a manifest component name or a derived depends name that
-    isn't in this set is a hard error (typo), never silently dropped."""
-    root_p = Path(root)
-    names: Set[str] = set()
+    isn't in this set is a hard error (typo), never silently dropped.
 
-    comp_root = root_p / "components"
-    if comp_root.is_dir():
-        names.update(child.name for child in comp_root.iterdir() if child.is_dir())
-
-    for plat in PLATFORMS:
-        plat_root = root_p / "platform" / plat
-        if plat_root.is_dir():
-            names.update(child.name for child in plat_root.iterdir() if child.is_dir())
-
-    return names
+    Thin wrapper over `discovery.build_index` (B1-979) — single-root, so
+    never raises `discovery.CollisionError`."""
+    return set(build_index([root]).names())
 
 
 # ---------------------------------------------------------------------------
@@ -151,9 +141,11 @@ def derive_component(root: str, name: str, platform: str) -> Dict[str, List[str]
         inside the component's own CMakeLists.txt.
     """
     root_p = Path(root)
-    comp_dir = root_p / "components" / name
-    cmake_text = _read_text(comp_dir / "CMakeLists.txt")
+    index = build_index([root])
+    comp_dir = index.component_dir(name)
+    plat_dir = index.platform_dir(name, platform)
 
+    cmake_text = _read_text(comp_dir / "CMakeLists.txt") if comp_dir is not None else ""
     requires, priv_requires = parse_requires(cmake_text, component=name)
     depends: Set[str] = set(requires) | set(priv_requires)
 
@@ -166,7 +158,7 @@ def derive_component(root: str, name: str, platform: str) -> Dict[str, List[str]
     # resolve_transitive and looked dead. Union both CMakeLists' depends —
     # a component may legitimately declare REQUIRES at either or both
     # layers.
-    plat_cmake_text = _read_text(root_p / "platform" / platform / name / "CMakeLists.txt")
+    plat_cmake_text = _read_text(plat_dir / "CMakeLists.txt") if plat_dir is not None else ""
     plat_requires, plat_priv_requires = parse_requires(plat_cmake_text, component=name)
     depends |= set(plat_requires) | set(plat_priv_requires)
     depends = sorted(depends)
@@ -174,25 +166,25 @@ def derive_component(root: str, name: str, platform: str) -> Dict[str, List[str]
     includes: Set[str] = set()
     sources: Set[str] = set()
 
-    comp_include = comp_dir / "include"
-    if comp_include.is_dir():
-        includes.add(f"components/{name}/include")
+    if comp_dir is not None:
+        comp_include = comp_dir / "include"
+        if comp_include.is_dir():
+            includes.add(f"components/{name}/include")
 
-    comp_src = comp_dir / "src"
-    if comp_src.is_dir():
-        includes.add(f"components/{name}/src")
-        sources.update(_glob_c_files(root_p, comp_src, recursive=False))
-    else:
-        # Flat component layout: top-level *.c files live directly under
-        # components/<name>/ (e.g. bb_diag, bb_mdns) — the dir itself also
-        # needs to be an include path (private headers colocated there).
-        flat_sources = _glob_c_files(root_p, comp_dir, recursive=False)
-        if flat_sources:
-            includes.add(f"components/{name}")
-            sources.update(flat_sources)
+        comp_src = comp_dir / "src"
+        if comp_src.is_dir():
+            includes.add(f"components/{name}/src")
+            sources.update(_glob_c_files(root_p, comp_src, recursive=False))
+        else:
+            # Flat component layout: top-level *.c files live directly under
+            # components/<name>/ (e.g. bb_diag, bb_mdns) — the dir itself also
+            # needs to be an include path (private headers colocated there).
+            flat_sources = _glob_c_files(root_p, comp_dir, recursive=False)
+            if flat_sources:
+                includes.add(f"components/{name}")
+                sources.update(flat_sources)
 
-    plat_dir = root_p / "platform" / platform / name
-    if plat_dir.is_dir():
+    if plat_dir is not None:
         plat_include = plat_dir / "include"
         if plat_include.is_dir():
             includes.add(f"platform/{platform}/{name}/include")
@@ -200,7 +192,7 @@ def derive_component(root: str, name: str, platform: str) -> Dict[str, List[str]
             includes.add(f"platform/{platform}/{name}")
         sources.update(_glob_c_files(root_p, plat_dir, recursive=False))
 
-    hints = parse_hints(_read_text(comp_dir / "CMakeLists.txt"))
+    hints = parse_hints(cmake_text)
     includes.update(hints.get("include", []))
     sources.update(hints.get("source", []))
 

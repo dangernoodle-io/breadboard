@@ -65,6 +65,7 @@ import glob
 import os
 from typing import Dict, List, Tuple
 
+from discovery import build_index
 from wire_parse import InitEntry, ProvidesEntry, parse_markers, parse_provides_markers
 
 DEFAULT_OUT_REL = os.path.join("main", "generated", "bb_app_init.c")
@@ -86,25 +87,27 @@ def _component_headers(root: str, name: str, platform: str) -> List[str]:
     """Public header files for one component, repo-root-relative POSIX paths,
     sorted for determinism: components/<name>/include/*.h, falling back to
     components/<name>/*.h (flat layout), plus platform/<platform>/<name>/
-    (include/ or flat) — mirrors boards.derive_component's directory
-    convention."""
+    (include/ or flat) — looked up via the discovery index (B1-979) rather
+    than a hand-rolled path-position encoding; mirrors
+    boards.derive_component's directory convention."""
+    index = build_index([root])
     headers: List[str] = []
 
-    comp_include = os.path.join(root, "components", name, "include")
-    if os.path.isdir(comp_include):
-        headers.extend(sorted(glob.glob(os.path.join(comp_include, "*.h"))))
-    else:
-        comp_dir = os.path.join(root, "components", name)
-        if os.path.isdir(comp_dir):
-            headers.extend(sorted(glob.glob(os.path.join(comp_dir, "*.h"))))
+    comp_dir = index.component_dir(name)
+    if comp_dir is not None:
+        comp_include = comp_dir / "include"
+        if comp_include.is_dir():
+            headers.extend(sorted(glob.glob(os.path.join(str(comp_include), "*.h"))))
+        else:
+            headers.extend(sorted(glob.glob(os.path.join(str(comp_dir), "*.h"))))
 
-    plat_include = os.path.join(root, "platform", platform, name, "include")
-    if os.path.isdir(plat_include):
-        headers.extend(sorted(glob.glob(os.path.join(plat_include, "*.h"))))
-    else:
-        plat_dir = os.path.join(root, "platform", platform, name)
-        if os.path.isdir(plat_dir):
-            headers.extend(sorted(glob.glob(os.path.join(plat_dir, "*.h"))))
+    plat_dir = index.platform_dir(name, platform)
+    if plat_dir is not None:
+        plat_include = plat_dir / "include"
+        if plat_include.is_dir():
+            headers.extend(sorted(glob.glob(os.path.join(str(plat_include), "*.h"))))
+        else:
+            headers.extend(sorted(glob.glob(os.path.join(str(plat_dir), "*.h"))))
 
     return [os.path.relpath(h, root).replace(os.sep, "/") for h in headers]
 
