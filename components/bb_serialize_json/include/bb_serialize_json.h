@@ -18,6 +18,7 @@
 
 #include "bb_core.h"
 #include "bb_serialize.h"
+#include "bb_serialize_compose.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -147,6 +148,47 @@ bb_err_t bb_serialize_json_render_ref(const bb_serialize_desc_t *desc, const voi
 bb_err_t bb_serialize_json_stream_render(const bb_serialize_desc_t *desc, const void *snap,
                                           bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
                                           const volatile bool *flush_failed);
+
+// Composed-document counterpart to bb_serialize_json_stream_render() above --
+// same internal flush buffer (BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES), same
+// abort/flush_failed contract, same "PARTIAL JSON MAY HAVE ALREADY BEEN
+// FLUSHED" tradeoff -- except it drives bb_serialize_compose_walk() (see
+// bb_serialize_compose.h) once per `groups[0..n_groups)`, in order, inside a
+// single pair of root braces, rather than bb_serialize_walk() over a single
+// desc+snap pair. Root framing follows the same convention as
+// bb_serialize_json_stream_render(): the root `{`/`}` braces are written
+// directly (not via emit->begin_obj/end_obj, which -- like
+// bb_serialize_compose_walk() itself -- assumes it's already inside a
+// container, not framing the root). This entry point is memory-independent
+// of the composed document's total size: it never allocates a whole-
+// document buffer, only ever the same small, fixed flush buffer, regardless
+// of how many groups/entries are composed.
+//
+// MIXED-SHAPE DOCUMENTS: each group carries its own `shape`, so a caller can
+// e.g. pass one RAW group (a wire descriptor's fields merging flatly at the
+// document root) followed by one OBJECT group (named child sections) to
+// produce `{"ok":true,"network":{...},"alpha":{...},"beta":{...}}` in a
+// single call -- a shape bb_serialize_compose_walk() cannot express in one
+// invocation of its own (single `shape` argument, applied uniformly across
+// its `entries[]`), but which composes cleanly as more than one
+// shape-homogeneous walk inside this wrapper's own root framing.
+//
+// ALL-OR-NOTHING ACROSS GROUPS: groups are walked in order; the first
+// non-BB_OK return from any group's bb_serialize_compose_walk() call aborts
+// immediately -- no further groups are walked -- and that code is returned
+// verbatim, taking precedence over `ctx.err` (whatever JSON already got
+// written up to the abort point, across every fully-walked prior group plus
+// whatever the aborting group's own entries emitted before its failure, is
+// still flushed, same as any other streaming abort -- see
+// bb_serialize_compose_walk()'s own per-entry abort contract in
+// bb_serialize_compose.h). Otherwise, the JSON writer's own sticky error
+// (overflow or a flush_failed-driven abort) is returned, exactly as
+// bb_serialize_json_stream_render() does. `n_groups == 0` is valid and
+// renders an empty root object (`{}`); a group with `n == 0` among
+// non-empty groups is likewise a valid no-op for that group.
+bb_err_t bb_serialize_json_stream_compose_render(const bb_serialize_compose_group_t *groups, size_t n_groups,
+                                                  bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
+                                                  const volatile bool *flush_failed);
 
 // Computes a worst-case (upper-bound) byte count for rendering `desc` as
 // JSON via bb_serialize_json_render() -- a sizing helper for callers that

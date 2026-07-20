@@ -39,6 +39,18 @@ extern "C" {
 bb_err_t bb_http_serialize_stream(bb_http_request_t *req,
                                    const bb_serialize_desc_t *desc, const void *snap);
 
+// Composed-document counterpart to bb_http_serialize_stream() above -- same
+// Content-Type/chunked-finalize/abort-flag wiring, except it streams
+// `groups[0..n_groups)` (each its own entries[]/n/shape -- see
+// bb_serialize_compose_group_t in bb_serialize_compose.h) via
+// bb_serialize_json_stream_compose_render() rather than a single desc/snap
+// pair via bb_serialize_json_stream_render(). Returns BB_ERR_INVALID_ARG if
+// `req` is NULL, or if `groups` is NULL while `n_groups` is nonzero --
+// checked before the Content-Type header is set, same as
+// bb_http_serialize_stream() above.
+bb_err_t bb_http_serialize_stream_compose(bb_http_request_t *req,
+                                           const bb_serialize_compose_group_t *groups, size_t n_groups);
+
 #ifdef __cplusplus
 }
 #endif
