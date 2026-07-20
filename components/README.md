@@ -64,7 +64,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_mem_arena_tls](./bb_mem_arena_tls/) | — |
 | [bb_meminfo](./bb_meminfo/) | Canonical system-heap reader SSOT (KB #698/#699/#693) — the one component that |
 | [bb_mqtt_client](./bb_mqtt_client/) | — |
-| [bb_mqtt_info](./bb_mqtt_info/) | — |
 | [bb_ntp](./bb_ntp/) | — |
 | [bb_num](./bb_num/) | Portable numeric helpers: clamp, decimal formatting, and 32-bit byte-order (bswap) primitives. Pure C, no heap. |
 | [bb_openapi](./bb_openapi/) | — |

@@ -43,6 +43,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "bb_core.h"
+#include "bb_health_section.h"
 #include "bb_serialize.h"
 #include "bb_tls.h"
 
@@ -364,6 +365,61 @@ extern const bb_serialize_desc_t bb_mqtt_client_health_desc;
  *         is NULL.
  */
 bb_err_t bb_mqtt_client_health_fill(bb_mqtt_client_t h, bb_mqtt_client_health_snap_t *out);
+
+// ---------------------------------------------------------------------------
+// /api/health "mqtt" section (B1-1099, PR-4 of the bb_health/bb_response
+// migration chain, epic B1-1054) -- folds bb_mqtt_info's deleted
+// bb_mqtt_register_health() producer onto the bb_health_section composer
+// seam (bb_health_section.h). Deliberately a SEPARATE, narrower 2-field
+// shape ({enabled, connected}) from bb_mqtt_client_health_snap_t above (the
+// per-instance {connected, last_ok_ms, fail_count, tls_error_code}
+// snapshot, B1-1040) -- this one mirrors exactly what bb_mqtt_info's
+// hand-rolled bb_json_t emitter produced, no more, no less.
+//
+// ADDITIVE AND INERT: registering here populates only the NEW
+// bb_health_section table, which nothing renders yet -- the live
+// /api/health handler still assembles its response from the legacy
+// bb_health_register_section() registry (bb_health.h). The cutover that
+// makes this section visible on the wire again is a later PR (B1-1054
+// PR-5).
+// ---------------------------------------------------------------------------
+
+// The "mqtt" /api/health section's snapshot:
+//   enabled   -- true when bb_mqtt_client_default() is non-NULL (MQTT was
+//                configured and started)
+//   connected -- true when that handle is currently connected to the
+//                broker (bb_mqtt_client_is_connected)
+typedef struct {
+    bool enabled;
+    bool connected;
+} bb_mqtt_client_health_section_snap_t;
+
+// Format-agnostic descriptor SSOT for bb_mqtt_client_health_section_snap_t.
+extern const bb_serialize_desc_t bb_mqtt_client_health_section_desc;
+
+// bb_health_fill_fn adapter: fills `dst` (a
+// bb_mqtt_client_health_section_snap_t) from bb_mqtt_client_default() +
+// bb_mqtt_client_is_connected(). `args` is unused (this section takes no
+// query params). Returns BB_ERR_INVALID_ARG on NULL dst.
+bb_err_t bb_mqtt_client_health_section_fill(void *dst, const bb_health_fill_args_t *args);
+
+/*
+ * Register a /api/health section named "mqtt" that emits:
+ *   { "enabled": <bool>, "connected": <bool> }
+ * via bb_health_section_register() (bb_health_section.h). Also contributes
+ * a hand-authored JSON-Schema fragment for this section's object.
+ * Call before the section table is frozen.
+ */
+void bb_mqtt_client_health_register(void);
+
+/**
+ * Registry hook — calls bb_mqtt_client_health_register(). Takes no
+ * http_server handle: registering a health section needs no
+ * bb_http_server dependency (mirrors bb_temp_autoregister_init,
+ * bb_diag_meminfo_register).
+ */
+// bbtool:init tier=regular fn=bb_mqtt_client_health_autoregister_init
+bb_err_t bb_mqtt_client_health_autoregister_init(void);
 
 // ---------------------------------------------------------------------------
 // Host test hooks (only when BB_MQTT_CLIENT_TESTING is defined)

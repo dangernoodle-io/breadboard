@@ -4366,14 +4366,17 @@ void test_bb_mqtt_reasm_zero_length_topic_yields_empty_topic(void);
 void test_bb_mqtt_reasm_topic_truncated_at_max(void);
 void test_bb_mqtt_reasm_buf_cap_exceeded_mid_message_is_dropped(void);
 void test_bb_mqtt_reasm_zero_length_continuation_fragment_skips_copy(void);
-// Forward declarations from test_bb_mqtt_info.c
-void test_bb_mqtt_health_no_handle_enabled_false(void);
-void test_bb_mqtt_health_no_handle_connected_false(void);
-void test_bb_mqtt_health_handle_present_enabled_true(void);
-void test_bb_mqtt_health_handle_connected_reflects_stub(void);
-void test_bb_mqtt_health_set_disconnected(void);
-void test_bb_mqtt_health_reconnect_reflects_connected_true(void);
-void test_bb_mqtt_health_schema_fragment_present(void);
+// Forward declarations from test_bb_mqtt_client_health_section.c
+void test_bb_mqtt_health_section_fill_rejects_null_dst(void);
+void test_bb_mqtt_health_section_fill_no_handle_enabled_false(void);
+void test_bb_mqtt_health_section_fill_handle_present_enabled_true(void);
+void test_bb_mqtt_health_section_fill_set_disconnected(void);
+void test_bb_mqtt_health_section_fill_reconnect_reflects_connected_true(void);
+void test_bb_mqtt_health_register_registers_into_new_table(void);
+void test_bb_mqtt_health_register_schema_props_present(void);
+void test_bb_mqtt_health_autoregister_init_registers_into_new_table(void);
+void test_bb_mqtt_health_section_desc_wire_shape_disabled(void);
+void test_bb_mqtt_health_section_desc_wire_shape_enabled_connected(void);
 
 // Forward declarations from test_bb_http_client_session.c
 void test_bb_http_client_session_open_null_url_base_returns_invalid_arg(void);
@@ -8943,14 +8946,17 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_reasm_topic_truncated_at_max);
     RUN_TEST(test_bb_mqtt_reasm_buf_cap_exceeded_mid_message_is_dropped);
     RUN_TEST(test_bb_mqtt_reasm_zero_length_continuation_fragment_skips_copy);
-    // bb_mqtt_info tests
-    RUN_TEST(test_bb_mqtt_health_no_handle_enabled_false);
-    RUN_TEST(test_bb_mqtt_health_no_handle_connected_false);
-    RUN_TEST(test_bb_mqtt_health_handle_present_enabled_true);
-    RUN_TEST(test_bb_mqtt_health_handle_connected_reflects_stub);
-    RUN_TEST(test_bb_mqtt_health_set_disconnected);
-    RUN_TEST(test_bb_mqtt_health_reconnect_reflects_connected_true);
-    RUN_TEST(test_bb_mqtt_health_schema_fragment_present);
+    // bb_mqtt_client health section tests
+    RUN_TEST(test_bb_mqtt_health_section_fill_rejects_null_dst);
+    RUN_TEST(test_bb_mqtt_health_section_fill_no_handle_enabled_false);
+    RUN_TEST(test_bb_mqtt_health_section_fill_handle_present_enabled_true);
+    RUN_TEST(test_bb_mqtt_health_section_fill_set_disconnected);
+    RUN_TEST(test_bb_mqtt_health_section_fill_reconnect_reflects_connected_true);
+    RUN_TEST(test_bb_mqtt_health_register_registers_into_new_table);
+    RUN_TEST(test_bb_mqtt_health_register_schema_props_present);
+    RUN_TEST(test_bb_mqtt_health_autoregister_init_registers_into_new_table);
+    RUN_TEST(test_bb_mqtt_health_section_desc_wire_shape_disabled);
+    RUN_TEST(test_bb_mqtt_health_section_desc_wire_shape_enabled_connected);
 
     // bb_http_client session tests
     RUN_TEST(test_bb_http_client_session_open_null_url_base_returns_invalid_arg);
