@@ -23,10 +23,13 @@
  * driving the vtable" footgun a template-based design would otherwise
  * invite.
  *
- * `parse` is deliberately an opaque `const void *` -- this registry has no
- * knowledge of any format's ingest-vtable type (bb_serialize_json's, or any
- * future format's, may differ in shape). A caller that looks up `parse`
- * casts it back to the type it knows the registered format actually uses.
+ * `parse` is a typed `bb_serialize_parse_fn`: it decodes a caller-owned
+ * `buf[len]` using a caller-owned `scratch[scratch_cap]` (which must outlive
+ * the subsequent populate call -- it backs the bound
+ * bb_serialize_populate_t's own state) and yields a bound
+ * bb_serialize_populate_t source in `*out_src`, which the caller then drives
+ * via bb_serialize_populate(desc, dst, out_src). NULL means the backend is
+ * render-only (no ingest side) -- same no-op contract as before.
  */
 
 #include "bb_core.h"
@@ -45,15 +48,26 @@ extern "C" {
 typedef bb_err_t (*bb_serialize_render_fn)(const bb_serialize_desc_t *desc, const void *snap,
                                             char *buf, size_t cap, size_t *out_len);
 
+// One-shot parse-dispatch fn: decodes `buf` (length `len`) using
+// caller-owned `scratch` (capacity `scratch_cap`) and binds a
+// bb_serialize_populate_t source into `*out_src`. `scratch` MUST outlive the
+// caller's subsequent bb_serialize_populate(desc, dst, out_src) call -- it
+// backs the returned source's own internal state (e.g. a format's token
+// pool/recorder). Returns BB_ERR_NO_SPACE if `scratch_cap` is too small to
+// lay out that state; otherwise the format's own bb_err_t (e.g. a parse/
+// grammar error propagated from decoding `buf`), or BB_OK on success.
+typedef bb_err_t (*bb_serialize_parse_fn)(const char *buf, size_t len,
+                                           void *scratch, size_t scratch_cap,
+                                           bb_serialize_populate_t *out_src);
+
 // One format backend's registered entry. `render` is the backend's one-shot
 // render fn (borrowed, must outlive the registration -- typically a
-// file-scope static fn in the backend's own component). `parse` is an
-// opaque pointer to the backend's own ingest vtable/handle (e.g. a `const
-// bb_serialize_json_ingest_t *`, or NULL if the backend is render-only); the
-// registry never dereferences it.
+// file-scope static fn in the backend's own component). `parse` is the
+// backend's own one-shot parse-dispatch fn (see bb_serialize_parse_fn above),
+// or NULL if the backend is render-only.
 typedef struct {
     bb_serialize_render_fn render;
-    const void            *parse;
+    bb_serialize_parse_fn  parse;
 } bb_serialize_format_entry_t;
 
 // Registers `entry` under `fmt`. Returns BB_ERR_INVALID_ARG if `fmt` is
@@ -70,10 +84,10 @@ bb_err_t bb_serialize_format_register(bb_format_t fmt, const bb_serialize_format
 // be registered).
 bb_serialize_render_fn bb_serialize_format_get_render(bb_format_t fmt);
 
-// Returns the opaque parse handle registered for `fmt`, or NULL if `fmt`
-// has no registered entry, or the registered entry's `parse` was itself
-// NULL (render-only backend).
-const void *bb_serialize_format_get_parse(bb_format_t fmt);
+// Returns the parse fn registered for `fmt`, or NULL if `fmt` has no
+// registered entry, or the registered entry's `parse` was itself NULL
+// (render-only backend).
+bb_serialize_parse_fn bb_serialize_format_get_parse(bb_format_t fmt);
 
 // Convenience wrapper: looks up `fmt`'s registered render fn and calls it
 // with `desc`/`snap`/`buf`/`cap`/`out_len`. Returns BB_ERR_UNSUPPORTED if

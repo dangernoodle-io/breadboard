@@ -81,11 +81,10 @@ bb_serialize_emit_t bb_serialize_json_emit(bb_serialize_json_ctx_t *ctx);
 // one-shot, self-contained fn a caller looking it up via
 // bb_serialize_format_get_render() calls directly with its own
 // desc/snap/buf/cap/out_len, no per-call ctx copy/rebind needed. The
-// registered parse handle is bb_serialize_json_scan_bounded(), cast to
-// `const void *` per bb_serialize_format_entry_t's opaque-parse contract --
-// a caller that looks it up via bb_serialize_format_get_parse() casts it
-// back to `bb_err_t (*)(const char *, size_t, const
-// bb_serialize_json_ingest_t *)`. Idempotent (last-writer-wins, per
+// registered parse fn is bb_serialize_json_parse_bytes() (see its own doc
+// comment below) -- a caller looking it up via
+// bb_serialize_format_get_parse() gets it back already typed as
+// bb_serialize_parse_fn, no cast needed. Idempotent (last-writer-wins, per
 // bb_serialize_format_register()) -- safe to call more than once.
 // bbtool:init tier=early fn=bb_serialize_json_register_format
 bb_err_t bb_serialize_json_register_format(void);
@@ -604,6 +603,46 @@ struct bb_serialize_json_populate_ctx {
 bb_serialize_populate_t bb_serialize_json_populate_from_tok(
     bb_serialize_json_populate_ctx_t *ctx,
     const bb_serialize_json_tok_recorder_t *rec);
+
+// ---------------------------------------------------------------------------
+// Composed parse adapter -- the JSON backend's registered
+// bb_serialize_parse_fn (see bb_serialize_format.h). Composes the pieces
+// above (scan_bounded + tok recorder + populate_from_tok) into the single
+// typed entry point the format-dispatch registry's `.parse` slot expects.
+// ---------------------------------------------------------------------------
+
+// Decodes `buf` (length `len`, a complete JSON document) and binds a
+// bb_serialize_populate_t source into `*out_src`, ready to drive
+// bb_serialize_populate(desc, dst, out_src).
+//
+// SCRATCH LAYOUT: `scratch`/`scratch_cap` is carved (via bb_mem_arena,
+// max_align_t-aligned bump allocation) into, in order: a
+// bb_serialize_json_tok_recorder_t control struct, a
+// bb_serialize_json_populate_ctx_t cursor, a
+// BB_SERIALIZE_JSON_TOK_POOL_DEFAULT_CAP-capacity bb_serialize_json_tok_t
+// pool, then whatever bytes remain (via bb_mem_arena_alloc_rest(), rounded
+// DOWN to alignment so a non-alignment-clean remainder never spuriously
+// fails this call) become the recorder's escape-decode arena (used only for
+// string values containing at least one escape sequence -- see
+// bb_serialize_json_tok_recorder_init()'s STRING VALUE STORAGE note above;
+// escape-free documents need none of it, and may leave a NULL/0 arena
+// exactly as legitimately as an escape-free one that fits with zero bytes
+// left over). All of this lives IN `scratch`, never on this fn's own
+// stack -- `*out_src` borrows the recorder and the populate cursor, both
+// of which must stay alive for the
+// caller's subsequent bb_serialize_populate() call, which is only possible
+// if their backing bytes are the caller-owned `scratch`, not a local.
+//
+// Returns BB_ERR_INVALID_ARG if `buf`, `scratch`, or `out_src` is NULL.
+// Returns BB_ERR_NO_SPACE if `scratch_cap` is too small to lay out the
+// control structs plus the token pool above (the escape-decode arena may
+// legitimately end up 0 bytes -- that only fails a scan that hits an
+// escaped string, not this call). Otherwise propagates whatever
+// bb_serialize_json_scan_bounded() returns (BB_OK, or a scan/grammar
+// error) -- `*out_src` is only bound on a BB_OK return.
+bb_err_t bb_serialize_json_parse_bytes(const char *buf, size_t len,
+                                        void *scratch, size_t scratch_cap,
+                                        bb_serialize_populate_t *out_src);
 
 #ifdef __cplusplus
 }

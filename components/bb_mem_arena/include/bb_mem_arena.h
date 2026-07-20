@@ -92,6 +92,30 @@ bb_err_t bb_mem_arena_init_spiram(bb_mem_arena_t *out, size_t size);
 void *bb_mem_arena_alloc(bb_mem_arena_t a, size_t bytes);
 
 /**
+ * Allocate whatever remains of the arena's data region, rounded DOWN to
+ * _Alignof(max_align_t) (never up, unlike bb_mem_arena_alloc()) — so this
+ * call can never fail due to alignment padding pushing a request past the
+ * true remaining byte count. Writes the actual byte count allocated to
+ * *out_size (may be less than bb_mem_arena_free_bytes(a) reported just
+ * before the call, by up to _Alignof(max_align_t)-1 bytes).
+ *
+ * Use this instead of `bb_mem_arena_alloc(a, bb_mem_arena_free_bytes(a))`
+ * when you want to claim "the rest" of the arena for a caller-sized
+ * secondary region (e.g. an optional scratch/arena carved from whatever's
+ * left after fixed-size allocations) — the naive exact-free-bytes form
+ * spuriously fails whenever the remainder isn't already alignment-clean,
+ * because bb_mem_arena_alloc() rounds its request UP before checking it
+ * against the true remaining bytes.
+ *
+ * Returns NULL and sets *out_size to 0 if `a` is NULL, or if fewer than
+ * _Alignof(max_align_t) bytes remain (nothing alignable left) — a legitimate
+ * "the arena is exhausted, or has only sub-alignment slack left" outcome,
+ * not necessarily a caller error. *out_size is untouched if out_size is
+ * NULL.
+ */
+void *bb_mem_arena_alloc_rest(bb_mem_arena_t a, size_t *out_size);
+
+/**
  * Free a pointer previously returned by bb_mem_arena_alloc.
  * The pointer MUST be owned by a (bb_mem_arena_owns returns true) or NULL.
  * The bump allocator does not reclaim space; free_count is still updated.

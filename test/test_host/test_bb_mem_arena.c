@@ -461,6 +461,183 @@ void test_bb_mem_arena_peak_offset_advances_past_prior_high(void)
     bb_mem_arena_destroy(a);
 }
 
+// ---------------------------------------------------------------------------
+// bb_mem_arena_alloc_rest() -- allocate-the-remainder, rounded DOWN to
+// alignment (never up, unlike bb_mem_arena_alloc()). Added for B1-1030
+// review: a caller carving a secondary region out of "whatever's left"
+// must never spuriously fail just because the leftover byte count isn't
+// already alignment-clean.
+// ---------------------------------------------------------------------------
+
+void test_bb_mem_arena_alloc_rest_claims_all_remaining_aligned_bytes(void)
+{
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
+
+    size_t free_before = bb_mem_arena_free_bytes(a);
+    TEST_ASSERT_EQUAL_UINT(0, free_before % _Alignof(max_align_t));
+
+    size_t got_size = 0;
+    void  *p = bb_mem_arena_alloc_rest(a, &got_size);
+    TEST_ASSERT_NOT_NULL(p);
+    TEST_ASSERT_EQUAL_UINT(free_before, got_size);   // already aligned -- nothing left behind
+    TEST_ASSERT_EQUAL_UINT(0, bb_mem_arena_free_bytes(a));
+    TEST_ASSERT_TRUE(bb_mem_arena_owns(a, p));
+
+    bb_mem_arena_destroy(a);
+}
+
+void test_bb_mem_arena_alloc_rest_rounds_down_on_misaligned_remainder(void)
+{
+    // A backing buffer whose TOTAL size is deliberately NOT an
+    // _Alignof(max_align_t) multiple (unlike s_buf above, which is exactly
+    // 256 bytes and alignment-clean) -- the arena's own data-region size
+    // (block_size minus the alignment-rounded header) inherits that same
+    // misalignment, so bb_mem_arena_free_bytes() is non-aligned here even
+    // with NOTHING else allocated yet. This is the exact scenario the naive
+    // `bb_mem_arena_alloc(a, bb_mem_arena_free_bytes(a))` form (pre-fix
+    // bb_serialize_json_parse_bytes()) got wrong: it rounds that odd
+    // remainder UP past what's truly left and returns NULL. alloc_rest()
+    // must instead round DOWN and still succeed, claiming a FEW bytes less
+    // than the odd free_bytes() count.
+    static uint8_t misaligned_buf[256 + 3] __attribute__((aligned(_Alignof(max_align_t))));
+
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, misaligned_buf, sizeof(misaligned_buf)));
+
+    size_t free_before = bb_mem_arena_free_bytes(a);
+    TEST_ASSERT_NOT_EQUAL_UINT(0, free_before % _Alignof(max_align_t));  // genuinely misaligned
+
+    size_t got_size = 0;
+    void  *rest = bb_mem_arena_alloc_rest(a, &got_size);
+    TEST_ASSERT_NOT_NULL(rest);
+    TEST_ASSERT_EQUAL_UINT(0, got_size % _Alignof(max_align_t));  // rounded DOWN to alignment
+    TEST_ASSERT_TRUE(got_size < free_before);                     // strictly less -- the odd tail was dropped
+    TEST_ASSERT_EQUAL_UINT(free_before - got_size, bb_mem_arena_free_bytes(a));
+
+    bb_mem_arena_destroy(a);
+}
+
+void test_bb_mem_arena_alloc_rest_exhausted_returns_null_and_zero(void)
+{
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
+
+    size_t free_before = bb_mem_arena_free_bytes(a);
+    void *drained = bb_mem_arena_alloc(a, free_before);  // exact fit, already aligned
+    TEST_ASSERT_NOT_NULL(drained);
+    TEST_ASSERT_EQUAL_UINT(0, bb_mem_arena_free_bytes(a));
+
+    size_t got_size = 0xDEADBEEFu;
+    void  *rest = bb_mem_arena_alloc_rest(a, &got_size);
+    TEST_ASSERT_NULL(rest);
+    TEST_ASSERT_EQUAL_UINT(0, got_size);
+
+    bb_mem_arena_stats_t stats;
+    bb_mem_arena_get_stats(a, &stats);
+    TEST_ASSERT_EQUAL_UINT(1, stats.alloc_failed);
+
+    bb_mem_arena_destroy(a);
+}
+
+void test_bb_mem_arena_alloc_rest_null_arena_returns_null_and_zero(void)
+{
+    size_t got_size = 0xDEADBEEFu;
+    void  *rest = bb_mem_arena_alloc_rest(NULL, &got_size);
+    TEST_ASSERT_NULL(rest);
+    TEST_ASSERT_EQUAL_UINT(0, got_size);
+}
+
+void test_bb_mem_arena_alloc_rest_null_arena_and_null_out_size_is_safe(void)
+{
+    // Covers the `!a` early-return's own `if (out_size)` arm when out_size
+    // is ALSO NULL -- test_..._null_arena_returns_null_and_zero above only
+    // exercises the non-NULL out_size arm.
+    void *rest = bb_mem_arena_alloc_rest(NULL, NULL);
+    TEST_ASSERT_NULL(rest);
+}
+
+void test_bb_mem_arena_alloc_rest_null_out_size_is_safe(void)
+{
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
+
+    void *rest = bb_mem_arena_alloc_rest(a, NULL);
+    TEST_ASSERT_NOT_NULL(rest);
+    TEST_ASSERT_EQUAL_UINT(0, bb_mem_arena_free_bytes(a));
+
+    bb_mem_arena_destroy(a);
+}
+
+void test_bb_mem_arena_alloc_rest_exhausted_with_null_out_size_is_safe(void)
+{
+    // Covers the exhausted (`aligned_down == 0`) path's own `if (out_size)`
+    // arm when out_size is NULL -- ..._exhausted_returns_null_and_zero above
+    // only exercises the non-NULL out_size arm.
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
+
+    size_t free_before = bb_mem_arena_free_bytes(a);
+    void  *p = bb_mem_arena_alloc(a, free_before);
+    TEST_ASSERT_NOT_NULL(p);
+    TEST_ASSERT_EQUAL_UINT(0, bb_mem_arena_free_bytes(a));
+
+    void *rest = bb_mem_arena_alloc_rest(a, NULL);
+    TEST_ASSERT_NULL(rest);
+
+    bb_mem_arena_destroy(a);
+}
+
+void test_bb_mem_arena_alloc_rest_does_not_re_raise_peak_offset_below_prior_high_water(void)
+{
+    // Covers the `a->offset > a->stats.peak_offset` FALSE arm: reset()
+    // rewinds offset but leaves peak_offset at its prior high-water mark, so
+    // a second alloc_rest() over the same (unchanged) capacity bumps offset
+    // back up to but never past that already-recorded peak.
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
+
+    size_t total = bb_mem_arena_free_bytes(a);
+    size_t first_size = 0;
+    TEST_ASSERT_NOT_NULL(bb_mem_arena_alloc_rest(a, &first_size));
+    TEST_ASSERT_EQUAL_UINT(total, first_size);
+
+    bb_mem_arena_stats_t stats_after_first;
+    bb_mem_arena_get_stats(a, &stats_after_first);
+    TEST_ASSERT_EQUAL_UINT(total, stats_after_first.peak_offset);
+
+    bb_mem_arena_reset(a);
+
+    size_t second_size = 0;
+    TEST_ASSERT_NOT_NULL(bb_mem_arena_alloc_rest(a, &second_size));
+    TEST_ASSERT_EQUAL_UINT(total, second_size);
+
+    bb_mem_arena_stats_t stats_after_second;
+    bb_mem_arena_get_stats(a, &stats_after_second);
+    TEST_ASSERT_EQUAL_UINT(total, stats_after_second.peak_offset); // unchanged -- not re-raised
+
+    bb_mem_arena_destroy(a);
+}
+
+void test_bb_mem_arena_alloc_rest_updates_stats_and_peak_offset(void)
+{
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
+
+    size_t total = bb_mem_arena_free_bytes(a);
+    size_t got_size = 0;
+    void  *p = bb_mem_arena_alloc_rest(a, &got_size);
+    TEST_ASSERT_NOT_NULL(p);
+    TEST_ASSERT_EQUAL_UINT(total, got_size);
+
+    bb_mem_arena_stats_t stats;
+    bb_mem_arena_get_stats(a, &stats);
+    TEST_ASSERT_EQUAL_UINT(1, stats.alloc_count);
+    TEST_ASSERT_EQUAL_UINT(total, stats.peak_offset);
+
+    bb_mem_arena_destroy(a);
+}
+
 void test_bb_mem_arena_destroy_caller_buffer_does_not_touch_bb_mem(void)
 {
     /* Destroying a caller-supplied-buffer arena must be a no-op: it must

@@ -122,6 +122,38 @@ void *bb_mem_arena_alloc(bb_mem_arena_t a, size_t bytes)
     return p;
 }
 
+void *bb_mem_arena_alloc_rest(bb_mem_arena_t a, size_t *out_size)
+{
+    if (!a) {
+        if (out_size) {
+            *out_size = 0;
+        }
+        return NULL;
+    }
+    /* a->offset <= a->size always holds (same invariant bb_mem_arena_alloc()
+     * relies on), so this subtraction cannot underflow. Round DOWN (never
+     * up) so the returned size can never exceed what's actually left. */
+    size_t remaining = a->size - a->offset;
+    size_t aligned_down = remaining & ~(BB_MEM_ARENA_ALIGN - 1u);
+    if (aligned_down == 0) {
+        a->stats.alloc_failed++;
+        if (out_size) {
+            *out_size = 0;
+        }
+        return NULL;
+    }
+    void *p = a->buf + a->offset;
+    a->offset += aligned_down;
+    a->stats.alloc_count++;
+    if (a->offset > a->stats.peak_offset) {
+        a->stats.peak_offset = a->offset;
+    }
+    if (out_size) {
+        *out_size = aligned_down;
+    }
+    return p;
+}
+
 void bb_mem_arena_free(bb_mem_arena_t a, void *ptr)
 {
     if (!a || !ptr) {

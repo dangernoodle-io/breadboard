@@ -641,6 +641,16 @@ void test_bb_serialize_json_populate_get_str_exact_cap_no_overrun(void);
 void test_bb_serialize_json_populate_get_str_over_cap_truncates(void);
 void test_bb_serialize_json_populate_scalar_wrong_type_present_leaves_untouched(void);
 
+// Forward declarations from test_bb_serialize_json_parse.c
+void test_bb_serialize_json_parse_bytes_null_args_return_invalid_arg(void);
+void test_bb_serialize_json_parse_bytes_flat_and_nested_roundtrip(void);
+void test_bb_serialize_json_parse_bytes_arena_backed_escaped_string(void);
+void test_bb_serialize_json_parse_bytes_malformed_json_propagates_scan_error(void);
+void test_bb_serialize_json_parse_bytes_undersized_scratch_returns_no_space(void);
+void test_bb_serialize_json_parse_bytes_zero_scratch_cap_returns_no_space(void);
+void test_bb_serialize_json_parse_bytes_no_arena_headroom_escape_free_doc_still_parses(void);
+void test_bb_serialize_json_parse_bytes_misaligned_scratch_cap_still_parses_escaped_string(void);
+
 void test_v2_golden_ref_resolves_inline(void);
 void test_v2_golden_ref_unregistered_sibling_omits_field(void);
 void test_v2_golden_ref_null_resolver_omits_field(void);
@@ -4579,6 +4589,15 @@ void test_bb_mem_arena_size_null_arena_is_zero(void);
 void test_bb_mem_arena_peak_offset_monotonic_across_reset(void);
 void test_bb_mem_arena_peak_offset_advances_past_prior_high(void);
 void test_bb_mem_arena_destroy_caller_buffer_does_not_touch_bb_mem(void);
+void test_bb_mem_arena_alloc_rest_claims_all_remaining_aligned_bytes(void);
+void test_bb_mem_arena_alloc_rest_rounds_down_on_misaligned_remainder(void);
+void test_bb_mem_arena_alloc_rest_exhausted_returns_null_and_zero(void);
+void test_bb_mem_arena_alloc_rest_null_arena_returns_null_and_zero(void);
+void test_bb_mem_arena_alloc_rest_null_arena_and_null_out_size_is_safe(void);
+void test_bb_mem_arena_alloc_rest_null_out_size_is_safe(void);
+void test_bb_mem_arena_alloc_rest_exhausted_with_null_out_size_is_safe(void);
+void test_bb_mem_arena_alloc_rest_does_not_re_raise_peak_offset_below_prior_high_water(void);
+void test_bb_mem_arena_alloc_rest_updates_stats_and_peak_offset(void);
 
 // Forward declarations from test_pool.c (B1-478 PR C)
 void test_pool_arena_size_needed_null_cfg_is_zero(void);
@@ -8902,6 +8921,15 @@ int main(void) {
     RUN_TEST(test_bb_mem_arena_peak_offset_monotonic_across_reset);
     RUN_TEST(test_bb_mem_arena_peak_offset_advances_past_prior_high);
     RUN_TEST(test_bb_mem_arena_destroy_caller_buffer_does_not_touch_bb_mem);
+    RUN_TEST(test_bb_mem_arena_alloc_rest_claims_all_remaining_aligned_bytes);
+    RUN_TEST(test_bb_mem_arena_alloc_rest_rounds_down_on_misaligned_remainder);
+    RUN_TEST(test_bb_mem_arena_alloc_rest_exhausted_returns_null_and_zero);
+    RUN_TEST(test_bb_mem_arena_alloc_rest_null_arena_returns_null_and_zero);
+    RUN_TEST(test_bb_mem_arena_alloc_rest_null_arena_and_null_out_size_is_safe);
+    RUN_TEST(test_bb_mem_arena_alloc_rest_null_out_size_is_safe);
+    RUN_TEST(test_bb_mem_arena_alloc_rest_exhausted_with_null_out_size_is_safe);
+    RUN_TEST(test_bb_mem_arena_alloc_rest_does_not_re_raise_peak_offset_below_prior_high_water);
+    RUN_TEST(test_bb_mem_arena_alloc_rest_updates_stats_and_peak_offset);
 
     // bb_pool generic pool primitive tests (B1-478 PR C)
     RUN_TEST(test_pool_arena_size_needed_null_cfg_is_zero);
@@ -9926,6 +9954,15 @@ int main(void) {
     RUN_TEST(test_bb_serialize_json_populate_get_str_exact_cap_no_overrun);
     RUN_TEST(test_bb_serialize_json_populate_get_str_over_cap_truncates);
     RUN_TEST(test_bb_serialize_json_populate_scalar_wrong_type_present_leaves_untouched);
+
+    RUN_TEST(test_bb_serialize_json_parse_bytes_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_serialize_json_parse_bytes_flat_and_nested_roundtrip);
+    RUN_TEST(test_bb_serialize_json_parse_bytes_arena_backed_escaped_string);
+    RUN_TEST(test_bb_serialize_json_parse_bytes_malformed_json_propagates_scan_error);
+    RUN_TEST(test_bb_serialize_json_parse_bytes_undersized_scratch_returns_no_space);
+    RUN_TEST(test_bb_serialize_json_parse_bytes_zero_scratch_cap_returns_no_space);
+    RUN_TEST(test_bb_serialize_json_parse_bytes_no_arena_headroom_escape_free_doc_still_parses);
+    RUN_TEST(test_bb_serialize_json_parse_bytes_misaligned_scratch_cap_still_parses_escaped_string);
 
     RUN_TEST(test_v2_golden_ref_resolves_inline);
     RUN_TEST(test_v2_golden_ref_unregistered_sibling_omits_field);
