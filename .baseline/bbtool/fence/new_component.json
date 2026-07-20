@@ -251,11 +251,6 @@
       "type": "component"
     },
     {
-      "id": "bb_mqtt_info",
-      "path": "components/bb_mqtt_info",
-      "type": "component"
-    },
-    {
       "id": "bb_ntp",
       "path": "components/bb_ntp",
       "type": "component"
