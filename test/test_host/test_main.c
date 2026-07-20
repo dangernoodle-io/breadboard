@@ -204,6 +204,19 @@ void test_bb_data_generation_unbound_key_returns_not_found(void);
 void test_bb_data_touch_null_key_returns_invalid_arg(void);
 void test_bb_data_generation_null_args_return_invalid_arg(void);
 void test_bb_data_render_null_args_return_invalid_arg(void);
+void test_bb_data_apply_post_zeroes_unset_fields(void);
+void test_bb_data_apply_patch_preserves_unset_fields(void);
+void test_bb_data_apply_patch_body_field_overrides_seeded_value(void);
+void test_bb_data_apply_patch_seed_gather_failure_propagates(void);
+void test_bb_data_apply_zero_body_len_skips_null_body_check(void);
+void test_bb_data_apply_malformed_body_propagates_parse_err(void);
+void test_bb_data_apply_populate_rejected_shape_propagates_before_apply(void);
+void test_bb_data_apply_apply_validation_error_propagates(void);
+void test_bb_data_apply_unknown_key_returns_not_found(void);
+void test_bb_data_apply_apply_null_returns_unsupported(void);
+void test_bb_data_apply_unregistered_format_returns_unsupported(void);
+void test_bb_data_apply_dst_scratch_too_small_returns_no_space(void);
+void test_bb_data_apply_null_args_return_invalid_arg(void);
 
 // Forward declarations from test_bb_diag_section.c
 void test_bb_diag_register_section_success(void);
@@ -1583,6 +1596,20 @@ void test_wifi_pending_validate_pass_at_max_returns_ok(void);
 void test_wifi_pending_validate_pass_over_max_returns_invalid_arg(void);
 void test_wifi_pending_validate_null_pass_returns_ok(void);
 void test_wifi_pending_validate_empty_pass_returns_ok(void);
+void test_wifi_pending_validate_buf_within_limits_returns_ok(void);
+void test_wifi_pending_validate_buf_oversize_ssid_rejected(void);
+void test_wifi_pending_validate_buf_oversize_pass_rejected(void);
+void test_wifi_pending_validate_buf_ssid_fills_entire_buffer_rejected_without_oob_read(void);
+void test_wifi_pending_validate_buf_null_ssid_returns_invalid_arg(void);
+void test_wifi_pending_validate_buf_empty_ssid_returns_invalid_arg(void);
+void test_wifi_pending_validate_buf_null_pass_returns_ok(void);
+
+// Forward declarations from test_wifi_creds_apply_route.c
+void test_wifi_creds_apply_post_mode_does_not_reuse_stale_pending_password(void);
+void test_wifi_creds_apply_patch_mode_would_reuse_stale_pending_password(void);
+void test_wifi_creds_apply_post_mode_missing_ssid_rejected(void);
+void test_wifi_creds_apply_post_mode_full_replace(void);
+void test_wifi_creds_apply_post_mode_missing_password_is_open_network(void);
 
 // Forward declarations from test_ota_validator.c
 void test_ota_validator_is_pending_false_on_host(void);
@@ -1779,6 +1806,7 @@ void test_fidelity_update_check(void);
 void test_fidelity_log_level_get(void);
 void test_fidelity_wifi_patch_202(void);
 void test_fidelity_wifi_patch_400(void);
+void test_fidelity_wifi_patch_500(void);
 void test_fidelity_update_status(void);
 void test_fidelity_update_config_get(void);
 void test_capture_cors_headers_recorded(void);
@@ -6049,6 +6077,13 @@ int main(void) {
     RUN_TEST(test_wifi_pending_validate_pass_over_max_returns_invalid_arg);
     RUN_TEST(test_wifi_pending_validate_null_pass_returns_ok);
     RUN_TEST(test_wifi_pending_validate_empty_pass_returns_ok);
+    RUN_TEST(test_wifi_pending_validate_buf_within_limits_returns_ok);
+    RUN_TEST(test_wifi_pending_validate_buf_oversize_ssid_rejected);
+    RUN_TEST(test_wifi_pending_validate_buf_oversize_pass_rejected);
+    RUN_TEST(test_wifi_pending_validate_buf_ssid_fills_entire_buffer_rejected_without_oob_read);
+    RUN_TEST(test_wifi_pending_validate_buf_null_ssid_returns_invalid_arg);
+    RUN_TEST(test_wifi_pending_validate_buf_empty_ssid_returns_invalid_arg);
+    RUN_TEST(test_wifi_pending_validate_buf_null_pass_returns_ok);
 
     // Route registry tests
     RUN_TEST(test_route_registry_count_starts_at_zero);
@@ -6107,6 +6142,7 @@ int main(void) {
     RUN_TEST(test_fidelity_log_level_get);
     RUN_TEST(test_fidelity_wifi_patch_202);
     RUN_TEST(test_fidelity_wifi_patch_400);
+    RUN_TEST(test_fidelity_wifi_patch_500);
     RUN_TEST(test_fidelity_update_status);
     RUN_TEST(test_fidelity_update_config_get);
     RUN_TEST(test_fidelity_health_no_raw_numbers);
@@ -10191,6 +10227,25 @@ int main(void) {
     RUN_TEST(test_bb_data_touch_null_key_returns_invalid_arg);
     RUN_TEST(test_bb_data_generation_null_args_return_invalid_arg);
     RUN_TEST(test_bb_data_render_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_data_apply_post_zeroes_unset_fields);
+    RUN_TEST(test_bb_data_apply_patch_preserves_unset_fields);
+    RUN_TEST(test_bb_data_apply_patch_body_field_overrides_seeded_value);
+    RUN_TEST(test_bb_data_apply_patch_seed_gather_failure_propagates);
+    RUN_TEST(test_bb_data_apply_zero_body_len_skips_null_body_check);
+    RUN_TEST(test_bb_data_apply_malformed_body_propagates_parse_err);
+    RUN_TEST(test_bb_data_apply_populate_rejected_shape_propagates_before_apply);
+    RUN_TEST(test_bb_data_apply_apply_validation_error_propagates);
+    RUN_TEST(test_bb_data_apply_unknown_key_returns_not_found);
+    RUN_TEST(test_bb_data_apply_apply_null_returns_unsupported);
+    RUN_TEST(test_bb_data_apply_unregistered_format_returns_unsupported);
+    RUN_TEST(test_bb_data_apply_dst_scratch_too_small_returns_no_space);
+    RUN_TEST(test_bb_data_apply_null_args_return_invalid_arg);
+
+    RUN_TEST(test_wifi_creds_apply_post_mode_does_not_reuse_stale_pending_password);
+    RUN_TEST(test_wifi_creds_apply_patch_mode_would_reuse_stale_pending_password);
+    RUN_TEST(test_wifi_creds_apply_post_mode_missing_ssid_rejected);
+    RUN_TEST(test_wifi_creds_apply_post_mode_full_replace);
+    RUN_TEST(test_wifi_creds_apply_post_mode_missing_password_is_open_network);
 
     RUN_TEST(test_bb_diag_register_section_success);
     RUN_TEST(test_bb_diag_register_section_null_section_returns_invalid_arg);

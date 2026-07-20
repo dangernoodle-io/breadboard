@@ -21,6 +21,7 @@ typedef struct {
     char                       key[BB_DATA_KEY_MAX];
     const bb_serialize_desc_t *desc;
     bb_data_gather_fn          gather;
+    bb_data_apply_fn           apply;
     void                      *ctx;
     bb_data_replay_kind_t      replay_kind;
     _Atomic uint32_t           generation;
@@ -62,6 +63,7 @@ bb_err_t bb_data_bind(const bb_data_binding_t *binding)
 
     slot->desc        = binding->desc;
     slot->gather      = binding->gather;
+    slot->apply       = binding->apply;
     slot->ctx         = binding->ctx;
     slot->replay_kind = binding->replay_kind;
 
@@ -85,6 +87,40 @@ bb_err_t bb_data_render(const bb_data_render_req_t *req)
     if (rc != BB_OK) return rc;
 
     return render(slot->desc, req->scratch, req->buf, req->buf_cap, req->out_len);
+}
+
+bb_err_t bb_data_apply(const bb_data_apply_req_t *req)
+{
+    if (!req || !req->key || !req->parse_scratch || !req->dst_scratch) return BB_ERR_INVALID_ARG;
+    if (req->body_len > 0 && !req->body) return BB_ERR_INVALID_ARG;
+
+    bb_data_slot_t *slot = (bb_data_slot_t *)bb_registry_lookup(&s_bb_data_registry, req->key);
+    if (!slot) return BB_ERR_NOT_FOUND;
+
+    bb_serialize_parse_fn parse = bb_serialize_format_get_parse(req->fmt);
+    if (!parse) return BB_ERR_UNSUPPORTED;
+
+    if (!slot->apply) return BB_ERR_UNSUPPORTED;
+
+    if (req->dst_scratch_cap < slot->desc->snap_size) return BB_ERR_NO_SPACE;
+
+    if (req->mode == BB_DATA_APPLY_PATCH) {
+        bb_data_gather_args_t gargs = { .ctx = slot->ctx, .query = NULL };
+        bb_err_t rc = slot->gather(req->dst_scratch, &gargs);
+        if (rc != BB_OK) return rc;
+    } else {
+        memset(req->dst_scratch, 0, slot->desc->snap_size);
+    }
+
+    bb_serialize_populate_t src;
+    bb_err_t rc = parse(req->body, req->body_len, req->parse_scratch, req->parse_scratch_cap, &src);
+    if (rc != BB_OK) return rc;
+
+    rc = bb_serialize_populate(slot->desc, req->dst_scratch, &src);
+    if (rc != BB_OK) return rc;
+
+    bb_data_apply_args_t aargs = { .ctx = slot->ctx };
+    return slot->apply(req->dst_scratch, &aargs);
 }
 
 bb_err_t bb_data_binding_replay_kind(const char *key, bb_data_replay_kind_t *out_kind)

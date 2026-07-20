@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -56,6 +57,30 @@ bb_wifi_pending_action_t bb_wifi_pending_decide(uint8_t try_flag,
  * @return BB_OK on success, BB_ERR_INVALID_ARG on validation failure.
  */
 bb_err_t bb_wifi_pending_validate(const char *ssid, const char *pass);
+
+/**
+ * Validate proposed WiFi credentials read into fixed-capacity buffers that
+ * may NOT be NUL-terminated within their own capacity -- e.g. a
+ * bb_serialize_populate() destination whose descriptor deliberately
+ * oversizes its BB_TYPE_STR max_len past BB_WIFI_PENDING_SSID_MAX/PASS_MAX
+ * so an oversize value survives intact instead of being silently truncated
+ * by the getter (B1-1022's ingress cutover, preserving reject-on-oversize
+ * UX). Unlike bb_wifi_pending_validate() (which calls strlen() and so
+ * REQUIRES a NUL-terminated buffer), this reads at most `ssid_cap`/
+ * `pass_cap` bytes via strnlen() -- a value that fills its entire buffer
+ * capacity is treated as (at least) that long, which -- since
+ * `ssid_cap`/`pass_cap` MUST be sized past the real limits for the
+ * truncation-safety property above to hold -- always exceeds the real
+ * limit and is rejected, never read past its own buffer bound.
+ *
+ * @param ssid      Proposed SSID buffer; NULL or empty -> BB_ERR_INVALID_ARG.
+ * @param ssid_cap  `ssid`'s buffer capacity in bytes.
+ * @param pass      Proposed password buffer; NULL treated as empty (OK).
+ * @param pass_cap  `pass`'s buffer capacity in bytes (ignored if pass is NULL).
+ * @return BB_OK on success, BB_ERR_INVALID_ARG on validation failure.
+ */
+bb_err_t bb_wifi_pending_validate_buf(const char *ssid, size_t ssid_cap,
+                                       const char *pass, size_t pass_cap);
 
 #ifdef __cplusplus
 }

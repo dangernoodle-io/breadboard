@@ -71,14 +71,16 @@ static bb_err_t dt_gather_query(void *dst, const bb_data_gather_args_t *args)
     return BB_OK;
 }
 
-// Registers a fake format under BB_FORMAT_JSON: a REAL JSON renderer
-// (bb_serialize_json_render). Test-isolated: resets the format registry
-// first.
+// Registers a fake format under BB_FORMAT_JSON: REAL JSON render/parse fns
+// (bb_serialize_json_render / bb_serialize_json_parse_bytes, the B1-1030
+// composed adapter) -- exercises bb_data_apply()'s parse dispatch against
+// real JSON bytes, not a hand-rolled stub. Test-isolated: resets the format
+// registry first.
 static void dt_register_format(void)
 {
     static const bb_serialize_format_entry_t entry = {
         .render = bb_serialize_json_render,
-        .parse  = NULL,
+        .parse  = bb_serialize_json_parse_bytes,
     };
     bb_serialize_format_test_reset();
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_register(BB_FORMAT_JSON, &entry));
@@ -576,4 +578,410 @@ void test_bb_data_render_null_args_return_invalid_arg(void)
         .buf = buf, .buf_cap = sizeof(buf), .out_len = NULL,
     };
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_render(&req_no_out_len));
+}
+
+// ---------------------------------------------------------------------------
+// bb_data_apply (B1-1022) -- the write-half mirror of bb_data_render, driven
+// against real JSON parse/populate (dt_register_format() above).
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    int64_t n;
+} dt_apply_snap_t;
+
+static const bb_serialize_field_t s_dt_apply_fields[] = {
+    { .key = "n", .type = BB_TYPE_I64, .offset = offsetof(dt_apply_snap_t, n) },
+};
+
+static const bb_serialize_desc_t s_dt_apply_desc = {
+    .type_name = "dt_apply_snap_t", .fields = s_dt_apply_fields, .n_fields = 1,
+    .snap_size = sizeof(dt_apply_snap_t),
+};
+
+// PATCH-seed gather: fills the whole struct from `ctx` (the "live" value),
+// same fully-initializing contract every bb_data_gather_fn already carries.
+static bb_err_t dt_apply_gather_live(void *dst, const bb_data_gather_args_t *args)
+{
+    ((dt_apply_snap_t *)dst)->n = *(int64_t *)args->ctx;
+    return BB_OK;
+}
+
+static int64_t s_dt_apply_spy_n     = 0;
+static int     s_dt_apply_spy_calls = 0;
+
+static void dt_apply_spy_reset(void)
+{
+    s_dt_apply_spy_n     = 0;
+    s_dt_apply_spy_calls = 0;
+}
+
+static bb_err_t dt_apply_spy_ok(const void *snap, const bb_data_apply_args_t *args)
+{
+    (void)args;
+    s_dt_apply_spy_n = ((const dt_apply_snap_t *)snap)->n;
+    s_dt_apply_spy_calls++;
+    return BB_OK;
+}
+
+static bb_err_t dt_apply_spy_validation_fail(const void *snap, const bb_data_apply_args_t *args)
+{
+    (void)snap;
+    (void)args;
+    s_dt_apply_spy_calls++;
+    return BB_ERR_VALIDATION;
+}
+
+static bb_err_t dt_apply_gather_fail(void *dst, const bb_data_gather_args_t *args)
+{
+    (void)dst;
+    (void)args;
+    return BB_ERR_INVALID_STATE;
+}
+
+// A descriptor bb_serialize_populate() itself pre-flight-rejects (a
+// BB_TYPE_ARR field with max_items == 0) -- used to prove a populate
+// rejection propagates from bb_data_apply() WITHOUT ever invoking apply().
+typedef struct {
+    bb_serialize_arr_t bad_arr;
+} dt_apply_bad_snap_t;
+
+static const bb_serialize_field_t s_dt_apply_bad_fields[] = {
+    { .key = "bad", .type = BB_TYPE_ARR, .offset = offsetof(dt_apply_bad_snap_t, bad_arr),
+      .elem_type = BB_TYPE_I64, .max_items = 0 },
+};
+
+static const bb_serialize_desc_t s_dt_apply_bad_desc = {
+    .type_name = "dt_apply_bad_snap_t", .fields = s_dt_apply_bad_fields, .n_fields = 1,
+    .snap_size = sizeof(dt_apply_bad_snap_t),
+};
+
+static bb_err_t dt_apply_bad_gather(void *dst, const bb_data_gather_args_t *args)
+{
+    (void)args;
+    memset(dst, 0, sizeof(dt_apply_bad_snap_t));
+    return BB_OK;
+}
+
+// Must comfortably fit bb_mem_arena's own header + the JSON parse adapter's
+// token recorder + populate ctx + its default-capacity token pool (48 *
+// sizeof(bb_serialize_json_tok_t) alone is 2304 bytes) -- see
+// test_bb_serialize_json_parse.c's SCRATCH_CAP comment for the full layout.
+#define DT_APPLY_PARSE_SCRATCH_CAP 4096
+static char s_dt_apply_parse_scratch[DT_APPLY_PARSE_SCRATCH_CAP];
+
+void test_bb_data_apply_post_zeroes_unset_fields(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+
+    int64_t live_val = 42;
+    bb_data_binding_t b = { .key = "dt.apply.post", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok, .ctx = &live_val };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    dt_apply_snap_t dst = { .n = -1 };
+    const char *body = "{}";
+    bb_data_apply_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.post", .mode = BB_DATA_APPLY_POST,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_apply(&req));
+    TEST_ASSERT_EQUAL(1, s_dt_apply_spy_calls);
+    TEST_ASSERT_EQUAL_INT64(0, s_dt_apply_spy_n);  // zero-seeded, not the "live" 42
+}
+
+void test_bb_data_apply_patch_preserves_unset_fields(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+
+    int64_t live_val = 42;
+    bb_data_binding_t b = { .key = "dt.apply.patch", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok, .ctx = &live_val };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    dt_apply_snap_t dst = { .n = -1 };
+    const char *body = "{}";
+    bb_data_apply_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.patch", .mode = BB_DATA_APPLY_PATCH,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_apply(&req));
+    TEST_ASSERT_EQUAL(1, s_dt_apply_spy_calls);
+    TEST_ASSERT_EQUAL_INT64(42, s_dt_apply_spy_n);  // seeded from gather(), body never set "n"
+}
+
+void test_bb_data_apply_patch_body_field_overrides_seeded_value(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+
+    int64_t live_val = 42;
+    bb_data_binding_t b = { .key = "dt.apply.patch.override", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok, .ctx = &live_val };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    dt_apply_snap_t dst = { .n = -1 };
+    const char *body = "{\"n\":7}";
+    bb_data_apply_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.patch.override", .mode = BB_DATA_APPLY_PATCH,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_apply(&req));
+    TEST_ASSERT_EQUAL(1, s_dt_apply_spy_calls);
+    TEST_ASSERT_EQUAL_INT64(7, s_dt_apply_spy_n);  // body's "n" wins over the seeded 42
+}
+
+void test_bb_data_apply_patch_seed_gather_failure_propagates(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+
+    bb_data_binding_t b = { .key = "dt.apply.patchgatherfail", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_fail, .apply = dt_apply_spy_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    dt_apply_snap_t dst = { 0 };
+    const char *body = "{\"n\":1}";
+    bb_data_apply_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.patchgatherfail", .mode = BB_DATA_APPLY_PATCH,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_data_apply(&req));
+    TEST_ASSERT_EQUAL(0, s_dt_apply_spy_calls);  // apply() never reached: the seed gather() itself failed
+}
+
+void test_bb_data_apply_zero_body_len_skips_null_body_check(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+
+    bb_data_binding_t b = { .key = "dt.apply.zerobody", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    dt_apply_snap_t dst = { 0 };
+    // body_len == 0 with a non-NULL body is NOT rejected by bb_data_apply()'s
+    // own NULL-body check (it only fires when body_len > 0 -- proving that
+    // short-circuit's "false" outcome executes too, not just its "true"
+    // one) -- it proceeds to the parse fn, which itself rejects the empty
+    // document.
+    bb_data_apply_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.zerobody", .mode = BB_DATA_APPLY_POST,
+        .body = "", .body_len = 0,
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    bb_err_t rc = bb_data_apply(&req);
+    TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(0, s_dt_apply_spy_calls);  // apply() never reached: the parse itself failed
+}
+
+void test_bb_data_apply_malformed_body_propagates_parse_err(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+
+    bb_data_binding_t b = { .key = "dt.apply.malformed", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    dt_apply_snap_t dst = { 0 };
+    const char *body = "{not json";
+    bb_data_apply_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.malformed", .mode = BB_DATA_APPLY_POST,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    bb_err_t rc = bb_data_apply(&req);
+    TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(0, s_dt_apply_spy_calls);  // apply() never reached
+}
+
+void test_bb_data_apply_populate_rejected_shape_propagates_before_apply(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+
+    bb_data_binding_t b = { .key = "dt.apply.badshape", .desc = &s_dt_apply_bad_desc,
+                            .gather = dt_apply_bad_gather, .apply = dt_apply_spy_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    dt_apply_bad_snap_t dst;
+    const char *body = "{}";
+    bb_data_apply_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.badshape", .mode = BB_DATA_APPLY_POST,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_apply(&req));  // populate's max_items==0 pre-flight reject
+    TEST_ASSERT_EQUAL(0, s_dt_apply_spy_calls);  // apply() never reached
+}
+
+void test_bb_data_apply_apply_validation_error_propagates(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+
+    bb_data_binding_t b = { .key = "dt.apply.reject", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_validation_fail };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    dt_apply_snap_t dst = { 0 };
+    const char *body = "{\"n\":1}";
+    bb_data_apply_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.reject", .mode = BB_DATA_APPLY_POST,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_data_apply(&req));
+    TEST_ASSERT_EQUAL(1, s_dt_apply_spy_calls);  // apply() WAS reached this time, and rejected
+}
+
+void test_bb_data_apply_unknown_key_returns_not_found(void)
+{
+    dt_reset();
+    dt_register_format();
+
+    dt_apply_snap_t dst = { 0 };
+    const char *body = "{}";
+    bb_data_apply_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.nope", .mode = BB_DATA_APPLY_POST,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_data_apply(&req));
+}
+
+void test_bb_data_apply_apply_null_returns_unsupported(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+
+    // .apply omitted -- egress-only binding.
+    bb_data_binding_t b = { .key = "dt.apply.noapply", .desc = &s_dt_apply_desc, .gather = dt_apply_gather_live };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    dt_apply_snap_t dst = { 0 };
+    const char *body = "{}";
+    bb_data_apply_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.noapply", .mode = BB_DATA_APPLY_POST,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_data_apply(&req));
+    TEST_ASSERT_EQUAL(0, s_dt_apply_spy_calls);
+}
+
+void test_bb_data_apply_unregistered_format_returns_unsupported(void)
+{
+    dt_reset();
+    bb_serialize_format_test_reset();  // no format registered at all
+    dt_apply_spy_reset();
+
+    bb_data_binding_t b = { .key = "dt.apply.nofmt", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    dt_apply_snap_t dst = { 0 };
+    const char *body = "{}";
+    bb_data_apply_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.nofmt", .mode = BB_DATA_APPLY_POST,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_data_apply(&req));
+    TEST_ASSERT_EQUAL(0, s_dt_apply_spy_calls);  // true no-op: gather/apply never invoked
+}
+
+void test_bb_data_apply_dst_scratch_too_small_returns_no_space(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+
+    bb_data_binding_t b = { .key = "dt.apply.smallscratch", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    char dst[1];  // smaller than s_dt_apply_desc.snap_size
+    const char *body = "{}";
+    bb_data_apply_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.smallscratch", .mode = BB_DATA_APPLY_POST,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_apply(&req));
+    TEST_ASSERT_EQUAL(0, s_dt_apply_spy_calls);
+}
+
+void test_bb_data_apply_null_args_return_invalid_arg(void)
+{
+    dt_reset();
+    dt_register_format();
+
+    bb_data_binding_t b = { .key = "dt.apply.nullargs", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    dt_apply_snap_t dst = { 0 };
+    const char *body = "{}";
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_apply(NULL));
+
+    bb_data_apply_req_t req_no_key = {
+        .fmt = BB_FORMAT_JSON, .key = NULL, .mode = BB_DATA_APPLY_POST,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_apply(&req_no_key));
+
+    bb_data_apply_req_t req_no_parse_scratch = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.nullargs", .mode = BB_DATA_APPLY_POST,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = NULL, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_apply(&req_no_parse_scratch));
+
+    bb_data_apply_req_t req_no_dst_scratch = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.nullargs", .mode = BB_DATA_APPLY_POST,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = NULL, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_apply(&req_no_dst_scratch));
+
+    bb_data_apply_req_t req_body_len_no_body = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.apply.nullargs", .mode = BB_DATA_APPLY_POST,
+        .body = NULL, .body_len = 2,
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_apply(&req_body_len_no_body));
 }
