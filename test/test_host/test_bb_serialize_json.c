@@ -1,6 +1,8 @@
 #include "unity.h"
 #include "bb_serialize_json.h"
 
+#include "cJSON.h"
+
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -1149,4 +1151,206 @@ void test_v2_golden_ref_null_resolver_omits_field(void)
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"uptime\":42}", buf);
+}
+
+// ---------------------------------------------------------------------------
+// 20. f64_shortest (B1-1102) -- opt-in, byte-identical to cJSON's own
+// print_number(). Reuses s_f64_desc/f64_snap_t from section 10 above.
+// ---------------------------------------------------------------------------
+
+// Renders `v` via bb_serialize_json_render_ex(..., f64_shortest=true) and
+// asserts BYTE-IDENTICAL agreement with cJSON's own number rendering
+// (cJSON_CreateNumber + cJSON_PrintUnformatted) for the same double -- the
+// exact call bb_json_cjson.c's bb_json_obj_set_number()/
+// bb_json_arr_append_number() make. This is the differential proof: two
+// independent formatters, same double, same bytes.
+static void assert_f64_shortest_matches_cjson(double v)
+{
+    f64_snap_t snap = { .f = v };
+    char       buf[96];
+    size_t     out_len = 0;
+
+    bb_err_t rc = bb_serialize_json_render_ex(&s_f64_desc, &snap, buf, sizeof(buf), &out_len, true);
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+
+    cJSON *num = cJSON_CreateNumber(v);
+    char  *cjson_text = cJSON_PrintUnformatted(num);
+    TEST_ASSERT_NOT_NULL(cjson_text);
+
+    char expected[128];
+    snprintf(expected, sizeof(expected), "{\"f\":%s}", cjson_text);
+
+    TEST_ASSERT_EQUAL_STRING(expected, buf);
+
+    cJSON_free(cjson_text);
+    cJSON_Delete(num);
+}
+
+void test_bb_serialize_json_f64_shortest_zero(void)
+{
+    assert_f64_shortest_matches_cjson(0.0);
+}
+
+void test_bb_serialize_json_f64_shortest_negative_zero(void)
+{
+    assert_f64_shortest_matches_cjson(-0.0);
+}
+
+void test_bb_serialize_json_f64_shortest_integer_valued(void)
+{
+    assert_f64_shortest_matches_cjson(3.0);
+}
+
+void test_bb_serialize_json_f64_shortest_negative_integer_valued(void)
+{
+    assert_f64_shortest_matches_cjson(-5.0);
+}
+
+void test_bb_serialize_json_f64_shortest_one_decimal(void)
+{
+    assert_f64_shortest_matches_cjson(55.3);
+}
+
+void test_bb_serialize_json_f64_shortest_one_decimal_alt(void)
+{
+    assert_f64_shortest_matches_cjson(45.6);
+}
+
+void test_bb_serialize_json_f64_shortest_pi(void)
+{
+    assert_f64_shortest_matches_cjson(3.14159265358979);
+}
+
+void test_bb_serialize_json_f64_shortest_one_tenth(void)
+{
+    assert_f64_shortest_matches_cjson(0.1);
+}
+
+void test_bb_serialize_json_f64_shortest_near_one_boundary(void)
+{
+    assert_f64_shortest_matches_cjson(0.9999996);
+}
+
+void test_bb_serialize_json_f64_shortest_negative_value(void)
+{
+    assert_f64_shortest_matches_cjson(-2.25);
+}
+
+void test_bb_serialize_json_f64_shortest_small_exponent(void)
+{
+    assert_f64_shortest_matches_cjson(1e-7);
+}
+
+void test_bb_serialize_json_f64_shortest_large_exponent(void)
+{
+    assert_f64_shortest_matches_cjson(1e20);
+}
+
+// Below INT32_MIN -- exercises the INT32_MIN-saturation branch of the
+// int32 fast-path check (v <= (double)INT32_MIN); still falls through to
+// the %g path below it since -3e9 != (double)INT32_MIN.
+void test_bb_serialize_json_f64_shortest_below_int32_min(void)
+{
+    assert_f64_shortest_matches_cjson(-3.0e9);
+}
+
+// 1.0/3.0's %.15g rendering does NOT round-trip (strtod() back != v) --
+// exercises the %.17g upgrade path, both in our writer and in cJSON's own
+// print_number() (same round-trip-then-upgrade shape).
+void test_bb_serialize_json_f64_shortest_needs_17_digit_precision(void)
+{
+    assert_f64_shortest_matches_cjson(1.0 / 3.0);
+}
+
+// B1-1102 regression guard: nextafter(10.0, 0.0) == 9.9999999999999982's
+// %.15g reparse does NOT satisfy exact strtod()!=v equality (the old, wrong
+// acceptance test) but DOES satisfy cJSON's relative-epsilon compare_double()
+// -- cJSON keeps the %.15g "10" form here. Before the fix this diverged from
+// cJSON byte-for-byte ("10" vs "9.9999999999999982"); after the fix it must
+// match.
+void test_bb_serialize_json_f64_shortest_epsilon_divergence_value(void)
+{
+    assert_f64_shortest_matches_cjson(nextafter(10.0, 0.0));
+}
+
+// Exercises the epsilon-accept side of the new compare_double branch: a
+// value whose %.15g reparse is exact (diff == 0), trivially within
+// tolerance -- proves the "keep %.15g" branch is taken for an ordinary case,
+// not just the constructed divergence value above.
+void test_bb_serialize_json_f64_shortest_epsilon_accept_ordinary(void)
+{
+    assert_f64_shortest_matches_cjson(123.456);
+}
+
+// int32 fast-path boundary: exactly INT32_MAX, still integer-valued --
+// exercises the upper `v >= (double)INT32_MAX` saturation branch while
+// staying on the "%d" fast path (v == (double)vi).
+void test_bb_serialize_json_f64_shortest_int32_max(void)
+{
+    assert_f64_shortest_matches_cjson(2147483647.0);
+}
+
+// int32 fast-path boundary: exactly INT32_MIN, still integer-valued --
+// exercises the lower `v <= (double)INT32_MIN` saturation branch while
+// staying on the "%d" fast path.
+void test_bb_serialize_json_f64_shortest_int32_min(void)
+{
+    assert_f64_shortest_matches_cjson(-2147483648.0);
+}
+
+// One past INT32_MAX -- falls off the int32 fast path (saturates to
+// INT32_MAX, so v != (double)vi) and into the %g path.
+void test_bb_serialize_json_f64_shortest_int32_max_plus_one(void)
+{
+    assert_f64_shortest_matches_cjson(2147483648.0);
+}
+
+// Positive counterpart to the existing below_int32_min case -- only the
+// negative 3e9 boundary was covered before; this exercises the upper
+// `v >= (double)INT32_MAX` saturation branch via a %g-path value.
+void test_bb_serialize_json_f64_shortest_above_int32_max(void)
+{
+    assert_f64_shortest_matches_cjson(3.0e9);
+}
+
+// Same rounding formula as bb_temp_emit_section() (platform/host/bb_temp/bb_temp.c
+// and platform/espidf/bb_temp/bb_temp.c): "multiply, round, divide" to 1
+// decimal -- a real producer-shaped double, not a hand-picked literal.
+void test_bb_serialize_json_f64_shortest_bb_temp_rounding_formula(void)
+{
+    float  c = 45.67f;
+    double v = (double)((int)(c * 10.0f + 0.5f)) / 10.0;
+    assert_f64_shortest_matches_cjson(v);
+}
+
+void test_bb_serialize_json_f64_shortest_nan_emits_null(void)
+{
+    assert_f64_shortest_matches_cjson(NAN);
+}
+
+void test_bb_serialize_json_f64_shortest_pos_inf_emits_null(void)
+{
+    assert_f64_shortest_matches_cjson(INFINITY);
+}
+
+void test_bb_serialize_json_f64_shortest_neg_inf_emits_null(void)
+{
+    assert_f64_shortest_matches_cjson(-INFINITY);
+}
+
+// Default path (flag omitted / false) is UNCHANGED -- same fixed-6-decimal
+// bytes as bb_serialize_json_render() itself (see test_bb_serialize_json_f64_simple
+// in section 10 above). Proven explicitly via the _ex entry point so a
+// caller passing f64_shortest=false through _ex gets byte-identical output
+// to the plain (non-_ex) render() path.
+void test_bb_serialize_json_f64_shortest_flag_off_matches_default(void)
+{
+    f64_snap_t snap = { .f = 1.5 };
+    char       buf[64];
+    size_t     out_len = 0;
+
+    bb_err_t rc = bb_serialize_json_render_ex(&s_f64_desc, &snap, buf, sizeof(buf), &out_len, false);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL_STRING("{\"f\":1.500000}", buf);
 }

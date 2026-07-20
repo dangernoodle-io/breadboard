@@ -728,6 +728,32 @@ void test_v2_golden_ref_resolves_inline(void);
 void test_v2_golden_ref_unregistered_sibling_omits_field(void);
 void test_v2_golden_ref_null_resolver_omits_field(void);
 
+void test_bb_serialize_json_f64_shortest_zero(void);
+void test_bb_serialize_json_f64_shortest_negative_zero(void);
+void test_bb_serialize_json_f64_shortest_integer_valued(void);
+void test_bb_serialize_json_f64_shortest_negative_integer_valued(void);
+void test_bb_serialize_json_f64_shortest_one_decimal(void);
+void test_bb_serialize_json_f64_shortest_one_decimal_alt(void);
+void test_bb_serialize_json_f64_shortest_pi(void);
+void test_bb_serialize_json_f64_shortest_one_tenth(void);
+void test_bb_serialize_json_f64_shortest_near_one_boundary(void);
+void test_bb_serialize_json_f64_shortest_negative_value(void);
+void test_bb_serialize_json_f64_shortest_small_exponent(void);
+void test_bb_serialize_json_f64_shortest_large_exponent(void);
+void test_bb_serialize_json_f64_shortest_below_int32_min(void);
+void test_bb_serialize_json_f64_shortest_needs_17_digit_precision(void);
+void test_bb_serialize_json_f64_shortest_epsilon_divergence_value(void);
+void test_bb_serialize_json_f64_shortest_epsilon_accept_ordinary(void);
+void test_bb_serialize_json_f64_shortest_int32_max(void);
+void test_bb_serialize_json_f64_shortest_int32_min(void);
+void test_bb_serialize_json_f64_shortest_int32_max_plus_one(void);
+void test_bb_serialize_json_f64_shortest_above_int32_max(void);
+void test_bb_serialize_json_f64_shortest_bb_temp_rounding_formula(void);
+void test_bb_serialize_json_f64_shortest_nan_emits_null(void);
+void test_bb_serialize_json_f64_shortest_pos_inf_emits_null(void);
+void test_bb_serialize_json_f64_shortest_neg_inf_emits_null(void);
+void test_bb_serialize_json_f64_shortest_flag_off_matches_default(void);
+
 // Forward declarations from test_bb_serialize_nested_arr.c (B1-1056)
 void test_bb_serialize_nested_arr_render_matches_golden(void);
 void test_bb_serialize_nested_arr_populate_roundtrip_matches_fixture(void);
@@ -10160,6 +10186,32 @@ int main(void) {
     RUN_TEST(test_v2_golden_ref_resolves_inline);
     RUN_TEST(test_v2_golden_ref_unregistered_sibling_omits_field);
     RUN_TEST(test_v2_golden_ref_null_resolver_omits_field);
+
+    RUN_TEST(test_bb_serialize_json_f64_shortest_zero);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_negative_zero);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_integer_valued);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_negative_integer_valued);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_one_decimal);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_one_decimal_alt);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_pi);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_one_tenth);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_near_one_boundary);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_negative_value);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_small_exponent);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_large_exponent);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_below_int32_min);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_needs_17_digit_precision);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_epsilon_divergence_value);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_epsilon_accept_ordinary);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_int32_max);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_int32_min);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_int32_max_plus_one);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_above_int32_max);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_bb_temp_rounding_formula);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_nan_emits_null);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_pos_inf_emits_null);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_neg_inf_emits_null);
+    RUN_TEST(test_bb_serialize_json_f64_shortest_flag_off_matches_default);
 
     RUN_TEST(test_bb_serialize_nested_arr_render_matches_golden);
     RUN_TEST(test_bb_serialize_nested_arr_populate_roundtrip_matches_fixture);

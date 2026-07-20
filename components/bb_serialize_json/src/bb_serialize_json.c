@@ -8,7 +8,10 @@
 #include "bb_num.h"
 
 #include <assert.h>
+#include <float.h>
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 // ---------------------------------------------------------------------------
@@ -210,6 +213,70 @@ static void bb_json_write_f64(bb_serialize_json_ctx_t *ctx, double v)
     bb_json_write_frac_digits(ctx, frac_i, BB_SERIALIZE_JSON_F64_DECIMALS);
 }
 
+// Shortest-round-trippable double formatting, BYTE-IDENTICAL to cJSON's
+// internal print_number() (verified against cJSON v1.7.18's actual source,
+// not assumed): NaN/Inf emit `null` (same convention as bb_json_write_f64()
+// above).
+//
+// INT32 FAST PATH -- cJSON's print_number() does NOT go straight to
+// "%.15g"/"%.17g": at set-number time it caches a saturating (int)cast of
+// the double (INT32_MAX/INT32_MIN if out of range, else (int)v) as
+// item->valueint, then AT PRINT TIME, whenever `v == (double)valueint`,
+// prints "%d" of THAT INT -- never touching %g at all. This must be
+// reproduced exactly, not just approximated by %g's own whole-number
+// formatting, because an int has no negative-zero representation: -0.0
+// takes this fast path (valueint == 0, and -0.0 == (double)0 is true under
+// IEEE 754 signed-zero equality) and prints "0", NOT "-0" -- verified by
+// direct differential test against cJSON, not assumed (see
+// test_bb_serialize_json_f64_shortest_negative_zero). Every other
+// whole-integer double in range (e.g. 3.0 -> "3", -5.0 -> "-5") also goes
+// through this path and happens to agree with what %g would print anyway
+// (no decimal point), EXCEPT at the -0.0 sign-loss case above.
+//
+// Otherwise (v not exactly its own int32 cast): `snprintf(..., "%.15g", v)`,
+// then a round-trip check via strtod() (per this PR's design -- not
+// sscanf+cJSON's own fuzzy compare_double() relative-epsilon compare; an
+// EXACT strtod()==v check is a strictly stricter round-trip test, so it can
+// only ever choose %.17g in cases cJSON's looser check would still accept
+// %.15g for -- a theoretical, exceedingly narrow divergence band no swept
+// value here falls into) -- on strtod mismatch, re-render at `%.17g`.
+//
+// Opt-in via ctx->f64_shortest (see bb_json_cb_emit_f64 below); default
+// (false) leaves every existing caller on bb_json_write_f64() unchanged.
+static void bb_json_write_f64_shortest(bb_serialize_json_ctx_t *ctx, double v)
+{
+    if (isnan(v) || isinf(v)) {
+        bb_json_put(ctx, "null", 4);
+        return;
+    }
+
+    int32_t vi;
+    if (v >= (double)INT32_MAX) {
+        vi = INT32_MAX;
+    } else if (v <= (double)INT32_MIN) {
+        vi = INT32_MIN;
+    } else {
+        vi = (int32_t)v;
+    }
+
+    char buf[32];
+    int  n;
+    if (v == (double)vi) {
+        n = snprintf(buf, sizeof(buf), "%d", vi);
+    } else {
+        n = snprintf(buf, sizeof(buf), "%.15g", v);
+        double reparse = strtod(buf, NULL);
+        double max_abs = fabs(reparse) > fabs(v) ? fabs(reparse) : fabs(v);
+        // Match cJSON's compare_double() exactly (relative-epsilon accept,
+        // not exact ==) so byte output stays identical to cJSON's own
+        // print_number() -- see cJSON.c compare_double()/print_number().
+        if (fabs(reparse - v) > max_abs * DBL_EPSILON) {
+            n = snprintf(buf, sizeof(buf), "%.17g", v);
+        }
+    }
+    bb_json_put(ctx, buf, (size_t)n);
+}
+
 // ---------------------------------------------------------------------------
 // Level stack (comma / key-vs-unkeyed bookkeeping)
 // ---------------------------------------------------------------------------
@@ -329,7 +396,11 @@ static void bb_json_cb_emit_f64(void *vctx, const char *key, double v)
 {
     bb_serialize_json_ctx_t *ctx = bb_json_cb_ctx(vctx);
     bb_json_pre_value(ctx, key);
-    bb_json_write_f64(ctx, v);
+    if (ctx->f64_shortest) {
+        bb_json_write_f64_shortest(ctx, v);
+    } else {
+        bb_json_write_f64(ctx, v);
+    }
 }
 
 static void bb_json_cb_emit_bool(void *vctx, const char *key, bool v)
@@ -375,6 +446,7 @@ void bb_serialize_json_ctx_init(bb_serialize_json_ctx_t *ctx, char *buf, size_t 
     ctx->flush_fn = NULL;
     ctx->flush_ctx = NULL;
     ctx->flush_failed = NULL;
+    ctx->f64_shortest = false;  // default: today's fixed-decimal f64 formatting, unchanged
 }
 
 bb_serialize_emit_t bb_serialize_json_emit(bb_serialize_json_ctx_t *ctx)
@@ -398,9 +470,14 @@ bb_serialize_emit_t bb_serialize_json_emit(bb_serialize_json_ctx_t *ctx)
 
 // Shared implementation -- resolve == NULL drives the plain
 // bb_serialize_walk() path (via bb_serialize_walk_ref's own NULL handling).
+// f64_shortest selects bb_json_write_f64_shortest() over the default
+// bb_json_write_f64() for every BB_TYPE_F64 field this call renders (see
+// bb_serialize_json_ctx_t.f64_shortest's doc comment) -- a render-level
+// choice, not per-field.
 static bb_err_t bb_json_render_impl(const bb_serialize_desc_t *desc, const void *snap,
                                      char *buf, size_t cap, size_t *out_len,
-                                     bb_serialize_ref_resolve_fn resolve, void *resolve_ctx)
+                                     bb_serialize_ref_resolve_fn resolve, void *resolve_ctx,
+                                     bool f64_shortest)
 {
     if (cap == 0) return BB_ERR_NO_SPACE;
 
@@ -408,6 +485,7 @@ static bb_err_t bb_json_render_impl(const bb_serialize_desc_t *desc, const void 
     // never accounts for it.
     bb_serialize_json_ctx_t ctx;
     bb_serialize_json_ctx_init(&ctx, buf, cap - 1);
+    ctx.f64_shortest = f64_shortest;
 
     bb_serialize_emit_t emit = bb_serialize_json_emit(&ctx);
 
@@ -426,17 +504,37 @@ static bb_err_t bb_json_render_impl(const bb_serialize_desc_t *desc, const void 
     return BB_OK;
 }
 
+// Thin wrapper: bb_serialize_json_render_ex(desc, snap, buf, cap, out_len,
+// false) -- same "_ex adds a trailing opt-in param, original keeps today's
+// default" idiom as e.g. bb_cache_register_ex()/bb_queue_create_ex().
 bb_err_t bb_serialize_json_render(const bb_serialize_desc_t *desc, const void *snap,
                                    char *buf, size_t cap, size_t *out_len)
 {
-    return bb_json_render_impl(desc, snap, buf, cap, out_len, NULL, NULL);
+    return bb_serialize_json_render_ex(desc, snap, buf, cap, out_len, false);
 }
 
+bb_err_t bb_serialize_json_render_ex(const bb_serialize_desc_t *desc, const void *snap,
+                                      char *buf, size_t cap, size_t *out_len,
+                                      bool f64_shortest)
+{
+    return bb_json_render_impl(desc, snap, buf, cap, out_len, NULL, NULL, f64_shortest);
+}
+
+// Thin wrapper: bb_serialize_json_render_ref_ex(..., false) -- see
+// bb_serialize_json_render()'s doc comment above for the idiom.
 bb_err_t bb_serialize_json_render_ref(const bb_serialize_desc_t *desc, const void *snap,
                                        char *buf, size_t cap, size_t *out_len,
                                        bb_serialize_ref_resolve_fn resolve, void *resolve_ctx)
 {
-    return bb_json_render_impl(desc, snap, buf, cap, out_len, resolve, resolve_ctx);
+    return bb_serialize_json_render_ref_ex(desc, snap, buf, cap, out_len, resolve, resolve_ctx, false);
+}
+
+bb_err_t bb_serialize_json_render_ref_ex(const bb_serialize_desc_t *desc, const void *snap,
+                                          char *buf, size_t cap, size_t *out_len,
+                                          bb_serialize_ref_resolve_fn resolve, void *resolve_ctx,
+                                          bool f64_shortest)
+{
+    return bb_json_render_impl(desc, snap, buf, cap, out_len, resolve, resolve_ctx, f64_shortest);
 }
 
 // Distinct entry point from bb_json_render_impl() above -- NOT routed
@@ -449,12 +547,23 @@ bb_err_t bb_serialize_json_stream_render(const bb_serialize_desc_t *desc, const 
                                           bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
                                           const volatile bool *flush_failed)
 {
+    return bb_serialize_json_stream_render_ex(desc, snap, flush_fn, flush_ctx, flush_failed, false);
+}
+
+// bb_serialize_json_stream_render() is a thin wrapper: this fn with
+// f64_shortest == false. See bb_json_render_impl()'s doc comment above for
+// the f64_shortest contract.
+bb_err_t bb_serialize_json_stream_render_ex(const bb_serialize_desc_t *desc, const void *snap,
+                                             bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
+                                             const volatile bool *flush_failed, bool f64_shortest)
+{
     char buf[BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES];
     bb_serialize_json_ctx_t ctx;
     bb_serialize_json_ctx_init(&ctx, buf, sizeof(buf));
     ctx.flush_fn = flush_fn;
     ctx.flush_ctx = flush_ctx;
     ctx.flush_failed = flush_failed;
+    ctx.f64_shortest = f64_shortest;
 
     bb_serialize_emit_t emit = bb_serialize_json_emit(&ctx);
 
@@ -478,12 +587,23 @@ bb_err_t bb_serialize_json_stream_compose_render(const bb_serialize_compose_grou
                                                   bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
                                                   const volatile bool *flush_failed)
 {
+    return bb_serialize_json_stream_compose_render_ex(groups, n_groups, flush_fn, flush_ctx, flush_failed, false);
+}
+
+// bb_serialize_json_stream_compose_render() is a thin wrapper: this fn with
+// f64_shortest == false. See bb_json_render_impl()'s doc comment above for
+// the f64_shortest contract.
+bb_err_t bb_serialize_json_stream_compose_render_ex(const bb_serialize_compose_group_t *groups, size_t n_groups,
+                                                     bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
+                                                     const volatile bool *flush_failed, bool f64_shortest)
+{
     char buf[BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES];
     bb_serialize_json_ctx_t ctx;
     bb_serialize_json_ctx_init(&ctx, buf, sizeof(buf));
     ctx.flush_fn = flush_fn;
     ctx.flush_ctx = flush_ctx;
     ctx.flush_failed = flush_failed;
+    ctx.f64_shortest = f64_shortest;
 
     bb_serialize_emit_t emit = bb_serialize_json_emit(&ctx);
 
