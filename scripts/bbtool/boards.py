@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from cmake_parse import parse_requires, parse_hints
-from discovery import PLATFORMS, build_index
+from discovery import PLATFORMS, build_index, normalize_roots
 
 
 class ManifestError(Exception):
@@ -91,15 +91,18 @@ def resolve_component_names(
 # Component universe discovery
 # ---------------------------------------------------------------------------
 
-def discover_components(root: str) -> Set[str]:
+def discover_components(roots) -> Set[str]:
     """The discovered component universe: every directory name under
     `components/` or `platform/{host,espidf,arduino}/`. This is the SSOT
     validation set — a manifest component name or a derived depends name that
     isn't in this set is a hard error (typo), never silently dropped.
 
-    Thin wrapper over `discovery.build_index` (B1-979) — single-root, so
-    never raises `discovery.CollisionError`."""
-    return set(build_index([root]).names())
+    `roots` is a single root (str, back-compat) or an ordered list of roots
+    (B1-1084 multi-root discovery) — normalized via `discovery.normalize_roots`.
+    Thin wrapper over `discovery.build_index` (B1-979); raises
+    `discovery.CollisionError` iff more than one of `roots` discovers the
+    same component name (never for the single-root case)."""
+    return set(build_index(normalize_roots(roots)).names())
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +129,7 @@ def _glob_c_files(root: Path, dir_path: Path, recursive: bool) -> List[str]:
     return out
 
 
-def derive_component(root: str, name: str, platform: str) -> Dict[str, List[str]]:
+def derive_component(roots, name: str, platform: str) -> Dict[str, List[str]]:
     """Derive one component's `{includes, sources, depends}`:
       - depends = union(REQUIRES, PRIV_REQUIRES) from the component's own
         CMakeLists.txt (cmake_parse.parse_requires) — NOT yet filtered to the
@@ -139,9 +142,21 @@ def derive_component(root: str, name: str, platform: str) -> Dict[str, List[str]
       - residual, non-derivable extras are read from
         `# bbtool-scaffold-hint: include=<path>` / `source=<path>` comments
         inside the component's own CMakeLists.txt.
+
+    `roots` is a single root (str, back-compat) or an ordered list of roots
+    (B1-1084). The load-bearing multi-root fix: every path below is resolved
+    against `name`'s OWNING root (`index.entry(name).root`, from the
+    discovery index built over ALL of `roots`) — never against `roots[0]` —
+    so a component discovered under a non-primary root derives correctly
+    instead of silently resolving paths against the wrong tree. Degenerates
+    to the pre-B1-1084 single-root behavior byte-for-byte when `roots` has
+    exactly one element (the owning root is always that element).
     """
-    root_p = Path(root)
-    index = build_index([root])
+    roots_list = normalize_roots(roots)
+    index = build_index(roots_list)
+    entry = index.entry(name)
+    owning_root = entry.root if entry is not None else (roots_list[0] if roots_list else ".")
+    root_p = Path(owning_root)
     comp_dir = index.component_dir(name)
     plat_dir = index.platform_dir(name, platform)
 
@@ -243,7 +258,7 @@ def resolve_transitive(
 # Full board resolution
 # ---------------------------------------------------------------------------
 
-def build_graph(root: str, board_name: str, config: dict) -> Dict[str, object]:
+def build_graph(roots, board_name: str, config: dict) -> Dict[str, object]:
     """Resolve a board's full derived build graph from bbtool.toml.
 
     Returns:
@@ -254,6 +269,10 @@ def build_graph(root: str, board_name: str, config: dict) -> Dict[str, object]:
         "order": [component names, dependency-before-dependent],
         "components": {name: {"includes": [...], "sources": [...], "depends": [...]}},
       }
+
+    `roots` is a single root (str, back-compat) or an ordered list of roots
+    (B1-1084) — see `derive_component`'s docstring for the owning-root
+    resolution this threads through to.
 
     Raises ManifestError for any undefined board/capability/component
     reference (validation errors are always hard, never a silent skip).
@@ -269,7 +288,7 @@ def build_graph(root: str, board_name: str, config: dict) -> Dict[str, object]:
     active_caps = resolve_active_capabilities(board_name, boards, capabilities)
     requested = resolve_component_names(board_name, boards, capabilities)
 
-    universe = discover_components(root)
+    universe = discover_components(roots)
     for name in requested:
         if name not in universe:
             raise ManifestError(
@@ -293,7 +312,7 @@ def build_graph(root: str, board_name: str, config: dict) -> Dict[str, object]:
             # (e.g. an ESP-IDF SDK component like esp_timer) — never derived,
             # filtered out by resolve_transitive's universe check below.
             continue
-        entry = derive_component(root, name, platform)
+        entry = derive_component(roots, name, platform)
         graph[name] = entry
         frontier.extend(d for d in entry["depends"] if d not in visited_derive)
 

@@ -244,5 +244,44 @@ class TestCheckFormatRegistryBackends(unittest.TestCase):
             self.assertIn("bb_parse_consumer", warning)
 
 
+class TestCheckFormatRegistryBackendsMultiRoot(unittest.TestCase):
+    """FINDING 4 (B1-1084 review): the multi-root owning-root resolution in
+    `check_format_registry_backends` (`index.entry(name)`, `entry_root !=
+    primary_root`) had no dedicated test -- every case above passes a bare
+    single-root string. A format-registry consumer/backend discovered under
+    a NON-primary root must have its C sources read from ITS OWN root, not
+    blindly from the primary root (where the file doesn't exist at all --
+    a stale primary-root read would silently see empty text, misclassifying
+    the component and suppressing the warning it should raise)."""
+
+    def test_consumer_under_non_primary_root_without_backend_warns(self):
+        with tempfile.TemporaryDirectory() as tmp_a, tempfile.TemporaryDirectory() as tmp_b:
+            root_a, root_b = Path(tmp_a), Path(tmp_b)
+            _make_component(root_a, "bb_serialize")
+            _make_component(root_b, "bb_consumer", requires=["bb_serialize"], src=_RENDER_CALL_SRC)
+            roots = [str(root_a), str(root_b)]
+            components, graph = resolve_composition_with_graph(
+                roots, ["bb_serialize", "bb_consumer"], platform="espidf"
+            )
+            warning = check_format_registry_backends(roots, components, graph)
+            self.assertIsNotNone(warning)
+            self.assertIn("bb_consumer", warning)
+
+    def test_backend_under_non_primary_root_suppresses_warning(self):
+        with tempfile.TemporaryDirectory() as tmp_a, tempfile.TemporaryDirectory() as tmp_b:
+            root_a, root_b = Path(tmp_a), Path(tmp_b)
+            _make_component(root_a, "bb_serialize")
+            _make_component(
+                root_b, "bb_serialize_json", requires=["bb_serialize"], src=_REGISTER_CALL_SRC,
+            )
+            _make_component(root_b, "bb_consumer", requires=["bb_serialize"], src=_RENDER_CALL_SRC)
+            roots = [str(root_a), str(root_b)]
+            components, graph = resolve_composition_with_graph(
+                roots, ["bb_serialize", "bb_serialize_json", "bb_consumer"], platform="espidf"
+            )
+            warning = check_format_registry_backends(roots, components, graph)
+            self.assertIsNone(warning)
+
+
 if __name__ == "__main__":
     unittest.main()

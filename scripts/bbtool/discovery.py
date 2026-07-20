@@ -12,20 +12,28 @@ Model (decided, B1-979):
     root) is a hard `CollisionError` raised at `build_index()` time —
     fail-loud, never a silent last-wins, never a warning. No
     override/shadow/allowlist mechanism (deferred — see B1-1086).
-  - `build_index()` takes an ORDERED list of roots. Every caller today
-    passes a single-element list (`[root]`); multi-root feeding is a later
-    ticket's plumbing — this module's machinery is ready for it, but
-    nothing wires a second root yet.
+  - `build_index()` takes an ORDERED list of roots, and canonicalizes every
+    root via `os.path.realpath` (resolving symlinks, `.`/`..` segments, and
+    a trailing separator) before dedup/cache-keying/scanning — so two
+    different spellings of the same physical directory always collapse to
+    one root, never a spurious cross-root collision. This holds regardless
+    of whether a caller pre-normalizes via `normalize_roots` (below) or
+    calls `build_index()` directly. Multi-root feeding is wired end to end
+    (B1-1084): `boards.py`, `composition.py`, and `commands/wire.py` all
+    accept and resolve components against an ordered list of roots, each
+    component read from its own owning root — see those modules' own
+    docstrings for the call sites.
 
 Determinism: no dict/set iteration-order leaks into any query result that
 matters for build output (`.names()` returns a set, same contract
 `boards.discover_components` always had); collision error text is sorted.
 """
 from __future__ import annotations
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 PLATFORMS = ("host", "espidf", "arduino")
 
@@ -80,8 +88,18 @@ class ComponentIndex:
         the directory convention `build_index()` scanned:
         `components/<name>/...` -> name; `platform/<plat>/<name>/...` ->
         name. Returns `None` for a path outside that convention, or for an
-        owner name this index doesn't actually contain — never raises."""
+        owner name this index doesn't actually contain — never raises.
+
+        An absolute `path` is canonicalized via `os.path.realpath` before
+        matching against `self._roots` (also canonical, since `build_index()`
+        canonicalizes every root) — a caller passing an absolute path built
+        from an un-normalized root spelling (e.g. a symlink alias) still
+        resolves correctly, symmetric with how roots themselves are
+        canonicalized. A relative `path` is left untouched (there is nothing
+        to resolve against)."""
         p = Path(path)
+        if p.is_absolute():
+            p = Path(os.path.realpath(str(p)))
         rel = p
         for root in self._roots:
             try:
@@ -142,13 +160,16 @@ def _build_index_cached(roots: tuple, platforms: tuple) -> ComponentIndex:
         root: _scan_root(root, platforms) for root in roots
     }
 
-    merged: Dict[str, ComponentEntry] = {}
+    # Collision check FIRST, over which root(s) each name was found under —
+    # never build a name->entry merge that could contain a first-root-wins
+    # pick that then gets discarded by the raise below. By the time we merge
+    # (below), every name is already known to own exactly one root, so
+    # `dict.update` per root is unambiguous — no override/shadow semantics,
+    # just a merge of disjoint key sets.
     owner_roots: Dict[str, List[str]] = {}
     for root in roots:
-        for name, entry in per_root[root].items():
+        for name in per_root[root]:
             owner_roots.setdefault(name, []).append(root)
-            if name not in merged:
-                merged[name] = entry
 
     collisions = {name: rs for name, rs in owner_roots.items() if len(rs) > 1}
     if collisions:
@@ -156,6 +177,10 @@ def _build_index_cached(roots: tuple, platforms: tuple) -> ComponentIndex:
             f"'{name}' in {roots_}" for name, roots_ in sorted(collisions.items())
         )
         raise CollisionError(f"component name collision across roots: {detail}")
+
+    merged: Dict[str, ComponentEntry] = {}
+    for root in roots:
+        merged.update(per_root[root])
 
     return ComponentIndex(merged, list(roots))
 
@@ -170,18 +195,66 @@ def build_index(roots: List[str], platforms=PLATFORMS) -> ComponentIndex:
     discovery byte-identical to the pre-index `boards.discover_components`
     walk.
 
-    `roots` is deduped (order-preserving) before scanning, so
-    `build_index([root, root])` behaves as `[root]` — a duplicate root in
-    the list never spuriously self-collides. Empty `roots` returns an empty
-    index (no scan, no error).
+    Every root is canonicalized via `os.path.realpath` (resolving symlinks,
+    `.`/`..` segments, and a trailing separator) BEFORE dedup/cache-keying —
+    enforced here, not just by the `normalize_roots` convenience helper, so
+    the symlink-collision fix holds by construction rather than being
+    convention-based. A caller that bypasses `normalize_roots` and calls
+    `build_index()` directly (e.g. `commands/lint.py`'s
+    `_emit_seam_owner_from_path`) still gets one entry per physical
+    directory — two different spellings of the same directory can never
+    raise a spurious `CollisionError`, and always land in the same cache
+    entry. `os.path.realpath` is idempotent, so a caller that already went
+    through `normalize_roots` (which also canonicalizes) pays a second,
+    harmless no-op syscall here rather than double-resolving anything.
 
-    Memoized (B1-979 review #1) on the deduped roots tuple + platforms
-    tuple — safe because the on-disk component tree is static within one
-    tool invocation. Call `build_index.cache_clear()` to invalidate (tests
-    that build fresh temp trees should do this defensively, even though
-    distinct temp paths already give distinct cache keys)."""
-    deduped = list(dict.fromkeys(roots))
+    `roots` is deduped (order-preserving) AFTER canonicalization, so
+    `build_index([root, root])` behaves as `[root]`, and two on-disk-
+    identical spellings of one root also collapse to one — a duplicate (or
+    aliased) root in the list never spuriously self-collides. Empty `roots`
+    returns an empty index (no scan, no error).
+
+    Memoized (B1-979 review #1) on the deduped, CANONICALIZED roots tuple +
+    platforms tuple — safe because the on-disk component tree is static
+    within one tool invocation, and canonicalizing before building the
+    cache key is what guarantees two spellings of one root hit the same
+    cache entry instead of scanning (and diffing) it twice. Call
+    `build_index.cache_clear()` to invalidate (tests that build fresh temp
+    trees should do this defensively, even though distinct temp paths
+    already give distinct cache keys)."""
+    deduped = list(dict.fromkeys(os.path.realpath(str(r)) for r in roots))
     return _build_index_cached(tuple(deduped), tuple(platforms))
 
 
 build_index.cache_clear = _build_index_cached.cache_clear
+
+
+def normalize_roots(roots: Union[str, "os.PathLike", List]) -> List[str]:
+    """Accept either a single root (str/PathLike — every pre-B1-1084
+    single-root caller's shape) or an ordered list of roots, and return a
+    deduped (order-preserving), all-`str`, CANONICALIZED list. Centralizes
+    the "roots or root" normalization every multi-root-aware caller in
+    `boards.py`, `composition.py`, and `commands/wire.py` needs (B1-1084) so
+    each of those modules can accept `roots` without hand-rolling this
+    check, and so a bare single-root call site (untouched by B1-1084) keeps
+    working with zero changes.
+
+    Every root is canonicalized via `os.path.realpath` before dedup —
+    resolves symlinks, `.`/`..` segments, and a trailing separator — so two
+    different SPELLINGS of the same physical directory (a symlinked vendor
+    tree/submodule, a `./`-relative form, a trailing slash) always dedupe to
+    one root instead of raising a spurious `CollisionError` for every
+    component under it. A single-root call whose root has no symlink/`.`/
+    `..` components in its path (the common case for `os.getcwd()`-derived
+    roots) realpaths to itself, so single-root discovery stays
+    byte-identical.
+
+    `build_index()` itself also canonicalizes (idempotently) every root it
+    receives, so this dedup/canonicalization is enforced by construction
+    even for a caller that skips `normalize_roots` and calls `build_index()`
+    directly — this helper remains the convenient public entry point for
+    accepting either a bare root or a list, not the sole place the
+    symlink-collision fix lives."""
+    if isinstance(roots, (str, os.PathLike)):
+        roots = [roots]
+    return list(dict.fromkeys(os.path.realpath(str(r)) for r in roots))

@@ -12,7 +12,13 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
-from commands.wire import WireError, collect_entries, collect_provides_entries, render_source
+from commands.wire import (
+    WireError,
+    _component_headers,
+    collect_entries,
+    collect_provides_entries,
+    render_source,
+)
 from wire_graph import MissingProviderError, topo_sort
 
 
@@ -103,6 +109,21 @@ class TestCollectEntries(unittest.TestCase):
             root = _fixture_root(tmp)
             entries = collect_entries(str(root), ["bb_meminfo"], "espidf")
             self.assertEqual(entries, [])
+
+
+class TestComponentHeadersUnknownName(unittest.TestCase):
+    """#3: `entry is None` guard in `_component_headers` -- a name absent
+    from the discovery index falls back to `roots[0]` (or `""` when `roots`
+    is also empty) rather than raising. Unreachable from any real call site
+    (every real caller passes a name already validated against the
+    discovered universe), but the fallback must not raise either way."""
+
+    def test_unknown_name_empty_roots_returns_no_headers(self):
+        self.assertEqual(_component_headers([], "bb_ghost", "espidf"), [])
+
+    def test_unknown_name_nonempty_roots_returns_no_headers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(_component_headers([tmp], "bb_ghost", "espidf"), [])
 
 
 class TestRenderSource(unittest.TestCase):
