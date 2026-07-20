@@ -85,6 +85,12 @@ static void reset_world(void)
     bb_ota_check_reset_for_test();
     bb_http_client_clear_mock();
     bb_data_test_reset();
+    // B1-859: POST /api/update/config now drives bb_data_apply() against
+    // the "ota_check_config" key -- bind it here (after the
+    // bb_data_test_reset() above wipes the binding table) so every test
+    // using this fixture, not just the config-post ones, can reach the
+    // handler without an extra per-test bind call.
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_config_bind());
     g_mock_parser_calls = 0;
     g_pause_calls  = 0;
     g_resume_calls = 0;
@@ -1397,6 +1403,31 @@ void test_update_check_config_post_wrong_type_for_enabled_returns_400(void)
     bb_http_host_capture_free(&cap);
 }
 
+void test_update_check_config_post_truncated_body_returns_400(void)
+{
+    // Body scans as valid JSON up to the point it's cut off mid-object --
+    // BB_ERR_PARSE_INCOMPLETE, not BB_ERR_PARSE_GRAMMAR (see
+    // bb_serialize_json_scan.c). Regression coverage for the truncated-body
+    // status-mapping bug: pre-#955 this aliased BB_ERR_INVALID_STATE and
+    // fell through to the generic 500 branch; post-#955 it's the disjoint
+    // BB_ERR_PARSE_INCOMPLETE code, which must still map to 400 (parity
+    // with the pre-B1-859 bb_json handler's any-unparseable-body-is-400
+    // behavior).
+    reset_world();
+
+    const char *body = "{\"enabled\":true";
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_body(body, (int)strlen(body));
+    bb_err_t rc = bb_ota_check_config_post_handler(req);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(400, cap.status);
+    bb_http_host_capture_free(&cap);
+}
+
 void test_update_check_config_get_route_descriptor_is_correct(void)
 {
     const bb_route_t *r = bb_ota_check_config_get_route();
@@ -1474,6 +1505,65 @@ void test_update_check_config_post_nv_write_failure_returns_500(void)
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL(500, cap.status);
     bb_http_host_capture_free(&cap);
+}
+
+// ---------------------------------------------------------------------------
+// B1-859: sentinel-default assertions -- drives bb_data_apply() directly
+// against the "ota_check_config" key (bypassing the HTTP handler) to prove
+// the PATCH-mode gather() seed is what makes an absent "enabled" field
+// still reject, and that a present field overwrites the sentinel and is
+// durably applied. See bb_ota_check_common.c's banner comment above
+// config_gather()/config_apply() for the full sentinel rationale.
+// ---------------------------------------------------------------------------
+
+void test_ota_check_config_apply_missing_enabled_returns_validation_error(void)
+{
+    reset_world();
+    bb_settings_update_check_enabled_set(true);
+
+    const char *body = "{}";
+    uint8_t dst_scratch = 0xAA;  // pre-poisoned; must be overwritten by gather()'s seed, not left as-is
+    char    parse_scratch[3072];
+    bb_data_apply_req_t req = {
+        .fmt               = BB_FORMAT_JSON,
+        .key               = "ota_check_config",
+        .mode              = BB_DATA_APPLY_PATCH,
+        .body              = body,
+        .body_len          = strlen(body),
+        .parse_scratch     = parse_scratch,
+        .parse_scratch_cap = sizeof(parse_scratch),
+        .dst_scratch       = &dst_scratch,
+        .dst_scratch_cap   = sizeof(dst_scratch),
+    };
+
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_data_apply(&req));
+    // The NV flag must be untouched -- apply() rejected before ever calling
+    // bb_settings_update_check_enabled_set().
+    TEST_ASSERT_TRUE(bb_settings_update_check_enabled_get());
+}
+
+void test_ota_check_config_apply_present_enabled_overwrites_sentinel_and_persists(void)
+{
+    reset_world();
+    bb_settings_update_check_enabled_set(true);
+
+    const char *body = "{\"enabled\":false}";
+    uint8_t dst_scratch = 0xAA;
+    char    parse_scratch[3072];
+    bb_data_apply_req_t req = {
+        .fmt               = BB_FORMAT_JSON,
+        .key               = "ota_check_config",
+        .mode              = BB_DATA_APPLY_PATCH,
+        .body              = body,
+        .body_len          = strlen(body),
+        .parse_scratch     = parse_scratch,
+        .parse_scratch_cap = sizeof(parse_scratch),
+        .dst_scratch       = &dst_scratch,
+        .dst_scratch_cap   = sizeof(dst_scratch),
+    };
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_apply(&req));
+    TEST_ASSERT_FALSE(bb_settings_update_check_enabled_get());
 }
 
 // ---------------------------------------------------------------------------

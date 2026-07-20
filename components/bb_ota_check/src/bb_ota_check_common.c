@@ -11,6 +11,7 @@
 #include "bb_mdns.h"
 #include "bb_settings.h"
 #include "bb_openapi.h"
+#include "bb_serialize.h"
 #include "bb_system.h"
 #include "bb_mem.h"
 #include "bb_str.h"
@@ -18,6 +19,7 @@
 #include <limits.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -617,6 +619,100 @@ void bb_ota_check_set_task_priority(int priority)
 
 #define BB_OTA_CHECK_CONFIG_BODY_MAX 64
 
+// ---------------------------------------------------------------------------
+// B1-859: POST /api/update/config ingress migrated off bb_json onto
+// bb_data_apply -- the sibling of the B1-859 factory-reset cutover
+// (bb_storage_http_routes.c). This site does NOT fit that template
+// unmodified: the old handler's single field is a JSON *bool*
+// ("enabled"), and bb_serialize_populate() leaves an ABSENT field's
+// destination bytes untouched rather than clearing them -- there is no
+// "empty string" fallback the way factory-reset's confirm field had, so a
+// plain BB_DATA_APPLY_POST (zero-seed) cannot distinguish an omitted
+// "enabled" from an explicit `{"enabled":false}` (both would scatter to
+// the same zeroed byte).
+//
+// Sentinel fix (user-decided, B1-859): apply via BB_DATA_APPLY_PATCH
+// instead, whose seed step actually calls this binding's gather() hook
+// (unlike the wifi/factory-reset POST-mode cutovers, where gather() only
+// exists to satisfy bb_data_bind()'s non-NULL invariant and is otherwise
+// dead). gather() seeds the destination byte with
+// BB_OTA_CHECK_CONFIG_ENABLED_UNSET, a value BB_TYPE_BOOL's populate path
+// can never itself produce (the JSON backend's get_bool getter always
+// hands populate a genuine C `bool`, i.e. exactly 0 or 1, before the
+// memcpy into this byte -- see bb_serialize_populate.c's BB_TYPE_BOOL
+// case). If "enabled" is present in the body, populate overwrites the
+// sentinel with 0/1; if absent, populate leaves it untouched and
+// config_apply() below still sees the sentinel -- reproducing the old
+// bb_json_obj_get_bool()-returned-false reject-on-missing behavior.
+//
+// The destination struct field is deliberately `uint8_t`, not `bool`: a
+// real C `_Bool` can only ever hold 0 or 1 (assigning 2 to it silently
+// clamps to 1), which would destroy the sentinel. `uint8_t` is
+// layout-compatible with `bool` for this purpose (both are 1-byte scalars
+// on every host/ESP-IDF target this project builds for), which is exactly
+// what BB_TYPE_BOOL's populate step needs to memcpy(sizeof(bool)) into.
+#define BB_OTA_CHECK_CONFIG_ENABLED_UNSET ((uint8_t)2)
+
+typedef struct {
+    uint8_t enabled;
+} bb_ota_check_config_apply_t;
+
+static const bb_serialize_field_t s_config_fields[] = {
+    { .key = "enabled", .type = BB_TYPE_BOOL, .offset = offsetof(bb_ota_check_config_apply_t, enabled) },
+};
+
+static const bb_serialize_desc_t s_config_desc = {
+    .type_name = "bb_ota_check_config_apply_t",
+    .fields    = s_config_fields,
+    .n_fields  = 1,
+    .snap_size = sizeof(bb_ota_check_config_apply_t),
+};
+
+// Egress hook / PATCH seed: seeds `dst` with the sentinel above so an
+// absent "enabled" field survives bb_serialize_populate() untouched and is
+// rejected below -- see the banner comment above. Unlike the wifi/
+// factory-reset POST-mode cutovers, this hook is NOT dead: bb_data_apply()
+// actually calls it (BB_DATA_APPLY_PATCH mode) on every request.
+static bb_err_t config_gather(void *dst, const bb_data_gather_args_t *args)
+{
+    (void)args;
+    ((bb_ota_check_config_apply_t *)dst)->enabled = BB_OTA_CHECK_CONFIG_ENABLED_UNSET;
+    return BB_OK;
+}
+
+// Ingress hook: rejects a still-sentinel "enabled" (missing or wrong-typed
+// field -- the JSON backend's get_bool getter also returns false, leaving
+// the seed untouched, on a type mismatch) with BB_ERR_VALIDATION (400,
+// same domain-level-reject contract as the factory-reset/wifi apply
+// hooks), otherwise durably persists the flag via bb_settings.
+static bb_err_t config_apply(const void *snap, const bb_data_apply_args_t *args)
+{
+    (void)args;
+    const bb_ota_check_config_apply_t *cfg = (const bb_ota_check_config_apply_t *)snap;
+
+    if (cfg->enabled == BB_OTA_CHECK_CONFIG_ENABLED_UNSET) {
+        return BB_ERR_VALIDATION;
+    }
+
+    return bb_settings_update_check_enabled_set(cfg->enabled != 0);
+}
+
+// Binds the "ota_check_config" bb_data key against the production gather/
+// apply hooks above. Portable (no bb_http_handle_t server dependency,
+// unlike bb_storage_http's factory-reset binding) -- called both by
+// bb_ota_check_register_init() (ESP-IDF composition root) and directly by
+// host tests after bb_data_test_reset().
+bb_err_t bb_ota_check_config_bind(void)
+{
+    bb_data_binding_t binding = {
+        .key    = "ota_check_config",
+        .desc   = &s_config_desc,
+        .gather = config_gather,
+        .apply  = config_apply,
+    };
+    return bb_data_bind(&binding);
+}
+
 bb_err_t bb_ota_check_config_get_handler(bb_http_request_t *req)
 {
     bool enabled = bb_settings_update_check_enabled_get();
@@ -651,19 +747,54 @@ bb_err_t bb_ota_check_config_post_handler(bb_http_request_t *req)
     }
     body[n] = '\0';
 
-    bb_json_t doc = bb_json_parse(body, (size_t)n);
-    if (!doc) {  // LCOV_EXCL_BR_LINE — parse failure path; both branches covered but gcov misattributes inner begin() arc
-        bb_http_resp_set_status(req, 400);
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "invalid JSON");
-        bb_http_resp_json_obj_end(&obj);
-        return BB_OK;
-    }
+    // JSON parse scratch: a flat 1-bool-field document, comfortably under
+    // this route's own BB_OTA_CHECK_CONFIG_BODY_MAX (64) body cap -- but the
+    // token recorder's own default-capacity pool alone is
+    // 48 * sizeof(bb_serialize_json_tok_t) == 2304 bytes, so this must clear
+    // that plus the control structs plus headroom for the escape-decode
+    // arena regardless of body size (see bb_wifi_http_routes.c's
+    // WIFI_PATCH_PARSE_SCRATCH_BYTES / the factory-reset cutover's
+    // FACTORY_RESET_PARSE_SCRATCH_BYTES, the same fixed-pool-size rationale).
+    bb_ota_check_config_apply_t dst_scratch;
+    char                        parse_scratch[3072];
+    bb_data_apply_req_t apply_req = {
+        .fmt               = BB_FORMAT_JSON,
+        .key               = "ota_check_config",
+        .mode              = BB_DATA_APPLY_PATCH,
+        .body              = body,
+        .body_len          = (size_t)n,
+        .parse_scratch     = parse_scratch,
+        .parse_scratch_cap = sizeof(parse_scratch),
+        .dst_scratch       = &dst_scratch,
+        .dst_scratch_cap   = sizeof(dst_scratch),
+    };
+    bb_err_t rc = bb_data_apply(&apply_req);
 
-    bool enabled;
-    if (!bb_json_obj_get_bool(doc, "enabled", &enabled)) {  // LCOV_EXCL_BR_LINE — missing field path; both branches covered but gcov misattributes inner begin() arc
-        bb_json_free(doc);
+    // Response shaping stays here in the route -- bb_data_apply()/apply()
+    // stay HTTP-agnostic and never see a status code, only a bb_err_t (same
+    // Fork-3 posture as the wifi PATCH and factory-reset POST cutovers).
+    // BB_ERR_VALIDATION covers a missing/wrong-typed "enabled" (config_apply()'s
+    // own sentinel check) -- "the request body parsed fine but its content
+    // is bad", 400. BB_ERR_PARSE_GRAMMAR/BB_ERR_PARSE_INCOMPLETE cover a body
+    // the JSON backend's parse fn couldn't scan to completion
+    // (grammar-invalid, e.g. "not-json", or truncated mid-object) -- same
+    // "the request body itself is bad" bucket, also 400. These are the
+    // disjoint parse-layer codes from bb_core.h (#955's fix). Mapping them
+    // here is pre-emptive, not a repair: on the pre-B1-859 bb_json path,
+    // this handler had never called bb_data_apply() at all, and both a
+    // grammar-invalid and a truncated body already produced a NULL doc and
+    // hit the same "!doc -> 400" branch, so neither was ever broken for
+    // this endpoint. The real "truncated body aliases BB_ERR_INVALID_STATE
+    // and falls through to a generic 500" bug belonged to the wifi PATCH
+    // endpoint (#953 cut it onto bb_data_apply() before the disjoint codes
+    // existed; #955 fixed it there, factory-reset followed in #956). This
+    // mapping simply preserves the old bb_json handler's existing
+    // 400-for-any-unparseable-body behavior across the migration. Everything
+    // else (including a genuine bb_settings NV-write failure, or the
+    // composition-invariant case of this fn's own "ota_check_config"
+    // binding somehow being unbound/unparsable -- unreachable given correct
+    // wiring in bb_ota_check_config_bind()) is a 500.
+    if (rc == BB_ERR_VALIDATION) {
         bb_http_resp_set_status(req, 400);
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);
@@ -671,20 +802,25 @@ bb_err_t bb_ota_check_config_post_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
-    bb_json_free(doc);
-
-    bb_err_t err = bb_settings_update_check_enabled_set(enabled);
-    if (err != BB_OK) {  // LCOV_EXCL_BR_LINE — NV write failure; both branches covered but gcov misattributes inner begin() arc
+    if (rc == BB_ERR_PARSE_GRAMMAR || rc == BB_ERR_PARSE_INCOMPLETE) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "invalid JSON");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_OK;
+    }
+    if (rc != BB_OK) {
         bb_http_resp_set_status(req, 500);
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "NV write failed");
+        bb_http_resp_json_obj_set_str(&obj, "error", "update failed");
         bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
 
     bb_http_json_obj_stream_t obj;
-    err = bb_http_resp_json_obj_begin(req, &obj);
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
     if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE — send_chunk never fails on host
     bb_http_resp_json_obj_set_bool(&obj, "enabled", bb_settings_update_check_enabled_get());
     return bb_http_resp_json_obj_end(&obj);
@@ -715,7 +851,7 @@ static const bb_route_response_t s_config_post_responses[] = {
        "\"required\":[\"enabled\"]}",
       "updated state" },
     { 400, "text/plain", NULL, "missing or invalid body" },
-    { 500, "text/plain", NULL, "NV write failed" },
+    { 500, "text/plain", NULL, "update failed" },
     { 0 },
 };
 

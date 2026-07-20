@@ -49,6 +49,14 @@ bb_err_t bb_ota_check_run_one(void);
 bb_err_t bb_ota_check_config_get_handler(bb_http_request_t *req);
 bb_err_t bb_ota_check_config_post_handler(bb_http_request_t *req);
 
+// B1-859: binds the "ota_check_config" bb_data key (production gather/apply
+// hooks backing POST /api/update/config) against the bb_data binding table.
+// Portable -- no bb_http_handle_t server dependency. MUST be called before
+// bb_ota_check_config_post_handler() is ever driven (production: from
+// bb_ota_check_register_init(); host tests: directly after
+// bb_data_test_reset()).
+bb_err_t bb_ota_check_config_bind(void);
+
 // Accessors for the route descriptors (static rodata in bb_ota_check_common.c).
 const bb_route_t *bb_ota_check_config_get_route(void);
 const bb_route_t *bb_ota_check_config_post_route(void);
