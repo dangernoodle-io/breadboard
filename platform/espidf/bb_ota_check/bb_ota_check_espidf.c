@@ -277,6 +277,12 @@ bb_err_t bb_ota_check_register_init(bb_http_handle_t server)
     bb_err_t err = bb_ota_check_init(NULL);
     if (err != BB_OK) return err;
 
+    // B1-859: bind the "ota_check_config" bb_data key backing POST
+    // /api/update/config's bb_data_apply() ingress before the route below
+    // is ever reachable.
+    err = bb_ota_check_config_bind();
+    if (err != BB_OK) return err;
+
     err = bb_http_register_described_route(server, &s_status_route);
     if (err != BB_OK) return err;
 
