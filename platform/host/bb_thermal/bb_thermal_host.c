@@ -4,31 +4,16 @@
 #include "bb_power.h"
 #include "bb_power_test.h"
 #include "bb_temp.h"
-#include "bb_json.h"
 #include <math.h>
 #include <stdbool.h>
 #include <string.h>
 
-// Host twin of the bb_thermal component — collect + emit helpers + testing hooks.
-// /api/thermal route deleted in B1-269 PR7; bb_thermal_emit_section remains for
-// /api/sensors thermal section (SSOT).
-
-// ---------------------------------------------------------------------------
-// Internal helper: emit {present, c} sub-object
-// ---------------------------------------------------------------------------
-
-static void host_emit_source(bb_json_t root, const char *key, bool present, double c_val)
-{
-    bb_json_t obj = bb_json_obj_new();
-    if (!obj) return;  // OOM: skip sub-object; do not set NULL key on root
-    bb_json_obj_set_bool(obj, "present", present);
-    if (present) {
-        bb_json_obj_set_number(obj, "c", c_val);
-    } else {
-        bb_json_obj_set_null(obj, "c");
-    }
-    bb_json_obj_set_obj(root, key, obj);
-}
+// Host twin of the bb_thermal component — collect + testing hooks.
+// /api/thermal route deleted in B1-269 PR7. bb_thermal_collect() is now
+// consumed by bb_sensors_thermal_gather() (components/bb_sensors/
+// bb_sensors_wire.c) for /api/sensors/thermal (B1-828 PR-2); the old
+// bb_thermal_emit_section() JSON-emit wrapper (the composite /api/sensors
+// endpoint's SSOT) was deleted with it -- FULL BREAK, no other caller.
 
 // ---------------------------------------------------------------------------
 // Pure value collector — SSOT for which HAL each temperature comes from.
@@ -54,21 +39,6 @@ void bb_thermal_collect(bb_thermal_values_t *out)
     out->asic_c        = out->asic_present ? fsnap.die_c : 0.0f;
     out->board_present = (out->fan_hw_present && !isnan(fsnap.board_c));
     out->board_c       = out->board_present ? fsnap.board_c : 0.0f;
-}
-
-// ---------------------------------------------------------------------------
-// Shared emit helper — host implementation mirrors espidf (SSOT).
-// ---------------------------------------------------------------------------
-
-void bb_thermal_emit_section(bb_json_t obj)
-{
-    bb_thermal_values_t v;
-    bb_thermal_collect(&v);
-
-    host_emit_source(obj, "soc",   v.soc_present,   v.soc_present   ? (double)v.soc_c   : 0.0);
-    host_emit_source(obj, "vr",    v.vr_present,    v.vr_present    ? (double)v.vr_c    : 0.0);
-    host_emit_source(obj, "asic",  v.asic_present,  v.asic_present  ? (double)v.asic_c  : 0.0);
-    host_emit_source(obj, "board", v.board_present, v.board_present ? (double)v.board_c : 0.0);
 }
 
 #ifdef BB_THERMAL_TESTING

@@ -66,36 +66,6 @@ void bb_response_build_get(const bb_response_registry_t *reg, bb_json_t root)
     }
 }
 
-bb_err_t bb_response_dispatch_patch(const bb_response_registry_t *reg, bb_json_t body)
-{
-    if (!reg) return BB_ERR_INVALID_ARG;
-
-    // Pre-validation pass: reject any read-only section present in the body
-    // BEFORE applying any patch_fn, so multi-section bodies are all-or-nothing.
-    for (int i = 0; i < reg->count; i++) {
-        const bb_response_entry_t *e = &reg->entries[i];
-        bb_json_t child = bb_json_obj_get_item(body, e->name);
-        if (!child) continue;
-        if (!e->patch) {
-            if (reg->tag) {
-                bb_log_w(reg->tag, "PATCH on read-only section '%s' — rejecting before apply",
-                         e->name);
-            }
-            return BB_ERR_INVALID_ARG;
-        }
-    }
-
-    // Apply pass: all sections validated as writable above.
-    for (int i = 0; i < reg->count; i++) {
-        const bb_response_entry_t *e = &reg->entries[i];
-        bb_json_t child = bb_json_obj_get_item(body, e->name);
-        if (!child) continue;
-        bb_err_t rc = e->patch(child, e->ctx);
-        if (rc != BB_OK) return rc;
-    }
-    return BB_OK;
-}
-
 void bb_response_freeze(bb_response_registry_t *reg)
 {
     if (reg) reg->frozen = true;

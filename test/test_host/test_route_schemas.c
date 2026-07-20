@@ -142,16 +142,6 @@ static const char k_telemetry_patch_request_schema[] =
         "\"interval_ms\":{\"type\":\"integer\",\"minimum\":1000,\"maximum\":3600000},"
         "\"enabled\":{\"type\":\"boolean\"}}}}}";
 
-// Mirrors components/bb_sensors/bb_sensors_schema_priv.h (k_sensors_patch_request_schema),
-// non-autofan variant. Copy-pasted intentionally.
-static const char k_sensors_patch_request_schema[] =
-    "{\"type\":\"object\","
-    "\"properties\":{"
-    "\"fan\":{\"type\":\"object\","
-        "\"properties\":{"
-        "\"duty_pct\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":100}},"
-        "\"required\":[\"duty_pct\"]}}}";
-
 // PATCH /api/telemetry fixture route — used by registry_all_valid and desc_audit tests.
 static const bb_route_response_t s_telemetry_patch_responses_fixture[] = {
     { 200, "application/json",
@@ -166,21 +156,6 @@ static const bb_route_t s_telemetry_patch_route_fixture = {
     .request_content_type = "application/json",
     .request_schema       = k_telemetry_patch_request_schema,
     .responses            = s_telemetry_patch_responses_fixture,
-    .handler              = NULL,
-};
-
-// PATCH /api/sensors fixture route — used by registry_all_valid and desc_audit tests.
-static const bb_route_response_t s_sensors_patch_responses_fixture[] = {
-    { 204, NULL, NULL, "patch applied" },
-    { 0 },
-};
-static const bb_route_t s_sensors_patch_route_fixture = {
-    .method               = BB_HTTP_PATCH,
-    .path                 = "/api/sensors",
-    .tag                  = "sensors",
-    .request_content_type = "application/json",
-    .request_schema       = k_sensors_patch_request_schema,
-    .responses            = s_sensors_patch_responses_fixture,
     .handler              = NULL,
 };
 
@@ -314,8 +289,6 @@ void test_route_schemas_registry_all_valid(void)
     TEST_ASSERT_EQUAL(BB_OK, err);
     err = bb_http_register_route_descriptor_only(&s_telemetry_patch_route_fixture);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    err = bb_http_register_route_descriptor_only(&s_sensors_patch_route_fixture);
-    TEST_ASSERT_EQUAL(BB_OK, err);
 
     schema_check_ctx_t ctx = { 0 };
     bb_http_route_registry_foreach(route_schema_walker, &ctx);
@@ -435,14 +408,6 @@ void test_telemetry_patch_request_schema_has_properties(void)
         "PATCH /api/telemetry request_schema must parse and declare non-empty properties");
 }
 
-// B1-413: PATCH /api/sensors request_schema parses and has non-empty properties.
-void test_sensors_patch_request_schema_has_properties(void)
-{
-    TEST_ASSERT_TRUE_MESSAGE(
-        check_request_schema_has_properties(k_sensors_patch_request_schema),
-        "PATCH /api/sensors request_schema must parse and declare non-empty properties");
-}
-
 // Guard: the bare-object regression — a PATCH route with request_schema but no properties
 // — trips the walker.
 void test_mutating_route_bare_body_guard_trips(void)
@@ -533,8 +498,6 @@ static const desc_audit_entry_t k_desc_audit[] = {
       { NULL },             false, 500, "application/json" },
     // B1-413: request body schemas
     { "/api/telemetry", BB_HTTP_PATCH,
-      { NULL },             true,    0, NULL },
-    { "/api/sensors",   BB_HTTP_PATCH,
       { NULL },             true,    0, NULL },
     // Sentinel
     { NULL },
@@ -816,7 +779,6 @@ static void seed_desc_audit_fixtures(void)
     bb_http_register_route_descriptor_only(&s_tasks_route_fixture);
     bb_http_register_route_descriptor_only(&s_manifest_with_500_route_fixture);
     bb_http_register_route_descriptor_only(&s_telemetry_patch_route_fixture);
-    bb_http_register_route_descriptor_only(&s_sensors_patch_route_fixture);
 }
 
 // ---------------------------------------------------------------------------

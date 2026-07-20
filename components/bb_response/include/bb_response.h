@@ -59,11 +59,6 @@ bb_err_t bb_response_register(bb_response_registry_t *reg,
 // then set root[name] = child.
 void bb_response_build_get(const bb_response_registry_t *reg, bb_json_t root);
 
-// Dispatch PATCH body: for each key present in body, find the matching section
-// and call patch_fn(child, ctx).
-// Returns BB_ERR_INVALID_ARG if a matched section has patch_fn == NULL.
-bb_err_t bb_response_dispatch_patch(const bb_response_registry_t *reg, bb_json_t body);
-
 // Prevent further registrations.
 void bb_response_freeze(bb_response_registry_t *reg);
 
