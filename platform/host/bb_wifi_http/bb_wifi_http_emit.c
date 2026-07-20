@@ -20,6 +20,13 @@
 
 #include <stdio.h>
 
+// Shared bssid colon-hex formatter -- see bb_wifi_http.h's doc comment.
+void bb_wifi_http_format_bssid(char out[18], const uint8_t bssid[6])
+{
+    snprintf(out, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
+             bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+}
+
 // Emit the canonical wifi section into obj.
 // Fields written (in order):
 //   ssid               (string)
@@ -35,9 +42,7 @@
 void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
 {
     char bssid[18];
-    snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
-             info->bssid[0], info->bssid[1], info->bssid[2],
-             info->bssid[3], info->bssid[4], info->bssid[5]);
+    bb_wifi_http_format_bssid(bssid, info->bssid);
 
     bb_json_obj_set_string(obj, "ssid",             info->ssid);
     bb_json_obj_set_string(obj, "bssid",            bssid);
@@ -59,9 +64,7 @@ void bb_wifi_emit_status(bb_json_t obj)
     bb_wifi_get_info(&info);
 
     char bssid[18];
-    snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
-             info.bssid[0], info.bssid[1], info.bssid[2],
-             info.bssid[3], info.bssid[4], info.bssid[5]);
+    bb_wifi_http_format_bssid(bssid, info.bssid);
 
     bb_json_obj_set_string(obj, "ssid",      info.ssid);
     bb_json_obj_set_string(obj, "bssid",     bssid);

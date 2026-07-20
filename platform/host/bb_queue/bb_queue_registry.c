@@ -7,16 +7,8 @@
 
 #include <pthread.h>
 
-/* Kconfig bridge: honour CONFIG_BB_QUEUE_REGISTRY_MAX from build flags; default 16. */
-#ifdef ESP_PLATFORM
-#include "sdkconfig.h"
-#endif
-#ifdef CONFIG_BB_QUEUE_REGISTRY_MAX
-#define BB_QUEUE_REGISTRY_MAX CONFIG_BB_QUEUE_REGISTRY_MAX
-#endif
-#ifndef BB_QUEUE_REGISTRY_MAX
-#define BB_QUEUE_REGISTRY_MAX 16
-#endif
+// BB_QUEUE_REGISTRY_MAX (Kconfig bridge) is defined once in
+// bb_queue_registry.h — reused here to size the actual registry storage.
 
 static const char *TAG = "bb_queue_registry";
 

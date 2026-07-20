@@ -26,6 +26,15 @@
 //                            (descriptor .handler = NULL); already covered by test_manifest.c
 //   DELETE /api/diag/boot  - returns 204 No Content; no JSON body
 //   POST /api/log/level    - returns 204 No Content on success; JSON only on 400 errors
+//   /api/diag/partitions   - deleted (B1-1077 PR-3a); duplicated the shipped
+//                            "storage/partitions" bb_diag section (see
+//                            test_bb_diag_storage_partitions.c)
+//   /api/diag/wifi          - moved to the generic bb_diag section registry
+//                            (B1-1077 PR-3a); see test_bb_wifi_http_diag.c
+//   /api/diag/websocket     - moved to the generic bb_diag section registry
+//                            (B1-1077 PR-3a); see test_bb_ws_server_diag.c
+//   /api/diag/rings         - moved to the generic bb_diag section registry
+//                            (B1-1077 PR-3a); see test_bb_ring_diag.c
 // REMOVED ROUTES (no longer registered):
 //   /api/diag/events       - bb_event_routes/bb_event/bb_event_ring dissolved (B1-1045);
 //                            /api/events is now served by bb_data_http (no diag
@@ -52,11 +61,9 @@
 #include "bb_settings.h"
 #include "bb_wifi.h"
 #include "bb_wifi_http.h"
-#include "bb_wifi_test.h"
 #include "bb_system.h"
 #include "bb_mdns.h"
 #include "bb_diag.h"
-#include "bb_partition.h"
 #include "bb_ota_check.h"
 #include "bb_log.h"
 #include "bb_clock.h"
@@ -215,48 +222,6 @@ static const char k_wifi_patch_400_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{\"error\":{\"type\":\"string\"}},"
     "\"required\":[\"error\"]}";
-
-// GET /api/diag/partitions — platform/espidf/bb_diag/bb_diag_routes.c
-static const char k_partitions_schema[] =
-    "{\"type\":\"array\","
-    "\"items\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"label\":{\"type\":\"string\"},"
-    "\"type\":{\"type\":\"string\"},"
-    "\"subtype\":{\"type\":\"string\"},"
-    "\"offset\":{\"type\":\"integer\"},"
-    "\"size\":{\"type\":\"integer\"},"
-    "\"running\":{\"type\":\"boolean\"},"
-    "\"next_ota\":{\"type\":\"boolean\"}},"
-    "\"required\":[\"label\",\"type\",\"offset\",\"size\"]}}";
-
-// GET /api/diag/wifi — platform/espidf/bb_wifi_http/bb_wifi_http_routes.c
-// (B1-969; rehomed + reduced from the dissolved bb_net_health's /api/diag/net)
-static const char k_diag_wifi_schema[] =
-    "{\"type\":\"object\","
-    "\"properties\":{"
-    "\"ssid\":{\"type\":\"string\"},"
-    "\"bssid\":{\"type\":\"string\"},"
-    "\"rssi\":{\"type\":\"integer\"},"
-    "\"ip\":{\"type\":\"string\"},"
-    "\"connected\":{\"type\":\"boolean\"},"
-    "\"disc_reason\":{\"type\":\"string\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"retry_count\":{\"type\":\"integer\"},"
-    "\"restart_sta_count\":{\"type\":\"integer\"},"
-    "\"disconnect_rssi\":{\"type\":\"integer\"},"
-    "\"roam_count\":{\"type\":\"integer\"},"
-    "\"roam_age_s\":{\"type\":\"integer\"},"
-    "\"last_session_s\":{\"type\":\"integer\"},"
-    "\"net_mode\":{\"type\":\"string\"},"
-    "\"associated\":{\"type\":\"boolean\"},"
-    "\"has_ip\":{\"type\":\"boolean\"},"
-    "\"reason_histogram\":{\"type\":\"object\","
-    "\"additionalProperties\":{\"type\":\"integer\"},"
-    "\"properties\":{"
-    "\"top_reason\":{\"type\":\"string\"},"
-    "\"top_reason_count\":{\"type\":\"integer\"}}}},"
-    "\"required\":[\"ssid\",\"connected\"]}";
 
 // GET /api/log/level — platform/espidf/bb_log_http/bb_log_http.c
 static const char k_log_level_schema[] =
@@ -525,104 +490,6 @@ static bb_err_t h_log_level_get(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
-// GET /api/diag/partitions — canned 2-partition response using bb_partition host mock.
-// Does NOT call the real partitions_get_handler (static in bb_diag_routes.c);
-// mirrors its emit pattern to verify schema fidelity.
-static bb_err_t h_diag_partitions(bb_http_request_t *req)
-{
-    bb_partition_info_t parts[8];
-    size_t count = 0;
-    bb_partition_list(parts, sizeof(parts) / sizeof(parts[0]), &count);
-    if (count > 2) count = 2;  // emit just the first 2 for the fidelity test
-
-    bb_http_json_stream_t arr;
-    bb_err_t rc = bb_http_resp_json_arr_begin(req, &arr);
-    if (rc != BB_OK) return rc;
-
-    for (size_t i = 0; i < count; i++) {
-        bb_json_t item = bb_json_obj_new();
-        if (item) {
-            bb_json_obj_set_string(item, "label",    parts[i].label);
-            bb_json_obj_set_string(item, "type",     parts[i].type);
-            bb_json_obj_set_string(item, "subtype",  parts[i].subtype);
-            bb_json_obj_set_number(item, "offset",   (double)parts[i].offset);
-            bb_json_obj_set_number(item, "size",     (double)parts[i].size);
-            bb_json_obj_set_bool  (item, "running",  parts[i].running);
-            bb_json_obj_set_bool  (item, "next_ota", parts[i].next_ota);
-            bb_http_resp_json_arr_emit(&arr, item);
-            bb_json_free(item);
-        }
-    }
-    return bb_http_resp_json_arr_end(&arr);
-}
-
-// GET /api/diag/wifi — mirrors the real diag_wifi_handler (static in
-// platform/espidf/bb_wifi_http/bb_wifi_http_routes.c) field-for-field, using
-// the same public getters + the real bb_wifi_emit_section/
-// bb_wifi_reason_histogram_top logic (B1-969; rehomed + reduced from the
-// dissolved bb_net_health's GET /api/diag/net -- no gw/egress/
-// early_warning/transport-health fields, all dropped not migrated).
-static bb_err_t h_diag_wifi(bb_http_request_t *req)
-{
-    bb_wifi_test_set_associated(true);
-    bb_wifi_test_set_has_ip(true);
-    bb_wifi_test_set_roam_count(2);
-    bb_wifi_test_set_roam_age_s(45);
-    bb_wifi_test_set_last_session_s(120);
-
-    uint16_t hist[BB_WIFI_DISC_COUNT];
-    memset(hist, 0, sizeof(hist));
-    hist[BB_WIFI_REASON_BB_LOST_IP]        = 1;
-    hist[BB_WIFI_REASON_BB_EGRESS_DEAD]    = 4;
-    hist[BB_WIFI_REASON_BB_NO_IP_WATCHDOG] = 3;
-    hist[BB_WIFI_DISC_INACTIVITY]          = 7; // standard reason, top non-injected count
-    bb_wifi_test_set_reason_histogram(hist, BB_WIFI_DISC_COUNT);
-
-    bb_wifi_info_t info;
-    bb_wifi_get_info(&info);
-
-    bb_json_t root = bb_json_obj_new();
-    if (!root) return BB_ERR_NO_SPACE;
-    bb_wifi_emit_section(root, &info);
-
-    bool associated = bb_wifi_is_associated();
-    bool has_ip     = bb_wifi_has_ip();
-    bb_wifi_mode_t mode = bb_wifi_classify_mode(associated, has_ip);
-
-    bb_json_obj_set_int   (root, "roam_count",     (int64_t)bb_wifi_get_roam_count());
-    bb_json_obj_set_int   (root, "roam_age_s",     (int64_t)bb_wifi_get_roam_age_s());
-    bb_json_obj_set_int   (root, "last_session_s", (int64_t)bb_wifi_get_last_session_s());
-    bb_json_obj_set_string(root, "net_mode",       bb_wifi_mode_str(mode));
-    bb_json_obj_set_bool  (root, "associated",     associated);
-    bb_json_obj_set_bool  (root, "has_ip",         has_ip);
-
-    uint16_t got_hist[BB_WIFI_DISC_COUNT];
-    bb_wifi_get_reason_histogram(got_hist, BB_WIFI_DISC_COUNT);
-    uint16_t top_count = 0;
-    bb_wifi_disc_reason_t top_reason = bb_wifi_reason_histogram_top(got_hist, &top_count);
-
-    bb_json_t hist_obj = bb_json_obj_new();
-    if (hist_obj) {
-        for (int i = 0; i < BB_WIFI_DISC_COUNT; i++) {
-            if (got_hist[i] == 0) continue;
-            bb_json_obj_set_int(hist_obj, bb_wifi_disc_reason_str((bb_wifi_disc_reason_t)i),
-                                 (int64_t)got_hist[i]);
-        }
-        bb_json_obj_set_string(hist_obj, "top_reason",       bb_wifi_disc_reason_str(top_reason));
-        bb_json_obj_set_int   (hist_obj, "top_reason_count", (int64_t)top_count);
-        bb_json_obj_set_obj(root, "reason_histogram", hist_obj);
-    }
-
-    char *str = bb_json_serialize(root);
-    bb_json_free(root);
-    if (!str) return BB_ERR_NO_SPACE;
-    bb_http_resp_set_type(req, "application/json");
-    bb_err_t err = bb_http_resp_send_chunk(req, str, -1);
-    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
-    bb_json_free_str(str);
-    return err;
-}
-
 // PATCH /api/wifi 202 — mirrors wifi_patch_handler success path.
 static bb_err_t h_wifi_patch_202(bb_http_request_t *req)
 {
@@ -673,8 +540,6 @@ static const fidelity_entry_t k_audit[] = {
     { "/api/log/level",         h_log_level_get,     200, "application/json", k_log_level_schema       },
     { "PATCH /api/wifi 202",         h_wifi_patch_202,    202, "application/json", k_wifi_patch_202_schema  },
     { "PATCH /api/wifi 400",         h_wifi_patch_400,    400, "application/json", k_wifi_patch_400_schema  },
-    { "/api/diag/partitions",        h_diag_partitions,   200, "application/json", k_partitions_schema      },
-    { "/api/diag/wifi",              h_diag_wifi,         200, "application/json", k_diag_wifi_schema       },
     { NULL, NULL, 0, NULL, NULL },
 };
 
@@ -794,30 +659,6 @@ void test_fidelity_wifi_patch_202(void)
 void test_fidelity_wifi_patch_400(void)
 {
     run_fidelity(&k_audit[11]);
-}
-
-void test_fidelity_diag_partitions(void)
-{
-    run_fidelity(&k_audit[12]);
-}
-
-void test_fidelity_diag_wifi(void)
-{
-    run_fidelity(&k_audit[13]);
-
-    // h_diag_wifi drives global BB_WIFI_TESTING hooks (associated/has_ip/
-    // roam_count/roam_age_s/last_session_s/reason_histogram) that persist
-    // across the whole test binary -- restore defaults so later tests that
-    // assume a clean/zeroed bb_wifi test-hook state (e.g. test_bb_wifi.c's
-    // "default zero" fixtures) are not polluted by this fixture's run.
-    bb_wifi_test_set_associated(false);
-    bb_wifi_test_set_has_ip(false);
-    bb_wifi_test_set_roam_count(0);
-    bb_wifi_test_set_roam_age_s(0);
-    bb_wifi_test_set_last_session_s(0);
-    uint16_t empty_hist[BB_WIFI_DISC_COUNT];
-    memset(empty_hist, 0, sizeof(empty_hist));
-    bb_wifi_test_set_reason_histogram(empty_hist, BB_WIFI_DISC_COUNT);
 }
 
 // Routes that require subsystem state setup are tested individually below.
