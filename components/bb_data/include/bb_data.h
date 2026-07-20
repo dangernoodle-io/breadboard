@@ -33,6 +33,16 @@
  *
  * bb_data_get() (a future memoized read path) is deliberately NOT part of
  * this PR's surface.
+ *
+ * INGRESS (B1-1022) -- the write-half mirror of the render path above. A
+ * binding's OPTIONAL `apply` hook (bb_data_binding_t.apply) durably applies
+ * an already-scattered snapshot; bb_data_apply() drives the full pipeline
+ * (seed dst_scratch -> parse wire bytes via the bb_serialize format
+ * registry's `.parse` slot -> bb_serialize_populate() -> apply()) against
+ * CALLER-OWNED buffers only, exactly like bb_data_render(). bb_data stays
+ * HTTP-agnostic throughout: bb_data_apply() returns a bb_err_t, never a
+ * status code -- a caller (e.g. an HTTP route) maps that to a transport
+ * response itself.
  */
 
 #include "bb_core.h"
@@ -80,6 +90,26 @@ typedef struct {
 // live sources. `args` is never NULL; `args->query` may be NULL.
 typedef bb_err_t (*bb_data_gather_fn)(void *dst, const bb_data_gather_args_t *args);
 
+// Args passed to a binding's apply hook on every bb_data_apply() call --
+// mirrors bb_data_gather_args_t's shape (ctx only). apply() is HTTP-agnostic
+// and has no request-scoped filter concept, so there is no `query` here.
+typedef struct {
+    void *ctx;
+} bb_data_apply_args_t;
+
+// Ingress hook: durably applies `snap` (the binding's descriptor's
+// snap_size bytes, already scattered by bb_data_apply() via
+// bb_serialize_populate() against this same binding's desc) through
+// `args->ctx`. `args` is never NULL. OPTIONAL on a binding -- a binding with
+// gather but no apply is egress-only; bb_data_apply() returns
+// BB_ERR_UNSUPPORTED for such a binding without invoking gather or parse
+// (see bb_data_apply()'s doc).
+//
+// Should return BB_ERR_VALIDATION for a domain-level reject (structurally
+// well-formed input the destination itself rejects) so an HTTP-agnostic
+// caller's err->status mapping stays a simple, uniform switch.
+typedef bb_err_t (*bb_data_apply_fn)(const void *snap, const bb_data_apply_args_t *args);
+
 // Replay semantics for a binding's future broadcast path (B1-1033) -- STORED
 // only here, not yet consumed by anything in this PR.
 //
@@ -109,6 +139,7 @@ typedef struct {
     const char                *key;
     const bb_serialize_desc_t *desc;
     bb_data_gather_fn          gather;
+    bb_data_apply_fn           apply;  // OPTIONAL -- NULL means egress-only (B1-1022)
     void                      *ctx;
     bb_data_replay_kind_t      replay_kind;
 } bb_data_binding_t;
@@ -169,6 +200,72 @@ typedef struct {
 // own output overflows `req->buf_cap`.
 // Propagates any error the gather hook itself returns.
 bb_err_t bb_data_render(const bb_data_render_req_t *req);
+
+// ---------------------------------------------------------------------------
+// Ingress -- bb_data_apply() (B1-1022), the write-half mirror of
+// bb_data_render() above.
+// ---------------------------------------------------------------------------
+
+// Seed mode for bb_data_apply()'s dst_scratch step -- see bb_data_apply()'s
+// doc.
+typedef enum {
+    BB_DATA_APPLY_POST  = 0,  // full replace: dst_scratch is zero-filled
+    BB_DATA_APPLY_PATCH = 1,  // partial merge: dst_scratch is seeded via the
+                               // binding's own gather() hook first -- a wire
+                               // field ABSENT from the body then keeps
+                               // whatever value gather() wrote for it
+                               // (bb_serialize_populate() never zeroes an
+                               // absent field's destination bytes)
+} bb_data_apply_mode_t;
+
+// The ONE apply entry point's request struct -- mirrors bb_data_render_req_t's
+// shape/caller-owned-buffers convention. `body`/`body_len` is the wire bytes
+// to decode; `parse_scratch` (capacity `parse_scratch_cap`) backs the
+// format's parse fn (MUST outlive the bb_serialize_populate() call inside
+// bb_data_apply() -- see bb_serialize_parse_fn's own doc); `dst_scratch`
+// (capacity `dst_scratch_cap`, MUST be >= the binding's desc->snap_size) is
+// the destination snapshot struct scattered into and then passed to the
+// binding's apply() hook.
+typedef struct {
+    bb_format_t             fmt;
+    const char              *key;
+    bb_data_apply_mode_t     mode;
+    const char              *body;
+    size_t                   body_len;
+    void                    *parse_scratch;
+    size_t                   parse_scratch_cap;
+    void                    *dst_scratch;
+    size_t                   dst_scratch_cap;
+} bb_data_apply_req_t;
+
+// Applies `req->body` (wire bytes in format `req->fmt`) to `req->key`'s
+// bound destination via its apply hook. Looks up `req->key`'s binding and
+// `req->fmt`'s registered parse fn (bb_serialize_format_get_parse()) FIRST,
+// then checks the binding HAS an apply hook -- an unbound key, an
+// unsupported format, or an apply-less (egress-only) binding is a true
+// no-op: gather/parse/populate/apply are never invoked. On success, drives:
+//   1. seeds `req->dst_scratch` per `req->mode` (see bb_data_apply_mode_t) --
+//      BB_DATA_APPLY_PATCH calls the binding's gather() hook with the same
+//      ctx a query-less render would use (args->query == NULL).
+//   2. decodes `req->body`/`req->body_len` via the registered parse fn into
+//      `req->parse_scratch`, binding a bb_serialize_populate_t source.
+//   3. scatters that source into `req->dst_scratch` via
+//      bb_serialize_populate(desc, dst_scratch, &src).
+//   4. calls the binding's apply(dst_scratch, &args) hook.
+// Each step only runs if the previous one returned BB_OK; the apply hook is
+// NEVER called after a gather/parse/populate failure.
+//
+// Returns BB_ERR_INVALID_ARG if `req`, `req->key`, `req->parse_scratch`, or
+// `req->dst_scratch` is NULL, or if `req->body_len > 0` and `req->body` is
+// NULL.
+// Returns BB_ERR_NOT_FOUND if `req->key` has no binding.
+// Returns BB_ERR_UNSUPPORTED if `req->fmt` has no registered parse fn, or
+// the binding's apply hook is NULL.
+// Returns BB_ERR_NO_SPACE if `req->dst_scratch_cap` is smaller than the
+// binding's desc->snap_size.
+// Otherwise propagates whatever the seed gather() call (PATCH mode only),
+// the parse fn, bb_serialize_populate(), or the apply hook itself returns.
+bb_err_t bb_data_apply(const bb_data_apply_req_t *req);
 
 // Returns `key`'s bound replay_kind via `*out_kind`. Not yet consumed by any
 // broadcaster (B1-1033 will) -- this PR only stores/reads the flag.

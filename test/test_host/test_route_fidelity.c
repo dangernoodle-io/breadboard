@@ -223,6 +223,17 @@ static const char k_wifi_patch_400_schema[] =
     "\"properties\":{\"error\":{\"type\":\"string\"}},"
     "\"required\":[\"error\"]}";
 
+// PATCH /api/wifi 500 — platform/espidf/bb_wifi_http/bb_wifi_http_routes.c
+// (CONFIG_BB_WIFI_RECONFIGURE; B1-1022 finding #2)
+static const char k_wifi_patch_500_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{\"error\":{\"type\":\"string\"}},"
+    "\"required\":[\"error\"]}";
+
+// GET /api/diag/partitions and GET /api/diag/wifi fidelity coverage moved to
+// the generic bb_diag section registry (B1-1077 PR-3a, #951) — see
+// test_bb_diag_storage_partitions.c and test_bb_wifi_http_diag.c.
+
 // GET /api/log/level — platform/espidf/bb_log_http/bb_log_http.c
 static const char k_log_level_schema[] =
     "{\"type\":\"object\","
@@ -500,13 +511,29 @@ static bb_err_t h_wifi_patch_202(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
-// PATCH /api/wifi 400 — mirrors wifi_patch_handler validation failure path.
+// PATCH /api/wifi 400 — mirrors wifi_patch_handler validation failure path
+// (B1-1022: BB_ERR_VALIDATION/BB_ERR_INVALID_ARG/BB_ERR_UNSUPPORTED from
+// bb_data_apply() all shape to this same body; the pre-cutover "ssid
+// required" literal is gone -- see wifi_patch_handler's own comment on why
+// BB_ERR_NOT_FOUND is deliberately excluded from this branch).
 static bb_err_t h_wifi_patch_400(bb_http_request_t *req)
 {
     bb_http_resp_set_status(req, 400);
     bb_http_json_obj_stream_t obj;
     bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "error", "ssid required");
+    bb_http_resp_json_obj_set_str(&obj, "error", "invalid request body or credentials");
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+// PATCH /api/wifi 500 — mirrors wifi_patch_handler's fallthrough for any
+// bb_err_t not in the 400 list (incl. BB_ERR_NOT_FOUND per B1-1022 finding
+// #3 -- a composition-invariant violation, not client error).
+static bb_err_t h_wifi_patch_500(bb_http_request_t *req)
+{
+    bb_http_resp_set_status(req, 500);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "error", "internal error");
     return bb_http_resp_json_obj_end(&obj);
 }
 
@@ -540,6 +567,7 @@ static const fidelity_entry_t k_audit[] = {
     { "/api/log/level",         h_log_level_get,     200, "application/json", k_log_level_schema       },
     { "PATCH /api/wifi 202",         h_wifi_patch_202,    202, "application/json", k_wifi_patch_202_schema  },
     { "PATCH /api/wifi 400",         h_wifi_patch_400,    400, "application/json", k_wifi_patch_400_schema  },
+    { "PATCH /api/wifi 500",         h_wifi_patch_500,    500, "application/json", k_wifi_patch_500_schema  },
     { NULL, NULL, 0, NULL, NULL },
 };
 
@@ -659,6 +687,11 @@ void test_fidelity_wifi_patch_202(void)
 void test_fidelity_wifi_patch_400(void)
 {
     run_fidelity(&k_audit[11]);
+}
+
+void test_fidelity_wifi_patch_500(void)
+{
+    run_fidelity(&k_audit[12]);
 }
 
 // Routes that require subsystem state setup are tested individually below.
