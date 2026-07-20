@@ -56,6 +56,16 @@ void bb_storage_ram_test_reset(void);
 // registration policy is bb_storage's (first registration wins; a second
 // call from the same process returns BB_ERR_INVALID_STATE, logged and
 // harmless).
+//
+// provides=storage_ram: wired onto the boot path via codegen (EARLY tier),
+// mirroring bb_storage_nvs_register()'s marker (B1-748) -- a composer that
+// wants "ram" available before an EARLY-tier consumer that reads
+// backend="ram" simply includes bb_storage_ram in its manifest; codegen
+// wires this call in automatically. No consumer requires=storage_ram today,
+// so this marker only fires when bb_storage_ram is actually part of a
+// board's resolved component set (see bbtool.toml) -- it is a no-op
+// addition to every existing composition until one opts in.
+// bbtool:init tier=early fn=bb_storage_ram_register provides=storage_ram
 bb_err_t bb_storage_ram_register(void);
 
 #ifdef __cplusplus
