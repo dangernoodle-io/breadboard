@@ -985,3 +985,271 @@ void test_bb_data_apply_null_args_return_invalid_arg(void)
     };
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_apply(&req_body_len_no_body));
 }
+
+// ---------------------------------------------------------------------------
+// bb_data_parse() / bb_data_commit() -- the parse/commit split (bb_http_section
+// PR). bb_data_apply() above is now a thin wrapper over these two; the tests
+// above already pin its composed behavior end to end. These tests exercise
+// the split calls directly, plus the ordering contract the split depends on:
+// bb_data_commit()'s seed step (gather/memset) now runs AFTER
+// bb_data_parse()'s decode, not before it (see bb_data_commit()'s doc).
+// ---------------------------------------------------------------------------
+
+static int s_dt_split_gather_calls = 0;
+
+// A PATCH-seed gather that WOULD fail if ever invoked -- used to prove
+// bb_data_commit() is never reached (and this hook never called) when
+// bb_data_parse() itself already failed on a malformed body.
+static bb_err_t dt_split_gather_would_fail(void *dst, const bb_data_gather_args_t *args)
+{
+    (void)dst;
+    (void)args;
+    s_dt_split_gather_calls++;
+    return BB_ERR_INVALID_STATE;
+}
+
+void test_bb_data_parse_decodes_body_and_commit_applies(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+
+    int64_t live_val = 42;
+    bb_data_binding_t b = { .key = "dt.split.ok", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok, .ctx = &live_val };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    const char *body = "{\"n\":7}";
+    bb_data_parse_req_t parse_req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.split.ok",
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+    };
+    bb_data_parsed_t parsed;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_parse(&parse_req, &parsed));
+
+    dt_apply_snap_t dst = { .n = -1 };
+    bb_data_commit_req_t commit_req = {
+        .mode = BB_DATA_APPLY_POST, .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_commit(&parsed, &commit_req));
+    TEST_ASSERT_EQUAL(1, s_dt_apply_spy_calls);
+    TEST_ASSERT_EQUAL_INT64(7, s_dt_apply_spy_n);
+}
+
+void test_bb_data_parse_null_args_return_invalid_arg(void)
+{
+    dt_reset();
+    dt_register_format();
+
+    bb_data_binding_t b = { .key = "dt.split.nullargs", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    bb_data_parsed_t parsed;
+    const char *body = "{}";
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_parse(NULL, &parsed));
+
+    bb_data_parse_req_t req_no_key = {
+        .fmt = BB_FORMAT_JSON, .key = NULL,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_parse(&req_no_key, &parsed));
+
+    bb_data_parse_req_t req_no_scratch = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.split.nullargs",
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = NULL, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_parse(&req_no_scratch, &parsed));
+
+    bb_data_parse_req_t req_no_out = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.split.nullargs",
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_parse(&req_no_out, NULL));
+
+    bb_data_parse_req_t req_body_len_no_body = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.split.nullargs",
+        .body = NULL, .body_len = 2,
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_parse(&req_body_len_no_body, &parsed));
+}
+
+void test_bb_data_parse_unknown_key_returns_not_found(void)
+{
+    dt_reset();
+    dt_register_format();
+
+    bb_data_parsed_t parsed;
+    const char *body = "{}";
+    bb_data_parse_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.split.nope",
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_data_parse(&req, &parsed));
+}
+
+void test_bb_data_parse_apply_less_binding_returns_unsupported(void)
+{
+    dt_reset();
+    dt_register_format();
+
+    // .apply omitted -- egress-only binding.
+    bb_data_binding_t b = { .key = "dt.split.noapply", .desc = &s_dt_apply_desc, .gather = dt_apply_gather_live };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    bb_data_parsed_t parsed;
+    const char *body = "{}";
+    bb_data_parse_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.split.noapply",
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_data_parse(&req, &parsed));
+}
+
+void test_bb_data_parse_unregistered_format_returns_unsupported(void)
+{
+    dt_reset();
+    bb_serialize_format_test_reset();  // no format registered at all
+
+    bb_data_binding_t b = { .key = "dt.split.nofmt", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    bb_data_parsed_t parsed;
+    const char *body = "{}";
+    bb_data_parse_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.split.nofmt",
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_data_parse(&req, &parsed));
+}
+
+void test_bb_data_parse_malformed_body_returns_parse_grammar(void)
+{
+    dt_reset();
+    dt_register_format();
+
+    bb_data_binding_t b = { .key = "dt.split.malformed", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    bb_data_parsed_t parsed;
+    const char *body = "{not json";
+    bb_data_parse_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.split.malformed",
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, bb_data_parse(&req, &parsed));
+}
+
+void test_bb_data_commit_null_args_return_invalid_arg(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+
+    bb_data_binding_t b = { .key = "dt.commit.nullargs", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    const char *body = "{}";
+    bb_data_parse_req_t parse_req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.commit.nullargs",
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+    };
+    bb_data_parsed_t parsed;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_parse(&parse_req, &parsed));
+
+    dt_apply_snap_t dst = { 0 };
+    bb_data_commit_req_t commit_req = {
+        .mode = BB_DATA_APPLY_POST, .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_commit(NULL, &commit_req));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_commit(&parsed, NULL));
+
+    bb_data_parsed_t zero_parsed = { 0 };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_commit(&zero_parsed, &commit_req));
+
+    bb_data_commit_req_t commit_req_no_dst = {
+        .mode = BB_DATA_APPLY_POST, .dst_scratch = NULL, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_commit(&parsed, &commit_req_no_dst));
+}
+
+void test_bb_data_commit_dst_scratch_too_small_returns_no_space(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+
+    bb_data_binding_t b = { .key = "dt.commit.smallscratch", .desc = &s_dt_apply_desc,
+                            .gather = dt_apply_gather_live, .apply = dt_apply_spy_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    const char *body = "{}";
+    bb_data_parse_req_t parse_req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.commit.smallscratch",
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+    };
+    bb_data_parsed_t parsed;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_parse(&parse_req, &parsed));
+
+    char dst[1];  // smaller than s_dt_apply_desc.snap_size
+    bb_data_commit_req_t commit_req = {
+        .mode = BB_DATA_APPLY_POST, .dst_scratch = dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_commit(&parsed, &commit_req));
+    TEST_ASSERT_EQUAL(0, s_dt_apply_spy_calls);
+}
+
+// THE ordering-contract test (B1-1022/bb_http_section PR, user-directed):
+// PATCH mode + a MALFORMED body + a gather() that would fail if invoked.
+// Proves bb_data_apply()'s composed call order is decode-before-seed
+// (bb_data_parse() runs, and fails, before bb_data_commit()'s seed step
+// ever calls gather()) -- the one interaction no pre-split test exercised
+// (see the bb_http_section-PR audit that surfaced this gap: no existing
+// test combined PATCH mode + an undecodable body + a failing gather).
+//
+// REVERT-PROOF: if bb_data_commit()'s seed step were moved back to run
+// BEFORE bb_data_parse()'s decode (the pre-split source order), this test
+// goes RED two ways: (1) the returned code becomes BB_ERR_INVALID_STATE
+// (dt_split_gather_would_fail's return) instead of BB_ERR_PARSE_GRAMMAR,
+// and (2) s_dt_split_gather_calls becomes 1 instead of 0. Manually verified
+// by temporarily calling the old seed-then-parse order in bb_data_apply()
+// -- see this PR's report for the observed red/green.
+void test_bb_data_apply_patch_malformed_body_never_invokes_seed_gather(void)
+{
+    dt_reset();
+    dt_register_format();
+    dt_apply_spy_reset();
+    s_dt_split_gather_calls = 0;
+
+    bb_data_binding_t b = { .key = "dt.split.patchmalformed", .desc = &s_dt_apply_desc,
+                            .gather = dt_split_gather_would_fail, .apply = dt_apply_spy_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    dt_apply_snap_t dst = { 0 };
+    const char *body = "{not json";
+    bb_data_apply_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.split.patchmalformed", .mode = BB_DATA_APPLY_PATCH,
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = s_dt_apply_parse_scratch, .parse_scratch_cap = DT_APPLY_PARSE_SCRATCH_CAP,
+        .dst_scratch = &dst, .dst_scratch_cap = sizeof(dst),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, bb_data_apply(&req));
+    TEST_ASSERT_EQUAL(0, s_dt_split_gather_calls);  // seed gather() never reached: decode failed first
+    TEST_ASSERT_EQUAL(0, s_dt_apply_spy_calls);
+}

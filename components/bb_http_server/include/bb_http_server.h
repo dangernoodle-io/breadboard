@@ -156,6 +156,14 @@ bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int le
 // HTTP proxies (e.g. node http-proxy) reject as a protocol error.
 bb_err_t bb_http_resp_no_content(bb_http_request_t *req);
 
+// Send a JSON error body with Content-Type + status set (bb_http_resp_sendstr()
+// itself does not set Content-Type). ONE copy of the
+// set-type+set-status+sendstr idiom every section/route dispatcher's own
+// respond_error()-shaped helper used to hand-roll independently (bb_http_section
+// PR review, MEDIUM finding) — production dispatchers and host tests both call
+// this.
+bb_err_t bb_http_send_json_error(bb_http_request_t *req, int status, const char *body);
+
 // Forward declaration for JSON streaming (avoids circular dependency).
 typedef void *bb_json_t;
 

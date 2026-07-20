@@ -37,12 +37,23 @@
  * INGRESS (B1-1022) -- the write-half mirror of the render path above. A
  * binding's OPTIONAL `apply` hook (bb_data_binding_t.apply) durably applies
  * an already-scattered snapshot; bb_data_apply() drives the full pipeline
- * (seed dst_scratch -> parse wire bytes via the bb_serialize format
- * registry's `.parse` slot -> bb_serialize_populate() -> apply()) against
- * CALLER-OWNED buffers only, exactly like bb_data_render(). bb_data stays
- * HTTP-agnostic throughout: bb_data_apply() returns a bb_err_t, never a
- * status code -- a caller (e.g. an HTTP route) maps that to a transport
- * response itself.
+ * (decode wire bytes -> seed dst_scratch -> bb_serialize_populate() ->
+ * apply()) against CALLER-OWNED buffers only, exactly like
+ * bb_data_render(). bb_data stays HTTP-agnostic throughout: bb_data_apply()
+ * returns a bb_err_t, never a status code -- a caller (e.g. an HTTP route)
+ * maps that to a transport response itself.
+ *
+ * PARSE/COMMIT SPLIT (bb_http_section PR) -- bb_data_apply() is a flat
+ * bb_err_t, so a caller can never tell "the wire body itself was bad"
+ * (400-class) apart from "the body decoded fine but a downstream step
+ * rejected/failed it" (400/500-class, depending which step). bb_data_parse()
+ * + bb_data_commit() below split the pipeline at exactly that boundary:
+ * bb_data_parse() does ONLY binding/format lookup + wire-body decode (no
+ * caller-supplied `dst_scratch` in scope at all); bb_data_commit() does
+ * everything downstream of a successful decode -- seed, populate, apply().
+ * bb_data_apply() itself is now a thin wrapper composing the two, kept
+ * around so every pre-existing caller (bb_wifi_http, bb_storage_http,
+ * bb_ota_check) compiles and behaves identically with zero edits.
  */
 
 #include "bb_core.h"
@@ -88,6 +99,18 @@ typedef struct {
 // Egress hook: fills `dst` (the binding's descriptor's snap_size bytes,
 // CALLER-OWNED scratch storage sized by the bb_data_render() caller) from
 // live sources. `args` is never NULL; `args->query` may be NULL.
+//
+// PATCH-SEED CONTRACT (bb_data_commit(), BB_DATA_APPLY_PATCH mode): this
+// same hook doubles as the ingress seed step, invoked AFTER a request body
+// has already been decoded (bb_data_parse()'s job ran first) -- so unlike a
+// render-path call, a PATCH-seed gather() failure can never preempt a
+// parse-stage rejection; decode always wins. If a binding is driven through
+// BB_DATA_APPLY_PATCH, its gather() SHOULD stay side-effect-free and
+// infallible (always return BB_OK) -- e.g. seeding a fixed sentinel, never
+// touching hardware/global state or a value that can fail to read. A
+// binding whose gather() genuinely mutates state or can fail is fine for
+// render/BB_DATA_APPLY_POST use, but should not also be bound as a
+// BB_DATA_APPLY_PATCH seed.
 typedef bb_err_t (*bb_data_gather_fn)(void *dst, const bb_data_gather_args_t *args);
 
 // Args passed to a binding's apply hook on every bb_data_apply() call --
@@ -203,11 +226,13 @@ bb_err_t bb_data_render(const bb_data_render_req_t *req);
 
 // ---------------------------------------------------------------------------
 // Ingress -- bb_data_apply() (B1-1022), the write-half mirror of
-// bb_data_render() above.
+// bb_data_render() above. bb_data_parse()/bb_data_commit() (bb_http_section
+// PR) below split it into its two stages; bb_data_apply() itself is a thin
+// wrapper composing them, unchanged for every existing caller.
 // ---------------------------------------------------------------------------
 
-// Seed mode for bb_data_apply()'s dst_scratch step -- see bb_data_apply()'s
-// doc.
+// Seed mode for bb_data_commit()/bb_data_apply()'s dst_scratch step -- see
+// bb_data_commit()'s doc.
 typedef enum {
     BB_DATA_APPLY_POST  = 0,  // full replace: dst_scratch is zero-filled
     BB_DATA_APPLY_PATCH = 1,  // partial merge: dst_scratch is seeded via the
@@ -218,14 +243,95 @@ typedef enum {
                                // absent field's destination bytes)
 } bb_data_apply_mode_t;
 
-// The ONE apply entry point's request struct -- mirrors bb_data_render_req_t's
-// shape/caller-owned-buffers convention. `body`/`body_len` is the wire bytes
-// to decode; `parse_scratch` (capacity `parse_scratch_cap`) backs the
-// format's parse fn (MUST outlive the bb_serialize_populate() call inside
-// bb_data_apply() -- see bb_serialize_parse_fn's own doc); `dst_scratch`
-// (capacity `dst_scratch_cap`, MUST be >= the binding's desc->snap_size) is
-// the destination snapshot struct scattered into and then passed to the
+// bb_data_parse()'s request struct. `body`/`body_len` is the wire bytes to
+// decode; `parse_scratch` (capacity `parse_scratch_cap`) backs the format's
+// parse fn and MUST outlive the paired bb_data_commit() call (the resulting
+// bb_data_parsed_t borrows into it -- see bb_serialize_parse_fn's own doc).
+// Deliberately carries NO `dst_scratch` -- decode is fully independent of
+// the eventual destination buffer, which is bb_data_commit()'s concern
+// alone.
+typedef struct {
+    bb_format_t  fmt;
+    const char  *key;
+    const char  *body;
+    size_t       body_len;
+    void        *parse_scratch;
+    size_t       parse_scratch_cap;
+} bb_data_parse_req_t;
+
+// The result of a successful bb_data_parse() call -- CALLER-STACK-OWNED (no
+// heap), opaque, and BORROWS into the `parse_scratch` buffer supplied to
+// bb_data_parse(): it stays valid only as long as that buffer does, and only
+// until the paired bb_data_commit() call consumes it. Do not inspect or copy
+// its fields; do not reuse a `bb_data_parsed_t` across more than one
+// bb_data_commit() call.
+typedef struct {
+    void                     *_binding;  // opaque; internal binding-slot handle
+    bb_serialize_populate_t   _src;      // decoded source, borrows into parse_scratch
+} bb_data_parsed_t;
+
+// Looks up `req->key`'s binding and `req->fmt`'s registered parse fn
+// (bb_serialize_format_get_parse()) FIRST, then checks the binding HAS an
+// apply hook -- an unbound key, an unsupported format, or an apply-less
+// (egress-only) binding is a true no-op: the format's parse fn is never
+// invoked. On success, decodes `req->body`/`req->body_len` via that parse fn
+// into `req->parse_scratch`, and binds the result (plus the resolved
+// binding) into `*out_parsed`. Only binds `*out_parsed` on BB_OK -- on any
+// error return, `*out_parsed` is left untouched.
+//
+// Returns BB_ERR_INVALID_ARG if `req`, `req->key`, `req->parse_scratch`, or
+// `out_parsed` is NULL, or if `req->body_len > 0` and `req->body` is NULL.
+// Returns BB_ERR_NOT_FOUND if `req->key` has no binding.
+// Returns BB_ERR_UNSUPPORTED if `req->fmt` has no registered parse fn, or
+// the binding's apply hook is NULL.
+// Otherwise propagates whatever the parse fn itself returns (e.g.
+// BB_ERR_PARSE_GRAMMAR/BB_ERR_PARSE_INCOMPLETE for a malformed/truncated
+// body).
+bb_err_t bb_data_parse(const bb_data_parse_req_t *req, bb_data_parsed_t *out_parsed);
+
+// bb_data_commit()'s request struct. `dst_scratch` (capacity
+// `dst_scratch_cap`, MUST be >= the parsed binding's desc->snap_size) is the
+// destination snapshot struct scattered into and then passed to the
 // binding's apply() hook.
+typedef struct {
+    bb_data_apply_mode_t  mode;
+    void                  *dst_scratch;
+    size_t                 dst_scratch_cap;
+} bb_data_commit_req_t;
+
+// Applies a previously bb_data_parse()'d result to its bound destination via
+// the binding's apply hook. Drives:
+//   1. seeds `req->dst_scratch` per `req->mode` (see bb_data_apply_mode_t) --
+//      BB_DATA_APPLY_PATCH calls the binding's gather() hook with the same
+//      ctx a query-less render would use (args->query == NULL).
+//   2. scatters `parsed`'s decoded source into `req->dst_scratch` via
+//      bb_serialize_populate(desc, dst_scratch, &src).
+//   3. calls the binding's apply(dst_scratch, &args) hook.
+// Each step only runs if the previous one returned BB_OK; the apply hook is
+// NEVER called after a gather/populate failure.
+//
+// CONTRACT: because this seed step runs AFTER bb_data_parse()'s decode (not
+// before, as bb_data_apply()'s single-call predecessor did), a binding's
+// gather() hook MUST stay side-effect-free and infallible (always return
+// BB_OK) for a BB_DATA_APPLY_PATCH binding whose apply route also needs a
+// clean parse/commit boundary -- see bb_data_gather_fn's own doc. A gather()
+// that can genuinely fail or has observable side effects is only safe under
+// this split if its binding is never driven through bb_data_commit() with a
+// body that might itself fail to decode; bb_data_apply()'s composed
+// call order below still guarantees decode-before-seed for every caller.
+//
+// Returns BB_ERR_INVALID_ARG if `parsed`, `parsed`'s internal binding
+// handle, `req`, or `req->dst_scratch` is NULL.
+// Returns BB_ERR_NO_SPACE if `req->dst_scratch_cap` is smaller than the
+// binding's desc->snap_size.
+// Otherwise propagates whatever the seed gather() call (PATCH mode only),
+// bb_serialize_populate(), or the apply hook itself returns.
+bb_err_t bb_data_commit(const bb_data_parsed_t *parsed, const bb_data_commit_req_t *req);
+
+// The ONE apply entry point's request struct -- mirrors bb_data_render_req_t's
+// shape/caller-owned-buffers convention. Union of bb_data_parse_req_t's and
+// bb_data_commit_req_t's fields (see bb_data_apply()'s doc for how they're
+// threaded through).
 typedef struct {
     bb_format_t             fmt;
     const char              *key;
@@ -239,21 +345,11 @@ typedef struct {
 } bb_data_apply_req_t;
 
 // Applies `req->body` (wire bytes in format `req->fmt`) to `req->key`'s
-// bound destination via its apply hook. Looks up `req->key`'s binding and
-// `req->fmt`'s registered parse fn (bb_serialize_format_get_parse()) FIRST,
-// then checks the binding HAS an apply hook -- an unbound key, an
+// bound destination via its apply hook. A thin wrapper composing
+// bb_data_parse() then bb_data_commit() (see both docs above) -- decodes
+// `req->body` FIRST, then seeds/populates/applies. An unbound key, an
 // unsupported format, or an apply-less (egress-only) binding is a true
-// no-op: gather/parse/populate/apply are never invoked. On success, drives:
-//   1. seeds `req->dst_scratch` per `req->mode` (see bb_data_apply_mode_t) --
-//      BB_DATA_APPLY_PATCH calls the binding's gather() hook with the same
-//      ctx a query-less render would use (args->query == NULL).
-//   2. decodes `req->body`/`req->body_len` via the registered parse fn into
-//      `req->parse_scratch`, binding a bb_serialize_populate_t source.
-//   3. scatters that source into `req->dst_scratch` via
-//      bb_serialize_populate(desc, dst_scratch, &src).
-//   4. calls the binding's apply(dst_scratch, &args) hook.
-// Each step only runs if the previous one returned BB_OK; the apply hook is
-// NEVER called after a gather/parse/populate failure.
+// no-op: gather/parse/populate/apply are never invoked.
 //
 // Returns BB_ERR_INVALID_ARG if `req`, `req->key`, `req->parse_scratch`, or
 // `req->dst_scratch` is NULL, or if `req->body_len > 0` and `req->body` is
@@ -263,8 +359,8 @@ typedef struct {
 // the binding's apply hook is NULL.
 // Returns BB_ERR_NO_SPACE if `req->dst_scratch_cap` is smaller than the
 // binding's desc->snap_size.
-// Otherwise propagates whatever the seed gather() call (PATCH mode only),
-// the parse fn, bb_serialize_populate(), or the apply hook itself returns.
+// Otherwise propagates whatever bb_data_parse() or bb_data_commit() itself
+// returns -- see both docs above for the exact propagation rules.
 bb_err_t bb_data_apply(const bb_data_apply_req_t *req);
 
 // Returns `key`'s bound replay_kind via `*out_kind`. Not yet consumed by any

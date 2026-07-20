@@ -32,3 +32,15 @@ void bb_url_decode_field(const char *body, const char *field, char *out, size_t 
     }
     out[i] = '\0';
 }
+
+// Send a JSON error body with Content-Type + status set on both the success
+// and error paths (bb_http_resp_sendstr() itself does not set Content-Type).
+// ONE copy of the idiom every dispatcher's own respond_error()-shaped static
+// helper used to hand-roll (bb_diag_section_dispatch.c and
+// bb_http_section_dispatch.c were verbatim duplicates of each other).
+bb_err_t bb_http_send_json_error(bb_http_request_t *req, int status, const char *body)
+{
+    bb_http_resp_set_type(req, "application/json");
+    bb_http_resp_set_status(req, status);
+    return bb_http_resp_sendstr(req, body);
+}

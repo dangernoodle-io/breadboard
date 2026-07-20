@@ -55,3 +55,28 @@ bb_err_t bb_http_req_recv_body_alloc(bb_http_request_t *req,
     *out_len = n;
     return BB_OK;
 }
+
+bb_err_t bb_http_req_recv_body_stack(bb_http_request_t *req,
+                                     char              *buf,
+                                     size_t             buf_cap,
+                                     size_t            *out_len)
+{
+    if (buf_cap < 1) {
+        return BB_ERR_INVALID_ARG;
+    }
+    size_t max_body = buf_cap - 1;
+
+    int body_len = bb_http_req_body_len(req);
+    if (body_len <= 0 || (size_t)body_len > max_body) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    int n = bb_http_req_recv(req, buf, max_body);
+    if (n < 0) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    buf[n] = '\0';
+    *out_len = (size_t)n;
+    return BB_OK;
+}

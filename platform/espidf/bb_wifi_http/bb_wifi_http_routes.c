@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "bb_http.h"
+#include "bb_http_body.h"
 #include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_openapi.h"
@@ -250,29 +251,23 @@ static bb_err_t wifi_creds_apply(const void *snap, const bb_data_apply_args_t *a
 // CONFIG_BB_HTTP_TASK_STACK_SIZE (default 6144).
 #define WIFI_PATCH_PARSE_SCRATCH_BYTES 3072
 
+// Request body cap -- MAX BODY BYTES (see bb_http_req_recv_body_stack()'s
+// cap-semantics doc); the stack buffer itself is sized
+// WIFI_PATCH_BODY_MAX + 1.
+#define WIFI_PATCH_BODY_MAX 256
+
 static bb_err_t wifi_patch_handler(bb_http_request_t *req)
 {
-    int body_len = bb_http_req_body_len(req);
-    if (body_len <= 0 || body_len > 256) {
+    char   body[WIFI_PATCH_BODY_MAX + 1];
+    size_t n = 0;
+    if (bb_http_req_recv_body_stack(req, body, sizeof(body), &n) != BB_OK) {
         bb_http_resp_set_status(req, 400);
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "missing or oversized body");
+        bb_http_resp_json_obj_set_str(&obj, "error", "missing, oversized, or unreadable body");
         bb_http_resp_json_obj_end(&obj);
         return BB_ERR_INVALID_ARG;
     }
-
-    char body[256];
-    int n = bb_http_req_recv(req, body, sizeof(body) - 1);
-    if (n < 0) {
-        bb_http_resp_set_status(req, 400);
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "read failed");
-        bb_http_resp_json_obj_end(&obj);
-        return BB_ERR_INVALID_ARG;
-    }
-    body[n] = '\0';
 
     bb_wifi_creds_apply_t dst_scratch;
     char                  parse_scratch[WIFI_PATCH_PARSE_SCRATCH_BYTES];
@@ -281,7 +276,7 @@ static bb_err_t wifi_patch_handler(bb_http_request_t *req)
         .key               = "wifi",
         .mode              = BB_DATA_APPLY_POST,
         .body              = body,
-        .body_len          = (size_t)n,
+        .body_len          = n,
         .parse_scratch     = parse_scratch,
         .parse_scratch_cap = sizeof(parse_scratch),
         .dst_scratch       = &dst_scratch,
