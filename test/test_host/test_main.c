@@ -1779,8 +1779,6 @@ void test_fidelity_update_check(void);
 void test_fidelity_log_level_get(void);
 void test_fidelity_wifi_patch_202(void);
 void test_fidelity_wifi_patch_400(void);
-void test_fidelity_diag_partitions(void);
-void test_fidelity_diag_wifi(void);
 void test_fidelity_update_status(void);
 void test_fidelity_update_config_get(void);
 void test_capture_cors_headers_recorded(void);
@@ -3695,6 +3693,26 @@ void test_bb_diag_storage_partitions_fill_null_dst_returns_invalid_arg(void);
 void test_bb_diag_storage_partitions_row_field_count_matches_partition_serialize(void);
 void test_bb_diag_storage_partitions_desc_fits_scratch(void);
 
+// Forward declarations from test_bb_ws_server_diag.c
+void test_bb_ws_server_diag_fill_null_dst_returns_invalid_arg(void);
+void test_bb_ws_server_diag_fill_zero_by_default(void);
+void test_bb_ws_server_diag_fill_reflects_open_count(void);
+void test_bb_ws_server_diag_desc_fits_scratch(void);
+
+// Forward declarations from test_bb_wifi_http_diag.c
+void test_bb_wifi_http_diag_fill_null_dst_returns_invalid_arg(void);
+void test_bb_wifi_http_diag_fill_empty_histogram_all_buckets_absent(void);
+void test_bb_wifi_http_diag_fill_mixed_histogram_and_shared_fields(void);
+void test_bb_wifi_http_diag_walk_empty_histogram_omits_every_bucket(void);
+void test_bb_wifi_http_diag_walk_mixed_histogram_present_gates_correct_buckets(void);
+void test_bb_wifi_http_diag_desc_fits_scratch(void);
+
+// Forward declarations from test_bb_ring_diag.c
+void test_bb_ring_diag_fill_null_dst_returns_invalid_arg(void);
+void test_bb_ring_diag_fill_empty_registry(void);
+void test_bb_ring_diag_fill_reports_live_rings(void);
+void test_bb_ring_diag_desc_fits_scratch(void);
+
 // Forward declarations from test_bb_ota_led.c
 void test_ota_led_start_calls_updating(void);
 void test_ota_led_progress_calls_updating_with_pct(void);
@@ -5554,6 +5572,20 @@ int main(void) {
     RUN_TEST(test_bb_diag_storage_partitions_fill_null_dst_returns_invalid_arg);
     RUN_TEST(test_bb_diag_storage_partitions_row_field_count_matches_partition_serialize);
     RUN_TEST(test_bb_diag_storage_partitions_desc_fits_scratch);
+    RUN_TEST(test_bb_ws_server_diag_fill_null_dst_returns_invalid_arg);
+    RUN_TEST(test_bb_ws_server_diag_fill_zero_by_default);
+    RUN_TEST(test_bb_ws_server_diag_fill_reflects_open_count);
+    RUN_TEST(test_bb_ws_server_diag_desc_fits_scratch);
+    RUN_TEST(test_bb_wifi_http_diag_fill_null_dst_returns_invalid_arg);
+    RUN_TEST(test_bb_wifi_http_diag_fill_empty_histogram_all_buckets_absent);
+    RUN_TEST(test_bb_wifi_http_diag_fill_mixed_histogram_and_shared_fields);
+    RUN_TEST(test_bb_wifi_http_diag_walk_empty_histogram_omits_every_bucket);
+    RUN_TEST(test_bb_wifi_http_diag_walk_mixed_histogram_present_gates_correct_buckets);
+    RUN_TEST(test_bb_wifi_http_diag_desc_fits_scratch);
+    RUN_TEST(test_bb_ring_diag_fill_null_dst_returns_invalid_arg);
+    RUN_TEST(test_bb_ring_diag_fill_empty_registry);
+    RUN_TEST(test_bb_ring_diag_fill_reports_live_rings);
+    RUN_TEST(test_bb_ring_diag_desc_fits_scratch);
 
     // bb_ota_led tests
     RUN_TEST(test_ota_led_start_calls_updating);
@@ -6075,8 +6107,6 @@ int main(void) {
     RUN_TEST(test_fidelity_log_level_get);
     RUN_TEST(test_fidelity_wifi_patch_202);
     RUN_TEST(test_fidelity_wifi_patch_400);
-    RUN_TEST(test_fidelity_diag_partitions);
-    RUN_TEST(test_fidelity_diag_wifi);
     RUN_TEST(test_fidelity_update_status);
     RUN_TEST(test_fidelity_update_config_get);
     RUN_TEST(test_fidelity_health_no_raw_numbers);

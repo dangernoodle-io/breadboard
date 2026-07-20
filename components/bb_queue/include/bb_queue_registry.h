@@ -21,6 +21,21 @@
 extern "C" {
 #endif
 
+// Kconfig bridge: honour CONFIG_BB_QUEUE_REGISTRY_MAX from build flags;
+// default 16. Single canonical home for this bridge — reused by
+// bb_queue_registry.c (sizes the actual registry storage) and by
+// bb_ring_diag.h (sizes its host-testable fill snapshot); do not
+// re-derive it elsewhere.
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
+#ifdef CONFIG_BB_QUEUE_REGISTRY_MAX
+#define BB_QUEUE_REGISTRY_MAX CONFIG_BB_QUEUE_REGISTRY_MAX
+#endif
+#ifndef BB_QUEUE_REGISTRY_MAX
+#define BB_QUEUE_REGISTRY_MAX 16
+#endif
+
 // Canonical definition lives in bb_queue.h (`typedef struct bb_queue *bb_queue_t;`)
 // — keep this forward declaration in sync if that ever changes.
 typedef struct bb_queue *bb_queue_t;

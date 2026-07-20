@@ -139,104 +139,8 @@ static const bb_route_t s_scan_route = {
     .handler  = scan_handler,
 };
 
-// GET /api/diag/wifi — WiFi diagnostic surface (B1-969, rehomed from
-// bb_net_health's dissolved GET /api/diag/net). REDUCED to bb_wifi-native
-// fields only -- no gw/egress/early_warning/transport-health fields, all of
-// which were dropped (not migrated) with bb_net_health. Built request-time
-// from bb_wifi's public getters only; no cache/snapshot layer (the periodic
-// evaluator that used to populate one is gone with bb_net_health).
-static bb_err_t diag_wifi_handler(bb_http_request_t *req)
-{
-    bb_wifi_info_t info;
-    bb_wifi_get_info(&info);
-
-    bb_json_t root = bb_json_obj_new();
-    if (!root) return BB_ERR_NO_SPACE;
-    // Shared fields (ssid/bssid/rssi/ip/connected/disc_reason/disc_age_s/
-    // retry_count/restart_sta_count/disconnect_rssi) -- SSOT with GET /api/wifi.
-    bb_wifi_emit_section(root, &info);
-
-    bool associated = bb_wifi_is_associated();
-    bool has_ip     = bb_wifi_has_ip();
-    bb_wifi_mode_t mode = bb_wifi_classify_mode(associated, has_ip);
-
-    bb_json_obj_set_int   (root, "roam_count",     (int64_t)bb_wifi_get_roam_count());
-    bb_json_obj_set_int   (root, "roam_age_s",     (int64_t)bb_wifi_get_roam_age_s());
-    bb_json_obj_set_int   (root, "last_session_s", (int64_t)bb_wifi_get_last_session_s());
-    bb_json_obj_set_string(root, "net_mode",       bb_wifi_mode_str(mode));
-    bb_json_obj_set_bool  (root, "associated",     associated);
-    bb_json_obj_set_bool  (root, "has_ip",         has_ip);
-
-    // Reason histogram: a string-keyed object of the NON-ZERO buckets
-    // (label -> count) plus the top non-injected standard reason.
-    uint16_t hist[BB_WIFI_DISC_COUNT];
-    bb_wifi_get_reason_histogram(hist, BB_WIFI_DISC_COUNT);
-    uint16_t top_count = 0;
-    bb_wifi_disc_reason_t top_reason = bb_wifi_reason_histogram_top(hist, &top_count);
-
-    bb_json_t hist_obj = bb_json_obj_new();
-    if (hist_obj) {
-        for (int i = 0; i < BB_WIFI_DISC_COUNT; i++) {
-            if (hist[i] == 0) continue;
-            bb_json_obj_set_int(hist_obj, bb_wifi_disc_reason_str((bb_wifi_disc_reason_t)i),
-                                 (int64_t)hist[i]);
-        }
-        bb_json_obj_set_string(hist_obj, "top_reason",       bb_wifi_disc_reason_str(top_reason));
-        bb_json_obj_set_int   (hist_obj, "top_reason_count", (int64_t)top_count);
-        bb_json_obj_set_obj(root, "reason_histogram", hist_obj);
-    }
-
-    char *str = bb_json_serialize(root);
-    bb_json_free(root);
-    if (!str) return BB_ERR_NO_SPACE;
-    bb_err_t err = bb_http_resp_set_type(req, "application/json");
-    if (err == BB_OK) err = bb_http_resp_send_chunk(req, str, -1);
-    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
-    bb_json_free_str(str);
-    return err;
-}
-
-static const char k_diag_wifi_schema[] =
-    "{\"type\":\"object\","
-    "\"properties\":{"
-    "\"ssid\":{\"type\":\"string\"},"
-    "\"bssid\":{\"type\":\"string\"},"
-    "\"rssi\":{\"type\":\"integer\"},"
-    "\"ip\":{\"type\":\"string\"},"
-    "\"connected\":{\"type\":\"boolean\"},"
-    "\"disc_reason\":{\"type\":\"string\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"retry_count\":{\"type\":\"integer\"},"
-    "\"restart_sta_count\":{\"type\":\"integer\"},"
-    "\"disconnect_rssi\":{\"type\":\"integer\"},"
-    "\"roam_count\":{\"type\":\"integer\"},"
-    "\"roam_age_s\":{\"type\":\"integer\"},"
-    "\"last_session_s\":{\"type\":\"integer\"},"
-    "\"net_mode\":{\"type\":\"string\"},"
-    "\"associated\":{\"type\":\"boolean\"},"
-    "\"has_ip\":{\"type\":\"boolean\"},"
-    "\"reason_histogram\":{\"type\":\"object\","
-    "\"additionalProperties\":{\"type\":\"integer\"},"
-    "\"properties\":{"
-    "\"top_reason\":{\"type\":\"string\"},"
-    "\"top_reason_count\":{\"type\":\"integer\"}}}},"
-    "\"required\":[\"ssid\",\"connected\"]}";
-
-static const bb_route_response_t s_diag_wifi_responses[] = {
-    { 200, "application/json",
-      k_diag_wifi_schema,
-      "WiFi diagnostic counters (rssi, reconnect/roam counts, reason histogram)" },
-    { 0 },
-};
-
-static const bb_route_t s_diag_wifi_route = {
-    .method    = BB_HTTP_GET,
-    .path      = "/api/diag/wifi",
-    .tag       = "diag",
-    .summary   = "WiFi diagnostic surface (B1-969, rehomed from the dissolved bb_net_health)",
-    .responses = s_diag_wifi_responses,
-    .handler   = diag_wifi_handler,
-};
+// GET /api/diag/wifi moved to the generic bb_diag section registry
+// (B1-1077 PR-3a) -- see bb_wifi_http_diag.h's bb_wifi_http_diag_register().
 
 #if CONFIG_BB_WIFI_RECONFIGURE
 
@@ -354,8 +258,6 @@ bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
     if (rc != BB_OK) return rc;
     rc = bb_http_register_described_route(server, &s_scan_route);
     if (rc != BB_OK) return rc;
-    rc = bb_http_register_described_route(server, &s_diag_wifi_route);
-    if (rc != BB_OK) return rc;
 #if CONFIG_BB_WIFI_RECONFIGURE
     rc = bb_http_register_described_route(server, &s_wifi_patch_route);
     if (rc != BB_OK) return rc;
@@ -366,9 +268,9 @@ bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
 bb_err_t bb_wifi_routes_reserve(void)
 {
 #if CONFIG_BB_WIFI_RECONFIGURE
-    bb_http_reserve_routes(4);  // GET /api/wifi + POST /api/scan + GET /api/diag/wifi + PATCH /api/wifi
+    bb_http_reserve_routes(3);  // GET /api/wifi + POST /api/scan + PATCH /api/wifi
 #else
-    bb_http_reserve_routes(3);  // GET /api/wifi + POST /api/scan + GET /api/diag/wifi
+    bb_http_reserve_routes(2);  // GET /api/wifi + POST /api/scan
 #endif
     return BB_OK;
 }

@@ -57,9 +57,12 @@ bb_err_t bb_diag_storage_partitions_fill(void *dst, const bb_diag_fill_args_t *a
 
 #ifdef ESP_PLATFORM
 // Registers this section as "storage/partitions" (GET
-// /api/diag/storage/partitions) via bb_diag_register_section(). NOT called
-// anywhere in this PR -- floor wiring + on-device stack-headroom
-// validation are deferred to PR11/12.
+// /api/diag/storage/partitions) via bb_diag_register_section(). Composition-
+// time-only, once. Previously floor-handwire-only; now also codegen-visible
+// (B1-1077 PR-3a) so smoke keeps partition-table reachability after the
+// legacy /api/diag/partitions exact route (bb_partition_routes.c) is
+// deleted -- see bb_partition.h's doc comment.
+// bbtool:init tier=regular fn=bb_diag_storage_partitions_register
 bb_err_t bb_diag_storage_partitions_register(void);
 #endif
 

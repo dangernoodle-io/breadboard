@@ -24,6 +24,13 @@ extern "C" {
 // bb_wifi_http entirely and pay none of that heap. See
 // components/bb_wifi_http/README.md.
 
+// Format `bssid` as a colon-hex MAC string ("aa:bb:cc:dd:ee:ff") into `out`
+// (must be at least 18 bytes). Pure, host-testable -- the shared idiom
+// behind bb_wifi_emit_section/bb_wifi_emit_status and the "wifi" bb_diag
+// section's fill (bb_wifi_http_diag.h), factored out per the
+// hand-roll-twice-extract convention rather than a third snprintf copy.
+void bb_wifi_http_format_bssid(char out[18], const uint8_t bssid[6]);
+
 // Emit the canonical wifi section into a bb_json_t object.
 // Writes: ssid, bssid (colon-hex), rssi (integer), ip, connected,
 // disc_reason (integer), disc_age_s (integer), retry_count (integer).

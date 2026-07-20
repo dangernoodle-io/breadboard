@@ -24,14 +24,14 @@ bb_err_t bb_partition_get_running(bb_partition_info_t *out);
 // Fill *out with the next-OTA-update partition; BB_ERR_NOT_FOUND if none.
 bb_err_t bb_partition_get_next_ota(bb_partition_info_t *out);
 
-#ifdef ESP_PLATFORM
-#include "bb_http_server.h"
-
-// Registry hook — registers GET /api/diag/partitions.
-// bbtool:init tier=regular fn=bb_partition_routes_init server=true
-bb_err_t bb_partition_routes_init(bb_http_handle_t server);
-
-#endif /* ESP_PLATFORM */
+// The legacy GET /api/diag/partitions exact route (bb_partition_routes_init)
+// is DELETED (B1-1077 PR-3a) -- no external consumer was found (repo-wide +
+// workspace-wide grep for the literal path), and it duplicated the shipped
+// "storage/partitions" bb_diag section (bb_diag_storage_partitions_register(),
+// components/bb_diag/bb_diag_storage_partitions.c) one-for-one. That section
+// now carries a bbtool:init marker of its own (previously floor-handwire-only)
+// so both floor and codegen (smoke) compositions keep partition-table
+// reachability after this deletion.
 
 #ifdef __cplusplus
 }
