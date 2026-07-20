@@ -1,8 +1,16 @@
+// Tests for bb_temp -- exercises bb_temp_read_soc(), the new-seam
+// bb_temp_health_desc/bb_temp_health_fill() pair, and bb_temp_register_info()
+// against the bb_health_section composer registry (B1-1098, PR-3 of the
+// bb_health/bb_response migration chain, epic B1-1054). ADDITIVE AND INERT:
+// bb_temp_register_info() now populates ONLY the new bb_health_section
+// table -- nothing renders it yet (that cutover is B1-1054 PR-5) -- so
+// these tests exercise the fill/registration contract directly, mirroring
+// test_bb_diag_meminfo.c's fill-adapter idiom and test_bb_health_section.c's
+// registration-fixture idiom.
+
 #include "unity.h"
 #include "bb_temp.h"
-#include "bb_health.h"
-#include "bb_health_test.h"
-#include "bb_json.h"
+#include "bb_serialize_json.h"
 
 #include "../../platform/host/bb_temp/bb_temp_test.h"
 
@@ -39,135 +47,124 @@ void test_bb_temp_read_soc_null_out_returns_false(void)
     TEST_ASSERT_FALSE(ok);
 }
 
-/* ---- bb_temp_register_info health section ---- */
+/* ---- bb_temp_health_fill (bb_health_fill_fn adapter) ---- */
 
-void test_bb_temp_health_extender_absent_by_default(void)
+void test_bb_temp_health_fill_rejects_null_dst(void)
 {
-    /* Default: present=false → section emits temp:{present:false} */
-    bb_temp_test_set_soc(false, 0.0f);
-    bb_temp_register_info();
-
-    bb_json_t root = bb_json_obj_new();
-    bb_health_invoke_sections_for_test(root);
-
-    bb_json_t temp = bb_json_obj_get_item(root, "temp");
-    TEST_ASSERT_NOT_NULL_MESSAGE(temp, "temp key missing from health section output");
-
-    bool present = true;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(temp, "present", &present));
-    TEST_ASSERT_FALSE(present);
-
-    /* soc_c should not be present */
-    double c = -999.0;
-    TEST_ASSERT_FALSE_MESSAGE(bb_json_obj_get_number(temp, "soc_c", &c),
-                              "soc_c should be absent when present=false");
-
-    bb_json_free(root);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_temp_health_fill(NULL, NULL));
 }
 
-void test_bb_temp_health_extender_present_with_value(void)
+void test_bb_temp_health_fill_absent_by_default(void)
+{
+    bb_temp_test_set_soc(false, 0.0f);
+
+    bb_temp_health_snap_t snap;
+    memset(&snap, 0xAA, sizeof(snap));
+    bb_health_fill_args_t args = { .ctx = NULL };
+    TEST_ASSERT_EQUAL(BB_OK, bb_temp_health_fill(&snap, &args));
+
+    TEST_ASSERT_FALSE(snap.present);
+    TEST_ASSERT_EQUAL_DOUBLE(0.0, snap.soc_c);
+}
+
+void test_bb_temp_health_fill_present_with_value(void)
 {
     bb_temp_test_set_soc(true, 55.3f);
-    bb_temp_register_info();
 
-    bb_json_t root = bb_json_obj_new();
-    bb_health_invoke_sections_for_test(root);
+    bb_temp_health_snap_t snap;
+    memset(&snap, 0, sizeof(snap));
+    TEST_ASSERT_EQUAL(BB_OK, bb_temp_health_fill(&snap, NULL));
 
-    bb_json_t temp = bb_json_obj_get_item(root, "temp");
-    TEST_ASSERT_NOT_NULL_MESSAGE(temp, "temp key missing from health section output");
-
-    bool present = false;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(temp, "present", &present));
-    TEST_ASSERT_TRUE(present);
-
-    double soc_c = 0.0;
-    TEST_ASSERT_TRUE_MESSAGE(bb_json_obj_get_number(temp, "soc_c", &soc_c),
-                             "soc_c should be present when present=true");
-    /* 55.3 rounded to 1 decimal → 55.3 */
-    TEST_ASSERT_DOUBLE_WITHIN(0.05, 55.3, soc_c);
-
-    bb_json_free(root);
+    TEST_ASSERT_TRUE(snap.present);
+    TEST_ASSERT_DOUBLE_WITHIN(0.05, 55.3, snap.soc_c);
 }
 
-void test_bb_temp_health_extender_value_rounds_to_one_decimal(void)
+void test_bb_temp_health_fill_rounds_to_one_decimal(void)
 {
     /* 36.789 → rounds to 36.8 */
     bb_temp_test_set_soc(true, 36.789f);
-    bb_temp_register_info();
 
-    bb_json_t root = bb_json_obj_new();
-    bb_health_invoke_sections_for_test(root);
+    bb_temp_health_snap_t snap;
+    memset(&snap, 0, sizeof(snap));
+    TEST_ASSERT_EQUAL(BB_OK, bb_temp_health_fill(&snap, NULL));
 
-    bb_json_t temp = bb_json_obj_get_item(root, "temp");
-    TEST_ASSERT_NOT_NULL(temp);
-
-    double soc_c = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(temp, "soc_c", &soc_c));
-    TEST_ASSERT_DOUBLE_WITHIN(0.05, 36.8, soc_c);
-
-    bb_json_free(root);
+    TEST_ASSERT_TRUE(snap.present);
+    TEST_ASSERT_DOUBLE_WITHIN(0.05, 36.8, snap.soc_c);
 }
 
-void test_bb_temp_health_schema_fragment_present(void)
+/* ---- bb_temp_register_info (new bb_health_section seam) ---- */
+
+void test_bb_temp_register_info_registers_into_new_table(void)
 {
+    bb_health_section_test_reset();
+    bb_temp_test_set_soc(false, 0.0f);
+
     bb_temp_register_info();
-    const char *schema = bb_health_get_assembled_schema();
-    TEST_ASSERT_NOT_NULL(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"temp\""),
-                                 "temp key not in health schema");
-    TEST_ASSERT_NOT_NULL(strstr(schema, "\"present\""));
-    TEST_ASSERT_NOT_NULL(strstr(schema, "\"soc_c\""));
+
+    const bb_health_section_t *stored = bb_health_section_test_find("temp");
+    TEST_ASSERT_NOT_NULL(stored);
+    TEST_ASSERT_EQUAL_STRING("temp", stored->name);
+    TEST_ASSERT_EQUAL_PTR(&bb_temp_health_desc, stored->snap_desc);
+    TEST_ASSERT_EQUAL_PTR(bb_temp_health_fill, stored->fill);
+
+    bb_health_section_test_reset();
 }
 
-/* ---- bb_temp_emit_section ---- */
+void test_bb_temp_register_info_schema_props_present(void)
+{
+    bb_health_section_test_reset();
 
-void test_bb_temp_emit_section_absent(void)
+    bb_temp_register_info();
+
+    const bb_health_section_t *stored = bb_health_section_test_find("temp");
+    TEST_ASSERT_NOT_NULL(stored);
+    TEST_ASSERT_NOT_NULL(stored->schema_props);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(stored->schema_props, "\"present\""),
+                                 "present key missing from temp schema fragment");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(stored->schema_props, "\"soc_c\""),
+                                 "soc_c key missing from temp schema fragment");
+
+    bb_health_section_test_reset();
+}
+
+/* ---- structure/presence byte-fidelity vs today's shape ----
+ * Asserts field STRUCTURE/presence only (key names + soc_c omitted when
+ * absent) -- NOT the exact float digit formatting, which is a render-level
+ * concern (B1-1102's f64_shortest flag) applied later at the /api/health
+ * cutover (B1-1054 PR-5), not this producer's. */
+
+void test_bb_temp_health_desc_wire_shape_absent_omits_soc_c(void)
 {
     bb_temp_test_set_soc(false, 0.0f);
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-    bb_temp_emit_section(obj);
 
-    bool present = true;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(obj, "present", &present));
-    TEST_ASSERT_FALSE(present);
+    bb_temp_health_snap_t snap;
+    memset(&snap, 0, sizeof(snap));
+    TEST_ASSERT_EQUAL(BB_OK, bb_temp_health_fill(&snap, NULL));
 
-    double soc_c = -999.0;
-    TEST_ASSERT_FALSE_MESSAGE(bb_json_obj_get_number(obj, "soc_c", &soc_c),
-                              "soc_c should be absent when sensor absent");
+    char buf[128];
+    size_t len = 0;
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_serialize_json_render(&bb_temp_health_desc, &snap, buf, sizeof(buf), &len));
 
-    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"present\":false"));
+    TEST_ASSERT_NULL_MESSAGE(strstr(buf, "\"soc_c\""),
+                             "soc_c must be omitted (not null) when absent");
 }
 
-void test_bb_temp_emit_section_present_with_value(void)
+void test_bb_temp_health_desc_wire_shape_present_includes_soc_c(void)
 {
-    bb_temp_test_set_soc(true, 65.7f);
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-    bb_temp_emit_section(obj);
+    bb_temp_test_set_soc(true, 55.3f);
 
-    bool present = false;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(obj, "present", &present));
-    TEST_ASSERT_TRUE(present);
+    bb_temp_health_snap_t snap;
+    memset(&snap, 0, sizeof(snap));
+    TEST_ASSERT_EQUAL(BB_OK, bb_temp_health_fill(&snap, NULL));
 
-    double soc_c = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "soc_c", &soc_c));
-    TEST_ASSERT_DOUBLE_WITHIN(0.05, 65.7, soc_c);
+    char buf[128];
+    size_t len = 0;
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_serialize_json_render(&bb_temp_health_desc, &snap, buf, sizeof(buf), &len));
 
-    bb_json_free(obj);
-}
-
-void test_bb_temp_emit_section_rounds_to_one_decimal(void)
-{
-    /* 43.456 -> rounds to 43.5 */
-    bb_temp_test_set_soc(true, 43.456f);
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-    bb_temp_emit_section(obj);
-
-    double soc_c = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "soc_c", &soc_c));
-    TEST_ASSERT_DOUBLE_WITHIN(0.05, 43.5, soc_c);
-
-    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"present\":true"));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "\"soc_c\""),
+                                 "soc_c must be present when sensor reading is present");
 }
