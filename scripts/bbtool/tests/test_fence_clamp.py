@@ -15,8 +15,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
 import fence as fence_pkg  # noqa: E402
 from fence import Marker  # noqa: E402
-from fence.clamp import scan_all, counts_by_bucket, _enclosing_symbol  # noqa: E402
+from fence.clamp import scan_all, counts_by_bucket, _enclosing_symbol, _component_of  # noqa: E402
 from commands import fence_cmd  # noqa: E402
+from discovery import build_index  # noqa: E402
 
 
 def _write(root: Path, rel: str, content: str) -> Path:
@@ -424,6 +425,22 @@ class TestFenceCliClamp(unittest.TestCase):
             self.assertEqual(rc2, 0)
             self.assertIn("PASS", out2)
 
+    def test_owner_of_path_fallback_reported_in_cli_summary(self):
+        # A clamp at zero nesting depth under components/ (gap shape #1
+        # from _component_of's docstring: `Path.glob("**/*.c")` also
+        # matches this) makes owner_of_path return None, so the fence CLI
+        # itself must surface the fallback — WARN on stderr per occurrence
+        # (from _base.record_owner_fallback), plus an INFO count folded
+        # into the command's own summary output on stdout.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            _write(root, "components/bb_fake.c", self._clamp_src())
+
+            rc, out, err = _run_fence_cli(str(root), seed="clamp")
+            self.assertEqual(rc, 0)
+            self.assertIn("INFO [fence:clamp]: owner_of_path fallback fired 1 time(s)", out)
+            self.assertIn("WARN [fence:clamp]: owner_of_path fallback fired for components/bb_fake.c", err)
+
     def test_new_synthetic_clamp_fails(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -515,6 +532,73 @@ class TestFenceCliClamp(unittest.TestCase):
             self.assertEqual(rc2, 0)
             baseline = fence_pkg.load_baseline(str(root), "clamp")
             self.assertEqual(baseline, set())
+
+
+class TestComponentOfDelegatesToOwnerOfPath(unittest.TestCase):
+    """B1-1089: `clamp._component_of` now delegates to the canonical
+    `discovery.owner_of_path` — same coverage matrix as the other two
+    consolidated families (see test_fence_sat_sub.py / test_fence_
+    callback_slot.py for the identical rationale)."""
+
+    def test_component_under_components_src(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            _write(root, "components/bb_fake/src/x.c", "// x\n")
+            index = build_index([str(root)])
+            self.assertEqual(
+                _component_of(index, "components/bb_fake/src/x.c"), "bb_fake"
+            )
+
+    def test_component_under_platform_variant(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            _write(root, "platform/espidf/bb_fake/bb_fake.c", "// x\n")
+            index = build_index([str(root)])
+            self.assertEqual(
+                _component_of(index, "platform/espidf/bb_fake/bb_fake.c"), "bb_fake"
+            )
+
+    def test_path_outside_any_root_convention_falls_back_not_dropped(self):
+        # owner_of_path returns None for a shape it doesn't recognize
+        # (neither `components/<name>/...` nor `platform/<plat>/<name>/
+        # ...`); _component_of must fall back to the pre-consolidation
+        # first-path-segment heuristic rather than silently losing the
+        # marker's identity (see WATCH FOR: a None here must never
+        # quietly shrink the fence's view). The fallback must also be
+        # OBSERVABLE, not silent: a WARN on stderr plus a bumped counter
+        # (fence_cmd.py folds the counter into the fence command's own
+        # summary output) so a real SSOT/scan-root drift is never absorbed
+        # invisibly.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            index = build_index([str(root)])
+            fence_pkg.reset_owner_fallback_count("clamp")
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                result = _component_of(index, "examples/floor/main.c")
+            self.assertEqual(result, "examples")
+            self.assertEqual(fence_pkg.owner_fallback_count("clamp"), 1)
+            self.assertIn("WARN [fence:clamp]", stderr.getvalue())
+            self.assertIn("examples/floor/main.c", stderr.getvalue())
+
+    def test_relative_spelling_resolves(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            _write(root, "components/bb_fake/bb_fake.c", "// x\n")
+            index = build_index([str(root)])
+            self.assertEqual(
+                _component_of(index, "components/bb_fake/bb_fake.c"), "bb_fake"
+            )
+
+    # NOTE (review finding 4): a prior `test_symlinked_absolute_spelling_
+    # resolves` here called `_component_of` with an ABSOLUTE path, a shape
+    # production never uses (every real call site passes `_base.rel(root,
+    # path)` — a root-relative POSIX string; see clamp.py:207/223/236).
+    # That coverage only proved `owner_of_path`'s own realpath handling,
+    # which `test_discovery.py`'s symlink tests already cover directly.
+    # Dropped as redundant rather than kept-and-relabeled: this file's job
+    # is fence-family behavior, and `owner_of_path`'s symlink resolution
+    # already has a canonical home.
 
 
 if __name__ == "__main__":

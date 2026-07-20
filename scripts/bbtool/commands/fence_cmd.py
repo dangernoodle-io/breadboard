@@ -107,7 +107,9 @@ def _seed(root: str, family: str) -> int:
         )
         return 1
     module = fence_pkg.FAMILIES[family]
+    fence_pkg.reset_owner_fallback_count(family)
     current = fence_pkg.scan_all(module, root)
+    _report_owner_fallback(family)
     written = fence_pkg.write_baseline(root, family, current)
     print(f"bbtool fence[{family}]: baseline seeded ({len(current)} entries) -> {written}")
     return 0
@@ -193,10 +195,27 @@ def _apply_rename_pairs(module, family, new, removed):
     return after_new, after_removed
 
 
+def _report_owner_fallback(family: str) -> None:
+    """Fold the owner_of_path fallback count (see `fence/_base.py`'s
+    `record_owner_fallback`) into the fence command's own summary output —
+    a WARN line already fired per-path at scan time; this adds one more
+    INFO line naming the total so it can't be missed in a scrollback."""
+    n = fence_pkg.owner_fallback_count(family)
+    if n:
+        print(
+            f"INFO [fence:{family}]: owner_of_path fallback fired {n} time(s)"
+            " during this scan — see the WARN line(s) above for the"
+            " affected path(s); not fatal, but the discovery SSOT and this"
+            " family's scan-root convention have drifted"
+        )
+
+
 def _update_baseline(root: str, family: str) -> int:
     module = fence_pkg.FAMILIES[family]
     identity_fn = fence_pkg.identity_fn_for(module)
+    fence_pkg.reset_owner_fallback_count(family)
     current = fence_pkg.scan_all(module, root)
+    _report_owner_fallback(family)
     baseline = fence_pkg.load_baseline(root, family)
     if not baseline and not fence_pkg.baseline_path(root, family).is_file():
         print(
@@ -229,7 +248,9 @@ def _update_baseline(root: str, family: str) -> int:
 def _check(root: str, family: str) -> bool:
     module = fence_pkg.FAMILIES[family]
     identity_fn = fence_pkg.identity_fn_for(module)
+    fence_pkg.reset_owner_fallback_count(family)
     current = fence_pkg.scan_all(module, root)
+    _report_owner_fallback(family)
     baseline = fence_pkg.load_baseline(root, family)
     new, removed = fence_pkg.diff(current, baseline, identity_fn)
     new, removed = _apply_rename_pairs(module, family, new, removed)

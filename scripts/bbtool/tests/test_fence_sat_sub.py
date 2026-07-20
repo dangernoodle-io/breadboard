@@ -16,8 +16,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
 import fence as fence_pkg  # noqa: E402
 from fence import Marker  # noqa: E402
-from fence.sat_sub import scan_all, counts_by_bucket  # noqa: E402
+from fence.sat_sub import scan_all, counts_by_bucket, _component_of  # noqa: E402
 from commands import fence_cmd  # noqa: E402
+from discovery import build_index  # noqa: E402
 
 
 def _write(root: Path, rel: str, content: str) -> Path:
@@ -526,6 +527,60 @@ class TestFenceCliSatSub(unittest.TestCase):
             self.assertEqual(rc2, 0)
             baseline = fence_pkg.load_baseline(str(root), "sat_sub")
             self.assertEqual(baseline, set())
+
+
+class TestComponentOfDelegatesToOwnerOfPath(unittest.TestCase):
+    """B1-1089: `sat_sub._component_of` now delegates to the canonical
+    `discovery.owner_of_path`."""
+
+    def test_component_under_components_src(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            _write(root, "components/bb_fake/src/x.c", "// x\n")
+            index = build_index([str(root)])
+            self.assertEqual(
+                _component_of(index, "components/bb_fake/src/x.c"), "bb_fake"
+            )
+
+    def test_component_under_platform_variant(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            _write(root, "platform/espidf/bb_fake/bb_fake.c", "// x\n")
+            index = build_index([str(root)])
+            self.assertEqual(
+                _component_of(index, "platform/espidf/bb_fake/bb_fake.c"), "bb_fake"
+            )
+
+    def test_path_outside_any_root_convention_falls_back_not_dropped(self):
+        # See test_fence_clamp.py's twin test for the full WATCH FOR
+        # rationale: None from owner_of_path must fall back, never
+        # silently drop the marker's identity. Also asserts the fallback
+        # is OBSERVABLE (WARN on stderr + bumped counter), not silent.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            index = build_index([str(root)])
+            fence_pkg.reset_owner_fallback_count("sat_sub")
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                result = _component_of(index, "examples/floor/main.c")
+            self.assertEqual(result, "examples")
+            self.assertEqual(fence_pkg.owner_fallback_count("sat_sub"), 1)
+            self.assertIn("WARN [fence:sat_sub]", stderr.getvalue())
+            self.assertIn("examples/floor/main.c", stderr.getvalue())
+
+    def test_relative_spelling_resolves(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            _write(root, "components/bb_fake/bb_fake.c", "// x\n")
+            index = build_index([str(root)])
+            self.assertEqual(
+                _component_of(index, "components/bb_fake/bb_fake.c"), "bb_fake"
+            )
+
+    # NOTE (review finding 4): see test_fence_clamp.py's identical NOTE —
+    # the absolute-path symlink variant here was dropped as redundant with
+    # test_discovery.py's direct owner_of_path symlink coverage; production
+    # never calls _component_of with an absolute path.
 
 
 if __name__ == "__main__":

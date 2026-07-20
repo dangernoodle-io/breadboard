@@ -103,6 +103,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+from discovery import build_index, ComponentIndex
+
 from fence import _base
 from fence._base import Marker
 
@@ -148,12 +150,33 @@ def counts_by_bucket(markers: Set[Marker]) -> dict:
 # the same file (identity never includes a line number).
 # ---------------------------------------------------------------------------
 
-def _component_of(rel_path: str) -> str:
+_FAMILY = "callback_slot"
+
+
+def _component_of(index: ComponentIndex, rel_path: str) -> str:
+    """Owning component name for a marker path — delegates to the
+    canonical `discovery.owner_of_path` SSOT (B1-1089; see `clamp.py`'s
+    twin helper for the full rationale, identical here). Falls back to
+    the pre-consolidation first-path-segment heuristic if `owner_of_path`
+    can't resolve a name — NOT REACHABLE given the current tree layout,
+    but not structurally guaranteed unreachable by this family's glob
+    patterns: (1) `Path.glob("**/*.c")` also matches zero-nesting-depth
+    files under either scan root, so a file directly at
+    `components/<file>.c` or `platform/<file>.c` (2 path parts, failing
+    `owner_of_path`'s `len(parts) >= 3` guard) would return None; (2) this
+    family's own `_SCAN_ROOTS` walks all of
+    `platform/` recursively, but `build_index()`'s default only indexes
+    `discovery.PLATFORMS` (`host`/`espidf`/`arduino`), so a file under
+    `platform/<other-platform>/...` would also return None. If the
+    fallback ever fires it means the SSOT and this family's scan-root
+    convention have drifted — `_base.record_owner_fallback` makes that
+    observable (WARN + a count folded into the fence summary) rather than
+    letting it pass silently."""
+    name = index.owner_of_path(rel_path)
+    if name is not None:
+        return name
+    _base.record_owner_fallback(_FAMILY, rel_path)
     parts = Path(rel_path).parts
-    if len(parts) >= 2 and parts[0] == "components":
-        return parts[1]
-    if len(parts) >= 3 and parts[0] == "platform":
-        return parts[2]
     return parts[0] if parts else rel_path
 
 
@@ -347,6 +370,7 @@ def _find_setter_assignment(text: str, lines: List[str], testing_flags: List[boo
 
 def _scan_callback_slot(root: Path) -> Set[Marker]:
     typedef_table = _build_typedef_table(root)
+    index = build_index([str(root)])
     found: Set[Marker] = set()
     for path in _base.iter_files(root, _SCAN_ROOTS, _SRC_GLOBS):
         rel = _base.rel(root, path)
@@ -367,7 +391,7 @@ def _scan_callback_slot(root: Path) -> Set[Marker]:
                 continue
             if not _find_setter_assignment(text, lines, testing_flags, name):
                 continue
-            component = _component_of(rel)
+            component = _component_of(index, rel)
             stem = _stem_of(rel)
             found.add(Marker("callback_slot", rel, f"{component}:{stem}:{name}"))
 
@@ -386,7 +410,7 @@ def _scan_callback_slot(root: Path) -> Set[Marker]:
                 continue
             if not _find_setter_assignment(text, lines, testing_flags, name):
                 continue
-            component = _component_of(rel)
+            component = _component_of(index, rel)
             stem = _stem_of(rel)
             found.add(Marker("callback_slot", rel, f"{component}:{stem}:{name}"))
     return found
