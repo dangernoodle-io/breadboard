@@ -127,10 +127,6 @@ void bb_fan_emit(bb_json_t obj, const bb_fan_snapshot_t *snap,
                  const bb_fan_autofan_telemetry_t *tel);
 #endif
 
-// Shared emit helper — writes "present" plus fan fields into an existing
-// bb_json_t object. SSOT for the /api/sensors fan section (bb_sensors).
-void bb_fan_emit_section(bb_json_t obj);
-
 #ifdef __cplusplus
 }
 #endif

@@ -1,15 +1,16 @@
-// bb_thermal — emit helper for aggregate thermal data (SSOT for /api/sensors thermal section).
+// bb_thermal — pure value collector for aggregate thermal data.
 //
-// NOTE: GET /api/thermal route was deleted in B1-269 PR7.
-// /api/sensors (bb_sensors) is the primary HTTP surface for thermal data.
-// bb_thermal_init() is a no-op stub kept for link compatibility.
+// NOTE: GET /api/thermal route was deleted in B1-269 PR7. GET /api/sensors/
+// thermal (bb_sensors, B1-828 PR-2) is the primary HTTP surface for thermal
+// data -- its gather hook (bb_sensors_thermal_gather(),
+// components/bb_sensors/bb_sensors_wire.c) calls bb_thermal_collect()
+// directly. bb_thermal_init() is a no-op stub kept for link compatibility.
 //
 // Host twin: platform/host/bb_thermal/bb_thermal_host.c
 #pragma once
 #include <stdbool.h>
 #include "bb_core.h"
 #include "bb_http_server.h"
-#include "bb_json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,17 +36,12 @@ typedef struct {
 
 // Pure value collector — reads snapshots from HAL, fills *out.
 // Does NOT poll (callers must have already polled bb_power_poll / bb_fan_poll).
-// SSOT: bb_thermal_emit_section (/api/sensors thermal section) calls this.
+// SSOT: bb_sensors_thermal_gather() (/api/sensors/thermal) calls this.
 void bb_thermal_collect(bb_thermal_values_t *out);
 
 // No-op stub kept for link compatibility. /api/thermal route deleted in B1-269 PR7.
 // bbtool:init tier=regular fn=bb_thermal_init server=true
 bb_err_t bb_thermal_init(bb_http_handle_t server);
-
-// Shared emit helper — writes thermal sub-objects into an existing bb_json_t.
-// Emits {soc,vr,asic,board} each as {present,c|null} (nested shape).
-// Called by /api/sensors thermal section get_fn (SSOT).
-void bb_thermal_emit_section(bb_json_t obj);
 
 #ifdef BB_THERMAL_TESTING
 

@@ -1,11 +1,24 @@
-// Tests for bb_sensors: /api/sensors GET sections, fan PATCH, read-only power/thermal
-// reject PATCH, schema valid JSON, freeze/capacity.
-//
-// Uses bb_sensors test hooks (BB_SENSORS_TESTING) to drive section registry
-// and validate section content. Does NOT register HTTP routes (host build);
-// tests call bb_sensors_invoke_sections_for_test / bb_sensors_dispatch_patch_for_test.
+// Tests for bb_sensors' per-section /api/sensors/* dispatch (B1-828 PR-2,
+// FULL BREAK of the old composite bb_response-backed endpoint -- see
+// bb_http_section.h for the registry-agnostic dispatch contract). Two
+// layers:
+//   - unit: bb_sensors_{fan,power,thermal}_gather()/bb_sensors_fan_apply()
+//     called directly against a fake fan/power backend + bb_temp_test.
+//   - end-to-end: bb_sensors_bind_and_register() + bb_http_section_find()'s
+//     render()/apply() hooks driven directly (no real HTTP server on host --
+//     same pattern as test_bb_http_section.c's own e2e proof), confirming
+//     the wiring is real and status-mapping is correct.
 #include "unity.h"
-#include "bb_sensors.h"
+
+#include "../../../components/bb_sensors/bb_sensors_wire_priv.h"
+#include "../../../components/bb_sensors/bb_sensors_dispatch_priv.h"
+
+#include "bb_data.h"
+#include "bb_http_section_priv.h"
+#include "bb_http_section_status.h"
+#include "bb_serialize_format.h"
+#include "bb_serialize_json.h"
+
 #include "bb_fan.h"
 #include "bb_fan_driver.h"
 #include "bb_fan_test.h"
@@ -15,20 +28,14 @@
 #include "bb_thermal.h"
 #include "bb_temp.h"
 #include "bb_temp_test.h"
-#include "bb_response.h"
 #include "bb_json.h"
-#include "cJSON.h"
-
-#include "../../../components/bb_sensors/bb_sensors_schema_priv.h"
 
 #include <math.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 
 // ---------------------------------------------------------------------------
-// Fake fan backend (shared across test cases)
+// Fake fan backend
 // ---------------------------------------------------------------------------
 
 typedef struct {
@@ -103,524 +110,124 @@ static const bb_power_driver_t drv_pwr = {
 };
 
 // ---------------------------------------------------------------------------
-// Helpers: register built-in sections matching bb_sensors_init order
+// Shared reset
 // ---------------------------------------------------------------------------
 
-static void fans_get(bb_json_t s, void *ctx)
+static void sensors_test_reset(void)
 {
-    (void)ctx;
-    bb_fan_emit_section(s);
+    bb_fan_test_reset();
+    bb_power_test_reset();
+    bb_thermal_reset_for_test();
+    bb_data_test_reset();
+    bb_http_section_test_reset();
+    bb_serialize_format_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_register_format());
+    memset(&g_fan, 0, sizeof(g_fan));
+    memset(&g_pwr, 0, sizeof(g_pwr));
 }
 
-static bb_err_t fans_patch(bb_json_t patch, void *ctx)
+// ===========================================================================
+// Unit: bb_sensors_power_gather / bb_sensors_thermal_gather
+// ===========================================================================
+
+void test_bb_sensors_power_gather_no_primary_all_absent(void)
 {
-    (void)ctx;
-    bb_fan_handle_t h = bb_fan_primary();
-    if (!h) return BB_ERR_INVALID_STATE;
-#ifdef CONFIG_BB_FAN_AUTOFAN
-    bb_fan_autofan_cfg_t cfg;
-    bb_fan_get_autofan_cfg(h, &cfg);
-    double d;
-    bool b;
-    if (bb_json_obj_get_bool(patch, "autofan", &b))         cfg.enabled      = b;
-    if (bb_json_obj_get_number(patch, "die_target_c", &d))  cfg.die_target_c = (float)d;
-    if (bb_json_obj_get_number(patch, "vr_target_c",  &d))  cfg.aux_target_c = (float)d;
-    if (bb_json_obj_get_number(patch, "manual_pct",   &d))  cfg.manual_pct   = (int)d;
-    if (bb_json_obj_get_number(patch, "min_pct",      &d))  cfg.min_pct      = (int)d;
-    bb_fan_set_autofan(h, &cfg);
-#else
-    double duty_d = -1.0;
-    if (!bb_json_obj_get_number(patch, "duty_pct", &duty_d)) return BB_ERR_INVALID_ARG;
-    int duty = (int)duty_d;
-    if (duty < 0 || duty > 100) return BB_ERR_INVALID_ARG;
-    bb_fan_set_duty_pct(h, duty);
-#endif
-    return BB_OK;
+    sensors_test_reset();
+
+    bb_sensors_power_wire_t w;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_power_gather(&w, NULL));
+    TEST_ASSERT_FALSE(w.present);
+    TEST_ASSERT_TRUE(w.vout_mv < 0);
+    TEST_ASSERT_TRUE(w.iout_ma < 0);
+    TEST_ASSERT_TRUE(w.vin_mv < 0);
+    TEST_ASSERT_TRUE(w.temp_c < 0);
 }
 
-static void power_get(bb_json_t s, void *ctx)
+void test_bb_sensors_power_gather_with_primary_present(void)
 {
-    (void)ctx;
-    bb_power_emit_section(s);
-}
-
-static void thermal_get(bb_json_t s, void *ctx)
-{
-    (void)ctx;
-    bb_thermal_emit_section(s);
-}
-
-// Register built-in sections into the test registry (mirrors bb_sensors_init).
-static void register_builtin_sections(void)
-{
-    bb_err_t err;
-    err = bb_sensors_register_section("fan",     fans_get,    fans_patch, NULL, k_sensors_fan_schema);
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    err = bb_sensors_register_section("power",   power_get,   NULL,       NULL, k_sensors_power_schema);
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    err = bb_sensors_register_section("thermal", thermal_get, NULL,       NULL, k_sensors_thermal_schema);
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-}
-
-// ---------------------------------------------------------------------------
-// Section registration tests
-// ---------------------------------------------------------------------------
-
-static void dummy_get(bb_json_t s, void *ctx) { (void)s; (void)ctx; }
-
-void test_bb_sensors_register_null_name_returns_err(void)
-{
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG,
-        bb_sensors_register_section(NULL, dummy_get, NULL, NULL, NULL));
-}
-
-void test_bb_sensors_register_null_get_returns_err(void)
-{
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG,
-        bb_sensors_register_section("x", NULL, NULL, NULL, NULL));
-}
-
-void test_bb_sensors_register_ok(void)
-{
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_sensors_register_section("x", dummy_get, NULL, NULL, NULL));
-}
-
-void test_bb_sensors_register_capacity(void)
-{
-    static const char *k_names[] = { "s0","s1","s2","s3","s4","s5","s6","s7" };
-    for (int i = 0; i < BB_RESPONSE_MAX; i++) {
-        TEST_ASSERT_EQUAL_INT(BB_OK,
-            bb_sensors_register_section(k_names[i], dummy_get, NULL, NULL, NULL));
-    }
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
-        bb_sensors_register_section("over", dummy_get, NULL, NULL, NULL));
-}
-
-void test_bb_sensors_register_after_freeze_returns_invalid_state(void)
-{
-    bb_sensors_freeze_for_test();
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE,
-        bb_sensors_register_section("x", dummy_get, NULL, NULL, NULL));
-}
-
-// ---------------------------------------------------------------------------
-// GET section tests
-// ---------------------------------------------------------------------------
-
-void test_bb_sensors_get_fan_section_present_false_when_no_primary(void)
-{
-    register_builtin_sections();
-
-    bb_json_t root = bb_json_obj_new();
-    bb_sensors_invoke_sections_for_test(root);
-
-    bb_json_t fan = bb_json_obj_get_item(root, "fan");
-    TEST_ASSERT_NOT_NULL_MESSAGE(fan, "fan section missing");
-
-    bool present = true;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(fan, "present", &present));
-    TEST_ASSERT_FALSE_MESSAGE(present, "fan present should be false with no primary");
-
-    bb_json_free(root);
-}
-
-void test_bb_sensors_get_fan_section_present_true_with_primary(void)
-{
-    register_builtin_sections();
-
-    bb_fan_handle_t fh;
-    g_fan.rpm      = 1200;
-    g_fan.duty_pct = 50;
-    g_fan.die_fail = g_fan.board_fail = true;
-    bb_fan_handle_create(&drv_fan, &g_fan, &fh);
-    bb_fan_poll(fh);
-    bb_fan_set_primary(fh);
-
-    bb_json_t root = bb_json_obj_new();
-    bb_sensors_invoke_sections_for_test(root);
-
-    bb_json_t fan = bb_json_obj_get_item(root, "fan");
-    TEST_ASSERT_NOT_NULL(fan);
-
-    bool present = false;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(fan, "present", &present));
-    TEST_ASSERT_TRUE_MESSAGE(present, "fan present should be true");
-
-    double rpm = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(fan, "rpm", &rpm));
-    TEST_ASSERT_EQUAL_INT(1200, (int)rpm);
-
-    // die_c/board_c reads failed on this driver — expect JSON null (B1-462a:
-    // these keys are emitted by bb_fan_emit_section but were missing from
-    // k_sensors_fan_schema).
-    TEST_ASSERT_NOT_NULL_MESSAGE(bb_json_obj_get_item(fan, "die_c"),   "die_c missing from fan section");
-    TEST_ASSERT_NOT_NULL_MESSAGE(bb_json_obj_get_item(fan, "board_c"), "board_c missing from fan section");
-
-    // duty_pct reflects what bb_fan_poll cached. When BB_FAN_AUTOFAN is compiled
-    // in and autofan is disabled, poll applies manual_pct (default 100) not the
-    // driver's initial value. Read back from g_fan.duty_pct (set via set_duty_pct
-    // in the driver mock) to stay accurate in both compile-time configurations.
-    bb_fan_snapshot_t snap;
-    bb_fan_snapshot(fh, &snap);
-    double duty = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(fan, "duty_pct", &duty));
-    TEST_ASSERT_EQUAL_INT(snap.duty_pct, (int)duty);
-
-    bb_json_free(root);
-    bb_fan_set_primary(NULL);
-    free(fh);
-}
-
-void test_bb_sensors_get_power_section_present_false_when_no_primary(void)
-{
-    register_builtin_sections();
-
-    bb_json_t root = bb_json_obj_new();
-    bb_sensors_invoke_sections_for_test(root);
-
-    bb_json_t power = bb_json_obj_get_item(root, "power");
-    TEST_ASSERT_NOT_NULL_MESSAGE(power, "power section missing");
-
-    bool present = true;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(power, "present", &present));
-    TEST_ASSERT_FALSE_MESSAGE(present, "power present should be false with no primary");
-
-    bb_json_free(root);
-}
-
-void test_bb_sensors_get_power_section_present_true_with_primary(void)
-{
-    register_builtin_sections();
+    sensors_test_reset();
 
     bb_power_handle_t ph;
-    g_pwr.vout_mv = 1200;
-    g_pwr.iout_ma = 500;
-    g_pwr.vin_mv  = 12000;
-    g_pwr.temp_c  = 45;
+    g_pwr.vout_mv = 1200; g_pwr.iout_ma = 500; g_pwr.vin_mv = 12000; g_pwr.temp_c = 45;
     bb_power_handle_create(&drv_pwr, &g_pwr, &ph);
     bb_power_poll(ph);
     bb_power_set_primary(ph);
 
-    bb_json_t root = bb_json_obj_new();
-    bb_sensors_invoke_sections_for_test(root);
+    bb_sensors_power_wire_t w;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_power_gather(&w, NULL));
+    TEST_ASSERT_TRUE(w.present);
+    TEST_ASSERT_EQUAL_INT64(1200, w.vout_mv);
+    TEST_ASSERT_EQUAL_INT64(500, w.iout_ma);
+    TEST_ASSERT_EQUAL_INT64(12000, w.vin_mv);
+    TEST_ASSERT_EQUAL_INT64(45, w.temp_c);
+    // pout_mw = (1200*500)/1000 = 600, per bb_power_snapshot's own SSOT calc.
+    TEST_ASSERT_EQUAL_INT64(600, w.pout_mw);
 
-    bb_json_t power = bb_json_obj_get_item(root, "power");
-    TEST_ASSERT_NOT_NULL(power);
-
-    bool present = false;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(power, "present", &present));
-    TEST_ASSERT_TRUE(present);
-
-    double vout = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(power, "vout_mv", &vout));
-    TEST_ASSERT_EQUAL_INT(1200, (int)vout);
-
-    bb_json_free(root);
     bb_power_set_primary(NULL);
     free(ph);
 }
 
-void test_bb_sensors_get_thermal_section_has_soc_vr_asic_board(void)
+void test_bb_sensors_thermal_gather_all_absent_when_no_hw(void)
 {
-    register_builtin_sections();
+    sensors_test_reset();
 
-    bb_json_t root = bb_json_obj_new();
-    bb_sensors_invoke_sections_for_test(root);
-
-    bb_json_t thermal = bb_json_obj_get_item(root, "thermal");
-    TEST_ASSERT_NOT_NULL_MESSAGE(thermal, "thermal section missing");
-
-    TEST_ASSERT_NOT_NULL_MESSAGE(bb_json_obj_get_item(thermal, "soc"),   "soc missing");
-    TEST_ASSERT_NOT_NULL_MESSAGE(bb_json_obj_get_item(thermal, "vr"),    "vr missing");
-    TEST_ASSERT_NOT_NULL_MESSAGE(bb_json_obj_get_item(thermal, "asic"),  "asic missing");
-    TEST_ASSERT_NOT_NULL_MESSAGE(bb_json_obj_get_item(thermal, "board"), "board missing");
-
-    bb_json_free(root);
+    bb_sensors_thermal_wire_t w;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_thermal_gather(&w, NULL));
+    TEST_ASSERT_FALSE(w.soc.present);
+    TEST_ASSERT_FALSE(w.vr.present);
+    TEST_ASSERT_FALSE(w.asic.present);
+    TEST_ASSERT_FALSE(w.board.present);
 }
 
-void test_bb_sensors_get_thermal_soc_present_when_available(void)
+void test_bb_sensors_thermal_gather_soc_present_when_available(void)
 {
-    register_builtin_sections();
+    sensors_test_reset();
     bb_temp_test_set_soc(true, 62.5f);
 
-    bb_json_t root = bb_json_obj_new();
-    bb_sensors_invoke_sections_for_test(root);
-
-    bb_json_t thermal = bb_json_obj_get_item(root, "thermal");
-    TEST_ASSERT_NOT_NULL(thermal);
-
-    bb_json_t soc = bb_json_obj_get_item(thermal, "soc");
-    TEST_ASSERT_NOT_NULL(soc);
-
-    bool present = false;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(soc, "present", &present));
-    TEST_ASSERT_TRUE(present);
-
-    double c = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(soc, "c", &c));
-    TEST_ASSERT_EQUAL_FLOAT(62.5f, (float)c);
-
-    bb_json_free(root);
+    bb_sensors_thermal_wire_t w;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_thermal_gather(&w, NULL));
+    TEST_ASSERT_TRUE(w.soc.present);
+    TEST_ASSERT_EQUAL_FLOAT(62.5f, (float)w.soc.c);
 }
 
-// ---------------------------------------------------------------------------
-// Fan PATCH tests
-// ---------------------------------------------------------------------------
-
-#ifndef CONFIG_BB_FAN_AUTOFAN
-// Without autofan: PATCH {"fan":{"duty_pct":75}} calls bb_fan_set_duty_pct directly.
-void test_bb_sensors_fan_patch_duty_pct_applies(void)
+void test_bb_sensors_thermal_gather_vr_asic_board_present_with_primaries(void)
 {
-    register_builtin_sections();
+    sensors_test_reset();
+
+    bb_power_handle_t ph;
+    g_pwr.temp_c = 40;
+    bb_power_handle_create(&drv_pwr, &g_pwr, &ph);
+    bb_power_poll(ph);
+    bb_power_set_primary(ph);
 
     bb_fan_handle_t fh;
-    g_fan.duty_pct    = 0;
-    g_fan.set_duty_ret = BB_OK;
-    g_fan.die_fail     = g_fan.board_fail = true;
+    g_fan.die_c = 55.0f; g_fan.board_c = 33.0f;
     bb_fan_handle_create(&drv_fan, &g_fan, &fh);
     bb_fan_poll(fh);
     bb_fan_set_primary(fh);
 
-    // PATCH body: {"fan":{"duty_pct":75}}
-    bb_json_t body = bb_json_obj_new();
-    bb_json_t fan_patch = bb_json_obj_new();
-    bb_json_obj_set_number(fan_patch, "duty_pct", 75.0);
-    bb_json_obj_set_obj(body, "fan", fan_patch);
+    bb_sensors_thermal_wire_t w;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_thermal_gather(&w, NULL));
+    TEST_ASSERT_TRUE(w.vr.present);
+    TEST_ASSERT_EQUAL_FLOAT(40.0f, (float)w.vr.c);
+    TEST_ASSERT_TRUE(w.asic.present);
+    TEST_ASSERT_EQUAL_FLOAT(55.0f, (float)w.asic.c);
+    TEST_ASSERT_TRUE(w.board.present);
+    TEST_ASSERT_EQUAL_FLOAT(33.0f, (float)w.board.c);
 
-    bb_err_t rc = bb_sensors_dispatch_patch_for_test(body);
-    bb_json_free(body);
-
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    TEST_ASSERT_EQUAL_INT(75, g_fan.set_duty_last);
-
+    bb_power_set_primary(NULL);
+    free(ph);
     bb_fan_set_primary(NULL);
     free(fh);
 }
-#else
-// With autofan: PATCH {"fan":{"duty_pct":75}} sets manual_pct via set_autofan.
-// Verify the cfg is updated (duty_pct in the patch body → manual_pct in the autofan cfg).
-void test_bb_sensors_fan_patch_duty_pct_applies(void)
-{
-    register_builtin_sections();
 
-    bb_fan_handle_t fh;
-    g_fan.set_duty_ret = BB_OK;
-    g_fan.die_fail     = g_fan.board_fail = true;
-    bb_fan_handle_create(&drv_fan, &g_fan, &fh);
-    bb_fan_poll(fh);
-    bb_fan_set_primary(fh);
-
-    bb_fan_autofan_cfg_t cfg_before;
-    bb_fan_get_autofan_cfg(fh, &cfg_before);
-    int expected_manual = cfg_before.manual_pct; // default 100
-
-    // PATCH body: {"fan":{"duty_pct":75}} — with autofan compiled in,
-    // duty_pct is not a recognised autofan field so the patch is a no-op
-    // (partial update model: unrecognised fields are silently ignored).
-    // Verify rc=BB_OK and cfg is unchanged (manual_pct remains at default).
-    bb_json_t body = bb_json_obj_new();
-    bb_json_t fan_patch = bb_json_obj_new();
-    bb_json_obj_set_number(fan_patch, "duty_pct", 75.0);
-    bb_json_obj_set_obj(body, "fan", fan_patch);
-
-    bb_err_t rc = bb_sensors_dispatch_patch_for_test(body);
-    bb_json_free(body);
-
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-
-    bb_fan_autofan_cfg_t cfg_after;
-    bb_fan_get_autofan_cfg(fh, &cfg_after);
-    TEST_ASSERT_EQUAL_INT(expected_manual, cfg_after.manual_pct);
-
-    bb_fan_set_primary(NULL);
-    free(fh);
-}
-#endif /* CONFIG_BB_FAN_AUTOFAN */
-
-void test_bb_sensors_fan_patch_no_primary_returns_invalid_state(void)
-{
-    register_builtin_sections();
-    // No fan primary set.
-
-    bb_json_t body = bb_json_obj_new();
-    bb_json_t fan_patch = bb_json_obj_new();
-    bb_json_obj_set_number(fan_patch, "duty_pct", 50.0);
-    bb_json_obj_set_obj(body, "fan", fan_patch);
-
-    bb_err_t rc = bb_sensors_dispatch_patch_for_test(body);
-    bb_json_free(body);
-
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, rc);
-}
+// ===========================================================================
+// Unit: bb_sensors_fan_gather / bb_sensors_fan_apply (autofan build --
+// non-autofan's #else branch mirrors the same shape and is exercised by the
+// espidf-target CI matrix build, same convention as the pre-PR-2 test file).
+// ===========================================================================
 
 #ifdef CONFIG_BB_FAN_AUTOFAN
-void test_bb_sensors_fan_patch_autofan_die_target(void)
-{
-    register_builtin_sections();
-
-    bb_fan_handle_t fh;
-    g_fan.die_fail = g_fan.board_fail = true;
-    bb_fan_handle_create(&drv_fan, &g_fan, &fh);
-    bb_fan_poll(fh);
-    bb_fan_set_primary(fh);
-
-    bb_json_t body = bb_json_obj_new();
-    bb_json_t fan_patch = bb_json_obj_new();
-    bb_json_obj_set_number(fan_patch, "die_target_c", 70.0);
-    bb_json_obj_set_obj(body, "fan", fan_patch);
-
-    bb_err_t rc = bb_sensors_dispatch_patch_for_test(body);
-    bb_json_free(body);
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-
-    bb_fan_autofan_cfg_t cfg;
-    bb_fan_get_autofan_cfg(fh, &cfg);
-    TEST_ASSERT_EQUAL_FLOAT(70.0f, cfg.die_target_c);
-
-    bb_fan_set_primary(NULL);
-    free(fh);
-}
-#endif /* CONFIG_BB_FAN_AUTOFAN */
-
-// ---------------------------------------------------------------------------
-// Read-only section PATCH rejection
-// ---------------------------------------------------------------------------
-
-void test_bb_sensors_power_patch_rejected(void)
-{
-    register_builtin_sections();
-
-    // PATCH body: {"power":{"vout_mv":1200}} — power is read-only.
-    bb_json_t body = bb_json_obj_new();
-    bb_json_t power_patch = bb_json_obj_new();
-    bb_json_obj_set_number(power_patch, "vout_mv", 1200.0);
-    bb_json_obj_set_obj(body, "power", power_patch);
-
-    bb_err_t rc = bb_sensors_dispatch_patch_for_test(body);
-    bb_json_free(body);
-
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
-}
-
-void test_bb_sensors_thermal_patch_rejected(void)
-{
-    register_builtin_sections();
-
-    // PATCH body: {"thermal":{"soc":{"c":50}}} — thermal is read-only.
-    bb_json_t body = bb_json_obj_new();
-    bb_json_t th_patch = bb_json_obj_new();
-    bb_json_obj_set_number(th_patch, "x", 1.0);
-    bb_json_obj_set_obj(body, "thermal", th_patch);
-
-    bb_err_t rc = bb_sensors_dispatch_patch_for_test(body);
-    bb_json_free(body);
-
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
-}
-
-// ---------------------------------------------------------------------------
-// Schema tests
-// ---------------------------------------------------------------------------
-
-void test_bb_sensors_schema_no_sections_is_valid_json(void)
-{
-    const char *schema = bb_sensors_get_assembled_schema();
-    TEST_ASSERT_NOT_NULL(schema);
-    cJSON *parsed = cJSON_Parse(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(parsed, "assembled sensors schema is not valid JSON");
-    cJSON_Delete(parsed);
-}
-
-void test_bb_sensors_schema_with_builtin_sections_is_valid_json(void)
-{
-    register_builtin_sections();
-    const char *schema = bb_sensors_get_assembled_schema();
-    TEST_ASSERT_NOT_NULL(schema);
-    cJSON *parsed = cJSON_Parse(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(parsed, "sensors schema with sections is not valid JSON");
-    cJSON_Delete(parsed);
-}
-
-void test_bb_sensors_schema_contains_fan_section(void)
-{
-    register_builtin_sections();
-    const char *schema = bb_sensors_get_assembled_schema();
-    TEST_ASSERT_NOT_NULL(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"fan\""),     "fan missing from sensors schema");
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"present\""), "present missing from sensors schema");
-}
-
-// B1-462a: die_c/board_c are emitted by bb_fan_emit_section (shared by /api/fan
-// and the /api/sensors fan section) but were missing from k_sensors_fan_schema.
-void test_bb_sensors_schema_fan_section_declares_die_and_board_c(void)
-{
-    register_builtin_sections();
-    const char *schema = bb_sensors_get_assembled_schema();
-    TEST_ASSERT_NOT_NULL(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"die_c\""),   "die_c missing from sensors fan schema");
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"board_c\""), "board_c missing from sensors fan schema");
-}
-
-void test_bb_sensors_schema_contains_power_section(void)
-{
-    register_builtin_sections();
-    const char *schema = bb_sensors_get_assembled_schema();
-    TEST_ASSERT_NOT_NULL(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"power\""),   "power missing from sensors schema");
-}
-
-void test_bb_sensors_schema_contains_thermal_section(void)
-{
-    register_builtin_sections();
-    const char *schema = bb_sensors_get_assembled_schema();
-    TEST_ASSERT_NOT_NULL(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"thermal\""), "thermal missing from sensors schema");
-}
-
-// ---------------------------------------------------------------------------
-// External section registration (TM pattern)
-// ---------------------------------------------------------------------------
-
-static void mining_get(bb_json_t s, void *ctx) { (void)ctx; bb_json_obj_set_bool(s, "present", true); }
-
-void test_bb_sensors_external_section_registered_ok(void)
-{
-    static const char mining_schema[] =
-        "{\"type\":\"object\",\"properties\":{\"present\":{\"type\":\"boolean\"}}}";
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_sensors_register_section("mining", mining_get, NULL, NULL, mining_schema));
-
-    bb_json_t root = bb_json_obj_new();
-    bb_sensors_invoke_sections_for_test(root);
-    bb_json_t mining = bb_json_obj_get_item(root, "mining");
-    TEST_ASSERT_NOT_NULL_MESSAGE(mining, "mining section missing after external registration");
-    bb_json_free(root);
-}
-
-void test_bb_sensors_external_section_schema_in_assembled(void)
-{
-    static const char mining_schema[] =
-        "{\"type\":\"object\",\"properties\":{\"present\":{\"type\":\"boolean\"}}}";
-    bb_sensors_register_section("mining", mining_get, NULL, NULL, mining_schema);
-    const char *schema = bb_sensors_get_assembled_schema();
-    TEST_ASSERT_NOT_NULL(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"mining\""),
-        "external mining section not found in assembled schema");
-    cJSON *parsed = cJSON_Parse(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(parsed, "assembled schema with external section is not valid JSON");
-    cJSON_Delete(parsed);
-}
-
-// ---------------------------------------------------------------------------
-// Fan PATCH autofan validation (fix #4 — B1-269 hardening)
-// ---------------------------------------------------------------------------
-
-#ifdef CONFIG_BB_FAN_AUTOFAN
-
-// These tests call bb_sensors_fan_patch_for_test() which directly exercises
-// fan_section_patch() (the real autofan validation logic) rather than going
-// through the test-stub section registry (which uses stub callbacks).
 
 static bb_fan_handle_t make_autofan_handle(void)
 {
@@ -632,169 +239,402 @@ static bb_fan_handle_t make_autofan_handle(void)
     return fh;
 }
 
-void test_bb_sensors_fan_patch_autofan_manual_pct_invalid_over100(void)
+void test_bb_sensors_fan_gather_no_primary_present_false(void)
 {
+    sensors_test_reset();
+
+    bb_sensors_fan_wire_t w;
+    // No primary fan is an ordinary hardware state -- gather() must NOT
+    // fail; it reports absence via `present` (regression pin: reverting
+    // bb_sensors_fan_gather()'s no-primary branch back to "return
+    // BB_ERR_INVALID_STATE" turns this red).
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_fan_gather(&w, NULL));
+    TEST_ASSERT_FALSE(w.present);
+}
+
+void test_bb_sensors_fan_gather_reads_live_autofan_cfg(void)
+{
+    sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_json_t patch = bb_json_obj_new();
-    bb_json_obj_set_number(patch, "manual_pct", 101.0);
+    bb_fan_autofan_cfg_t cfg = { .enabled = true, .die_target_c = 65.0f,
+                                  .aux_target_c = 70.0f, .min_pct = 20, .manual_pct = 80 };
+    bb_fan_set_autofan(fh, &cfg);
 
-    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
-    bb_json_free(patch);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
-        "manual_pct=101 should be rejected");
+    bb_sensors_fan_wire_t w;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_fan_gather(&w, NULL));
+    TEST_ASSERT_TRUE(w.autofan);
+    TEST_ASSERT_EQUAL_FLOAT(65.0f, (float)w.die_target_c);
+    TEST_ASSERT_EQUAL_FLOAT(70.0f, (float)w.vr_target_c);
+    TEST_ASSERT_EQUAL_INT64(20, w.min_pct);
+    TEST_ASSERT_EQUAL_INT64(80, w.manual_pct);
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
-void test_bb_sensors_fan_patch_autofan_manual_pct_invalid_negative(void)
+void test_bb_sensors_fan_apply_no_primary_returns_unsupported(void)
 {
+    sensors_test_reset();
+
+    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
+                                 .manual_pct = 50, .min_pct = 10 };
+    // BB_ERR_UNSUPPORTED (not BB_ERR_INVALID_STATE) is what lets the shared
+    // status mapper's commit-stage override land this on 503 -- see
+    // test_bb_sensors_e2e_fan_patch_no_primary_maps_503 below for the
+    // status-code pin.
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_sensors_fan_apply(&w, NULL));
+}
+
+void test_bb_sensors_fan_apply_valid_sets_autofan_cfg(void)
+{
+    sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_json_t patch = bb_json_obj_new();
-    bb_json_obj_set_number(patch, "manual_pct", -1.0);
+    bb_sensors_fan_wire_t w = { .autofan = true, .die_target_c = 62.0, .vr_target_c = 71.0,
+                                 .manual_pct = 33, .min_pct = 12 };
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_fan_apply(&w, NULL));
 
-    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
-    bb_json_free(patch);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
-        "manual_pct=-1 should be rejected");
+    bb_fan_autofan_cfg_t cfg;
+    bb_fan_get_autofan_cfg(fh, &cfg);
+    TEST_ASSERT_TRUE(cfg.enabled);
+    TEST_ASSERT_EQUAL_FLOAT(62.0f, cfg.die_target_c);
+    TEST_ASSERT_EQUAL_FLOAT(71.0f, cfg.aux_target_c);
+    TEST_ASSERT_EQUAL_INT(33, cfg.manual_pct);
+    TEST_ASSERT_EQUAL_INT(12, cfg.min_pct);
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
-void test_bb_sensors_fan_patch_autofan_min_pct_invalid_over100(void)
+void test_bb_sensors_fan_apply_die_target_zero_rejected(void)
 {
+    sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_json_t patch = bb_json_obj_new();
-    bb_json_obj_set_number(patch, "min_pct", 200.0);
-
-    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
-    bb_json_free(patch);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
-        "min_pct=200 should be rejected");
+    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 0.0, .vr_target_c = 70.0,
+                                 .manual_pct = 50, .min_pct = 10 };
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensors_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
-void test_bb_sensors_fan_patch_autofan_die_target_invalid_zero(void)
+void test_bb_sensors_fan_apply_vr_target_negative_rejected(void)
 {
+    sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_json_t patch = bb_json_obj_new();
-    bb_json_obj_set_number(patch, "die_target_c", 0.0);
-
-    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
-    bb_json_free(patch);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
-        "die_target_c=0 should be rejected");
+    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = -1.0,
+                                 .manual_pct = 50, .min_pct = 10 };
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensors_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
-void test_bb_sensors_fan_patch_autofan_die_target_invalid_negative(void)
+void test_bb_sensors_fan_apply_manual_pct_over_100_rejected(void)
 {
+    sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_json_t patch = bb_json_obj_new();
-    bb_json_obj_set_number(patch, "die_target_c", -10.0);
-
-    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
-    bb_json_free(patch);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
-        "die_target_c=-10 should be rejected");
+    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
+                                 .manual_pct = 101, .min_pct = 10 };
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensors_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
-void test_bb_sensors_fan_patch_autofan_vr_target_invalid_zero(void)
+void test_bb_sensors_fan_apply_manual_pct_negative_rejected(void)
 {
+    sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_json_t patch = bb_json_obj_new();
-    bb_json_obj_set_number(patch, "vr_target_c", 0.0);
-
-    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
-    bb_json_free(patch);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
-        "vr_target_c=0 should be rejected");
+    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
+                                 .manual_pct = -1, .min_pct = 10 };
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensors_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
-void test_bb_sensors_fan_patch_autofan_valid_boundary_0(void)
+void test_bb_sensors_fan_apply_min_pct_over_100_rejected(void)
 {
-    // manual_pct=0 is valid (0..100 inclusive).
+    sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_json_t patch = bb_json_obj_new();
-    bb_json_obj_set_number(patch, "manual_pct", 0.0);
-
-    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
-    bb_json_free(patch);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, rc, "manual_pct=0 should be accepted");
-
-    bb_fan_autofan_cfg_t after;
-    bb_fan_get_autofan_cfg(fh, &after);
-    TEST_ASSERT_EQUAL_INT(0, after.manual_pct);
+    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
+                                 .manual_pct = 50, .min_pct = 200 };
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensors_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
-void test_bb_sensors_fan_patch_autofan_valid_boundary_100(void)
+void test_bb_sensors_fan_apply_min_pct_negative_rejected(void)
 {
-    // manual_pct=100 is valid (0..100 inclusive).
+    sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_json_t patch = bb_json_obj_new();
-    bb_json_obj_set_number(patch, "manual_pct", 100.0);
-
-    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
-    bb_json_free(patch);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, rc, "manual_pct=100 should be accepted");
-
-    bb_fan_autofan_cfg_t after;
-    bb_fan_get_autofan_cfg(fh, &after);
-    TEST_ASSERT_EQUAL_INT(100, after.manual_pct);
+    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
+                                 .manual_pct = 50, .min_pct = -1 };
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensors_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
-void test_bb_sensors_fan_patch_autofan_atomicity_bad_second_field(void)
+#else /* !CONFIG_BB_FAN_AUTOFAN */
+
+// Driver bound but missing the optional set_duty_pct vtable slot -- a
+// legitimate capability gap (see platform/host/bb_fan/bb_fan.c and
+// test/test_host/test_bb_fan.c's drv_minimal coverage), DISTINCT from "no
+// primary fan" above.
+static const bb_fan_driver_t drv_fan_no_duty = {
+    .set_duty_pct      = NULL,
+    .get_duty_pct      = ff_get_duty,
+    .read_rpm          = ff_rpm,
+    .read_die_temp_c   = ff_die,
+    .read_board_temp_c = ff_board,
+    .name              = "fake_fan_no_duty",
+};
+
+void test_bb_sensors_fan_apply_driver_capability_gap_returns_invalid_state(void)
 {
-    // Patch: manual_pct=50 (valid field) + die_target_c=0 (invalid).
-    // The local cfg copy absorbs manual_pct=50, then die_target_c=0 causes early
-    // return — bb_fan_set_autofan is never called, so manual_pct stays unchanged.
-    bb_fan_handle_t fh = make_autofan_handle();
+    sensors_test_reset();
+    bb_fan_handle_t fh;
+    bb_fan_handle_create(&drv_fan_no_duty, &g_fan, &fh);
+    bb_fan_set_primary(fh);
 
-    bb_fan_autofan_cfg_t before;
-    bb_fan_get_autofan_cfg(fh, &before);
-
-    bb_json_t patch = bb_json_obj_new();
-    bb_json_obj_set_number(patch, "manual_pct", 50.0);
-    bb_json_obj_set_number(patch, "die_target_c", 0.0);  // invalid
-
-    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
-    bb_json_free(patch);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
-        "patch with invalid die_target_c must be rejected");
-
-    // manual_pct must NOT have been applied (bb_fan_set_autofan never called).
-    bb_fan_autofan_cfg_t after;
-    bb_fan_get_autofan_cfg(fh, &after);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(before.manual_pct, after.manual_pct,
-        "manual_pct changed despite atomic rejection — partial-apply bug");
+    bb_sensors_fan_wire_t w = { .duty_pct = 50 };
+    // A primary fan IS wired but its driver can't do duty -- must map to
+    // BB_ERR_INVALID_STATE (-> 500), not BB_ERR_UNSUPPORTED (-> 503), so it
+    // stays distinguishable from the no-primary-fan case above, which owns
+    // the namespace's single unsupported_status override (see
+    // bb_sensors_fan_apply()'s own doc). Regression pin: reverting the
+    // BB_ERR_UNSUPPORTED->BB_ERR_INVALID_STATE translation in
+    // bb_sensors_fan_apply()'s #else branch collapses this back onto
+    // BB_ERR_UNSUPPORTED, turning this red.
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_sensors_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
+#endif /* CONFIG_BB_FAN_AUTOFAN */
+
+// ===========================================================================
+// End-to-end: bb_sensors_bind_and_register() + bb_http_section_find() ->
+// render()/apply() driven directly (no real HTTP server on host).
+// ===========================================================================
+
+void test_bb_sensors_bind_and_register_ok(void)
+{
+    sensors_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+}
+
+void test_bb_sensors_e2e_get_power_renders_json(void)
+{
+    sensors_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+
+    bb_power_handle_t ph;
+    g_pwr.vout_mv = 1200; g_pwr.iout_ma = 500; g_pwr.vin_mv = 12000; g_pwr.temp_c = 45;
+    bb_power_handle_create(&drv_pwr, &g_pwr, &ph);
+    bb_power_poll(ph);
+    bb_power_set_primary(ph);
+
+    char name[BB_HTTP_SECTION_NAME_MAX];
+    const bb_http_section_ns_t *ns =
+        bb_http_section_find("/api/sensors/power", name, sizeof(name));
+    TEST_ASSERT_NOT_NULL(ns);
+    TEST_ASSERT_NOT_NULL(ns->render);
+    TEST_ASSERT_EQUAL_STRING("power", name);
+
+    char   buf[256];
+    size_t out_len = 0;
+    bb_err_t rc = ns->render(name, NULL, buf, sizeof(buf), &out_len, ns->ctx);
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    buf[out_len] = '\0';
+    TEST_ASSERT_EQUAL(200, bb_http_section_status_for_render(rc));
+
+    bb_json_t parsed = bb_json_parse(buf, out_len);
+    TEST_ASSERT_NOT_NULL(parsed);
+    bool present = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "present", &present));
+    TEST_ASSERT_TRUE(present);
+    double vout = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "vout_mv", &vout));
+    TEST_ASSERT_EQUAL_INT(1200, (int)vout);
+    bb_json_free(parsed);
+
+    bb_power_set_primary(NULL);
+    free(ph);
+}
+
+void test_bb_sensors_e2e_power_patch_unsupported_maps_405(void)
+{
+    sensors_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+
+    char name[BB_HTTP_SECTION_NAME_MAX];
+    const bb_http_section_ns_t *ns =
+        bb_http_section_find("/api/sensors/power", name, sizeof(name));
+    TEST_ASSERT_NOT_NULL(ns);
+    // power's bb_data binding has no apply hook; the shared sensors_apply()
+    // adapter still exists on the ns, so bb_data_parse() itself is what
+    // reports the apply-less binding as BB_ERR_UNSUPPORTED (PARSE stage).
+    TEST_ASSERT_NOT_NULL(ns->apply);
+
+    const char *body = "{\"vout_mv\":1200}";
+    bb_http_section_apply_result_t result = ns->apply(name, body, strlen(body), ns->ctx);
+    TEST_ASSERT_EQUAL(405, bb_http_section_status_for_apply(result, ns->unsupported_status));
+}
+
+void test_bb_sensors_e2e_thermal_get_renders_nested_sources(void)
+{
+    sensors_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+    bb_temp_test_set_soc(true, 50.0f);
+
+    char name[BB_HTTP_SECTION_NAME_MAX];
+    const bb_http_section_ns_t *ns =
+        bb_http_section_find("/api/sensors/thermal", name, sizeof(name));
+    TEST_ASSERT_NOT_NULL(ns);
+
+    char   buf[256];
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, ns->render(name, NULL, buf, sizeof(buf), &out_len, ns->ctx));
+    buf[out_len] = '\0';
+
+    bb_json_t parsed = bb_json_parse(buf, out_len);
+    TEST_ASSERT_NOT_NULL(parsed);
+    bb_json_t soc = bb_json_obj_get_item(parsed, "soc");
+    TEST_ASSERT_NOT_NULL(soc);
+    bool present = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(soc, "present", &present));
+    TEST_ASSERT_TRUE(present);
+    double c = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(soc, "c", &c));
+    TEST_ASSERT_EQUAL_FLOAT(50.0f, (float)c);
+    bb_json_free(parsed);
+}
+
+void test_bb_sensors_e2e_get_fan_no_primary_returns_200_present_false(void)
+{
+    sensors_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+
+    char name[BB_HTTP_SECTION_NAME_MAX];
+    const bb_http_section_ns_t *ns =
+        bb_http_section_find("/api/sensors/fan", name, sizeof(name));
+    TEST_ASSERT_NOT_NULL(ns);
+    TEST_ASSERT_NOT_NULL(ns->render);
+
+    char   buf[256];
+    size_t out_len = 0;
+    bb_err_t rc = ns->render(name, NULL, buf, sizeof(buf), &out_len, ns->ctx);
+    // Regression pin: reverting bb_sensors_fan_gather()'s no-primary branch
+    // back to "return BB_ERR_INVALID_STATE" turns this red (500 instead of
+    // 200) -- see the RED capture in the PR report.
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(200, bb_http_section_status_for_render(rc));
+
+    buf[out_len] = '\0';
+    bb_json_t parsed = bb_json_parse(buf, out_len);
+    TEST_ASSERT_NOT_NULL(parsed);
+    bool present = true;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "present", &present));
+    TEST_ASSERT_FALSE(present);
+    bb_json_free(parsed);
+}
+
+void test_bb_sensors_e2e_fan_patch_no_primary_maps_503(void)
+{
+    sensors_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+
+    char name[BB_HTTP_SECTION_NAME_MAX];
+    const bb_http_section_ns_t *ns =
+        bb_http_section_find("/api/sensors/fan", name, sizeof(name));
+    TEST_ASSERT_NOT_NULL(ns);
+    TEST_ASSERT_NOT_NULL(ns->apply);
+
+    const char *body = "{}";
+    bb_http_section_apply_result_t result = ns->apply(name, body, strlen(body), ns->ctx);
+    TEST_ASSERT_EQUAL(503, bb_http_section_status_for_apply(result, ns->unsupported_status));
+}
+
+void test_bb_sensors_e2e_unbound_key_returns_404_never_reaches_bb_data(void)
+{
+    sensors_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+
+    // Bind a real, unrelated key -- the exact hazard FIX 1 closes: without
+    // the fixed-set check, /api/sensors/log would proxy straight through to
+    // this binding (bb_data_bind() is a single flat, process-wide table
+    // with no namespace concept).
+    bb_data_binding_t log_binding = {
+        .key    = "log",
+        .desc   = &bb_sensors_power_wire_desc,
+        .gather = bb_sensors_power_gather,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&log_binding));
+
+    char name[BB_HTTP_SECTION_NAME_MAX];
+    const bb_http_section_ns_t *ns =
+        bb_http_section_find("/api/sensors/log", name, sizeof(name));
+    TEST_ASSERT_NOT_NULL(ns);
+    TEST_ASSERT_EQUAL_STRING("log", name);
+
+    char   buf[256];
+    size_t out_len = 0;
+    bb_err_t rc = ns->render(name, NULL, buf, sizeof(buf), &out_len, ns->ctx);
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, rc);
+    TEST_ASSERT_EQUAL(404, bb_http_section_status_for_render(rc));
+
+    const char *body = "{}";
+    bb_http_section_apply_result_t result = ns->apply(name, body, strlen(body), ns->ctx);
+    TEST_ASSERT_EQUAL(404, bb_http_section_status_for_apply(result, ns->unsupported_status));
+}
+
+#ifdef CONFIG_BB_FAN_AUTOFAN
+void test_bb_sensors_e2e_fan_patch_applies_and_validates(void)
+{
+    sensors_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+    bb_fan_handle_t fh = make_autofan_handle();
+
+    char name[BB_HTTP_SECTION_NAME_MAX];
+    const bb_http_section_ns_t *ns =
+        bb_http_section_find("/api/sensors/fan", name, sizeof(name));
+    TEST_ASSERT_NOT_NULL(ns);
+    TEST_ASSERT_NOT_NULL(ns->apply);
+
+    // Partial PATCH: only manual_pct supplied -- PATCH-mode seeds the rest
+    // from the live cfg (bb_sensors_fan_gather()'s "real seed"), so
+    // die_target_c/vr_target_c/min_pct/autofan stay at their current values.
+    const char *body = "{\"manual_pct\":77}";
+    bb_http_section_apply_result_t result = ns->apply(name, body, strlen(body), ns->ctx);
+    TEST_ASSERT_EQUAL(200, bb_http_section_status_for_apply(result, ns->unsupported_status));
+
+    bb_fan_autofan_cfg_t cfg;
+    bb_fan_get_autofan_cfg(fh, &cfg);
+    TEST_ASSERT_EQUAL_INT(77, cfg.manual_pct);
+
+    // A malformed body maps 400 (PARSE stage).
+    const char *bad_body = "{not json";
+    result = ns->apply(name, bad_body, strlen(bad_body), ns->ctx);
+    TEST_ASSERT_EQUAL(400, bb_http_section_status_for_apply(result, ns->unsupported_status));
+
+    // An out-of-range field maps 400 (COMMIT stage, BB_ERR_VALIDATION).
+    const char *invalid_body = "{\"min_pct\":500}";
+    result = ns->apply(name, invalid_body, strlen(invalid_body), ns->ctx);
+    TEST_ASSERT_EQUAL(400, bb_http_section_status_for_apply(result, ns->unsupported_status));
+
+    bb_fan_set_primary(NULL);
+    free(fh);
+}
 #endif /* CONFIG_BB_FAN_AUTOFAN */

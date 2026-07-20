@@ -166,106 +166,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "173",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "202",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "203",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "205",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "206",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "207",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "208",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "321",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "327",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "330",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "371",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "372",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "373",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "374",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "417",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "424",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "427",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "527",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "592",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "593",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "144",
       "path": "platform/host/bb_led_anim/bb_led_anim.c",
       "type": "uncovered_line"
@@ -768,26 +668,6 @@
     {
       "id": "394",
       "path": "platform/host/bb_pool/bb_pool.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "101",
-      "path": "platform/host/bb_sensors/bb_sensors_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "93",
-      "path": "platform/host/bb_sensors/bb_sensors_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "97",
-      "path": "platform/host/bb_sensors/bb_sensors_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "83",
-      "path": "platform/host/bb_storage/bb_storage.c",
       "type": "uncovered_line"
     },
     {

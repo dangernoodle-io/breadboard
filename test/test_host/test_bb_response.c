@@ -153,54 +153,6 @@ void test_bb_response_build_get_two_sections(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_response_dispatch_patch: patchable / read-only / unknown
-// ---------------------------------------------------------------------------
-
-void test_bb_response_dispatch_patch_known_patchable(void)
-{
-    bb_response_registry_t reg = make_reg();
-    reset_stub();
-    bb_response_register(&reg, "s", stub_get, stub_patch, NULL, NULL);
-
-    bb_json_t body = bb_json_parse("{\"s\":{\"x\":1}}", 0);
-    TEST_ASSERT_NOT_NULL(body);
-
-    bb_err_t rc = bb_response_dispatch_patch(&reg, body);
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    TEST_ASSERT_EQUAL_INT(1, s_patch_calls);
-    bb_json_free(body);
-}
-
-void test_bb_response_dispatch_patch_readonly_returns_invalid_arg(void)
-{
-    bb_response_registry_t reg = make_reg();
-    reset_stub();
-    bb_response_register(&reg, "ro", stub_get, NULL /* read-only */, NULL, NULL);
-
-    bb_json_t body = bb_json_parse("{\"ro\":{\"x\":1}}", 0);
-    TEST_ASSERT_NOT_NULL(body);
-
-    bb_err_t rc = bb_response_dispatch_patch(&reg, body);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
-    bb_json_free(body);
-}
-
-void test_bb_response_dispatch_patch_unknown_section_ignored(void)
-{
-    bb_response_registry_t reg = make_reg();
-    reset_stub();
-    bb_response_register(&reg, "s", stub_get, stub_patch, NULL, NULL);
-
-    bb_json_t body = bb_json_parse("{\"unknown\":{\"x\":1}}", 0);
-    TEST_ASSERT_NOT_NULL(body);
-
-    bb_err_t rc = bb_response_dispatch_patch(&reg, body);
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    TEST_ASSERT_EQUAL_INT(0, s_patch_calls);
-    bb_json_free(body);
-}
-
-// ---------------------------------------------------------------------------
 // bb_response_assemble_schema: output correctness
 // ---------------------------------------------------------------------------
 
@@ -316,51 +268,6 @@ void test_bb_response_register_dup_name_different_case_allowed(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_response_register(&reg, "Foo", stub_get, NULL, NULL, NULL));
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_response_register(&reg, "foo", stub_get, NULL, NULL, NULL));
     TEST_ASSERT_EQUAL_INT(2, reg.count);
-}
-
-// ---------------------------------------------------------------------------
-// Multi-section PATCH partial-apply prevention (F3)
-// ---------------------------------------------------------------------------
-
-static bb_err_t patch_fan(bb_json_t p, void *ctx) { (void)p; (void)ctx; s_patch_calls++; return BB_OK; }
-
-void test_bb_response_dispatch_patch_multi_read_only_rejects_all(void)
-{
-    bb_response_registry_t reg = make_reg();
-    reset_stub();
-    // "fan" is writable, "power" is read-only.
-    bb_response_register(&reg, "fan",   stub_get, patch_fan, NULL, NULL);
-    bb_response_register(&reg, "power", stub_get, NULL /* ro */, NULL, NULL);
-
-    // Body targets both fan (writable) and power (read-only).
-    bb_json_t body = bb_json_parse("{\"fan\":{\"duty_pct\":50},\"power\":{\"vout_mv\":1200}}", 0);
-    TEST_ASSERT_NOT_NULL(body);
-
-    bb_err_t rc = bb_response_dispatch_patch(&reg, body);
-    bb_json_free(body);
-
-    // Must fail with INVALID_ARG (power is read-only).
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
-    // Fan patch_fn must NOT have been called (validate-before-apply).
-    TEST_ASSERT_EQUAL_INT(0, s_patch_calls);
-}
-
-void test_bb_response_dispatch_patch_single_writable_applies(void)
-{
-    bb_response_registry_t reg = make_reg();
-    reset_stub();
-    bb_response_register(&reg, "fan",   stub_get, patch_fan, NULL, NULL);
-    bb_response_register(&reg, "power", stub_get, NULL /* ro */, NULL, NULL);
-
-    // Body targets only fan (writable) — should succeed.
-    bb_json_t body = bb_json_parse("{\"fan\":{\"duty_pct\":50}}", 0);
-    TEST_ASSERT_NOT_NULL(body);
-
-    bb_err_t rc = bb_response_dispatch_patch(&reg, body);
-    bb_json_free(body);
-
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    TEST_ASSERT_EQUAL_INT(1, s_patch_calls);
 }
 
 // ---------------------------------------------------------------------------

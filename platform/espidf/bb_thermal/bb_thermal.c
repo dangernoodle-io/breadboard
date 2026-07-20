@@ -2,7 +2,6 @@
 #include "bb_fan.h"
 #include "bb_power.h"
 #include "bb_temp.h"
-#include "bb_json.h"
 #include "bb_log.h"
 #include "bb_http_server.h"
 #include <math.h>
@@ -12,24 +11,12 @@
 static const char *TAG __attribute__((unused)) = "bb_thermal";
 
 // ---------------------------------------------------------------------------
-// Emit helper — builds a {present, c} sub-object
-// ---------------------------------------------------------------------------
-
-static void emit_source(bb_json_t root, const char *key, bool present, double c_val)
-{
-    bb_json_t obj = bb_json_obj_new();
-    if (!obj) return;  // OOM: skip sub-object; do not set NULL key on root
-    bb_json_obj_set_bool(obj, "present", present);
-    if (present) {
-        bb_json_obj_set_number(obj, "c", c_val);
-    } else {
-        bb_json_obj_set_null(obj, "c");
-    }
-    bb_json_obj_set_obj(root, key, obj);
-}
-
-// ---------------------------------------------------------------------------
 // Pure value collector — SSOT for which HAL each temperature comes from.
+// bb_thermal_collect() is now consumed by bb_sensors_thermal_gather()
+// (components/bb_sensors/bb_sensors_wire.c) for /api/sensors/thermal
+// (B1-828 PR-2); the old bb_thermal_emit_section() JSON-emit wrapper (the
+// composite /api/sensors endpoint's SSOT) was deleted with it -- FULL
+// BREAK, no other caller.
 // ---------------------------------------------------------------------------
 
 void bb_thermal_collect(bb_thermal_values_t *out)
@@ -52,23 +39,6 @@ void bb_thermal_collect(bb_thermal_values_t *out)
     out->asic_c        = out->asic_present ? fsnap.die_c : 0.0f;
     out->board_present = (out->fan_hw_present && !isnan(fsnap.board_c));
     out->board_c       = out->board_present ? fsnap.board_c : 0.0f;
-}
-
-// ---------------------------------------------------------------------------
-// Shared emit helper — writes thermal sub-objects into an existing bb_json_t.
-// Emits {soc,vr,asic,board} each as {present,c|null} (route's nested shape).
-// Used by /api/sensors thermal section (SSOT).
-// ---------------------------------------------------------------------------
-
-void bb_thermal_emit_section(bb_json_t obj)
-{
-    bb_thermal_values_t v;
-    bb_thermal_collect(&v);
-
-    emit_source(obj, "soc",   v.soc_present,   v.soc_present   ? (double)v.soc_c   : 0.0);
-    emit_source(obj, "vr",    v.vr_present,    v.vr_present    ? (double)v.vr_c    : 0.0);
-    emit_source(obj, "asic",  v.asic_present,  v.asic_present  ? (double)v.asic_c  : 0.0);
-    emit_source(obj, "board", v.board_present, v.board_present ? (double)v.board_c : 0.0);
 }
 
 // ---------------------------------------------------------------------------
