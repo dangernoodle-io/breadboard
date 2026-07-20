@@ -18,6 +18,7 @@
 #include "bb_serialize.h"
 #include "bb_settings.h"
 #include "bb_wifi_pending.h"
+#include "bb_wifi_http_apply_status.h"
 
 #include <stddef.h>
 #endif
@@ -297,7 +298,20 @@ static bb_err_t wifi_patch_handler(bb_http_request_t *req)
     // composition-invariant violation (the binding is registered a few lines
     // below in this same fn, before this route is ever reachable), not a
     // client error, so it falls through to the 500 branch below.
-    if (rc == BB_ERR_VALIDATION || rc == BB_ERR_INVALID_ARG || rc == BB_ERR_UNSUPPORTED) {
+    //
+    // BB_ERR_VALIDATION stays in this list: wifi_creds_apply() (the apply()
+    // hook above) returns it for a domain reject (bad ssid/password), which
+    // is a 400 same as a parse failure. BB_ERR_PARSE_GRAMMAR/
+    // BB_ERR_PARSE_INCOMPLETE cover the disjoint parse-layer namespace (see
+    // bb_core.h) -- a malformed or truncated request body from
+    // bb_data_apply()'s parse() call, previously mismapped to
+    // BB_ERR_INVALID_STATE and wrongly falling through to the 500 branch.
+    //
+    // The mapping itself lives in bb_wifi_http_apply_status.c (host-testable
+    // pure fn) so the pinning tests in test_wifi_creds_apply_route.c exercise
+    // the exact production list, not a hand-copy of it.
+    int status = bb_wifi_http_status_for_apply_rc(rc);
+    if (status == 400) {
         bb_http_resp_set_status(req, 400);
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);
@@ -305,7 +319,7 @@ static bb_err_t wifi_patch_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_end(&obj);
         return rc;
     }
-    if (rc != BB_OK) {
+    if (status != 202) {
         bb_http_resp_set_status(req, 500);
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);

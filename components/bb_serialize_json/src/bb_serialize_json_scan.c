@@ -266,7 +266,7 @@ static bb_err_t scan_escape_byte(scan_state_t *s, const char *chunk, size_t *i,
             s->esc_code_unit = 0;
             return BB_OK;
         default:
-            return BB_ERR_VALIDATION;
+            return BB_ERR_PARSE_GRAMMAR;
         }
         (*i)++;
         s->esc_phase = ESC_NONE;
@@ -277,7 +277,7 @@ static bb_err_t scan_escape_byte(scan_state_t *s, const char *chunk, size_t *i,
 
     case ESC_U1: case ESC_U2: case ESC_U3: case ESC_U4: {
         int hv = hex_val(c);
-        if (hv < 0) return BB_ERR_VALIDATION;
+        if (hv < 0) return BB_ERR_PARSE_GRAMMAR;
         s->esc_code_unit = (uint16_t)((s->esc_code_unit << 4) | (unsigned)hv);
         (*i)++;
         if (s->esc_phase != ESC_U4) {
@@ -291,7 +291,7 @@ static bb_err_t scan_escape_byte(scan_state_t *s, const char *chunk, size_t *i,
             return BB_OK;
         }
         if (s->esc_code_unit >= 0xDC00u && s->esc_code_unit <= 0xDFFFu) {
-            return BB_ERR_VALIDATION;  // unpaired low surrogate
+            return BB_ERR_PARSE_GRAMMAR;  // unpaired low surrogate
         }
         s->esc_phase = ESC_NONE;
         *out_n = utf8_encode(s->esc_code_unit, out);
@@ -299,13 +299,13 @@ static bb_err_t scan_escape_byte(scan_state_t *s, const char *chunk, size_t *i,
     }
 
     case ESC_LOW_BACKSLASH:
-        if (c != '\\') return BB_ERR_VALIDATION;  // unpaired high surrogate
+        if (c != '\\') return BB_ERR_PARSE_GRAMMAR;  // unpaired high surrogate
         (*i)++;
         s->esc_phase = ESC_LOW_U;
         return BB_OK;
 
     case ESC_LOW_U:
-        if (c != 'u') return BB_ERR_VALIDATION;  // unpaired high surrogate
+        if (c != 'u') return BB_ERR_PARSE_GRAMMAR;  // unpaired high surrogate
         (*i)++;
         s->esc_phase = ESC_LOW_U1;
         s->esc_code_unit = 0;
@@ -313,7 +313,7 @@ static bb_err_t scan_escape_byte(scan_state_t *s, const char *chunk, size_t *i,
 
     case ESC_LOW_U1: case ESC_LOW_U2: case ESC_LOW_U3: case ESC_LOW_U4: {
         int hv = hex_val(c);
-        if (hv < 0) return BB_ERR_VALIDATION;
+        if (hv < 0) return BB_ERR_PARSE_GRAMMAR;
         s->esc_code_unit = (uint16_t)((s->esc_code_unit << 4) | (unsigned)hv);
         (*i)++;
         if (s->esc_phase != ESC_LOW_U4) {
@@ -321,7 +321,7 @@ static bb_err_t scan_escape_byte(scan_state_t *s, const char *chunk, size_t *i,
             return BB_OK;
         }
         if (s->esc_code_unit < 0xDC00u || s->esc_code_unit > 0xDFFFu) {
-            return BB_ERR_VALIDATION;  // invalid low surrogate
+            return BB_ERR_PARSE_GRAMMAR;  // invalid low surrogate
         }
         {
             uint32_t cp = 0x10000u
@@ -334,7 +334,7 @@ static bb_err_t scan_escape_byte(scan_state_t *s, const char *chunk, size_t *i,
     }
 
     default:  // LCOV_EXCL_LINE -- ESC_NONE never dispatched here (see caller guard above)
-        return BB_ERR_VALIDATION;  // LCOV_EXCL_LINE -- ESC_NONE never dispatched here
+        return BB_ERR_PARSE_GRAMMAR;  // LCOV_EXCL_LINE -- ESC_NONE never dispatched here
     }
 }
 
@@ -375,7 +375,7 @@ static bb_err_t scan_string(scan_state_t *s, const char *chunk, size_t len, size
         while (*i < len) {
             unsigned char c = (unsigned char)chunk[*i];
             if (c == '"' || c == '\\') break;
-            if (c < 0x20u) return BB_ERR_VALIDATION;  // unescaped control char
+            if (c < 0x20u) return BB_ERR_PARSE_GRAMMAR;  // unescaped control char
             (*i)++;
         }
         size_t run_len = *i - start;
@@ -437,7 +437,7 @@ static bb_err_t scan_number(scan_state_t *s, const char *chunk, size_t len, size
         // choke point rather than repeated per-transition.
         switch (s->num_phase) {  // LCOV_EXCL_BR_LINE -- default arm is defensive (exhaustive enum)
         case NUM_START:
-            if (!digit) return BB_ERR_VALIDATION;
+            if (!digit) return BB_ERR_PARSE_GRAMMAR;
             next_phase = NUM_INT_DIGITS;
             break;
 
@@ -449,7 +449,7 @@ static bb_err_t scan_number(scan_state_t *s, const char *chunk, size_t len, size
             return BB_OK;
 
         case NUM_FRAC_START:
-            if (!digit) return BB_ERR_VALIDATION;
+            if (!digit) return BB_ERR_PARSE_GRAMMAR;
             next_phase = NUM_FRAC_DIGITS;
             break;
 
@@ -462,10 +462,10 @@ static bb_err_t scan_number(scan_state_t *s, const char *chunk, size_t len, size
         case NUM_EXP_START:
             if (c == '+' || c == '-') { next_phase = NUM_EXP_SIGN; break; }
             if (digit) { next_phase = NUM_EXP_DIGITS; break; }
-            return BB_ERR_VALIDATION;
+            return BB_ERR_PARSE_GRAMMAR;
 
         case NUM_EXP_SIGN:
-            if (!digit) return BB_ERR_VALIDATION;
+            if (!digit) return BB_ERR_PARSE_GRAMMAR;
             next_phase = NUM_EXP_DIGITS;
             break;
 
@@ -475,7 +475,7 @@ static bb_err_t scan_number(scan_state_t *s, const char *chunk, size_t len, size
             return BB_OK;
 
         default:  // LCOV_EXCL_LINE -- exhaustive enum, defensive
-            return BB_ERR_VALIDATION;  // LCOV_EXCL_LINE -- exhaustive enum, defensive
+            return BB_ERR_PARSE_GRAMMAR;  // LCOV_EXCL_LINE -- exhaustive enum, defensive
         }
 
         bb_err_t rc = scratch_append(s, &c, 1);
@@ -520,7 +520,7 @@ static bb_err_t scan_literal(scan_state_t *s, const char *chunk, size_t len, siz
 
     *finished = false;
     while (*i < len) {
-        if (chunk[*i] != target[s->lit_matched]) return BB_ERR_VALIDATION;
+        if (chunk[*i] != target[s->lit_matched]) return BB_ERR_PARSE_GRAMMAR;
         s->lit_matched++;
         (*i)++;
         if (s->lit_matched == target_len) {
@@ -641,7 +641,7 @@ static bb_err_t dispatch_value_start(scan_state_t *s, const char *chunk, size_t 
         return BB_OK;
 
     default:
-        return BB_ERR_VALIDATION;
+        return BB_ERR_PARSE_GRAMMAR;
     }
 }
 
@@ -668,7 +668,7 @@ static bb_err_t drive(scan_state_t *s, const char *chunk, size_t len, size_t *i)
         case PH_AFTER_ROOT:
             skip_ws(chunk, len, i);
             if (*i >= len) return BB_OK;
-            return BB_ERR_VALIDATION;  // trailing garbage after the root value
+            return BB_ERR_PARSE_GRAMMAR;  // trailing garbage after the root value
 
         case PH_OBJ_KEY_OR_CLOSE:
         case PH_OBJ_KEY_ONLY:
@@ -681,7 +681,7 @@ static bb_err_t drive(scan_state_t *s, const char *chunk, size_t len, size_t *i)
                 (*i)++;
                 break;
             }
-            if (c != '"') return BB_ERR_VALIDATION;
+            if (c != '"') return BB_ERR_PARSE_GRAMMAR;
             (*i)++;
             s->scratch_len = 0;
             s->key_len = 0;
@@ -702,7 +702,7 @@ static bb_err_t drive(scan_state_t *s, const char *chunk, size_t len, size_t *i)
         case PH_OBJ_COLON:
             skip_ws(chunk, len, i);
             if (*i >= len) return BB_OK;
-            if (chunk[*i] != ':') return BB_ERR_VALIDATION;
+            if (chunk[*i] != ':') return BB_ERR_PARSE_GRAMMAR;
             (*i)++;
             s->phase = PH_OBJ_VALUE;
             break;
@@ -725,7 +725,7 @@ static bb_err_t drive(scan_state_t *s, const char *chunk, size_t len, size_t *i)
                 (*i)++;
                 break;
             }
-            return BB_ERR_VALIDATION;
+            return BB_ERR_PARSE_GRAMMAR;
 
         case PH_ARR_ELEM_OR_CLOSE:
         case PH_ARR_ELEM_ONLY:
@@ -753,7 +753,7 @@ static bb_err_t drive(scan_state_t *s, const char *chunk, size_t len, size_t *i)
                 (*i)++;
                 break;
             }
-            return BB_ERR_VALIDATION;
+            return BB_ERR_PARSE_GRAMMAR;
 
         case PH_VAL_STR: {
             bool closed = false;
@@ -837,7 +837,7 @@ bb_err_t bb_serialize_json_scan_end(bb_serialize_json_scan_ctx_t *ctx)
 
     if (s->phase == PH_VAL_NUM) {
         if (!num_phase_is_terminal(s->num_phase)) {
-            s->err = BB_ERR_INVALID_STATE;
+            s->err = BB_ERR_PARSE_INCOMPLETE;
             return s->err;
         }
         bb_err_t rc = finalize_number(s);
@@ -848,7 +848,7 @@ bb_err_t bb_serialize_json_scan_end(bb_serialize_json_scan_ctx_t *ctx)
     }
 
     if (s->phase != PH_AFTER_ROOT) {
-        s->err = BB_ERR_INVALID_STATE;
+        s->err = BB_ERR_PARSE_INCOMPLETE;
         return s->err;
     }
 

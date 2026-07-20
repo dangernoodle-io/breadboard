@@ -194,6 +194,27 @@ class TestDeriveComponent(unittest.TestCase):
             self.assertIn("components/bb_diag", entry["includes"])
             self.assertEqual(entry["sources"], ["components/bb_diag/bb_diag_a.c"])
 
+    def test_src_and_flat_layout_both_globbed(self):
+        # bb_wifi_http shape: a legacy flat top-level *.c alongside a src/
+        # subdir added later -- neither should suppress the other.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(
+                root, "bb_mixed",
+                src_files=["bb_mixed_status.c"],
+                flat_files=["bb_mixed_diag.c"],
+            )
+            entry = derive_component(str(root), "bb_mixed", "host")
+            self.assertIn("components/bb_mixed/src", entry["includes"])
+            self.assertIn("components/bb_mixed", entry["includes"])
+            self.assertEqual(
+                sorted(entry["sources"]),
+                sorted([
+                    "components/bb_mixed/src/bb_mixed_status.c",
+                    "components/bb_mixed/bb_mixed_diag.c",
+                ]),
+            )
+
     def test_platform_layer_with_include_subdir(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

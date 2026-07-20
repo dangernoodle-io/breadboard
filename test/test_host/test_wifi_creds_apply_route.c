@@ -26,6 +26,7 @@
 #include "bb_serialize_json.h"
 #include "bb_settings.h"
 #include "bb_storage.h"
+#include "bb_wifi_http_apply_status.h"
 #include "bb_wifi_pending.h"
 #include "fake_nvs_backend.h"
 
@@ -241,4 +242,76 @@ void test_wifi_creds_apply_post_mode_missing_password_is_open_network(void)
     TEST_ASSERT_TRUE(s_apply_called);
     TEST_ASSERT_EQUAL_STRING("networkD", s_captured.ssid);
     TEST_ASSERT_EQUAL_STRING("", s_captured.pass);
+}
+
+// Live bug pinned (this PR): a truncated wifi-creds PATCH body used to come
+// back from bb_data_apply()'s parse() call as BB_ERR_INVALID_STATE, which
+// was NOT in wifi_patch_handler()'s 400 list -- so a truncated body wrongly
+// fell through to the 500 branch. The parse layer now returns
+// BB_ERR_PARSE_INCOMPLETE for exactly this case (an unterminated string cuts
+// the body off before the closing brace), which
+// bb_wifi_http_status_for_apply_rc() -- the SAME function
+// wifi_patch_handler() calls in production, not a mirror -- correctly maps
+// to 400.
+void test_wifi_creds_apply_truncated_body_maps_to_400_not_500(void)
+{
+    reset_all();
+
+    bb_err_t rc = run_apply(BB_DATA_APPLY_POST, "{\"ssid\":\"networkE\"");
+
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_INCOMPLETE, rc);
+    TEST_ASSERT_FALSE(s_apply_called);
+    TEST_ASSERT_EQUAL_INT(400, bb_wifi_http_status_for_apply_rc(rc));
+}
+
+// Grammar-reject sibling: malformed (not merely truncated) JSON also maps to
+// 400 via the same production function, exercising BB_ERR_PARSE_GRAMMAR
+// specifically.
+void test_wifi_creds_apply_malformed_body_maps_to_400_not_500(void)
+{
+    reset_all();
+
+    bb_err_t rc = run_apply(BB_DATA_APPLY_POST, "{\"ssid\":}");
+
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
+    TEST_ASSERT_FALSE(s_apply_called);
+    TEST_ASSERT_EQUAL_INT(400, bb_wifi_http_status_for_apply_rc(rc));
+}
+
+// Non-parse, non-validation failure (e.g. an apply-layer/driver error) must
+// still map to 500 -- the case this PR's extraction exists to protect: a
+// production drift that widened the 400 list could silently swallow a real
+// internal error as a client error.
+void test_wifi_creds_apply_non_parse_error_maps_to_500(void)
+{
+    TEST_ASSERT_EQUAL_INT(500, bb_wifi_http_status_for_apply_rc(BB_ERR_TIMEOUT));
+    TEST_ASSERT_EQUAL_INT(500, bb_wifi_http_status_for_apply_rc(BB_ERR_INVALID_STATE));
+}
+
+// Success sentinel: BB_OK maps to 202 (accepted, rebooting to try wifi) --
+// the branch the route takes to its own success-body path.
+void test_wifi_creds_apply_ok_maps_to_202(void)
+{
+    TEST_ASSERT_EQUAL_INT(202, bb_wifi_http_status_for_apply_rc(BB_OK));
+}
+
+// Remaining two 400-list members, exercised directly against the production
+// function so every disjunct of the OR-chain (not just the ones a full
+// bb_data_apply() run happens to return) is proven true at least once --
+// BB_ERR_INVALID_ARG (e.g. a malformed recv) and BB_ERR_UNSUPPORTED (e.g. an
+// unsupported request shape) both come back as 400, same as a parse/domain
+// reject.
+void test_wifi_creds_apply_invalid_arg_and_unsupported_map_to_400(void)
+{
+    TEST_ASSERT_EQUAL_INT(400, bb_wifi_http_status_for_apply_rc(BB_ERR_INVALID_ARG));
+    TEST_ASSERT_EQUAL_INT(400, bb_wifi_http_status_for_apply_rc(BB_ERR_UNSUPPORTED));
+}
+
+// BB_ERR_VALIDATION -- the domain-reject case (bad ssid/password) --
+// exercised as the FIRST disjunct of the OR-chain directly against the
+// production function, not just as bb_data_apply()'s own return value (see
+// test_wifi_creds_apply_post_mode_missing_ssid_rejected).
+void test_wifi_creds_apply_validation_maps_to_400(void)
+{
+    TEST_ASSERT_EQUAL_INT(400, bb_wifi_http_status_for_apply_rc(BB_ERR_VALIDATION));
 }
