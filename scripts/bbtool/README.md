@@ -106,11 +106,10 @@ starting baseline, refusing to run if a baseline already exists (use
 
 The original ratchet fence, unchanged: freezes breadboard's legacy
 dependency-injection glue surface (self-registration macros,
-autoregister/auto-attach Kconfig options, pub-captive-sink patterns,
-force-keep linker directives). Scans `components/` + `platform/` for
-BB_INIT_REGISTER family, `*_AUTOREGISTER`/`*_AUTO_ATTACH` Kconfig defs +
-usages, `bb_pub_sink_t`/`bb_pub_add_sink`, display force-keep, and
-`bb_init_force_register*` CMake calls — see
+autoregister/auto-attach Kconfig options, force-keep linker directives).
+Scans `components/` + `platform/` for BB_INIT_REGISTER family,
+`*_AUTOREGISTER`/`*_AUTO_ATTACH` Kconfig defs + usages, display
+force-keep, and `bb_init_force_register*` CMake calls — see
 `scripts/bbtool/fence/di_legacy.py`.
 
 **Scope: ESP-IDF + host only.** The Arduino backend
@@ -316,8 +315,7 @@ Turnkey, no manual registry-list edit:
    are auto-collected (see `fence/_base.py:discover_scanners`) — no
    `scan_all()` to hand-maintain.
 3. Optionally define `identity(marker) -> tuple` to override the default
-   `(type, id)` ratchet-diff identity (see `di_legacy.identity` for the
-   path-insensitive pub_sink example).
+   `(type, id)` ratchet-diff identity.
 4. Run `python3 scripts/bbtool.py fence --seed <family>` once to write the
    starting baseline to `.baseline/bbtool/fence/<family>.json`; commit it.
 5. `fence` (and `make fence` / `make check`) now covers the new family

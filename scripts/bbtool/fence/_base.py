@@ -132,8 +132,7 @@ def scan_all(module, root: str) -> Set[Marker]:
 
 # ---------------------------------------------------------------------------
 # Identity — the ratchet-diff key. Families may override via a module-level
-# `identity(marker) -> tuple` function (see fence/di_legacy.py for the
-# path-insensitive pub_sink example); default is (type, id).
+# `identity(marker) -> tuple` function; default is (type, id).
 # ---------------------------------------------------------------------------
 
 def default_identity(m: Marker):

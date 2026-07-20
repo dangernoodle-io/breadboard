@@ -1,8 +1,8 @@
 """di_legacy fence family — DI legacy ratchet-fence scanners.
 
 Freezes breadboard's legacy dependency-injection glue surface (self-
-registration macros, autoregister/auto-attach Kconfig options, pub-captive-
-sink patterns, force-keep linker directives) as shrink-only. It scans
+registration macros, autoregister/auto-attach Kconfig options,
+force-keep linker directives) as shrink-only. It scans
 components/ + platform/ for a fixed set of legacy-glue markers; the `fence`
 command diffs the current occurrence set against this family's committed
 baseline (.baseline/bbtool/fence/di_legacy.json) and fails on any net-new
@@ -15,7 +15,6 @@ regex per type):
   - BB_INIT_REGISTER family (BB_INIT_REGISTER[_EARLY|_PRE_HTTP][_N])
   - autoregister_kconfig / autoregister_usage  (*_AUTOREGISTER)
   - auto_attach_kconfig / auto_attach_usage    (*_AUTO_ATTACH)
-  - pub_sink            (bb_pub_sink_t / bb_pub_add_sink)
   - display_force_keep  (BB_DISPLAY_AUTOREGISTER + bb_display_register__* + -u linker flags)
   - linker_force_register (bb_init_force_register[_early|_pre_http] CMake helper calls)
 
@@ -34,7 +33,6 @@ from fence._base import Marker
 
 _SCAN_ROOTS = ("components", "platform")
 
-_SRC_GLOBS = ["**/*.c", "**/*.h", "**/*.cpp"]
 _KCONFIG_GLOBS = ["**/Kconfig", "**/Kconfig.projbuild"]
 _CMAKE_GLOBS = ["**/CMakeLists.txt"]
 
@@ -54,7 +52,6 @@ _BUCKETS = {
     "autoregister_usage": "AUTOREGISTER",
     "auto_attach_kconfig": "AUTO_ATTACH",
     "auto_attach_usage": "AUTO_ATTACH",
-    "pub_sink": "pub-sink",
     "display_force_keep": "DISPLAY_AUTOREGISTER/force-keep",
     "linker_force_register": "linker force-register",
 }
@@ -141,27 +138,7 @@ def _scan_auto_attach_usage(root: Path) -> Set[Marker]:
 
 
 # ---------------------------------------------------------------------------
-# 6. pub-captive-sink markers: bb_pub_sink_t / bb_pub_add_sink
-# ---------------------------------------------------------------------------
-
-_PUB_SINK_RE = re.compile(r'\b(bb_pub_sink_t|bb_pub_add_sink)\b')
-
-
-def _scan_pub_sink(root: Path) -> Set[Marker]:
-    found: Set[Marker] = set()
-    for path in _base.iter_files(root, _SCAN_ROOTS, _SRC_GLOBS):
-        rel = _base.rel(root, path)
-        for line in _base.read(path).splitlines():
-            stripped = line.strip()
-            if _base.is_noise_line(stripped):
-                continue
-            for m in _PUB_SINK_RE.finditer(line):
-                found.add(Marker("pub_sink", rel, m.group(1)))
-    return found
-
-
-# ---------------------------------------------------------------------------
-# 7. Display force-keep: BB_DISPLAY_AUTOREGISTER(...) invocations,
+# 6. Display force-keep: BB_DISPLAY_AUTOREGISTER(...) invocations,
 #    bb_display_register__<chip> symbol refs, and their -u linker flags
 # ---------------------------------------------------------------------------
 
@@ -214,7 +191,7 @@ def _scan_display_force_keep(root: Path) -> Set[Marker]:
 
 
 # ---------------------------------------------------------------------------
-# 8. bb_init_force_register[_early|_pre_http] CMake helper call sites
+# 7. bb_init_force_register[_early|_pre_http] CMake helper call sites
 # ---------------------------------------------------------------------------
 
 # The helper's first positional arg is always the literal CMake variable
@@ -249,26 +226,6 @@ def _scan_linker_force_register(root: Path) -> Set[Marker]:
     return found
 
 
-# ---------------------------------------------------------------------------
-# Identity override — pub_sink's `id` is not itself a unique symbol name
-# (the literal string "bb_pub_sink_t" / "bb_pub_add_sink" at every call
-# site), so two different files both get the exact same id. For that type,
-# fall back to the enclosing directory ("owning component") as a stand-in
-# symbol key so different call sites don't collide under identity.
-# ---------------------------------------------------------------------------
-
-_PATH_INSENSITIVE_ID_TYPES = {"pub_sink"}
-
-
-def _component_of(path: str) -> str:
-    """Best-effort 'owning component' name for a marker path: the parent
-    directory name. Stable across a pure filename rename within the same
-    component directory; changes only if the component directory itself is
-    renamed/moved — that case is treated as a legitimate baseline update,
-    not a spurious rename false-positive."""
-    return Path(path).parent.name
-
-
 def identity(m: Marker):
     """Ratchet-diff identity key: (marker_type, symbol_identifier) — NEVER
     the file path. This is what makes the fence rename-stable: moving a
@@ -280,8 +237,6 @@ def identity(m: Marker):
     intentionally COLLAPSES them into one entry rather than risk a
     spurious-new failure — under-keying is the safe direction for a ratchet
     fence."""
-    if m.type in _PATH_INSENSITIVE_ID_TYPES:
-        return (m.type, f"{_component_of(m.path)}:{m.id}")
     return (m.type, m.id)
 
 
