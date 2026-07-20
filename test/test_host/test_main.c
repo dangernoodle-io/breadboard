@@ -516,6 +516,17 @@ void test_bb_serialize_json_stream_byte_identical_to_render(void);
 void test_bb_serialize_json_stream_multi_flush(void);
 void test_bb_serialize_json_stream_abort_sticky_no_further_flush(void);
 
+// Forward declarations from test_bb_serialize_json_stream_compose.c (B1-1097)
+void test_bb_serialize_json_stream_compose_object_shape_byte_identical(void);
+void test_bb_serialize_json_stream_compose_raw_shape_byte_identical(void);
+void test_bb_serialize_json_stream_compose_mixed_shape_raw_root_plus_object_sections(void);
+void test_bb_serialize_json_stream_compose_multi_flush(void);
+void test_bb_serialize_json_stream_compose_abort_sticky_no_further_flush(void);
+void test_bb_serialize_json_stream_compose_gather_failure_propagates_and_flushes_partial(void);
+void test_bb_serialize_json_stream_compose_second_group_gather_failure_preserves_first_group(void);
+void test_bb_serialize_json_stream_compose_zero_groups_returns_empty_object(void);
+void test_bb_serialize_json_stream_compose_empty_group_among_nonempty_groups_is_noop(void);
+
 // Forward declarations from test_bb_serialize_json_scan.c
 void test_bb_serialize_json_scan_bounded_string_empty(void);
 void test_bb_serialize_json_scan_bounded_string_ascii(void);
@@ -1156,6 +1167,15 @@ void test_http_serialize_stream_null_desc_invalid_arg(void);
 void test_http_serialize_stream_null_snap_invalid_arg(void);
 void test_http_serialize_stream_set_type_fail_short_circuits(void);
 void test_http_serialize_stream_send_chunk_fail_propagates_original_error(void);
+
+// Forward declarations from test_bb_http_serialize_stream_compose.c (B1-1097)
+void test_http_serialize_stream_compose_happy_path(void);
+void test_http_serialize_stream_compose_mixed_shape_groups(void);
+void test_http_serialize_stream_compose_null_req_invalid_arg(void);
+void test_http_serialize_stream_compose_null_groups_nonzero_n_invalid_arg(void);
+void test_http_serialize_stream_compose_null_groups_zero_n_ok(void);
+void test_http_serialize_stream_compose_set_type_fail_short_circuits(void);
+void test_http_serialize_stream_compose_send_chunk_fail_propagates_original_error(void);
 
 // Forward declarations from test_bb_settings_creds_boot.c
 void test_bb_settings_creds_boot_init_success(void);
@@ -6074,6 +6094,14 @@ int main(void) {
     RUN_TEST(test_http_serialize_stream_set_type_fail_short_circuits);
     RUN_TEST(test_http_serialize_stream_send_chunk_fail_propagates_original_error);
 
+    RUN_TEST(test_http_serialize_stream_compose_happy_path);
+    RUN_TEST(test_http_serialize_stream_compose_mixed_shape_groups);
+    RUN_TEST(test_http_serialize_stream_compose_null_req_invalid_arg);
+    RUN_TEST(test_http_serialize_stream_compose_null_groups_nonzero_n_invalid_arg);
+    RUN_TEST(test_http_serialize_stream_compose_null_groups_zero_n_ok);
+    RUN_TEST(test_http_serialize_stream_compose_set_type_fail_short_circuits);
+    RUN_TEST(test_http_serialize_stream_compose_send_chunk_fail_propagates_original_error);
+
     // bb_settings creds-boot shell tests (B1-963: relocated from
     // bb_nv_config_init)
     RUN_TEST(test_bb_settings_creds_boot_init_success);
@@ -9925,6 +9953,16 @@ int main(void) {
     RUN_TEST(test_bb_serialize_json_stream_byte_identical_to_render);
     RUN_TEST(test_bb_serialize_json_stream_multi_flush);
     RUN_TEST(test_bb_serialize_json_stream_abort_sticky_no_further_flush);
+
+    RUN_TEST(test_bb_serialize_json_stream_compose_object_shape_byte_identical);
+    RUN_TEST(test_bb_serialize_json_stream_compose_raw_shape_byte_identical);
+    RUN_TEST(test_bb_serialize_json_stream_compose_mixed_shape_raw_root_plus_object_sections);
+    RUN_TEST(test_bb_serialize_json_stream_compose_multi_flush);
+    RUN_TEST(test_bb_serialize_json_stream_compose_abort_sticky_no_further_flush);
+    RUN_TEST(test_bb_serialize_json_stream_compose_gather_failure_propagates_and_flushes_partial);
+    RUN_TEST(test_bb_serialize_json_stream_compose_second_group_gather_failure_preserves_first_group);
+    RUN_TEST(test_bb_serialize_json_stream_compose_zero_groups_returns_empty_object);
+    RUN_TEST(test_bb_serialize_json_stream_compose_empty_group_among_nonempty_groups_is_noop);
 
     RUN_TEST(test_bb_serialize_json_scan_bounded_string_empty);
     RUN_TEST(test_bb_serialize_json_scan_bounded_string_ascii);

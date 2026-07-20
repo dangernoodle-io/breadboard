@@ -466,6 +466,41 @@ bb_err_t bb_serialize_json_stream_render(const bb_serialize_desc_t *desc, const 
     return ctx.err;
 }
 
+// Composed-document counterpart -- same buffer, same flush/abort mechanics
+// as bb_serialize_json_stream_render() above, driving one
+// bb_serialize_compose_walk() call per group (rather than a single
+// bb_serialize_walk_ref() call) inside one pair of root braces -- letting a
+// caller mix shapes (e.g. RAW root fields + OBJECT sections) that no single
+// bb_serialize_compose_walk() call can express on its own. See the header's
+// doc comment for the mixed-shape rationale and the compose_err/ctx.err
+// precedence contract.
+bb_err_t bb_serialize_json_stream_compose_render(const bb_serialize_compose_group_t *groups, size_t n_groups,
+                                                  bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
+                                                  const volatile bool *flush_failed)
+{
+    char buf[BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES];
+    bb_serialize_json_ctx_t ctx;
+    bb_serialize_json_ctx_init(&ctx, buf, sizeof(buf));
+    ctx.flush_fn = flush_fn;
+    ctx.flush_ctx = flush_ctx;
+    ctx.flush_failed = flush_failed;
+
+    bb_serialize_emit_t emit = bb_serialize_json_emit(&ctx);
+
+    bb_json_putc(&ctx, '{');
+    bb_err_t compose_err = BB_OK;
+    for (size_t i = 0; i < n_groups; i++) {
+        const bb_serialize_compose_group_t *g = &groups[i];
+        compose_err = bb_serialize_compose_walk(g->entries, g->n, g->shape, &emit);
+        if (compose_err != BB_OK) break;
+    }
+    bb_json_putc(&ctx, '}');
+    bb_json_flush(&ctx);  // flush the tail
+
+    if (compose_err != BB_OK) return compose_err;
+    return ctx.err;
+}
+
 // ---------------------------------------------------------------------------
 // Worst-case sizing bound -- a pure function of the descriptor only (no
 // snapshot instance). Mirrors bb_serialize_walk()'s BB_SERIALIZE_MAX_DEPTH

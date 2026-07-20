@@ -71,6 +71,25 @@ typedef enum {
     BB_SERIALIZE_COMPOSE_ARRAY,
 } bb_serialize_compose_shape_t;
 
+// One bb_serialize_compose_walk() call's worth of arguments -- lets a
+// composed-document backend (e.g. a JSON streaming wrapper) drive MORE THAN
+// ONE shape-homogeneous walk inside a single framed document, e.g. a RAW
+// group (fields merging flat at the document root) followed by an OBJECT
+// group (named child sections) -- a mix bb_serialize_compose_walk() itself
+// cannot express in one call (`shape` is a single argument applied uniformly
+// to its whole `entries[]`, see bb_serialize_compose_shape_t above), but
+// which a caller achieves by looping bb_serialize_compose_walk() over
+// `groups[]` inside its own root framing. Not part of
+// bb_serialize_compose_walk()'s own contract -- that primitive needs no
+// change (the caller already owns root framing); this is purely grouping
+// vocabulary for a caller that wants to compose more than one shape in one
+// document.
+typedef struct {
+    const bb_serialize_compose_entry_t *entries;  // borrowed; see bb_serialize_compose_entry_t
+    size_t                               n;        // entries[0..n); n == 0 is valid (no-op group)
+    bb_serialize_compose_shape_t        shape;    // applied uniformly to this group's entries
+} bb_serialize_compose_group_t;
+
 // Walks entries[0..n) against `emit` in order, applying `shape`'s per-entry
 // wrapper around each entry's bb_serialize_walk() call. ALL-OR-NOTHING: if
 // any entry's gather (when non-NULL) returns a non-BB_OK code, or
