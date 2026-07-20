@@ -691,6 +691,71 @@ This embeds the version into `esp_app_desc.version`.
 
 ---
 
+## `codegen` command — multi-root discovery (B1-1084)
+
+`bbtool codegen` resolves the composition over a discovery `roots` list, not just a
+single `--root`. Every caller today still passes exactly one root (byte-identical to
+pre-B1-1084 output — see below); this section documents the additive multi-root surface
+for a consumer that wants to compose components from more than one tree (e.g. its own
+`components/` dir alongside breadboard's vendored one).
+
+### Declaring extra roots
+
+Two ways to add roots, combined in this fixed order — **`--root` (primary) → `[discovery]
+extra_roots` (bbtool.toml, file order) → `--extra-root` (CLI, repeatable, order given)**:
+
+```bash
+python3 scripts/bbtool.py codegen --root . --board my_board \
+    --extra-root ../my_consumer_components \
+    --extra-root /abs/path/to/another/tree
+```
+
+```toml
+[discovery]
+extra_roots = ["../my_consumer_components"]   # resolved relative to bbtool.toml's own dir,
+                                               # mirrors [plugins].paths / load_plugins
+```
+
+`--extra-root` is the escape hatch for a path only known at hook-invocation time (e.g. a
+PlatformIO pre-script computing `$PROJECT_DIR`-relative paths); `[discovery].extra_roots`
+is the declarative, versioned form for a fixed extra tree.
+
+**No shadow/priority.** A component name discovered under more than one root — whether
+`--root` vs. an extra root, or two extra roots — is a hard `discovery.CollisionError`
+(`bbtool codegen: error: component name collision across roots: '<name>' in [...]`),
+never a silent last-wins. There is no override mechanism (deferred to a future ticket).
+
+### `src_file` representation across roots
+
+Every resolved component is looked up against its OWN owning root (the root it was
+actually discovered under), never blindly against `--root`. The `src_file` recorded on
+each `// bbtool:init`/`// bbtool:provides` marker — which surfaces in generated
+`bb_app_init.c` comments and `bbtool codegen` stdout (`[{tier}] {fn} ({src_file}:{line})`)
+— reflects this:
+
+- a component under the **primary root** (`--root`) keeps a plain repo-root-relative path
+  (e.g. `components/bb_foo/include/bb_foo.h`) — byte-identical to single-root output;
+- a component under a **non-primary root** (an extra root) gets the **full absolute
+  path** instead, so it can never be visually confused with a same-shaped relative path
+  under a different root.
+
+### Back-compat
+
+A single-root invocation (no `[discovery]` table in bbtool.toml, no `--extra-root`) is
+byte-identical to pre-B1-1084 output — the multi-root plumbing (`boards.derive_component`,
+`boards.build_graph`, `composition.resolve_composition`, `commands.wire.collect_entries`)
+degenerates to resolving every component against the single passed root, since that root
+is trivially every component's owning root.
+
+### `pio_main` (not yet wired)
+
+`commands.codegen.pio_main(env, root, board, config)` exists as the PlatformIO pre-hook
+entry point (mirrors `commands.version.pio_main`/`commands.scaffold.pio_main`'s shape),
+anticipating a future PlatformIO wiring into `scripts/bbtool_pio.py` — it is **not yet
+called** by anything; nothing changes for existing consumers until that wiring lands.
+
+---
+
 ## `embed` command
 
 Compresses a binary file and emits a C source file with a gzipped byte array.

@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
-from commands.codegen import run
+from commands.codegen import pio_main, run
 
 
 def _write(path: Path, content: str = "") -> None:
@@ -368,6 +368,223 @@ class TestAuthoritativeClosure(unittest.TestCase):
             resolved = self._resolved_requires(root, "board_d")
             self.assertEqual(resolved, {"comp_b", "comp_d"})
             self.assertNotIn("comp_c", resolved)
+
+
+class TestMultiRootDiscovery(unittest.TestCase):
+    """B1-1084: `--extra-root` (CLI, repeatable) and `[discovery].extra_roots`
+    (bbtool.toml, resolved relative to the toml's own dir) both thread into
+    codegen's discovery root list -- a component that exists ONLY under a
+    non-primary root resolves and wires correctly end-to-end. Also covers
+    the concrete `discovery.CollisionError` fix: an uncaught collision must
+    produce a clean `bbtool codegen: error: ...` stderr line, never a raw
+    traceback."""
+
+    def _extra_root_fixture(self, tmp: str):
+        root = Path(tmp) / "consumer"
+        extra = Path(tmp) / "extra"
+        _write(root / ".keep", "")  # empty consumer root -- no components/ of its own
+        _make_component(
+            extra, "bb_ext",
+            "#pragma once\n"
+            "// bbtool:init tier=early fn=bb_ext_init\n"
+            "bb_err_t bb_ext_init(void);\n",
+        )
+        return root, extra
+
+    def test_extra_root_cli_flag_resolves_component(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, extra = self._extra_root_fixture(tmp)
+            components_out = str(root / "out" / "bb_autowire_components.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components="bb_ext", platform="espidf",
+                components_out=components_out, wire_out=wire_out,
+                extra_root=[str(extra)],
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+            source = Path(wire_out).read_text(encoding="utf-8")
+            self.assertIn("bb_ext_init()", source)
+            # Fork 2: a non-primary-root marker's src_file is absolute --
+            # surfaces in the codegen stdout entry listing.
+            self.assertIn(str(extra), buf.getvalue())
+
+    def test_extra_root_toml_config_resolves_component(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, extra = self._extra_root_fixture(tmp)
+            _write_toml(root, f'[discovery]\nextra_roots = ["{extra.as_posix()}"]\n')
+            components_out = str(root / "out" / "bb_autowire_components.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components="bb_ext", platform="espidf",
+                components_out=components_out, wire_out=wire_out,
+                config=str(root / "bbtool.toml"),
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+            source = Path(wire_out).read_text(encoding="utf-8")
+            self.assertIn("bb_ext_init()", source)
+
+    def test_extra_root_toml_relative_path_resolves_against_config_dir(self):
+        """[discovery].extra_roots entries resolve relative to the toml
+        file's OWN dir (mirrors [plugins].paths / load_plugins), not the
+        consumer --root or cwd."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root, extra = self._extra_root_fixture(tmp)
+            config_dir = Path(tmp) / "cfgdir"
+            config_dir.mkdir()
+            rel = os.path.relpath(str(extra), str(config_dir))
+            _write_toml(config_dir, f'[discovery]\nextra_roots = ["{rel}"]\n')
+            components_out = str(root / "out" / "bb_autowire_components.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components="bb_ext", platform="espidf",
+                components_out=components_out, wire_out=wire_out,
+                config=str(config_dir / "bbtool.toml"),
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+            source = Path(wire_out).read_text(encoding="utf-8")
+            self.assertIn("bb_ext_init()", source)
+
+    def test_collision_across_root_and_extra_root_is_clean_error_not_traceback(self):
+        """The CollisionError fix (codegen.py's except tuple): a name
+        collision across --root/--extra-root must produce a clean
+        'bbtool codegen: error: ...' stderr line (rc=1), never an uncaught
+        traceback."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "consumer"
+            extra = Path(tmp) / "extra"
+            _make_component(root, "bb_dup", "#pragma once\n")
+            _make_component(extra, "bb_dup", "#pragma once\n")
+            args = argparse.Namespace(
+                root=str(root), components="bb_dup", platform="espidf",
+                components_out=None, wire_out=None, extra_root=[str(extra)],
+            )
+            err_buf = io.StringIO()
+            with contextlib.redirect_stderr(err_buf):
+                rc = run(args)
+            self.assertEqual(rc, 1)
+            self.assertIn("bbtool codegen: error:", err_buf.getvalue())
+            self.assertIn("bb_dup", err_buf.getvalue())
+
+
+class _FakeEnv:
+    """Minimal stand-in for SCons' env object (mirrors test_scaffold.py's
+    `_FakeEnv`): `pio_main` only ever calls `Exit()` on error (never
+    Append()/get() -- unlike scaffold.pio_main, this path doesn't mutate
+    build flags), so `Exit()` recording is all this needs."""
+
+    def __init__(self):
+        self.exited_with = None
+
+    def Exit(self, code):
+        self.exited_with = code
+
+
+class TestPioMain(unittest.TestCase):
+    """FINDING 2: `codegen.pio_main` (B1-1084 Fork 3, not yet wired into
+    `bbtool_pio.py` -- see the module docstring) had zero test coverage.
+    Covers the success path (both artifacts written, `[discovery]`
+    `extra_roots` resolved relative to the CONSUMER root -- `root`, the arg
+    `pio_main` is called with -- exactly as its own docstring claims) plus
+    every `except (...)  -> env.Exit(1)` branch reachable from this
+    function's own body."""
+
+    def _consumer_and_extra(self, tmp: str):
+        root = Path(tmp) / "consumer"
+        extra = Path(tmp) / "extra"
+        _write(root / ".keep", "")
+        return root, extra
+
+    def test_pio_main_writes_both_artifacts_and_resolves_extra_root_against_consumer_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, extra = self._consumer_and_extra(tmp)
+            _make_component(
+                extra, "bb_pio_fixture",
+                "#pragma once\n"
+                "// bbtool:init tier=early fn=bb_pio_fixture_init\n"
+                "bb_err_t bb_pio_fixture_init(void);\n",
+            )
+            # extra_roots resolved relative to `root` (pio_main's own
+            # docstring convention) -- NOT cwd, NOT bb_root.
+            rel = os.path.relpath(str(extra), str(root))
+            config = {
+                "discovery": {"extra_roots": [rel]},
+                "capability": {},
+                "board": {"native": {"platform": "host", "add_components": ["bb_pio_fixture"]}},
+            }
+            env = _FakeEnv()
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                pio_main(env, str(root), "native", config)
+            self.assertIsNone(env.exited_with)
+
+            components_out = root / "examples" / "smoke" / "main" / "generated" / "bb_autowire_components.cmake"
+            wire_out = root / "main" / "generated" / "bb_app_init.c"
+            wire_cmake_out = root / "main" / "generated" / "bb_app_init.cmake"
+            self.assertTrue(components_out.is_file())
+            self.assertTrue(wire_out.is_file())
+            self.assertTrue(wire_cmake_out.is_file())
+            self.assertIn("bb_pio_fixture", components_out.read_text(encoding="utf-8"))
+            self.assertIn("bb_pio_fixture_init()", wire_out.read_text(encoding="utf-8"))
+            self.assertIn("bb_codegen: wrote", buf.getvalue())
+
+    def test_pio_main_exits_on_unknown_board(self):
+        """ManifestError branch #1: `load_manifest`/`resolve_component_names`
+        raises for a board absent from the (empty) manifest."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _extra = self._consumer_and_extra(tmp)
+            env = _FakeEnv()
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                pio_main(env, str(root), "ghost", {"capability": {}, "board": {}})
+            self.assertEqual(env.exited_with, 1)
+
+    def test_pio_main_exits_when_board_resolves_no_components(self):
+        """ManifestError branch #2: pio_main's own explicit `if not names:
+        raise ManifestError(...)` -- a real board with zero active
+        capabilities/add_components."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _extra = self._consumer_and_extra(tmp)
+            config = {"capability": {}, "board": {"empty": {"platform": "host"}}}
+            env = _FakeEnv()
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                pio_main(env, str(root), "empty", config)
+            self.assertEqual(env.exited_with, 1)
+
+    def test_pio_main_exits_on_missing_provider(self):
+        """A DIFFERENT exception type in the same except tuple
+        (`wire_graph.MissingProviderError`, via a `requires=` marker with no
+        matching provider in the resolved set) -- exercises the tail of the
+        try block (collect_entries/collect_provides_entries/topo_sort), not
+        just the earlier manifest-resolution lines."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root, extra = self._consumer_and_extra(tmp)
+            _make_component(
+                extra, "bb_pio_bad",
+                "#pragma once\n"
+                "// bbtool:init tier=early fn=bb_pio_bad_init requires=ghost_token\n"
+                "bb_err_t bb_pio_bad_init(void);\n",
+            )
+            rel = os.path.relpath(str(extra), str(root))
+            config = {
+                "discovery": {"extra_roots": [rel]},
+                "capability": {},
+                "board": {"native": {"platform": "host", "add_components": ["bb_pio_bad"]}},
+            }
+            env = _FakeEnv()
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                pio_main(env, str(root), "native", config)
+            self.assertEqual(env.exited_with, 1)
 
 
 if __name__ == "__main__":

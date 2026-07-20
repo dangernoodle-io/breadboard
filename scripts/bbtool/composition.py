@@ -30,6 +30,7 @@ import re
 from pathlib import Path
 
 from boards import discover_components, derive_component, resolve_transitive
+from discovery import build_index, normalize_roots
 
 DEFAULT_PLATFORM = "espidf"
 DEFAULT_OUT_REL = os.path.join("examples", "smoke", "main", "generated", "bb_autowire_components.cmake")
@@ -95,7 +96,7 @@ def _read_component_sources(root: str, sources) -> str:
     return "\n".join(chunks)
 
 
-def check_format_registry_backends(root: str, components, graph):
+def check_format_registry_backends(roots, components, graph):
     """Composition-time mis-wiring check (B1-985, precedent B1-981): given a
     resolved composition (`components`, as returned by `resolve_composition`)
     and its already-built `{name: {includes,sources,depends}}` component
@@ -108,6 +109,12 @@ def check_format_registry_backends(root: str, components, graph):
     there's nothing to warn about (registry not composed at all, at least one
     real backend present, or no real consumer reachable).
 
+    `roots` is a single root (str, back-compat) or an ordered list of roots
+    (B1-1084) -- each component's sources are read from ITS OWN owning root
+    (`discovery.build_index(roots).entry(name).root`), never blindly from
+    `roots[0]`, so a format-registry consumer/backend discovered under a
+    non-primary root is still read correctly.
+
     Non-fatal by design (WARN, not a hard error) -- a composition missing a
     backend is a legitimate host/scaffold subset in some cases; the point is
     to surface the silent BB_ERR_UNSUPPORTED trap at build time instead of
@@ -116,13 +123,19 @@ def check_format_registry_backends(root: str, components, graph):
     if FORMAT_REGISTRY_COMPONENT not in names:
         return None
 
+    roots_list = normalize_roots(roots)
+    index = build_index(roots_list)
+    primary_root = roots_list[0] if roots_list else ""
+
     backends = []
     consumers = []
     for name in sorted(names):
         if name == FORMAT_REGISTRY_COMPONENT:
             continue
         entry = graph.get(name) or {}
-        text = _read_component_sources(root, entry.get("sources", []))
+        owning_entry = index.entry(name)
+        entry_root = owning_entry.root if owning_entry is not None else primary_root
+        text = _read_component_sources(entry_root, entry.get("sources", []))
         # Backend and consumer are detected INDEPENDENTLY -- a component can
         # legitimately be both (e.g. a format backend that also looks up
         # another format's render fn). A backend match must never suppress
@@ -145,15 +158,18 @@ def check_format_registry_backends(root: str, components, graph):
     )
 
 
-def _build_composition_graph(root: str, names, platform: str = DEFAULT_PLATFORM):
+def _build_composition_graph(roots, names, platform: str = DEFAULT_PLATFORM):
     """Shared BFS derive loop behind `resolve_composition`/
     `resolve_composition_with_graph` -- derives each named component's
     {includes,sources,depends} lazily over `depends`, exactly mirroring
     `boards.build_graph()`'s derive loop, but for an explicit requested set
-    with no capability/board manifest resolution step. Returns
+    with no capability/board manifest resolution step. `roots` is a single
+    root (str, back-compat) or an ordered list of roots (B1-1084) —
+    `discover_components`/`derive_component` resolve each name against its
+    OWN owning root (see `boards.derive_component`'s docstring). Returns
     `(graph, universe)`; callers combine with `resolve_transitive` for the
     ordered closure."""
-    universe = discover_components(root)
+    universe = discover_components(roots)
 
     graph = {}
     frontier = list(names)
@@ -168,7 +184,7 @@ def _build_composition_graph(root: str, names, platform: str = DEFAULT_PLATFORM)
             # (e.g. an ESP-IDF SDK component like esp_timer) — never derived;
             # resolve_transitive's universe check filters it out below.
             continue
-        entry = derive_component(root, name, platform)
+        entry = derive_component(roots, name, platform)
         graph[name] = entry
         frontier.extend(d for d in entry["depends"] if d not in visited)
 
@@ -178,23 +194,25 @@ def _build_composition_graph(root: str, names, platform: str = DEFAULT_PLATFORM)
     return graph, universe
 
 
-def resolve_composition(root: str, names, platform: str = DEFAULT_PLATFORM):
+def resolve_composition(roots, names, platform: str = DEFAULT_PLATFORM):
     """Compute the transitive closure over `names` — Raises `ManifestError`
     for any name (requested or transitively depended-on) not found under
     `components/` or `platform/{host,espidf,arduino}/` — `resolve_transitive`
     performs this check for every name, requested or transitive, so no
-    separate pre-check is needed here."""
-    graph, universe = _build_composition_graph(root, names, platform)
+    separate pre-check is needed here. `roots` is a single root (str,
+    back-compat) or an ordered list of roots (B1-1084)."""
+    graph, universe = _build_composition_graph(roots, names, platform)
     return resolve_transitive(names, graph, universe)
 
 
-def resolve_composition_with_graph(root: str, names, platform: str = DEFAULT_PLATFORM):
+def resolve_composition_with_graph(roots, names, platform: str = DEFAULT_PLATFORM):
     """Same computation as `resolve_composition`, but also returns the
     already-built `{name: {includes,sources,depends}}` component graph so a
     caller needing per-component source lists (e.g. B1-985's
     `check_format_registry_backends`) reuses it instead of re-deriving each
-    component from scratch. Returns `(components, graph)`."""
-    graph, universe = _build_composition_graph(root, names, platform)
+    component from scratch. `roots` is a single root (str, back-compat) or an
+    ordered list of roots (B1-1084). Returns `(components, graph)`."""
+    graph, universe = _build_composition_graph(roots, names, platform)
     components = resolve_transitive(names, graph, universe)
     return components, graph
 

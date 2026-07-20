@@ -233,6 +233,25 @@ class TestDeriveComponent(unittest.TestCase):
             entry = derive_component(str(root), "bb_bare", "host")
             self.assertEqual(entry["depends"], [])
 
+    def test_unknown_name_empty_roots_falls_back_to_dot(self):
+        """#3: `entry is None` guard, empty-`roots` branch — a name absent
+        from the index with NO roots at all falls back to the literal '.'
+        owning root. Unreachable from any real call site (every real caller
+        passes a non-empty `roots`), but the fallback must not raise."""
+        entry = derive_component([], "bb_ghost", "host")
+        self.assertEqual(entry, {"includes": [], "sources": [], "depends": []})
+
+    def test_unknown_name_nonempty_roots_falls_back_to_first_root(self):
+        """#3: `entry is None` guard, non-empty-`roots` branch — a name
+        absent from the index falls back to `roots[0]` rather than raising.
+        Also unreachable from a real call site (a name absent from every
+        scanned root never reaches `derive_component` at all — callers
+        filter against `discover_components`'s universe first), but the
+        fallback must not raise."""
+        with tempfile.TemporaryDirectory() as tmp:
+            entry = derive_component([tmp], "bb_ghost", "host")
+            self.assertEqual(entry, {"includes": [], "sources": [], "depends": []})
+
     def test_platform_only_component_depends_are_read_from_platform_cmakelists(self):
         # B1-903: a platform-only component (no components/<name>/ dir at
         # all -- e.g. bb_event_routes_espidf) declares its own

@@ -65,7 +65,7 @@ import glob
 import os
 from typing import Dict, List, Tuple
 
-from discovery import build_index
+from discovery import build_index, normalize_roots
 from wire_parse import InitEntry, ProvidesEntry, parse_markers, parse_provides_markers
 
 DEFAULT_OUT_REL = os.path.join("main", "generated", "bb_app_init.c")
@@ -83,14 +83,23 @@ class WireError(Exception):
 # Marker collection
 # ---------------------------------------------------------------------------
 
-def _component_headers(root: str, name: str, platform: str) -> List[str]:
-    """Public header files for one component, repo-root-relative POSIX paths,
-    sorted for determinism: components/<name>/include/*.h, falling back to
-    components/<name>/*.h (flat layout), plus platform/<platform>/<name>/
-    (include/ or flat) — looked up via the discovery index (B1-979) rather
-    than a hand-rolled path-position encoding; mirrors
-    boards.derive_component's directory convention."""
-    index = build_index([root])
+def _component_headers(roots, name: str, platform: str) -> List[Tuple[str, str]]:
+    """Public header files for one component — looked up via the discovery
+    index (B1-979) rather than a hand-rolled path-position encoding; mirrors
+    boards.derive_component's directory convention: components/<name>/
+    include/*.h, falling back to components/<name>/*.h (flat layout), plus
+    platform/<platform>/<name>/ (include/ or flat), sorted for determinism.
+
+    `roots` is a single root (str, back-compat) or an ordered list of roots
+    (B1-1084). Returns `(owning_root, rel_header)` pairs — `rel_header` is
+    relative to `name`'s OWNING root (`index.entry(name).root`), never
+    blindly to `roots[0]`, so a component discovered under a non-primary
+    root grep-resolves correctly instead of raising/misresolving against the
+    wrong tree."""
+    roots_list = normalize_roots(roots)
+    index = build_index(roots_list)
+    entry = index.entry(name)
+    owning_root = entry.root if entry is not None else (roots_list[0] if roots_list else "")
     headers: List[str] = []
 
     comp_dir = index.component_dir(name)
@@ -109,38 +118,64 @@ def _component_headers(root: str, name: str, platform: str) -> List[str]:
         else:
             headers.extend(sorted(glob.glob(os.path.join(str(plat_dir), "*.h"))))
 
-    return [os.path.relpath(h, root).replace(os.sep, "/") for h in headers]
+    return [(owning_root, os.path.relpath(h, owning_root).replace(os.sep, "/")) for h in headers]
 
 
-def collect_entries(root: str, components: List[str], platform: str) -> List[InitEntry]:
+def _src_file_repr(entry_root: str, primary_root: str, rel_header: str) -> str:
+    """B1-1084 Fork 2: the `src_file` recorded on each parsed marker (feeds
+    generated `bb_app_init.c` comments + `bbtool codegen` stdout, e.g.
+    `[{tier}] {fn} ({src_file}:{line})`) must stay unambiguous across roots.
+    A component under the PRIMARY root (`roots[0]`) keeps the plain
+    repo-root-relative path — byte-identical to pre-B1-1084 output, since a
+    single-root call always has `entry_root == primary_root`. A component
+    under a NON-primary root gets the full absolute path instead of a bare
+    relative one, which could otherwise collide (visually, in a human-read
+    log) with an identically-shaped relative path under a different root."""
+    if entry_root == primary_root:
+        return rel_header
+    return os.path.join(entry_root, rel_header).replace(os.sep, "/")
+
+
+def collect_entries(roots, components: List[str], platform: str) -> List[InitEntry]:
     """Grep every resolved component's public header(s), in composition
     order (dependency-before-dependent, as returned by resolve_composition),
     then header-path order, then in-file line order — this fixed walk order
-    is the "parse order" wire_graph.topo_sort tie-breaks on."""
+    is the "parse order" wire_graph.topo_sort tie-breaks on.
+
+    `roots` is a single root (str, back-compat) or an ordered list of roots
+    (B1-1084) — see `_component_headers`/`_src_file_repr` for the owning-root
+    resolution and `src_file` representation this threads through."""
+    roots_list = normalize_roots(roots)
+    primary_root = roots_list[0] if roots_list else ""
     entries: List[InitEntry] = []
     for name in components:
-        for rel_header in _component_headers(root, name, platform):
-            abs_header = os.path.join(root, rel_header)
+        for entry_root, rel_header in _component_headers(roots_list, name, platform):
+            abs_header = os.path.join(entry_root, rel_header)
             with open(abs_header, encoding="utf-8") as f:
                 text = f.read()
-            entries.extend(parse_markers(text, src_file=rel_header))
+            src_file = _src_file_repr(entry_root, primary_root, rel_header)
+            entries.extend(parse_markers(text, src_file=src_file))
     return entries
 
 
-def collect_provides_entries(root: str, components: List[str], platform: str) -> List[ProvidesEntry]:
+def collect_provides_entries(roots, components: List[str], platform: str) -> List[ProvidesEntry]:
     """Grep every resolved component's public header(s) for `// bbtool:provides`
     declaration markers, same walk order as `collect_entries` (irrelevant here
     since these are unordered key->symbol declarations, never tier-sorted).
     A SECOND, parallel collector alongside `collect_entries` — never merged
     into its InitEntry return, since these records never enter the tier
-    loop."""
+    loop. `roots` is a single root (str, back-compat) or an ordered list of
+    roots (B1-1084) — same owning-root resolution as `collect_entries`."""
+    roots_list = normalize_roots(roots)
+    primary_root = roots_list[0] if roots_list else ""
     entries: List[ProvidesEntry] = []
     for name in components:
-        for rel_header in _component_headers(root, name, platform):
-            abs_header = os.path.join(root, rel_header)
+        for entry_root, rel_header in _component_headers(roots_list, name, platform):
+            abs_header = os.path.join(entry_root, rel_header)
             with open(abs_header, encoding="utf-8") as f:
                 text = f.read()
-            entries.extend(parse_provides_markers(text, src_file=rel_header))
+            src_file = _src_file_repr(entry_root, primary_root, rel_header)
+            entries.extend(parse_provides_markers(text, src_file=src_file))
     return entries
 
 

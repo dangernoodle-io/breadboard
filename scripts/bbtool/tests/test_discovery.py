@@ -9,8 +9,12 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
-from discovery import CollisionError, build_index
+from discovery import CollisionError, build_index, normalize_roots
+from boards import derive_component
+from composition import resolve_composition
+from commands.wire import collect_entries, collect_provides_entries
 
 
 class _DiscoveryTestCase(unittest.TestCase):
@@ -42,7 +46,11 @@ def _make_platform(root: Path, layer: str, name: str, files=None) -> None:
 class TestSingleRootDiscovery(_DiscoveryTestCase):
     def test_component_only(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            # realpath'd up front: `build_index` canonicalizes internally, so
+            # comparing its output against a non-canonical `root` Path would
+            # spuriously fail on a platform where the OS temp dir itself
+            # sits behind a symlink (e.g. macOS /var -> /private/var).
+            root = Path(os.path.realpath(tmp))
             _make_component(root, "bb_core")
             index = build_index([str(root)])
             self.assertEqual(index.names(), {"bb_core"})
@@ -51,7 +59,7 @@ class TestSingleRootDiscovery(_DiscoveryTestCase):
 
     def test_platform_only(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(os.path.realpath(tmp))
             _make_platform(root, "espidf", "bb_routes_espidf")
             index = build_index([str(root)])
             self.assertEqual(index.names(), {"bb_routes_espidf"})
@@ -63,7 +71,7 @@ class TestSingleRootDiscovery(_DiscoveryTestCase):
 
     def test_component_and_platform(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(os.path.realpath(tmp))
             _make_component(root, "bb_foo")
             _make_platform(root, "host", "bb_foo")
             _make_platform(root, "espidf", "bb_foo")
@@ -117,7 +125,10 @@ class TestIndexLookups(_DiscoveryTestCase):
 
     def test_entry_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            # See test_component_only's comment: realpath up front so the
+            # expected `entry.root`/`entry.component_dir` match
+            # `build_index`'s internal canonicalization.
+            root = Path(os.path.realpath(tmp))
             _make_component(root, "bb_core")
             _make_platform(root, "host", "bb_core")
             index = build_index([str(root)])
@@ -131,7 +142,11 @@ class TestIndexLookups(_DiscoveryTestCase):
 class TestOwnerOfPath(_DiscoveryTestCase):
     def test_owner_under_components(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            # realpath up front — `owner_of_path` matches `path` against
+            # this index's (now canonicalized) roots via `relative_to`, so a
+            # non-canonical `src` built from a symlink-alias `root` would
+            # never match and would spuriously return `None`.
+            root = Path(os.path.realpath(tmp))
             _make_component(root, "bb_foo")
             src = root / "components" / "bb_foo" / "src" / "x.c"
             _write(src, "// x\n")
@@ -140,7 +155,7 @@ class TestOwnerOfPath(_DiscoveryTestCase):
 
     def test_owner_under_platform(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(os.path.realpath(tmp))
             _make_platform(root, "espidf", "bb_foo", files=["x.c"])
             path = root / "platform" / "espidf" / "bb_foo" / "x.c"
             index = build_index([str(root)])
@@ -187,6 +202,196 @@ class TestRootsNormalization(_DiscoveryTestCase):
             duped = build_index([str(root), str(root)])
             self.assertEqual(duped.names(), single.names())
             self.assertEqual(duped.names(), {"bb_dup_root"})
+
+
+def _make_component_with_src(root: Path, name: str) -> None:
+    comp = root / "components" / name
+    _write(comp / "CMakeLists.txt", "idf_component_register()\n")
+    _write(comp / "include" / f"{name}.h", "#pragma once\n")
+    _write(comp / "src" / f"{name}.c", "// src\n")
+
+
+def _make_component_with_marker(root: Path, name: str, marker: str) -> None:
+    comp = root / "components" / name
+    _write(comp / "CMakeLists.txt", "idf_component_register()\n")
+    _write(comp / "include" / f"{name}.h", f"#pragma once\n{marker}void {name}_init(void);\n")
+
+
+class TestMultiRootOwningRoot(_DiscoveryTestCase):
+    """B1-1084: `boards.derive_component`, `composition.resolve_composition`,
+    and `commands.wire.collect_entries`/`collect_provides_entries` must
+    resolve each component against its OWN owning root (`ComponentEntry.root`
+    from the discovery index built over every root), never blindly against
+    `roots[0]` -- the load-bearing fix this ticket is about. `roots[0]` here
+    (`root_a`) never contains the component under test, so a stale
+    single-root resolution would either raise (paths not relative to
+    `root_a`) or silently miss the component entirely -- these tests would
+    fail loudly under the pre-fix behavior."""
+
+    def test_derive_component_resolves_under_owning_root_not_primary(self):
+        with tempfile.TemporaryDirectory() as tmp_a, tempfile.TemporaryDirectory() as tmp_b:
+            root_a, root_b = Path(tmp_a), Path(tmp_b)
+            _make_component(root_a, "bb_only_a")
+            _make_component_with_src(root_b, "bb_only_b")
+            entry = derive_component([str(root_a), str(root_b)], "bb_only_b", "host")
+            self.assertEqual(
+                entry["includes"],
+                ["components/bb_only_b/include", "components/bb_only_b/src"],
+            )
+            self.assertEqual(entry["sources"], ["components/bb_only_b/src/bb_only_b.c"])
+
+    def test_resolve_composition_collision_names_both_roots(self):
+        with tempfile.TemporaryDirectory() as tmp_a, tempfile.TemporaryDirectory() as tmp_b:
+            root_a, root_b = Path(tmp_a), Path(tmp_b)
+            _make_component(root_a, "bb_dup")
+            _make_component(root_b, "bb_dup")
+            with self.assertRaises(CollisionError) as cm:
+                resolve_composition([str(root_a), str(root_b)], ["bb_dup"], platform="host")
+            msg = str(cm.exception)
+            self.assertIn(str(root_a), msg)
+            self.assertIn(str(root_b), msg)
+
+    def test_collect_entries_grep_and_src_file_for_root_b_component(self):
+        with tempfile.TemporaryDirectory() as tmp_a, tempfile.TemporaryDirectory() as tmp_b:
+            root_a, root_b = Path(tmp_a), Path(tmp_b)
+            _make_component(root_a, "bb_primary_only")
+            _make_component_with_marker(
+                root_b, "bb_extra", "// bbtool:init tier=early fn=bb_extra_init\n",
+            )
+            roots = [str(root_a), str(root_b)]
+
+            entries = collect_entries(roots, ["bb_extra"], "host")
+            self.assertEqual([e.fn for e in entries], ["bb_extra_init"])
+            # Fork 2: a component under a NON-primary root gets an absolute
+            # src_file -- never a bare "components/bb_extra/..." relative
+            # path that could visually collide with a same-shaped path under
+            # root_a.
+            self.assertTrue(os.path.isabs(entries[0].src_file))
+            # `collect_entries` normalizes `roots` (realpath, Finding 1) before
+            # resolving each component's owning root, so the recorded
+            # `src_file` is prefixed with root_b's CANONICAL form -- which may
+            # differ in spelling from `str(root_b)` on a platform where the
+            # temp dir itself sits behind a symlink (e.g. macOS /var ->
+            # /private/var).
+            self.assertTrue(entries[0].src_file.startswith(os.path.realpath(str(root_b))))
+
+            provides = collect_provides_entries(roots, ["bb_extra"], "host")
+            self.assertEqual(provides, [])
+
+    def test_primary_root_component_keeps_relative_src_file(self):
+        """Back-compat companion to the above: a component under `roots[0]`
+        (the primary root) keeps the plain repo-root-relative `src_file` --
+        byte-identical to pre-B1-1084 single-root output -- even in a
+        multi-root call, since `entry_root == primary_root` for it."""
+        with tempfile.TemporaryDirectory() as tmp_a, tempfile.TemporaryDirectory() as tmp_b:
+            root_a, root_b = Path(tmp_a), Path(tmp_b)
+            _make_component_with_marker(
+                root_a, "bb_primary", "// bbtool:init tier=early fn=bb_primary_init\n",
+            )
+            _make_component(root_b, "bb_only_b")
+            entries = collect_entries([str(root_a), str(root_b)], ["bb_primary"], "host")
+            self.assertEqual(
+                entries[0].src_file, "components/bb_primary/include/bb_primary.h"
+            )
+
+
+class TestNormalizeRootsDirect(_DiscoveryTestCase):
+    """#6: direct unit coverage of `normalize_roots` itself — the bare
+    `os.PathLike` branch (a single `Path`, not wrapped in a list) is never
+    hit by any other caller, since every real call site already passes
+    either a bare `str` or a list."""
+
+    def test_bare_str_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(normalize_roots(tmp), [os.path.realpath(tmp)])
+
+    def test_bare_path_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(normalize_roots(Path(tmp)), [os.path.realpath(tmp)])
+
+    def test_list_of_mixed_path_and_str_dedupes(self):
+        with tempfile.TemporaryDirectory() as tmp_a, tempfile.TemporaryDirectory() as tmp_b:
+            result = normalize_roots([Path(tmp_a), str(tmp_a), tmp_b])
+            self.assertEqual(result, [os.path.realpath(tmp_a), os.path.realpath(tmp_b)])
+
+
+class TestNormalizeRootsCanonicalization(_DiscoveryTestCase):
+    """FINDING 1 (HIGH): two spellings of the SAME physical directory must
+    canonicalize to one root before dedup/collision-check — a symlink alias,
+    a trailing slash, or a relative `./`/`../` form must never raise a
+    spurious `CollisionError` just because the string spelling differs.
+    A genuine collision (two DISTINCT directories, same component name)
+    must still raise."""
+
+    def test_symlink_alias_of_same_dir_collapses_no_collision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp) / "real"
+            _make_component(real, "bb_sym")
+            alias = Path(tmp) / "alias"
+            alias.symlink_to(real, target_is_directory=True)
+            index = build_index(normalize_roots([str(real), str(alias)]))
+            self.assertEqual(index.names(), {"bb_sym"})
+
+    def test_trailing_slash_spelling_collapses_no_collision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_slash")
+            index = build_index(normalize_roots([str(root), str(root) + os.sep]))
+            self.assertEqual(index.names(), {"bb_slash"})
+
+    def test_relative_form_spelling_collapses_no_collision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_rel")
+            rel_form = os.path.join(str(root), ".", "..", root.name)
+            index = build_index(normalize_roots([str(root), rel_form]))
+            self.assertEqual(index.names(), {"bb_rel"})
+
+    def test_genuine_distinct_dir_collision_still_raises(self):
+        with tempfile.TemporaryDirectory() as tmp_a, tempfile.TemporaryDirectory() as tmp_b:
+            root_a, root_b = Path(tmp_a), Path(tmp_b)
+            _make_component(root_a, "bb_real_dup")
+            _make_component(root_b, "bb_real_dup")
+            with self.assertRaises(CollisionError):
+                build_index(normalize_roots([str(root_a), str(root_b)]))
+
+
+class TestBuildIndexCanonicalizesDirectly(_DiscoveryTestCase):
+    """Structural nit (review, B1-979 follow-up): `build_index()` must
+    canonicalize by construction, not merely by convention through
+    `normalize_roots`. Proof the pre-fix version was bypassable:
+    `commands/lint.py`'s `_emit_seam_owner_from_path` calls
+    `build_index([str(root)])` directly, skipping `normalize_roots`
+    entirely — harmless with today's single-root call, but the next such
+    direct caller with a symlink-aliased or trailing-slash-spelled root
+    would reintroduce the original HIGH. These tests call `build_index`
+    ALONE, with raw un-normalized spellings, mirroring that bypass path."""
+
+    def test_symlink_alias_dedupes_without_normalize_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp) / "real"
+            _make_component(real, "bb_direct_sym")
+            alias = Path(tmp) / "alias"
+            alias.symlink_to(real, target_is_directory=True)
+            # No normalize_roots() call — raw string spellings straight into
+            # build_index, exactly like lint.py's bypass path.
+            index = build_index([str(real), str(alias)])
+            self.assertEqual(index.names(), {"bb_direct_sym"})
+
+    def test_trailing_slash_dedupes_without_normalize_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_direct_slash")
+            index = build_index([str(root), str(root) + os.sep])
+            self.assertEqual(index.names(), {"bb_direct_slash"})
+
+    def test_genuine_distinct_dir_collision_still_raises_without_normalize_roots(self):
+        with tempfile.TemporaryDirectory() as tmp_a, tempfile.TemporaryDirectory() as tmp_b:
+            root_a, root_b = Path(tmp_a), Path(tmp_b)
+            _make_component(root_a, "bb_direct_real_dup")
+            _make_component(root_b, "bb_direct_real_dup")
+            with self.assertRaises(CollisionError):
+                build_index([str(root_a), str(root_b)])
 
 
 class TestRealTreeSanity(_DiscoveryTestCase):
