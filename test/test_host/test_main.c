@@ -3768,13 +3768,14 @@ void test_settings_update_check_enabled_fails_open_on_backend_error(void);
 void test_bb_temp_read_soc_default_absent(void);
 void test_bb_temp_read_soc_injected_present(void);
 void test_bb_temp_read_soc_null_out_returns_false(void);
-void test_bb_temp_health_extender_absent_by_default(void);
-void test_bb_temp_health_extender_present_with_value(void);
-void test_bb_temp_health_extender_value_rounds_to_one_decimal(void);
-void test_bb_temp_health_schema_fragment_present(void);
-void test_bb_temp_emit_section_absent(void);
-void test_bb_temp_emit_section_present_with_value(void);
-void test_bb_temp_emit_section_rounds_to_one_decimal(void);
+void test_bb_temp_health_fill_rejects_null_dst(void);
+void test_bb_temp_health_fill_absent_by_default(void);
+void test_bb_temp_health_fill_present_with_value(void);
+void test_bb_temp_health_fill_rounds_to_one_decimal(void);
+void test_bb_temp_register_info_registers_into_new_table(void);
+void test_bb_temp_register_info_schema_props_present(void);
+void test_bb_temp_health_desc_wire_shape_absent_omits_soc_c(void);
+void test_bb_temp_health_desc_wire_shape_present_includes_soc_c(void);
 
 // Forward declarations from test_bb_led_gpio.c
 void test_gpio_open_close(void);
@@ -7899,13 +7900,14 @@ int main(void) {
     RUN_TEST(test_bb_temp_read_soc_default_absent);
     RUN_TEST(test_bb_temp_read_soc_injected_present);
     RUN_TEST(test_bb_temp_read_soc_null_out_returns_false);
-    RUN_TEST(test_bb_temp_health_extender_absent_by_default);
-    RUN_TEST(test_bb_temp_health_extender_present_with_value);
-    RUN_TEST(test_bb_temp_health_extender_value_rounds_to_one_decimal);
-    RUN_TEST(test_bb_temp_health_schema_fragment_present);
-    RUN_TEST(test_bb_temp_emit_section_absent);
-    RUN_TEST(test_bb_temp_emit_section_present_with_value);
-    RUN_TEST(test_bb_temp_emit_section_rounds_to_one_decimal);
+    RUN_TEST(test_bb_temp_health_fill_rejects_null_dst);
+    RUN_TEST(test_bb_temp_health_fill_absent_by_default);
+    RUN_TEST(test_bb_temp_health_fill_present_with_value);
+    RUN_TEST(test_bb_temp_health_fill_rounds_to_one_decimal);
+    RUN_TEST(test_bb_temp_register_info_registers_into_new_table);
+    RUN_TEST(test_bb_temp_register_info_schema_props_present);
+    RUN_TEST(test_bb_temp_health_desc_wire_shape_absent_omits_soc_c);
+    RUN_TEST(test_bb_temp_health_desc_wire_shape_present_includes_soc_c);
 
     // bb_led_gpio tests
     RUN_TEST(test_gpio_open_close);

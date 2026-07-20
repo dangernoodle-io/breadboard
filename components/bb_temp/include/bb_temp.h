@@ -13,18 +13,27 @@ extern "C" {
  *    sensor (ESP32-S2/S3/C3/C6/H2/... only; returns false on unsupported parts
  *    such as the classic ESP32 WROOM-32).
  *  - bb_temp_register_info(): to expose a "temp" section on /api/health with
- *    a schema contributed via bb_health_register_section.
+ *    a schema contributed via bb_health_section_register (the composer-shaped
+ *    seam, bb_health_section.h -- B1-1098, PR-3 of the bb_health/bb_response
+ *    migration chain, epic B1-1054).
  *
- * Call bb_temp_register_info() before bb_http_server_start (before the health
- * section table is frozen).
+ * ADDITIVE AND INERT (B1-1098): registering here populates only the NEW
+ * bb_health_section table, which nothing renders yet -- the live /api/health
+ * handler still assembles its response from the legacy
+ * bb_health_register_section() registry (bb_health.h), untouched by this
+ * component. The cutover that makes this section visible on the wire again
+ * is a later PR (B1-1054 PR-5).
+ *
+ * Call bb_temp_register_info() before the section table is frozen.
  *
  * Presence of this satellite component in the build (via REQUIRES) is the
  * opt-in mechanism — no Kconfig gate is needed.
  */
 
 #include <stdbool.h>
-#include "bb_http_server.h"
-#include "bb_json.h"
+#include "bb_core.h"
+#include "bb_health_section.h"
+#include "bb_serialize.h"
 
 /*
  * Read the SoC internal die temperature.
@@ -34,31 +43,48 @@ extern "C" {
  */
 bool bb_temp_read_soc(float *out_celsius);
 
-/*
- * Emit the temp JSON section into obj.
- * Calls bb_temp_read_soc() and writes:
- *   { "present": true,  "soc_c": <rounded-1dp> }  when sensor available
- *   { "present": false }                            when absent
- * SSOT formatter — called by bb_temp_register_info's get_fn and by any
- * future telemetry source. Reads live; does NOT poll.
- */
-void bb_temp_emit_section(bb_json_t obj);
+// The "temp" /api/health section's snapshot: bool present + the SoC
+// temperature (Celsius, rounded to one decimal -- same value-level rounding
+// today's emitter applies) widened to double for BB_TYPE_F64 (bb_serialize_
+// walk()'s F64 case always memcpy()s a fixed 8 bytes at the descriptor
+// offset). soc_c's exact wire DIGIT formatting (fixed-6 vs
+// shortest-round-trippable) is a render-level concern (B1-1102's
+// f64_shortest flag), selected later by the composer at cutover (B1-1054
+// PR-5) -- not this snapshot's concern.
+typedef struct {
+    bool   present;
+    double soc_c;
+} bb_temp_health_snap_t;
+
+// Format-agnostic descriptor SSOT for bb_temp_health_snap_t. `soc_c` is
+// omitted (present=false predicate) when the sensor read is absent --
+// mirrors today's `{ "present": false }` (no "soc_c" key) shape.
+extern const bb_serialize_desc_t bb_temp_health_desc;
+
+// bb_health_fill_fn adapter: fills `dst` (a bb_temp_health_snap_t) from a
+// live bb_temp_read_soc() call. `args` is unused (this section takes no
+// query params). Returns BB_ERR_INVALID_ARG on NULL dst; the bb_health
+// composer itself never passes NULL, so in composed use it always returns
+// BB_OK (bb_health_section_register() validates snap_desc/fill at
+// registration time, not per-call).
+bb_err_t bb_temp_health_fill(void *dst, const bb_health_fill_args_t *args);
 
 /*
  * Register a /api/health section named "temp" that emits:
  *   { "present": <bool> [, "soc_c": <number>] }
- * Also contributes a JSON-Schema value to the /api/health 200 response schema
- * via bb_health_register_section.
- * Call before bb_http_server_start.
+ * via bb_health_section_register() (bb_health_section.h). Also contributes
+ * a hand-authored JSON-Schema fragment for this section's object.
+ * Call before the section table is frozen.
  */
 void bb_temp_register_info(void);
 
 /**
- * Registry hook — calls bb_temp_register_info(). server is unused
- * (bb_temp has no HTTP routes of its own, only a /api/health section).
+ * Registry hook — calls bb_temp_register_info(). Takes no http_server
+ * handle: bb_temp has no HTTP routes of its own, only a /api/health
+ * section, so registering it needs no bb_http_server dependency.
  */
-// bbtool:init tier=regular fn=bb_temp_autoregister_init server=true
-bb_err_t bb_temp_autoregister_init(bb_http_handle_t server);
+// bbtool:init tier=regular fn=bb_temp_autoregister_init
+bb_err_t bb_temp_autoregister_init(void);
 
 #ifdef __cplusplus
 }
