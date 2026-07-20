@@ -130,35 +130,8 @@ class TestScanAutoregisterAndAutoAttach(unittest.TestCase):
             )
 
 
-class TestScanPubSink(unittest.TestCase):
-    def test_finds_type_and_add_sink(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            _write(root, "platform/host/bb_fake/bb_fake.c", (
-                "bb_pub_sink_t s;\n"
-                "bb_pub_add_sink(&s);\n"
-            ))
-            found = scan_all(str(root))
-            self.assertIn(Marker("pub_sink", "platform/host/bb_fake/bb_fake.c", "bb_pub_sink_t"), found)
-            self.assertIn(Marker("pub_sink", "platform/host/bb_fake/bb_fake.c", "bb_pub_add_sink"), found)
-
-    def test_identity_is_path_insensitive_by_component(self):
-        # Same literal id ("bb_pub_sink_t") in two different components must
-        # not collide under identity — each component's occurrence is its
-        # own ratchet entry.
-        m1 = Marker("pub_sink", "components/bb_sink_a/bb_sink_a.c", "bb_pub_sink_t")
-        m2 = Marker("pub_sink", "components/bb_sink_b/bb_sink_b.c", "bb_pub_sink_t")
-        self.assertNotEqual(identity(m1), identity(m2))
-        m3 = Marker("pub_sink", "platform/host/bb_sink_a/other_file.c", "bb_pub_sink_t")
-        # Different filename, same owning directory name -> same identity
-        # (rename-stable within a component).
-        self.assertEqual(
-            identity(Marker("pub_sink", "components/bb_sink_a/x.c", "bb_pub_sink_t")),
-            identity(Marker("pub_sink", "components/bb_sink_a/y.c", "bb_pub_sink_t")),
-        )
-        self.assertIsNotNone(m3)
-
-    def test_non_pub_sink_identity_is_type_and_id(self):
+class TestIdentity(unittest.TestCase):
+    def test_identity_is_type_and_id(self):
         m = Marker("BB_INIT_REGISTER", "components/bb_fake/bb_fake.c", "bb_fake")
         self.assertEqual(identity(m), ("BB_INIT_REGISTER", "bb_fake"))
 

@@ -8,8 +8,7 @@ whose name does not start with `_`) exposing one or more
 and gets its own baseline at `.baseline/bbtool/fence/<module-name>.json` by
 the same convention. Optionally define a module-level
 `identity(marker) -> tuple` to override the default `(type, id)`
-ratchet-diff identity key (see `fence.di_legacy` for the path-insensitive
-pub_sink example).
+ratchet-diff identity key.
 
 See `fence/di_legacy.py` for a concrete family and `fence/_base.py` for the
 generic engine (file walking, Marker type, baseline load/save, diff).
