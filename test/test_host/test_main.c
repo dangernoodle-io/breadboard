@@ -1610,6 +1610,12 @@ void test_wifi_creds_apply_patch_mode_would_reuse_stale_pending_password(void);
 void test_wifi_creds_apply_post_mode_missing_ssid_rejected(void);
 void test_wifi_creds_apply_post_mode_full_replace(void);
 void test_wifi_creds_apply_post_mode_missing_password_is_open_network(void);
+void test_wifi_creds_apply_truncated_body_maps_to_400_not_500(void);
+void test_wifi_creds_apply_malformed_body_maps_to_400_not_500(void);
+void test_wifi_creds_apply_non_parse_error_maps_to_500(void);
+void test_wifi_creds_apply_ok_maps_to_202(void);
+void test_wifi_creds_apply_invalid_arg_and_unsupported_map_to_400(void);
+void test_wifi_creds_apply_validation_maps_to_400(void);
 
 // Forward declarations from test_ota_validator.c
 void test_ota_validator_is_pending_false_on_host(void);
@@ -10246,6 +10252,12 @@ int main(void) {
     RUN_TEST(test_wifi_creds_apply_post_mode_missing_ssid_rejected);
     RUN_TEST(test_wifi_creds_apply_post_mode_full_replace);
     RUN_TEST(test_wifi_creds_apply_post_mode_missing_password_is_open_network);
+    RUN_TEST(test_wifi_creds_apply_truncated_body_maps_to_400_not_500);
+    RUN_TEST(test_wifi_creds_apply_malformed_body_maps_to_400_not_500);
+    RUN_TEST(test_wifi_creds_apply_non_parse_error_maps_to_500);
+    RUN_TEST(test_wifi_creds_apply_ok_maps_to_202);
+    RUN_TEST(test_wifi_creds_apply_invalid_arg_and_unsupported_map_to_400);
+    RUN_TEST(test_wifi_creds_apply_validation_maps_to_400);
 
     RUN_TEST(test_bb_diag_register_section_success);
     RUN_TEST(test_bb_diag_register_section_null_section_returns_invalid_arg);

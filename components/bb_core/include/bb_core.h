@@ -54,6 +54,12 @@ typedef esp_err_t bb_err_t;
 #define BB_ERR_VALIDATION       (BB_ERR_BASE + 1)
 #define BB_ERR_CONFLICT         (BB_ERR_BASE + 2)
 #define BB_ERR_UNAUTHORIZED     (BB_ERR_BASE + 3)
+// Parse-layer error namespace: disjoint from application/driver-level codes
+// (BB_ERR_VALIDATION, BB_ERR_INVALID_STATE) so a route can tell "the request
+// body failed to parse" apart from "an apply() hook rejected the value" —
+// both used to alias the same codes, and callers guessed wrong.
+#define BB_ERR_PARSE_GRAMMAR    (BB_ERR_BASE + 4)
+#define BB_ERR_PARSE_INCOMPLETE (BB_ERR_BASE + 5)
 #else
 typedef int bb_err_t;
 #define BB_OK                   0
@@ -68,6 +74,8 @@ typedef int bb_err_t;
 #define BB_ERR_CONFLICT         9
 #define BB_ERR_NO_MEM           10
 #define BB_ERR_UNAUTHORIZED     11
+#define BB_ERR_PARSE_GRAMMAR    12
+#define BB_ERR_PARSE_INCOMPLETE 13
 #endif
 
 // ---------------------------------------------------------------------------

@@ -694,28 +694,28 @@ void test_bb_serialize_json_scan_malformed_literal_mismatch(void)
 {
     rec_reset();
     bb_err_t rc = bb_serialize_json_scan_bounded("trux", 4, &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_number_leading_plus(void)
 {
     rec_reset();
     bb_err_t rc = bb_serialize_json_scan_bounded("+1", 2, &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_number_leading_dot(void)
 {
     rec_reset();
     bb_err_t rc = bb_serialize_json_scan_bounded(".5", 2, &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_trailing_garbage(void)
 {
     rec_reset();
     bb_err_t rc = bb_serialize_json_scan_bounded("42 43", 5, &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_unterminated_string_control_char(void)
@@ -723,7 +723,7 @@ void test_bb_serialize_json_scan_malformed_unterminated_string_control_char(void
     rec_reset();
     const char doc[] = { '"', 'a', 0x01, 'b', '"' };
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, sizeof(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_unbalanced_brackets(void)
@@ -731,7 +731,7 @@ void test_bb_serialize_json_scan_malformed_unbalanced_brackets(void)
     rec_reset();
     const char *doc = "{\"a\":1]";
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_unpaired_high_surrogate(void)
@@ -739,7 +739,7 @@ void test_bb_serialize_json_scan_malformed_unpaired_high_surrogate(void)
     rec_reset();
     const char *doc = "\"\\ud83d\"";  // high surrogate, no low surrogate follows
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_unpaired_high_surrogate_not_followed_by_escape(void)
@@ -747,7 +747,7 @@ void test_bb_serialize_json_scan_malformed_unpaired_high_surrogate_not_followed_
     rec_reset();
     const char *doc = "\"\\ud83dx\"";  // high surrogate followed by a plain char, not '\'
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_high_surrogate_followed_by_non_u_escape(void)
@@ -755,7 +755,7 @@ void test_bb_serialize_json_scan_malformed_high_surrogate_followed_by_non_u_esca
     rec_reset();
     const char *doc = "\"\\ud83d\\n\"";  // high surrogate then \n instead of \u
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_invalid_low_surrogate(void)
@@ -763,7 +763,7 @@ void test_bb_serialize_json_scan_malformed_invalid_low_surrogate(void)
     rec_reset();
     const char *doc = "\"\\ud83d\\u0041\"";  // high surrogate + a non-low-surrogate \u
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_standalone_low_surrogate(void)
@@ -771,7 +771,7 @@ void test_bb_serialize_json_scan_malformed_standalone_low_surrogate(void)
     rec_reset();
     const char *doc = "\"\\ude00\"";  // a low surrogate with no preceding high surrogate
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_bad_escape(void)
@@ -779,7 +779,7 @@ void test_bb_serialize_json_scan_malformed_bad_escape(void)
     rec_reset();
     const char *doc = "\"\\q\"";
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_bad_hex_digit(void)
@@ -787,14 +787,14 @@ void test_bb_serialize_json_scan_malformed_bad_hex_digit(void)
     rec_reset();
     const char *doc = "\"\\u00zz\"";
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_bad_value_start(void)
 {
     rec_reset();
     bb_err_t rc = bb_serialize_json_scan_bounded("x", 1, &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_bad_key_start(void)
@@ -802,7 +802,7 @@ void test_bb_serialize_json_scan_malformed_bad_key_start(void)
     rec_reset();
     const char *doc = "{a:1}";
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_missing_colon(void)
@@ -810,7 +810,7 @@ void test_bb_serialize_json_scan_malformed_missing_colon(void)
     rec_reset();
     const char *doc = "{\"a\" 1}";
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_missing_comma_in_object(void)
@@ -818,7 +818,7 @@ void test_bb_serialize_json_scan_malformed_missing_comma_in_object(void)
     rec_reset();
     const char *doc = "{\"a\":1 \"b\":2}";
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_missing_comma_in_array(void)
@@ -826,7 +826,7 @@ void test_bb_serialize_json_scan_malformed_missing_comma_in_array(void)
     rec_reset();
     const char *doc = "[1 2]";
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_key_only_no_close_allowed(void)
@@ -834,7 +834,7 @@ void test_bb_serialize_json_scan_malformed_key_only_no_close_allowed(void)
     rec_reset();
     const char *doc = "{\"a\":1,}";
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 // ---------------------------------------------------------------------------
@@ -847,7 +847,7 @@ void test_bb_serialize_json_scan_truncated_mid_container(void)
     bb_serialize_json_scan_ctx_t ctx;
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_begin(&ctx, &s_mock_sink));
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_feed(&ctx, "{\"a\":1", 6));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_serialize_json_scan_end(&ctx));
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_INCOMPLETE, bb_serialize_json_scan_end(&ctx));
 }
 
 void test_bb_serialize_json_scan_truncated_mid_string(void)
@@ -856,7 +856,7 @@ void test_bb_serialize_json_scan_truncated_mid_string(void)
     bb_serialize_json_scan_ctx_t ctx;
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_begin(&ctx, &s_mock_sink));
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_feed(&ctx, "\"abc", 4));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_serialize_json_scan_end(&ctx));
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_INCOMPLETE, bb_serialize_json_scan_end(&ctx));
 }
 
 void test_bb_serialize_json_scan_truncated_mid_literal(void)
@@ -865,7 +865,7 @@ void test_bb_serialize_json_scan_truncated_mid_literal(void)
     bb_serialize_json_scan_ctx_t ctx;
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_begin(&ctx, &s_mock_sink));
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_feed(&ctx, "tru", 3));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_serialize_json_scan_end(&ctx));
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_INCOMPLETE, bb_serialize_json_scan_end(&ctx));
 }
 
 void test_bb_serialize_json_scan_truncated_mid_number(void)
@@ -874,28 +874,28 @@ void test_bb_serialize_json_scan_truncated_mid_number(void)
     bb_serialize_json_scan_ctx_t ctx;
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_begin(&ctx, &s_mock_sink));
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_feed(&ctx, "-", 1));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_serialize_json_scan_end(&ctx));
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_INCOMPLETE, bb_serialize_json_scan_end(&ctx));
 }
 
 void test_bb_serialize_json_scan_truncated_mid_number_trailing_dot(void)
 {
     rec_reset();
     bb_err_t rc = bb_serialize_json_scan_bounded("1.", 2, &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_INCOMPLETE, rc);
 }
 
 void test_bb_serialize_json_scan_truncated_mid_number_trailing_exp(void)
 {
     rec_reset();
     bb_err_t rc = bb_serialize_json_scan_bounded("1e", 2, &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_INCOMPLETE, rc);
 }
 
 void test_bb_serialize_json_scan_truncated_mid_number_trailing_exp_sign(void)
 {
     rec_reset();
     bb_err_t rc = bb_serialize_json_scan_bounded("1e+", 3, &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_INCOMPLETE, rc);
 }
 
 void test_bb_serialize_json_scan_truncated_no_value_at_all(void)
@@ -904,7 +904,7 @@ void test_bb_serialize_json_scan_truncated_no_value_at_all(void)
     bb_serialize_json_scan_ctx_t ctx;
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_begin(&ctx, &s_mock_sink));
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_feed(&ctx, "   ", 3));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_serialize_json_scan_end(&ctx));
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_INCOMPLETE, bb_serialize_json_scan_end(&ctx));
 }
 
 void test_bb_serialize_json_scan_root_number_completes_at_end(void)
@@ -1079,7 +1079,7 @@ void test_bb_serialize_json_scan_malformed_low_surrogate_bad_hex_digit(void)
     rec_reset();
     const char *doc = "\"\\ud83d\\uzzzz\"";  // valid high surrogate, garbage low hex
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_low_surrogate_too_high(void)
@@ -1087,7 +1087,7 @@ void test_bb_serialize_json_scan_malformed_low_surrogate_too_high(void)
     rec_reset();
     const char *doc = "\"\\ud83d\\uffff\"";  // valid high surrogate, low unit above 0xDFFF
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 // ---------------------------------------------------------------------------
@@ -1235,7 +1235,7 @@ void test_bb_serialize_json_scan_malformed_array_trailing_comma_no_close_allowed
 {
     rec_reset();
     bb_err_t rc = bb_serialize_json_scan_bounded("[1,]", 4, &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_split_right_after_obj_open(void)
@@ -1310,9 +1310,9 @@ void test_bb_serialize_json_scan_feed_after_error_is_sticky_noop(void)
     rec_reset();
     bb_serialize_json_scan_ctx_t ctx;
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_begin(&ctx, &s_mock_sink));
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_serialize_json_scan_feed(&ctx, "x", 1));
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, bb_serialize_json_scan_feed(&ctx, "x", 1));
     size_t before = s_rec_n;
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_serialize_json_scan_feed(&ctx, "1", 1));
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, bb_serialize_json_scan_feed(&ctx, "1", 1));
     TEST_ASSERT_EQUAL(before, s_rec_n);  // no further processing occurred
 }
 
@@ -1321,8 +1321,8 @@ void test_bb_serialize_json_scan_end_after_feed_error_returns_sticky(void)
     rec_reset();
     bb_serialize_json_scan_ctx_t ctx;
     TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_begin(&ctx, &s_mock_sink));
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_serialize_json_scan_feed(&ctx, "x", 1));
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_serialize_json_scan_end(&ctx));
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, bb_serialize_json_scan_feed(&ctx, "x", 1));
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, bb_serialize_json_scan_end(&ctx));
 }
 
 void test_bb_serialize_json_scan_end_root_number_sink_reject(void)
@@ -1346,7 +1346,7 @@ void test_bb_serialize_json_scan_malformed_bad_hex_digit_uppercase_out_of_range(
     rec_reset();
     const char *doc = "\"\\u00ZZ\"";
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_bounded_string_escape_u_above_surrogate_range(void)
@@ -1374,7 +1374,7 @@ void test_bb_serialize_json_scan_malformed_hex_digit_below_zero_char(void)
     rec_reset();
     const char *doc = "\"\\u00..\"";  // '.' (0x2E) is below '0' -- fails every hex_val range
     bb_err_t rc = bb_serialize_json_scan_bounded(doc, strlen(doc), &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 // ---------------------------------------------------------------------------
@@ -1388,28 +1388,28 @@ void test_bb_serialize_json_scan_malformed_number_minus_not_followed_by_digit(vo
 {
     rec_reset();
     bb_err_t rc = bb_serialize_json_scan_bounded("-x", 2, &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_number_dot_not_followed_by_digit(void)
 {
     rec_reset();
     bb_err_t rc = bb_serialize_json_scan_bounded("1.x", 3, &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_number_exp_not_sign_or_digit(void)
 {
     rec_reset();
     bb_err_t rc = bb_serialize_json_scan_bounded("1ex", 3, &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 void test_bb_serialize_json_scan_malformed_number_exp_sign_not_followed_by_digit(void)
 {
     rec_reset();
     bb_err_t rc = bb_serialize_json_scan_bounded("1e+x", 4, &s_mock_sink);
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
+    TEST_ASSERT_EQUAL(BB_ERR_PARSE_GRAMMAR, rc);
 }
 
 // ---------------------------------------------------------------------------

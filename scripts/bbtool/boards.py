@@ -190,14 +190,17 @@ def derive_component(roots, name: str, platform: str) -> Dict[str, List[str]]:
         if comp_src.is_dir():
             includes.add(f"components/{name}/src")
             sources.update(_glob_c_files(root_p, comp_src, recursive=False))
-        else:
-            # Flat component layout: top-level *.c files live directly under
-            # components/<name>/ (e.g. bb_diag, bb_mdns) — the dir itself also
-            # needs to be an include path (private headers colocated there).
-            flat_sources = _glob_c_files(root_p, comp_dir, recursive=False)
-            if flat_sources:
-                includes.add(f"components/{name}")
-                sources.update(flat_sources)
+
+        # Flat component layout: top-level *.c files live directly under
+        # components/<name>/ (e.g. bb_diag, bb_mdns) — the dir itself also
+        # needs to be an include path (private headers colocated there). Not
+        # mutually exclusive with a src/ subdir (e.g. bb_wifi_http, which
+        # keeps a legacy flat *_diag.c alongside a src/ split added later) —
+        # both are globbed when both exist.
+        flat_sources = _glob_c_files(root_p, comp_dir, recursive=False)
+        if flat_sources:
+            includes.add(f"components/{name}")
+            sources.update(flat_sources)
 
     if plat_dir is not None:
         plat_include = plat_dir / "include"
