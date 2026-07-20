@@ -3231,6 +3231,22 @@ void test_bb_health_schema_network_no_rssi(void);
 void test_bb_health_schema_network_has_mdns(void);
 void test_bb_health_section_get_fn_invoked(void);
 
+// Forward declarations from test_bb_health_section.c
+void test_bb_health_section_register_success(void);
+void test_bb_health_section_register_success_schema_props_round_trips(void);
+void test_bb_health_section_register_null_section_returns_invalid_arg(void);
+void test_bb_health_section_register_null_name_returns_invalid_arg(void);
+void test_bb_health_section_register_null_snap_desc_returns_invalid_arg(void);
+void test_bb_health_section_register_null_fill_returns_invalid_arg(void);
+void test_bb_health_section_register_name_too_long_returns_invalid_arg(void);
+void test_bb_health_section_register_name_max_boundary_ok(void);
+void test_bb_health_section_register_duplicate_name_returns_invalid_state(void);
+void test_bb_health_section_register_table_full_returns_no_space(void);
+void test_bb_health_section_register_duplicate_name_wins_over_table_full(void);
+void test_bb_health_section_register_snap_size_exceeds_scratch_returns_no_space(void);
+void test_bb_health_section_register_after_freeze_returns_invalid_state(void);
+void test_bb_health_section_register_before_freeze_still_ok(void);
+
 // Forward declarations from test_bb_health_stack.c
 void test_bb_health_stack_build_json_low_true(void);
 void test_bb_health_stack_build_json_low_false(void);
@@ -7344,6 +7360,23 @@ int main(void) {
     RUN_TEST(test_bb_health_schema_network_no_rssi);
     RUN_TEST(test_bb_health_schema_network_has_mdns);
     RUN_TEST(test_bb_health_section_get_fn_invoked);
+
+    // bb_health_section tests (B1-1096 PR-1, epic B1-1054 -- additive,
+    // inert composer-shaped registry; nothing consumes it yet)
+    RUN_TEST(test_bb_health_section_register_success);
+    RUN_TEST(test_bb_health_section_register_success_schema_props_round_trips);
+    RUN_TEST(test_bb_health_section_register_null_section_returns_invalid_arg);
+    RUN_TEST(test_bb_health_section_register_null_name_returns_invalid_arg);
+    RUN_TEST(test_bb_health_section_register_null_snap_desc_returns_invalid_arg);
+    RUN_TEST(test_bb_health_section_register_null_fill_returns_invalid_arg);
+    RUN_TEST(test_bb_health_section_register_name_too_long_returns_invalid_arg);
+    RUN_TEST(test_bb_health_section_register_name_max_boundary_ok);
+    RUN_TEST(test_bb_health_section_register_duplicate_name_returns_invalid_state);
+    RUN_TEST(test_bb_health_section_register_table_full_returns_no_space);
+    RUN_TEST(test_bb_health_section_register_duplicate_name_wins_over_table_full);
+    RUN_TEST(test_bb_health_section_register_snap_size_exceeds_scratch_returns_no_space);
+    RUN_TEST(test_bb_health_section_register_after_freeze_returns_invalid_state);
+    RUN_TEST(test_bb_health_section_register_before_freeze_still_ok);
 
     // bb_health_stack tests (task-registry unification PR3: low-stack
     // transition + debounce coverage moved to

@@ -37,4 +37,35 @@ config BB_HEALTH_STACK_AUTOSTART
         tier. Disable to call bb_health_stack_monitor_start manually before
         bb_health_stack_monitor_init.
 
+config BB_HEALTH_SECTION_TABLE_CAP
+    int "Composer section registry table capacity (bb_health_section, B1-1096)"
+    default 8
+    range 1 16
+    help
+        Fixed table capacity for the bb_health_section composer registry
+        (components/bb_health/include/bb_health_section.h) -- distinct from
+        the legacy bb_health_register_section()/BB_RESPONSE_MAX registry.
+        Default 8 matches today's BB_RESPONSE_MAX. ADDITIVE AND INERT in
+        this PR -- nothing consumes this registry yet (B1-1096, epic
+        B1-1054).
+
+config BB_HEALTH_SECTION_SCRATCH_BYTES
+    int "Composer section per-section render scratch buffer size (bytes)"
+    default 128
+    range 32 1024
+    help
+        Size of the stack buffer the future bb_health composer (B1-1054
+        PR-5) fills one section's snapshot into before rendering it.
+        bb_health_section_register() rejects (BB_ERR_NO_SPACE) any section
+        whose snap_desc->snap_size exceeds this bound at registration time.
+        Default 128 is measured, not padded: the largest known snapshot
+        today is 32 B (bb_mqtt_client_health_snap_t and its bb_tcp_client/
+        bb_http_client siblings); 128 B is 4x headroom over that, and fits
+        CONFIG_BB_HTTP_TASK_STACK_SIZE's (6144 B) budget checked on this
+        composer's own path independently -- the WS-connect snapshot
+        path's ~3.5 KB claim is a SEPARATE, sequential top-level route
+        dispatch on the same task type, an alternate peak rather than a
+        shared claim to subtract -- see bb_health_section_priv.h's
+        BB_HEALTH_SECTION_SCRATCH_BYTES comment for the full arithmetic.
+
 endmenu
