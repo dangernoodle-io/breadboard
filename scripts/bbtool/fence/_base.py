@@ -12,6 +12,7 @@ nothing about any specific family's marker types or regexes; see
 from __future__ import annotations
 import inspect
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, NamedTuple, Set
@@ -250,3 +251,43 @@ def counts_by_bucket(markers: Set[Marker], bucket_fn: Callable[[str], str] = Non
         bucket = bucket_fn(m.type) if bucket_fn else m.type
         out[bucket] = out.get(bucket, 0) + 1
     return out
+
+
+# ---------------------------------------------------------------------------
+# owner_of_path fallback observability — `clamp`/`sat_sub`/`callback_slot`'s
+# `_component_of` falls back to a first-path-segment heuristic whenever
+# `discovery.owner_of_path` returns None. Not reachable given the current
+# tree layout, but not structurally impossible either (see clamp.py's
+# `_component_of` docstring for the two known gap shapes: a file at zero
+# nesting depth under `components/`, or a `platform/<variant>/...` file
+# outside `discovery.PLATFORMS`). If it ever DID fire, that would mean the
+# SSOT (`discovery.py`) and a family's own scan-root convention have drifted
+# — a real problem nobody would otherwise learn about, since the fallback
+# always returns a usable-looking string. This tracker + WARN line make that
+# silent-drift scenario observable (fence_cmd.py folds the count into the
+# per-family summary line) without making the fallback itself fatal — it
+# stays a safety net, not a new failure mode.
+# ---------------------------------------------------------------------------
+
+_FALLBACK_COUNTS: Dict[str, int] = {}
+
+
+def reset_owner_fallback_count(family: str) -> None:
+    _FALLBACK_COUNTS[family] = 0
+
+
+def owner_fallback_count(family: str) -> int:
+    return _FALLBACK_COUNTS.get(family, 0)
+
+
+def record_owner_fallback(family: str, rel_path: str) -> None:
+    """Bump `family`'s fallback counter and emit a WARN to stderr naming the
+    path `discovery.owner_of_path` couldn't resolve. Called from a family's
+    `_component_of` on the None branch; never fatal."""
+    _FALLBACK_COUNTS[family] = _FALLBACK_COUNTS.get(family, 0) + 1
+    print(
+        f"WARN [fence:{family}]: owner_of_path fallback fired for {rel_path}"
+        " — discovery's SSOT and this family's scan-root convention"
+        " disagree; falling back to the first path segment as owner",
+        file=sys.stderr,
+    )

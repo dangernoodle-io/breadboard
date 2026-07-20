@@ -43,6 +43,8 @@ import sys
 from pathlib import Path
 from typing import List, Set
 
+from discovery import build_index, ComponentIndex
+
 from fence import _base
 from fence._base import Marker
 
@@ -78,12 +80,33 @@ _ENCLOSING_FN_RE = re.compile(r'^[A-Za-z_][\w \*]*?\b([A-Za-z_]\w*)\s*\(')
 _BARE_SIG_RE = re.compile(r'^([A-Za-z_]\w*)\s*\(')
 
 
-def _component_of(rel_path: str) -> str:
+_FAMILY = "sat_sub"
+
+
+def _component_of(index: ComponentIndex, rel_path: str) -> str:
+    """Owning component name for a marker path — delegates to the
+    canonical `discovery.owner_of_path` SSOT (B1-1089; see `clamp.py`'s
+    twin helper for the full rationale, identical here). Falls back to
+    the pre-consolidation first-path-segment heuristic if `owner_of_path`
+    can't resolve a name — NOT REACHABLE given the current tree layout,
+    but not structurally guaranteed unreachable by this family's glob
+    patterns: (1) `Path.glob("**/*.c")` also matches zero-nesting-depth
+    files under either scan root, so a file directly at
+    `components/<file>.c` or `platform/<file>.c` (2 path parts, failing
+    `owner_of_path`'s `len(parts) >= 3` guard) would return None; (2) this
+    family's own `_SCAN_ROOTS` walks all of
+    `platform/` recursively, but `build_index()`'s default only indexes
+    `discovery.PLATFORMS` (`host`/`espidf`/`arduino`), so a file under
+    `platform/<other-platform>/...` would also return None. If the
+    fallback ever fires it means the SSOT and this family's scan-root
+    convention have drifted — `_base.record_owner_fallback` makes that
+    observable (WARN + a count folded into the fence summary) rather than
+    letting it pass silently."""
+    name = index.owner_of_path(rel_path)
+    if name is not None:
+        return name
+    _base.record_owner_fallback(_FAMILY, rel_path)
     parts = Path(rel_path).parts
-    if len(parts) >= 2 and parts[0] == "components":
-        return parts[1]
-    if len(parts) >= 3 and parts[0] == "platform":
-        return parts[2]
     return parts[0] if parts else rel_path
 
 
@@ -169,14 +192,14 @@ def _is_noise_line(stripped: str) -> bool:
     return False
 
 
-def _add_ternary_matches(found: Set[Marker], rel: str, text: str, lines: List[str],
-                          pattern: re.Pattern) -> None:
+def _add_ternary_matches(index: ComponentIndex, found: Set[Marker], rel: str, text: str,
+                          lines: List[str], pattern: re.Pattern) -> None:
     for m in pattern.finditer(text):
         line_idx = text.count("\n", 0, m.start())
         if _is_noise_line(lines[line_idx].strip()):
             continue
         var = m.group(1)
-        component = _component_of(rel)
+        component = _component_of(index, rel)
         symbol = _enclosing_symbol(lines, line_idx)
         found.add(Marker("sat_sub", rel, f"{component}:{symbol}:{var}"))
 
@@ -191,15 +214,16 @@ _SAT_SUB_EXCLUDE_PREFIXES = ("platform/host/bb_num/", "components/bb_num/")
 
 def _scan_sat_sub(root: Path) -> Set[Marker]:
     found: Set[Marker] = set()
+    index = build_index([str(root)])
     for path in _base.iter_files(root, _SCAN_ROOTS, _SRC_GLOBS):
         rel = _base.rel(root, path)
         if rel.startswith(_SAT_SUB_EXCLUDE_PREFIXES):
             continue
         text = _base.read(path)
         lines = text.splitlines()
-        _add_ternary_matches(found, rel, text, lines, _SATSUB_FWD_RE)
-        _add_ternary_matches(found, rel, text, lines, _SATSUB_REV_RE)
-        _add_ternary_matches(found, rel, text, lines, _SATSUB_DEC1_RE)
+        _add_ternary_matches(index, found, rel, text, lines, _SATSUB_FWD_RE)
+        _add_ternary_matches(index, found, rel, text, lines, _SATSUB_REV_RE)
+        _add_ternary_matches(index, found, rel, text, lines, _SATSUB_DEC1_RE)
     return found
 
 
@@ -266,6 +290,7 @@ def _delta_guard_matches(lines: List[str], guard_idx: int, var: str) -> bool:
 
 def _scan_sat_sub_delta(root: Path) -> Set[Marker]:
     found: Set[Marker] = set()
+    index = build_index([str(root)])
     for path in _base.iter_files(root, _SCAN_ROOTS, _SRC_GLOBS):
         rel = _base.rel(root, path)
         if rel.startswith(_SAT_SUB_EXCLUDE_PREFIXES):
@@ -286,7 +311,7 @@ def _scan_sat_sub_delta(root: Path) -> Set[Marker]:
                 j += 1
             if j >= n or not _delta_guard_matches(lines, j, var):
                 continue
-            component = _component_of(rel)
+            component = _component_of(index, rel)
             symbol = _enclosing_symbol(lines, i)
             found.add(Marker("sat_sub", rel, f"{component}:{symbol}:{var}"))
     return found

@@ -30,6 +30,9 @@ from ._base import (  # noqa: F401
     discover_scanners,
     identity_fn_for,
     load_baseline,
+    owner_fallback_count,
+    record_owner_fallback,
+    reset_owner_fallback_count,
     scan_all,
     write_baseline,
 )

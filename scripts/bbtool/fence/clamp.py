@@ -26,6 +26,8 @@ import sys
 from pathlib import Path
 from typing import List, Set
 
+from discovery import build_index, ComponentIndex
+
 from fence import _base
 from fence._base import Marker
 
@@ -67,15 +69,34 @@ def counts_by_bucket(markers: Set[Marker]) -> dict:
 # fence, not a spurious-new failure.
 # ---------------------------------------------------------------------------
 
-def _component_of(rel_path: str) -> str:
-    """Best-effort 'owning component' name for a marker path:
-    `components/<name>/...` -> <name>; `platform/<variant>/<name>/...` ->
-    <name>. Falls back to the first path segment if neither shape matches."""
+_FAMILY = "clamp"
+
+
+def _component_of(index: ComponentIndex, rel_path: str) -> str:
+    """Owning component name for a marker path — delegates to the
+    canonical `discovery.owner_of_path` SSOT (B1-1089; consolidated off
+    this family's own hand-rolled `components/<name>/...` /
+    `platform/<variant>/<name>/...` path-position match). Falls back to
+    the pre-consolidation first-path-segment heuristic if `owner_of_path`
+    can't resolve a name — NOT REACHABLE given the current tree layout,
+    but not structurally guaranteed unreachable by this family's glob
+    patterns: (1) `Path.glob("**/*.c")` also matches zero-nesting-depth
+    files under either scan root, so a file directly at
+    `components/<file>.c` or `platform/<file>.c` (2 path parts, failing
+    `owner_of_path`'s `len(parts) >= 3` guard) would return None; (2) this
+    family's own `_SCAN_ROOTS` walks all of
+    `platform/` recursively, but `build_index()`'s default only indexes
+    `discovery.PLATFORMS` (`host`/`espidf`/`arduino`), so a file under
+    `platform/<other-platform>/...` would also return None. If the
+    fallback ever fires it means the SSOT and this family's scan-root
+    convention have drifted — `_base.record_owner_fallback` makes that
+    observable (WARN + a count folded into the fence summary) rather than
+    letting it pass silently."""
+    name = index.owner_of_path(rel_path)
+    if name is not None:
+        return name
+    _base.record_owner_fallback(_FAMILY, rel_path)
     parts = Path(rel_path).parts
-    if len(parts) >= 2 and parts[0] == "components":
-        return parts[1]
-    if len(parts) >= 3 and parts[0] == "platform":
-        return parts[2]
     return parts[0] if parts else rel_path
 
 
@@ -177,7 +198,7 @@ _MINMAX_CLAMP_RE = re.compile(
 )
 
 
-def _scan_if_pair_clamps(rel: str, lines: List[str]) -> Set[Marker]:
+def _scan_if_pair_clamps(index: ComponentIndex, rel: str, lines: List[str]) -> Set[Marker]:
     found: Set[Marker] = set()
     for i in range(len(lines) - 1):
         l1 = lines[i].strip()
@@ -196,13 +217,13 @@ def _scan_if_pair_clamps(rel: str, lines: List[str]) -> Set[Marker]:
         var2, op2 = m2.group(1), m2.group(2)
         if var1 != var2 or not _opposite_direction(op1, op2):
             continue
-        component = _component_of(rel)
+        component = _component_of(index, rel)
         symbol = _enclosing_symbol(lines, i)
         found.add(Marker("clamp", rel, f"{component}:{symbol}:{var1}"))
     return found
 
 
-def _scan_ternary_clamps(rel: str, text: str, lines: List[str]) -> Set[Marker]:
+def _scan_ternary_clamps(index: ComponentIndex, rel: str, text: str, lines: List[str]) -> Set[Marker]:
     found: Set[Marker] = set()
     for m in _TERNARY_CLAMP_RE.finditer(text):
         op1, op2 = m.group(2), m.group(4)
@@ -212,20 +233,20 @@ def _scan_ternary_clamps(rel: str, text: str, lines: List[str]) -> Set[Marker]:
         if _base.is_noise_line(lines[line_idx].strip()):
             continue
         var = m.group(1)
-        component = _component_of(rel)
+        component = _component_of(index, rel)
         symbol = _enclosing_symbol(lines, line_idx)
         found.add(Marker("clamp", rel, f"{component}:{symbol}:{var}"))
     return found
 
 
-def _scan_minmax_clamps(rel: str, text: str, lines: List[str]) -> Set[Marker]:
+def _scan_minmax_clamps(index: ComponentIndex, rel: str, text: str, lines: List[str]) -> Set[Marker]:
     found: Set[Marker] = set()
     for m in _MINMAX_CLAMP_RE.finditer(text):
         var = m.group(1) or m.group(2)
         line_idx = text.count("\n", 0, m.start())
         if _base.is_noise_line(lines[line_idx].strip()):
             continue
-        component = _component_of(rel)
+        component = _component_of(index, rel)
         symbol = _enclosing_symbol(lines, line_idx)
         found.add(Marker("clamp", rel, f"{component}:{symbol}:{var}"))
     return found
@@ -233,15 +254,16 @@ def _scan_minmax_clamps(rel: str, text: str, lines: List[str]) -> Set[Marker]:
 
 def _scan_clamp(root: Path) -> Set[Marker]:
     found: Set[Marker] = set()
+    index = build_index([str(root)])
     for path in _base.iter_files(root, _SCAN_ROOTS, _SRC_GLOBS):
         rel = _base.rel(root, path)
         if rel.startswith(_CANONICAL_CLAMP_PREFIXES):
             continue
         text = _base.read(path)
         lines = text.splitlines()
-        found |= _scan_if_pair_clamps(rel, lines)
-        found |= _scan_ternary_clamps(rel, text, lines)
-        found |= _scan_minmax_clamps(rel, text, lines)
+        found |= _scan_if_pair_clamps(index, rel, lines)
+        found |= _scan_ternary_clamps(index, rel, text, lines)
+        found |= _scan_minmax_clamps(index, rel, text, lines)
     return found
 
 
