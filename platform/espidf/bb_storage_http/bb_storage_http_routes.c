@@ -7,6 +7,7 @@
 // is the whole point of rehoming this route off bb_nv.
 
 #include "bb_storage_http.h"
+#include "bb_data.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_http_body.h"
@@ -23,6 +24,7 @@
 #include "esp_system.h"
 #endif
 
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -386,67 +388,63 @@ static const bb_route_t s_storage_delete_route = {
 // Gated behind CONFIG_BB_STORAGE_HTTP_FACTORY_RESET (default n — see
 // bb_storage_http.h). Mirrors the deleted bb_nv_routes.c's
 // `#if CONFIG_BB_NV_FACTORY_RESET` posture: destructive routes are opt-in.
+//
+// B1-859: ingress migrated off bb_json onto bb_data_apply (the B1-1022
+// template) -- a single "factory_reset" bb_data binding backs this route.
+// This site FITS the template with NO fork: BB_DATA_APPLY_POST's memset0
+// seed leaves an absent "confirm" as an empty string, which the exact-match
+// strcmp() below already correctly rejects -- no sentinel/oversize-reject
+// trick needed (unlike the wifi cutover's ssid/pass fields), since a
+// truncated confirm value can never accidentally equal "factory-reset".
 // ---------------------------------------------------------------------------
 
 #if defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET
 
-#ifdef ESP_PLATFORM
-static void factory_reset_reboot_work_fn(void *arg)
-{
-    (void)arg;
-    uint32_t uptime_s = (uint32_t)(bb_clock_now_ms64() / 1000ULL);
-    /* epoch_s=0: no bb_ntp dependency here (would create an unwanted edge);
-     * the boot-side reader treats epoch_s=0 as "unknown/unsynced" per the
-     * record contract. */
-    bb_err_t rc = bb_system_reboot_record_save(BB_RESET_SRC_FACTORY_RESET, NULL, 0, uptime_s);
-    if (rc == BB_ERR_INVALID_ARG) {
-        bb_log_w(TAG, "factory_reset: record encode failed, rebooting without reason");
-    } else if (rc != BB_OK) {
-        bb_log_w(TAG, "factory_reset: NVS persist failed: %d", (int)rc);
-    }
-    esp_restart();
-}
-#endif /* ESP_PLATFORM */
-
-static bb_err_t factory_reset_handler(bb_http_request_t *req)
-{
-    int body_len = bb_http_req_body_len(req);
-    if (body_len <= 0 || body_len > BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX) {
-        send_400(req, "missing or oversized body");
-        return BB_ERR_INVALID_ARG;
-    }
-
-    char body[BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX];
-    int n = bb_http_req_recv(req, body, sizeof(body) - 1);
-    if (n < 0) {
-        send_400(req, "read failed");
-        return BB_ERR_INVALID_ARG;
-    }
-    body[n] = '\0';
-
-    bb_json_t parsed = bb_json_parse(body, (size_t)n);
-    if (!parsed) {
-        send_400(req, "invalid JSON");
-        return BB_ERR_INVALID_ARG;
-    }
-
+typedef struct {
     char confirm[32];
-    confirm[0] = '\0';
-    bb_json_obj_get_string(parsed, "confirm", confirm, sizeof(confirm));
-    bb_json_free(parsed);
+} bb_storage_factory_reset_apply_t;
 
-    if (strcmp(confirm, "factory-reset") != 0) {
-        send_400(req, "confirm field must be \"factory-reset\"");
-        return BB_ERR_INVALID_ARG;
+static const bb_serialize_field_t s_factory_reset_fields[] = {
+    { .key = "confirm", .type = BB_TYPE_STR, .offset = offsetof(bb_storage_factory_reset_apply_t, confirm),
+      .max_len = sizeof(((bb_storage_factory_reset_apply_t *)0)->confirm) },
+};
+
+static const bb_serialize_desc_t s_factory_reset_desc = {
+    .type_name = "bb_storage_factory_reset_apply_t",
+    .fields    = s_factory_reset_fields,
+    .n_fields  = 1,
+    .snap_size = sizeof(bb_storage_factory_reset_apply_t),
+};
+
+// Egress hook: exists only to satisfy bb_data_bind()'s non-NULL-gather
+// invariant (a binding with no gather is rejected outright) -- this route is
+// POST-only, so gather is never actually invoked (BB_DATA_APPLY_POST always
+// memset0-seeds dst_scratch, see bb_data_apply()'s doc). Same posture as
+// wifi_creds_gather() in bb_wifi_http_routes.c.
+static bb_err_t factory_reset_gather(void *dst, const bb_data_gather_args_t *args)
+{
+    (void)args;
+    memset(dst, 0, sizeof(bb_storage_factory_reset_apply_t));
+    return BB_OK;
+}
+
+// Ingress hook: the exact-match confirm check plus the actual destructive
+// work (whole-"nvs"-backend erase + RTC creds mirror invalidation) --
+// response shaping (202 body) and the deferred reboot stay in the route
+// below, keeping this fn HTTP-agnostic (bb_data_apply_fn's contract: return
+// BB_ERR_VALIDATION for a domain-level reject so an HTTP-agnostic caller's
+// err->status mapping stays a simple switch).
+static bb_err_t factory_reset_apply(const void *snap, const bb_data_apply_args_t *args)
+{
+    (void)args;
+    const bb_storage_factory_reset_apply_t *creds = (const bb_storage_factory_reset_apply_t *)snap;
+
+    if (strcmp(creds->confirm, "factory-reset") != 0) {
+        return BB_ERR_VALIDATION;
     }
 
     bb_err_t err = bb_storage_erase_all("nvs");
     if (err != BB_OK) {
-        if (err == BB_ERR_UNSUPPORTED) {
-            send_501(req, "backend does not support whole-backend erase");
-        } else {
-            send_500(req, "factory reset failed");
-        }
         return err;
     }
 
@@ -467,6 +465,114 @@ static bb_err_t factory_reset_handler(bb_http_request_t *req)
 #if !defined(ESP_PLATFORM) || defined(CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP)
     bb_settings_wifi_rtc_mirror_clear();
 #endif
+
+    return BB_OK;
+}
+
+#ifdef ESP_PLATFORM
+static void factory_reset_reboot_work_fn(void *arg)
+{
+    (void)arg;
+    uint32_t uptime_s = (uint32_t)(bb_clock_now_ms64() / 1000ULL);
+    /* epoch_s=0: no bb_ntp dependency here (would create an unwanted edge);
+     * the boot-side reader treats epoch_s=0 as "unknown/unsynced" per the
+     * record contract. */
+    bb_err_t rc = bb_system_reboot_record_save(BB_RESET_SRC_FACTORY_RESET, NULL, 0, uptime_s);
+    if (rc == BB_ERR_INVALID_ARG) {
+        bb_log_w(TAG, "factory_reset: record encode failed, rebooting without reason");
+    } else if (rc != BB_OK) {
+        bb_log_w(TAG, "factory_reset: NVS persist failed: %d", (int)rc);
+    }
+    esp_restart();
+}
+#endif /* ESP_PLATFORM */
+
+// JSON parse scratch: a flat 1-string-field document, comfortably under the
+// route's own 128-byte body cap -- but the token recorder's own
+// default-capacity pool alone is 48 * sizeof(bb_serialize_json_tok_t) ==
+// 2304 bytes, so this must clear that plus the control structs plus
+// headroom for the escape-decode arena regardless of body size (see
+// bb_wifi_http_routes.c's WIFI_PATCH_PARSE_SCRATCH_BYTES, the same
+// fixed-pool-size rationale).
+#define FACTORY_RESET_PARSE_SCRATCH_BYTES 3072
+
+static bb_err_t factory_reset_handler(bb_http_request_t *req)
+{
+    int body_len = bb_http_req_body_len(req);
+    if (body_len <= 0 || body_len > BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX) {
+        send_400(req, "missing or oversized body");
+        return BB_ERR_INVALID_ARG;
+    }
+
+    char body[BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX];
+    int n = bb_http_req_recv(req, body, sizeof(body) - 1);
+    if (n < 0) {
+        send_400(req, "read failed");
+        return BB_ERR_INVALID_ARG;
+    }
+    body[n] = '\0';
+
+    bb_storage_factory_reset_apply_t dst_scratch;
+    char                             parse_scratch[FACTORY_RESET_PARSE_SCRATCH_BYTES];
+    bb_data_apply_req_t apply_req = {
+        .fmt               = BB_FORMAT_JSON,
+        .key               = "factory_reset",
+        .mode              = BB_DATA_APPLY_POST,
+        .body              = body,
+        .body_len          = (size_t)n,
+        .parse_scratch     = parse_scratch,
+        .parse_scratch_cap = sizeof(parse_scratch),
+        .dst_scratch       = &dst_scratch,
+        .dst_scratch_cap   = sizeof(dst_scratch),
+    };
+    bb_err_t rc = bb_data_apply(&apply_req);
+
+    // Response shaping stays here in the route -- bb_data_apply()/apply()
+    // stay HTTP-agnostic and never see a status code, only a bb_err_t (same
+    // Fork-3 posture as the wifi PATCH cutover). BB_ERR_VALIDATION covers a
+    // wrong/missing confirm value -- "the request body parsed fine but its
+    // content is bad", 400. BB_ERR_PARSE_GRAMMAR/BB_ERR_PARSE_INCOMPLETE
+    // cover a body the JSON backend's parse fn couldn't scan to completion
+    // (grammar-invalid, e.g. "not-json", or truncated mid-object) -- same
+    // "the request body itself is bad" bucket, also 400 (parity with the
+    // pre-B1-859 bb_json handler, which returned 400 for any unparseable
+    // body regardless of cause). These are the disjoint parse-layer codes
+    // from bb_core.h (B1-1090's fix): they used to alias BB_ERR_INVALID_STATE,
+    // which factory_reset_apply()'s own bb_storage_erase_all() call can
+    // ALSO genuinely return from the flash/wear-levelling layer on a real
+    // failed erase -- a bare BB_ERR_INVALID_STATE is therefore NOT mapped
+    // to 400 here and instead falls through to the generic 500 branch
+    // below, same as any other apply()-stage failure.
+    // BB_ERR_UNSUPPORTED covers the backend-does-not-support-whole-backend-
+    // erase case (factory_reset_apply() propagates bb_storage_erase_all()'s
+    // own BB_ERR_UNSUPPORTED unchanged), 501 -- unlike bb_wifi_http's mapping,
+    // where the same code means "format/binding not wired" and is client-ish
+    // (400); here it means the storage backend genuinely lacks erase_all, a
+    // real 501. There is no BB_ERR_INVALID_ARG row (bb_wifi_http lists one
+    // defensively): it isn't reachable from client input on this route --
+    // s_factory_reset_desc is a single BB_TYPE_STR field, and the only
+    // INVALID_ARG source in bb_serialize_populate() is a static descriptor
+    // property (max_items == 0 on an ARR field), which doesn't apply here.
+    // Everything else (including a genuine BB_ERR_INVALID_STATE erase failure,
+    // or the composition-invariant case of this fn's own "factory_reset"
+    // binding somehow being unbound/unparsable -- unreachable given correct
+    // wiring below) is a 500.
+    if (rc == BB_ERR_VALIDATION) {
+        send_400(req, "confirm field must be \"factory-reset\"");
+        return rc;
+    }
+    if (rc == BB_ERR_PARSE_GRAMMAR || rc == BB_ERR_PARSE_INCOMPLETE) {
+        send_400(req, "invalid JSON");
+        return rc;
+    }
+    if (rc == BB_ERR_UNSUPPORTED) {
+        send_501(req, "backend does not support whole-backend erase");
+        return rc;
+    }
+    if (rc != BB_OK) {
+        send_500(req, "factory reset failed");
+        return rc;
+    }
 
     bb_http_resp_set_status(req, 202);
     bb_http_json_obj_stream_t obj;
@@ -531,7 +637,16 @@ bb_err_t bb_storage_http_factory_reset_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
-    bb_err_t err = bb_http_register_described_route(server, &s_factory_reset_route);
+    bb_data_binding_t factory_reset_binding = {
+        .key    = "factory_reset",
+        .desc   = &s_factory_reset_desc,
+        .gather = factory_reset_gather,
+        .apply  = factory_reset_apply,
+    };
+    bb_err_t err = bb_data_bind(&factory_reset_binding);
+    if (err != BB_OK) return err;
+
+    err = bb_http_register_described_route(server, &s_factory_reset_route);
     if (err != BB_OK) return err;
 
     bb_log_i(TAG, "factory reset route registered");
@@ -542,6 +657,22 @@ bb_err_t bb_storage_http_factory_reset_routes_init(bb_http_handle_t server)
 bb_err_t bb_storage_http_factory_reset_handler_for_test(bb_http_request_t *req)
 {
     return factory_reset_handler(req);
+}
+
+// Test-only: binds the "factory_reset" bb_data key against the production
+// gather/apply hooks without going through bb_storage_http_factory_reset_routes_init()
+// (which additionally requires a real bb_http_handle_t server -- unavailable
+// in host tests). Call after bb_data_test_reset() and before driving
+// bb_storage_http_factory_reset_handler_for_test().
+bb_err_t bb_storage_http_factory_reset_bind_for_test(void)
+{
+    bb_data_binding_t factory_reset_binding = {
+        .key    = "factory_reset",
+        .desc   = &s_factory_reset_desc,
+        .gather = factory_reset_gather,
+        .apply  = factory_reset_apply,
+    };
+    return bb_data_bind(&factory_reset_binding);
 }
 #endif /* BB_STORAGE_HTTP_TESTING */
 

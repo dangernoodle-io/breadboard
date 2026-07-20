@@ -2,7 +2,7 @@ idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_storage_http/bb_storage_http_routes.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_storage
-    PRIV_REQUIRES bb_http bb_http_server bb_json bb_openapi bb_settings bb_log bb_str bb_system bb_timer
+    PRIV_REQUIRES bb_data bb_http bb_http_server bb_json bb_openapi bb_serialize bb_settings bb_log bb_str bb_system bb_timer
 )
 
 # bb_storage_http_routes.c is portable (no ESP-IDF-specific includes) but

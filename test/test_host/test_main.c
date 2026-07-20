@@ -1151,12 +1151,16 @@ void test_storage_http_factory_reset_no_body_returns_400(void);
 void test_storage_http_factory_reset_wrong_confirm_returns_400(void);
 void test_storage_http_factory_reset_missing_confirm_field_returns_400(void);
 void test_storage_http_factory_reset_invalid_json_returns_400(void);
+void test_storage_http_factory_reset_truncated_body_returns_400(void);
 void test_storage_http_factory_reset_oversized_body_returns_400(void);
+void test_storage_http_factory_reset_duplicate_confirm_key_first_match_wins(void);
 void test_storage_http_factory_reset_valid_confirm_returns_202(void);
 void test_storage_http_factory_reset_erase_all_dispatched_to_backend(void);
 void test_storage_http_factory_reset_clears_rtc_creds_mirror(void);
 void test_storage_http_factory_reset_backend_without_erase_all_returns_501(void);
 void test_storage_http_factory_reset_erase_all_generic_failure_returns_500(void);
+void test_storage_http_factory_reset_erase_all_invalid_state_returns_500(void);
+void test_storage_http_factory_reset_gather_stub_reachable_via_patch_mode(void);
 
 // Forward declarations from test_dispatch_api.c
 void test_dispatch_api_add_and_lookup_hit(void);
@@ -6049,12 +6053,16 @@ int main(void) {
     RUN_TEST(test_storage_http_factory_reset_wrong_confirm_returns_400);
     RUN_TEST(test_storage_http_factory_reset_missing_confirm_field_returns_400);
     RUN_TEST(test_storage_http_factory_reset_invalid_json_returns_400);
+    RUN_TEST(test_storage_http_factory_reset_truncated_body_returns_400);
     RUN_TEST(test_storage_http_factory_reset_oversized_body_returns_400);
+    RUN_TEST(test_storage_http_factory_reset_duplicate_confirm_key_first_match_wins);
     RUN_TEST(test_storage_http_factory_reset_valid_confirm_returns_202);
     RUN_TEST(test_storage_http_factory_reset_erase_all_dispatched_to_backend);
     RUN_TEST(test_storage_http_factory_reset_clears_rtc_creds_mirror);
     RUN_TEST(test_storage_http_factory_reset_backend_without_erase_all_returns_501);
     RUN_TEST(test_storage_http_factory_reset_erase_all_generic_failure_returns_500);
+    RUN_TEST(test_storage_http_factory_reset_erase_all_invalid_state_returns_500);
+    RUN_TEST(test_storage_http_factory_reset_gather_stub_reachable_via_patch_mode);
 
     // NV creds mirror tests
     RUN_TEST(test_bb_storage_rtc_region_pack_valid_roundtrip);
