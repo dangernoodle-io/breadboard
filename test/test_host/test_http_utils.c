@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "bb_http.h"
+#include "bb_http_host.h"
 #include "bb_http_server.h"
 #include <string.h>
 
@@ -84,3 +85,32 @@ void test_bb_url_decode_field_at_end(void)
 // bb_scalar_parse_bool/bb_scalar_parse_uint (components/bb_scalar) and
 // deleted from this file; their accept/reject coverage lives in
 // test/test_host/test_bb_scalar.c.
+
+// ---------------------------------------------------------------------------
+// bb_http_send_json_error (bb_http_section PR review, MEDIUM finding) --
+// the ONE copy of the set-type+set-status+sendstr idiom that
+// bb_http_section_dispatch.c's and bb_diag_section_dispatch.c's own
+// respond_error() static helpers used to hand-roll as VERBATIM duplicates
+// of each other. Exercised directly here (production and both dispatchers
+// share this one implementation).
+// ---------------------------------------------------------------------------
+
+void test_bb_http_send_json_error_sets_status_type_and_body(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_err_t rc = bb_http_send_json_error(req, 404, "{\"error\":\"not found\"}");
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+
+    bb_http_host_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(404, cap.status);
+    TEST_ASSERT_EQUAL_STRING("application/json", cap.content_type);
+    TEST_ASSERT_NOT_NULL(cap.body);
+    TEST_ASSERT_EQUAL_STRING("{\"error\":\"not found\"}", cap.body);
+
+    bb_http_host_capture_free(&cap);
+}

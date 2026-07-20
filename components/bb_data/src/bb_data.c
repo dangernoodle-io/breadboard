@@ -89,9 +89,9 @@ bb_err_t bb_data_render(const bb_data_render_req_t *req)
     return render(slot->desc, req->scratch, req->buf, req->buf_cap, req->out_len);
 }
 
-bb_err_t bb_data_apply(const bb_data_apply_req_t *req)
+bb_err_t bb_data_parse(const bb_data_parse_req_t *req, bb_data_parsed_t *out_parsed)
 {
-    if (!req || !req->key || !req->parse_scratch || !req->dst_scratch) return BB_ERR_INVALID_ARG;
+    if (!req || !req->key || !req->parse_scratch || !out_parsed) return BB_ERR_INVALID_ARG;
     if (req->body_len > 0 && !req->body) return BB_ERR_INVALID_ARG;
 
     bb_data_slot_t *slot = (bb_data_slot_t *)bb_registry_lookup(&s_bb_data_registry, req->key);
@@ -101,6 +101,21 @@ bb_err_t bb_data_apply(const bb_data_apply_req_t *req)
     if (!parse) return BB_ERR_UNSUPPORTED;
 
     if (!slot->apply) return BB_ERR_UNSUPPORTED;
+
+    bb_serialize_populate_t src;
+    bb_err_t rc = parse(req->body, req->body_len, req->parse_scratch, req->parse_scratch_cap, &src);
+    if (rc != BB_OK) return rc;
+
+    out_parsed->_binding = slot;
+    out_parsed->_src      = src;
+    return BB_OK;
+}
+
+bb_err_t bb_data_commit(const bb_data_parsed_t *parsed, const bb_data_commit_req_t *req)
+{
+    if (!parsed || !parsed->_binding || !req || !req->dst_scratch) return BB_ERR_INVALID_ARG;
+
+    bb_data_slot_t *slot = (bb_data_slot_t *)parsed->_binding;
 
     if (req->dst_scratch_cap < slot->desc->snap_size) return BB_ERR_NO_SPACE;
 
@@ -112,15 +127,39 @@ bb_err_t bb_data_apply(const bb_data_apply_req_t *req)
         memset(req->dst_scratch, 0, slot->desc->snap_size);
     }
 
-    bb_serialize_populate_t src;
-    bb_err_t rc = parse(req->body, req->body_len, req->parse_scratch, req->parse_scratch_cap, &src);
-    if (rc != BB_OK) return rc;
-
-    rc = bb_serialize_populate(slot->desc, req->dst_scratch, &src);
+    bb_err_t rc = bb_serialize_populate(slot->desc, req->dst_scratch, &parsed->_src);
     if (rc != BB_OK) return rc;
 
     bb_data_apply_args_t aargs = { .ctx = slot->ctx };
     return slot->apply(req->dst_scratch, &aargs);
+}
+
+bb_err_t bb_data_apply(const bb_data_apply_req_t *req)
+{
+    // dst_scratch is validated here (rather than left solely to
+    // bb_data_commit()) so a NULL dst_scratch is reported up front as
+    // BB_ERR_INVALID_ARG without spending a parse cycle first -- matches
+    // the flat-call contract's own documented NULL-arg surface.
+    if (!req || !req->dst_scratch) return BB_ERR_INVALID_ARG;
+
+    bb_data_parse_req_t parse_req = {
+        .fmt               = req->fmt,
+        .key               = req->key,
+        .body              = req->body,
+        .body_len          = req->body_len,
+        .parse_scratch     = req->parse_scratch,
+        .parse_scratch_cap = req->parse_scratch_cap,
+    };
+    bb_data_parsed_t parsed;
+    bb_err_t rc = bb_data_parse(&parse_req, &parsed);
+    if (rc != BB_OK) return rc;
+
+    bb_data_commit_req_t commit_req = {
+        .mode            = req->mode,
+        .dst_scratch     = req->dst_scratch,
+        .dst_scratch_cap = req->dst_scratch_cap,
+    };
+    return bb_data_commit(&parsed, &commit_req);
 }
 
 bb_err_t bb_data_binding_replay_kind(const char *key, bb_data_replay_kind_t *out_kind)

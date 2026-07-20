@@ -1,5 +1,6 @@
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_http_server/bb_http.c"
+         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_http_server/bb_http_section_dispatch.c"
          "src/http_utils.c"
          "src/bb_http_status.c"
          "src/bb_http_query.c"
@@ -7,7 +8,10 @@ idf_component_register(
          "src/route_registry.c"
          "src/bb_http_json_obj.c"
          "src/bb_http_serialize_stream.c"
+         "src/bb_http_section.c"
+         "src/bb_http_section_status.c"
     INCLUDE_DIRS "include"
+    PRIV_INCLUDE_DIRS "src"
     REQUIRES bb_core bb_http bb_serialize_json
     PRIV_REQUIRES bb_log bb_json esp_http_server esp_event bb_str
 )

@@ -217,6 +217,15 @@ void test_bb_data_apply_apply_null_returns_unsupported(void);
 void test_bb_data_apply_unregistered_format_returns_unsupported(void);
 void test_bb_data_apply_dst_scratch_too_small_returns_no_space(void);
 void test_bb_data_apply_null_args_return_invalid_arg(void);
+void test_bb_data_parse_decodes_body_and_commit_applies(void);
+void test_bb_data_parse_null_args_return_invalid_arg(void);
+void test_bb_data_parse_unknown_key_returns_not_found(void);
+void test_bb_data_parse_apply_less_binding_returns_unsupported(void);
+void test_bb_data_parse_unregistered_format_returns_unsupported(void);
+void test_bb_data_parse_malformed_body_returns_parse_grammar(void);
+void test_bb_data_commit_null_args_return_invalid_arg(void);
+void test_bb_data_commit_dst_scratch_too_small_returns_no_space(void);
+void test_bb_data_apply_patch_malformed_body_never_invokes_seed_gather(void);
 
 // Forward declarations from test_bb_diag_section.c
 void test_bb_diag_register_section_success(void);
@@ -265,6 +274,46 @@ void test_bb_diag_register_section_iter_stream_nested_via_mid_arr_of_obj_returns
 void test_bb_diag_register_section_iter_stream_with_clean_sibling_obj_succeeds(void);
 void test_bb_diag_register_section_iter_stream_with_scalar_arr_sibling_succeeds(void);
 void test_bb_diag_register_section_fill_stream_nested_beyond_max_depth_fail_open_succeeds(void);
+
+// Forward declarations from test_bb_http_section.c
+void test_bb_http_section_register_ns_success(void);
+void test_bb_http_section_register_ns_render_only_ok(void);
+void test_bb_http_section_register_ns_apply_only_ok(void);
+void test_bb_http_section_register_ns_null_ns_returns_invalid_arg(void);
+void test_bb_http_section_register_ns_null_prefix_returns_invalid_arg(void);
+void test_bb_http_section_register_ns_both_hooks_null_returns_invalid_arg(void);
+void test_bb_http_section_register_ns_prefix_too_long_returns_invalid_arg(void);
+void test_bb_http_section_register_ns_duplicate_prefix_returns_invalid_state(void);
+void test_bb_http_section_register_ns_table_full_returns_no_space(void);
+void test_bb_http_section_find_strips_prefix(void);
+void test_bb_http_section_find_no_match_returns_null(void);
+void test_bb_http_section_find_longest_prefix_wins(void);
+void test_bb_http_section_register_ns_prefix_too_broad_returns_invalid_arg(void);
+void test_bb_http_section_register_ns_root_prefix_returns_invalid_arg(void);
+void test_bb_http_section_register_ns_double_slash_prefix_too_broad_returns_invalid_arg(void);
+void test_bb_http_section_register_ns_trailing_double_slash_too_broad_returns_invalid_arg(void);
+void test_bb_http_section_register_ns_interior_double_slash_counts_as_two_segments(void);
+void test_bb_http_section_find_truncates_to_out_cap(void);
+void test_bb_http_section_find_null_args_return_null(void);
+void test_bb_http_section_count_and_at_reflect_registrations(void);
+void test_bb_http_section_at_out_of_range_returns_null(void);
+void test_bb_http_section_at_null_out_wildcard_is_optional(void);
+void test_bb_http_section_status_for_render_ok_is_200(void);
+void test_bb_http_section_status_for_render_not_found_is_404(void);
+void test_bb_http_section_status_for_render_other_error_is_500(void);
+void test_bb_http_section_status_for_apply_parse_grammar_is_400(void);
+void test_bb_http_section_status_for_apply_parse_incomplete_is_400(void);
+void test_bb_http_section_status_for_apply_parse_not_found_is_404(void);
+void test_bb_http_section_status_for_apply_parse_unsupported_is_405(void);
+void test_bb_http_section_status_for_apply_parse_other_error_is_500(void);
+void test_bb_http_section_status_for_apply_commit_ok_is_200(void);
+void test_bb_http_section_status_for_apply_commit_validation_is_400(void);
+void test_bb_http_section_status_for_apply_commit_unsupported_is_405(void);
+void test_bb_http_section_status_for_apply_commit_unsupported_override_is_501(void);
+void test_bb_http_section_status_for_apply_override_ignored_when_not_unsupported(void);
+void test_bb_http_section_status_for_apply_commit_other_error_is_500(void);
+void test_bb_http_section_e2e_apply_drives_bb_data_parse_and_commit(void);
+void test_bb_http_section_e2e_apply_malformed_body_maps_400(void);
 
 // Forward declarations from test_bb_data_http.c
 void test_bb_data_http_init_idempotent(void);
@@ -995,6 +1044,7 @@ void test_url_decode_percent_at_end(void);
 void test_url_decode_field_not_first(void);
 void test_url_decode_empty_value(void);
 void test_url_decode_field_at_end(void);
+void test_bb_http_send_json_error_sets_status_type_and_body(void);
 void test_prov_parse_empty_body(void);
 void test_prov_parse_missing_ssid(void);
 void test_prov_parse_ssid_only(void);
@@ -2763,6 +2813,12 @@ void test_bb_http_body_zero_len_returns_invalid_arg(void);
 void test_bb_http_body_over_max_returns_no_space(void);
 void test_bb_http_body_recv_fail_returns_invalid_arg(void);
 void test_bb_http_body_oom_returns_no_space(void);
+void test_bb_http_body_recv_body_stack_happy_path(void);
+void test_bb_http_body_recv_body_stack_exactly_at_cap_not_truncated(void);
+void test_bb_http_body_recv_body_stack_over_cap_returns_invalid_arg(void);
+void test_bb_http_body_recv_body_stack_zero_len_returns_invalid_arg(void);
+void test_bb_http_body_recv_body_stack_zero_cap_returns_invalid_arg(void);
+void test_bb_http_body_recv_body_stack_recv_fail_returns_invalid_arg(void);
 void test_bb_http_req_get_header_found(void);
 void test_bb_http_req_get_header_not_found(void);
 void test_bb_http_req_get_header_name_set_value_null_not_found(void);
@@ -5288,6 +5344,12 @@ int main(void) {
     RUN_TEST(test_bb_http_body_over_max_returns_no_space);
     RUN_TEST(test_bb_http_body_recv_fail_returns_invalid_arg);
     RUN_TEST(test_bb_http_body_oom_returns_no_space);
+    RUN_TEST(test_bb_http_body_recv_body_stack_happy_path);
+    RUN_TEST(test_bb_http_body_recv_body_stack_exactly_at_cap_not_truncated);
+    RUN_TEST(test_bb_http_body_recv_body_stack_over_cap_returns_invalid_arg);
+    RUN_TEST(test_bb_http_body_recv_body_stack_zero_len_returns_invalid_arg);
+    RUN_TEST(test_bb_http_body_recv_body_stack_zero_cap_returns_invalid_arg);
+    RUN_TEST(test_bb_http_body_recv_body_stack_recv_fail_returns_invalid_arg);
 
     // bb_http_req_get_header (B1-527 follow-up)
     RUN_TEST(test_bb_http_req_get_header_found);
@@ -5898,6 +5960,7 @@ int main(void) {
     RUN_TEST(test_url_decode_field_not_first);
     RUN_TEST(test_url_decode_empty_value);
     RUN_TEST(test_url_decode_field_at_end);
+    RUN_TEST(test_bb_http_send_json_error_sets_status_type_and_body);
     RUN_TEST(test_prov_parse_empty_body);
     RUN_TEST(test_prov_parse_missing_ssid);
     RUN_TEST(test_prov_parse_ssid_only);
@@ -10260,6 +10323,15 @@ int main(void) {
     RUN_TEST(test_bb_data_apply_unregistered_format_returns_unsupported);
     RUN_TEST(test_bb_data_apply_dst_scratch_too_small_returns_no_space);
     RUN_TEST(test_bb_data_apply_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_data_parse_decodes_body_and_commit_applies);
+    RUN_TEST(test_bb_data_parse_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_data_parse_unknown_key_returns_not_found);
+    RUN_TEST(test_bb_data_parse_apply_less_binding_returns_unsupported);
+    RUN_TEST(test_bb_data_parse_unregistered_format_returns_unsupported);
+    RUN_TEST(test_bb_data_parse_malformed_body_returns_parse_grammar);
+    RUN_TEST(test_bb_data_commit_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_data_commit_dst_scratch_too_small_returns_no_space);
+    RUN_TEST(test_bb_data_apply_patch_malformed_body_never_invokes_seed_gather);
 
     RUN_TEST(test_wifi_creds_apply_post_mode_does_not_reuse_stale_pending_password);
     RUN_TEST(test_wifi_creds_apply_patch_mode_would_reuse_stale_pending_password);
@@ -10319,6 +10391,45 @@ int main(void) {
     RUN_TEST(test_bb_diag_register_section_iter_stream_with_clean_sibling_obj_succeeds);
     RUN_TEST(test_bb_diag_register_section_iter_stream_with_scalar_arr_sibling_succeeds);
     RUN_TEST(test_bb_diag_register_section_fill_stream_nested_beyond_max_depth_fail_open_succeeds);
+
+    RUN_TEST(test_bb_http_section_register_ns_success);
+    RUN_TEST(test_bb_http_section_register_ns_render_only_ok);
+    RUN_TEST(test_bb_http_section_register_ns_apply_only_ok);
+    RUN_TEST(test_bb_http_section_register_ns_null_ns_returns_invalid_arg);
+    RUN_TEST(test_bb_http_section_register_ns_null_prefix_returns_invalid_arg);
+    RUN_TEST(test_bb_http_section_register_ns_both_hooks_null_returns_invalid_arg);
+    RUN_TEST(test_bb_http_section_register_ns_prefix_too_long_returns_invalid_arg);
+    RUN_TEST(test_bb_http_section_register_ns_duplicate_prefix_returns_invalid_state);
+    RUN_TEST(test_bb_http_section_register_ns_table_full_returns_no_space);
+    RUN_TEST(test_bb_http_section_find_strips_prefix);
+    RUN_TEST(test_bb_http_section_find_no_match_returns_null);
+    RUN_TEST(test_bb_http_section_find_longest_prefix_wins);
+    RUN_TEST(test_bb_http_section_register_ns_prefix_too_broad_returns_invalid_arg);
+    RUN_TEST(test_bb_http_section_register_ns_root_prefix_returns_invalid_arg);
+    RUN_TEST(test_bb_http_section_register_ns_double_slash_prefix_too_broad_returns_invalid_arg);
+    RUN_TEST(test_bb_http_section_register_ns_trailing_double_slash_too_broad_returns_invalid_arg);
+    RUN_TEST(test_bb_http_section_register_ns_interior_double_slash_counts_as_two_segments);
+    RUN_TEST(test_bb_http_section_find_truncates_to_out_cap);
+    RUN_TEST(test_bb_http_section_find_null_args_return_null);
+    RUN_TEST(test_bb_http_section_count_and_at_reflect_registrations);
+    RUN_TEST(test_bb_http_section_at_out_of_range_returns_null);
+    RUN_TEST(test_bb_http_section_at_null_out_wildcard_is_optional);
+    RUN_TEST(test_bb_http_section_status_for_render_ok_is_200);
+    RUN_TEST(test_bb_http_section_status_for_render_not_found_is_404);
+    RUN_TEST(test_bb_http_section_status_for_render_other_error_is_500);
+    RUN_TEST(test_bb_http_section_status_for_apply_parse_grammar_is_400);
+    RUN_TEST(test_bb_http_section_status_for_apply_parse_incomplete_is_400);
+    RUN_TEST(test_bb_http_section_status_for_apply_parse_not_found_is_404);
+    RUN_TEST(test_bb_http_section_status_for_apply_parse_unsupported_is_405);
+    RUN_TEST(test_bb_http_section_status_for_apply_parse_other_error_is_500);
+    RUN_TEST(test_bb_http_section_status_for_apply_commit_ok_is_200);
+    RUN_TEST(test_bb_http_section_status_for_apply_commit_validation_is_400);
+    RUN_TEST(test_bb_http_section_status_for_apply_commit_unsupported_is_405);
+    RUN_TEST(test_bb_http_section_status_for_apply_commit_unsupported_override_is_501);
+    RUN_TEST(test_bb_http_section_status_for_apply_override_ignored_when_not_unsupported);
+    RUN_TEST(test_bb_http_section_status_for_apply_commit_other_error_is_500);
+    RUN_TEST(test_bb_http_section_e2e_apply_drives_bb_data_parse_and_commit);
+    RUN_TEST(test_bb_http_section_e2e_apply_malformed_body_maps_400);
 
     RUN_TEST(test_bb_data_http_init_idempotent);
     RUN_TEST(test_bb_data_http_init_max_clients_over_cap_returns_invalid_arg);

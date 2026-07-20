@@ -167,11 +167,26 @@ int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size)
     if (s_force_recv_fail) return -1;
     capture_slot_t *cap = capture_find(req);
     if (cap && cap->req_body && cap->req_body_len > 0) {
-        int n = cap->req_body_len;
-        if ((size_t)n >= buf_size) n = (int)(buf_size - 1);
-        memcpy(buf, cap->req_body, (size_t)n);
-        buf[n] = '\0';
-        return n;
+        // Mirrors the ESP-IDF backend's own contract EXACTLY (bb_http.c's
+        // bb_http_req_recv() is a thin wrapper over httpd_req_recv(),
+        // which copies up to `buf_size` RAW bytes and does NOT NUL-terminate
+        // or reserve a byte for one) -- `buf_size` is a max-DATA-bytes cap,
+        // not a total-buffer-capacity-including-NUL cap. A prior version of
+        // this stub silently reserved (and auto-wrote) a trailing NUL byte
+        // itself, off by one from the real backend's behavior: it made a
+        // host test pass for a body of exactly `buf_size` bytes while the
+        // same call on real ESP-IDF hardware would deliver `buf_size` bytes
+        // in full -- i.e. the stub was UNDER-testing the real off-by-one
+        // class this file's own bb_http_req_recv_body_stack() tests exist to
+        // catch (see test_bb_http_body_recv_body_stack_exactly_at_cap_not_truncated).
+        // Every existing caller already NUL-terminates its own buffer at
+        // buf[n] after this call (matching the real backend's contract), so
+        // removing the stub's own internal reservation changes no other
+        // caller's observable behavior.
+        size_t n = (size_t)cap->req_body_len;
+        if (n > buf_size) n = buf_size;
+        memcpy(buf, cap->req_body, n);
+        return (int)n;
     }
     (void)req;
     (void)buf;

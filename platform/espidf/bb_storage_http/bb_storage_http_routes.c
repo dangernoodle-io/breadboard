@@ -9,8 +9,8 @@
 #include "bb_storage_http.h"
 #include "bb_data.h"
 #include "bb_http.h"
-#include "bb_http_server.h"
 #include "bb_http_body.h"
+#include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mem.h"
@@ -498,19 +498,15 @@ static void factory_reset_reboot_work_fn(void *arg)
 
 static bb_err_t factory_reset_handler(bb_http_request_t *req)
 {
-    int body_len = bb_http_req_body_len(req);
-    if (body_len <= 0 || body_len > BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX) {
-        send_400(req, "missing or oversized body");
+    // BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX is MAX BODY BYTES (see
+    // bb_http_req_recv_body_stack()'s cap-semantics doc); the stack buffer
+    // itself is sized one byte larger for the NUL terminator.
+    char   body[BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX + 1];
+    size_t n = 0;
+    if (bb_http_req_recv_body_stack(req, body, sizeof(body), &n) != BB_OK) {
+        send_400(req, "missing, oversized, or unreadable body");
         return BB_ERR_INVALID_ARG;
     }
-
-    char body[BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX];
-    int n = bb_http_req_recv(req, body, sizeof(body) - 1);
-    if (n < 0) {
-        send_400(req, "read failed");
-        return BB_ERR_INVALID_ARG;
-    }
-    body[n] = '\0';
 
     bb_storage_factory_reset_apply_t dst_scratch;
     char                             parse_scratch[FACTORY_RESET_PARSE_SCRATCH_BYTES];
@@ -519,7 +515,7 @@ static bb_err_t factory_reset_handler(bb_http_request_t *req)
         .key               = "factory_reset",
         .mode              = BB_DATA_APPLY_POST,
         .body              = body,
-        .body_len          = (size_t)n,
+        .body_len          = n,
         .parse_scratch     = parse_scratch,
         .parse_scratch_cap = sizeof(parse_scratch),
         .dst_scratch       = &dst_scratch,

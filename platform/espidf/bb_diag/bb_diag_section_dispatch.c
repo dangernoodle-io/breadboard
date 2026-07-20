@@ -27,40 +27,35 @@ static bool http_query_getter(void *ctx, const char *key, char *out, size_t out_
     return bb_http_req_query_key_value(req, key, out, out_cap) == BB_OK;
 }
 
-// Sends a JSON error body with Content-Type + status set on both the
-// success and error paths (bb_http_resp_sendstr() itself does not set
-// Content-Type) -- same convention as floor_diag_render().
-static bb_err_t respond_error(bb_http_request_t *req, int status, const char *body)
-{
-    bb_http_resp_set_type(req, "application/json");
-    bb_http_resp_set_status(req, status);
-    return bb_http_resp_sendstr(req, body);
-}
+// The JSON-error-body idiom this used to hand-roll as a local
+// respond_error() (verbatim duplicate of bb_http_section_dispatch.c's own
+// respond_error(), same convention floor_diag_render() also followed) is
+// now the single shared bb_http_send_json_error() in bb_http_server.h.
 
 static bb_err_t diag_section_dispatch(bb_http_request_t *req)
 {
     char uri[BB_DIAG_SECTION_URI_MAX];
     bb_err_t rc = bb_http_req_uri(req, uri, sizeof(uri));
     if (rc != BB_OK) {
-        return respond_error(req, 404, "{\"error\":\"not found\"}");
+        return bb_http_send_json_error(req, 404, "{\"error\":\"not found\"}");
     }
 
     char name[BB_DIAG_SECTION_NAME_MAX];
     rc = bb_diag_section_name_from_uri(uri, name, sizeof(name));
     if (rc != BB_OK) {
-        return respond_error(req, 404, "{\"error\":\"not found\"}");
+        return bb_http_send_json_error(req, 404, "{\"error\":\"not found\"}");
     }
 
     const bb_diag_section_t *sec = bb_diag_section_find(name);
     if (!sec) {
-        return respond_error(req, 404, "{\"error\":\"not found\"}");
+        return bb_http_send_json_error(req, 404, "{\"error\":\"not found\"}");
     }
 
     bb_serialize_query_t query = {0};
     char value_scratch[BB_SERIALIZE_QUERY_MAX_PARAMS][BB_DIAG_SECTION_QUERY_VALUE_BYTES];
     rc = bb_diag_section_build_query(sec, http_query_getter, req, (char *)value_scratch, &query);
     if (rc != BB_OK) {  // LCOV_EXCL_BR_LINE -- bb_diag_section_build_query() only returns non-BB_OK on NULL args, none of which are ever NULL at this call site (sec/http_query_getter/req/value_scratch/&query are all always valid here).
-        return respond_error(req, 500, "{\"error\":\"query build failed\"}");
+        return bb_http_send_json_error(req, 500, "{\"error\":\"query build failed\"}");
     }
 
     bb_diag_fill_args_t fill_args = {
@@ -77,7 +72,7 @@ static bb_err_t diag_section_dispatch(bb_http_request_t *req)
         size_t row_count = 0;
         rc = sec->iter(dst, NULL, 0, &row_count, &fill_args);  // phase 1: count
         if (rc != BB_OK) {
-            return respond_error(req, 500, "{\"error\":\"fill failed\"}");
+            return bb_http_send_json_error(req, 500, "{\"error\":\"fill failed\"}");
         }
 
         void *arena = NULL;
@@ -88,18 +83,18 @@ static bb_err_t diag_section_dispatch(bb_http_request_t *req)
             // cap, but never trust an unchecked multiply into an
             // allocation size).
             if (elem_size != 0 && row_count > SIZE_MAX / elem_size) {
-                return respond_error(req, 500, "{\"error\":\"row count overflow\"}");
+                return bb_http_send_json_error(req, 500, "{\"error\":\"row count overflow\"}");
             }
             arena = bb_malloc_prefer_spiram(row_count * elem_size);
             if (!arena) {
-                return respond_error(req, 500, "{\"error\":\"arena alloc failed\"}");
+                return bb_http_send_json_error(req, 500, "{\"error\":\"arena alloc failed\"}");
             }
         }
 
         rc = sec->iter(dst, arena, row_count, &row_count, &fill_args);  // phase 2: fill
         if (rc != BB_OK) {
             bb_mem_free(arena);
-            return respond_error(req, 500, "{\"error\":\"fill failed\"}");
+            return bb_http_send_json_error(req, 500, "{\"error\":\"fill failed\"}");
         }
 
         rc = bb_http_serialize_stream(req, sec->snap_desc, dst);
@@ -110,7 +105,7 @@ static bb_err_t diag_section_dispatch(bb_http_request_t *req)
     char scratch[BB_DIAG_SECTION_SCRATCH_BYTES];
     rc = sec->fill(scratch, &fill_args);
     if (rc != BB_OK) {
-        return respond_error(req, 500, "{\"error\":\"fill failed\"}");
+        return bb_http_send_json_error(req, 500, "{\"error\":\"fill failed\"}");
     }
 
     return bb_http_serialize_stream(req, sec->snap_desc, scratch);
