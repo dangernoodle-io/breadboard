@@ -148,7 +148,7 @@ components = [
     "bb_partition", "bb_pool", "bb_power", "bb_power_health",
     "bb_power_tps546",
     "bb_queue",
-    "bb_registry", "bb_release_manifest", "bb_response", "bb_ring_diag",
+    "bb_registry", "bb_release_manifest", "bb_ring_diag",
     "bb_scalar", "bb_sensors", "bb_serialize", "bb_serialize_console", "bb_serialize_json",
     "bb_serialize_logfmt", "bb_settings",
     "bb_storage", "bb_storage_http", "bb_storage_ram", "bb_storage_rtc",

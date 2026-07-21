@@ -82,7 +82,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_queue](./bb_queue/) | — |
 | [bb_registry](./bb_registry/) | — |
 | [bb_release_manifest](./bb_release_manifest/) | — |
-| [bb_response](./bb_response/) | — |
 | [bb_ring_diag](./bb_ring_diag/) | — |
 | [bb_scalar](./bb_scalar/) | — |
 | [bb_sensors](./bb_sensors/) | — |
