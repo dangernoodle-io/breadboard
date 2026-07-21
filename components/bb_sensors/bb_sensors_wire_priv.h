@@ -50,8 +50,7 @@ typedef struct {
 #endif
 
 // ---------------------------------------------------------------------------
-// Power (read-only telemetry -- flat, -1-sentinel present-gated like
-// bb_power_emit()'s own JSON fields)
+// Power (read-only telemetry -- flat, -1-sentinel present-gated per field)
 // ---------------------------------------------------------------------------
 
 typedef struct {

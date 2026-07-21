@@ -142,8 +142,8 @@ bb_err_t bb_sensors_fan_apply(const void *snap, const bb_data_apply_args_t *args
 // Power
 // ---------------------------------------------------------------------------
 
-// Per-field -1-sentinel gates -- mirrors bb_power_emit()'s own
-// "if (snap->X >= 0) number else null" branches. Independent of the
+// Per-field -1-sentinel gates -- each field is present when its raw
+// reading is >= 0, absent (null) when -1. Independent of the
 // top-level "present" flag: even with a primary handle, an individual
 // channel read can still fail and report its own -1.
 static bool power_vout_mv_present(const void *snap)
