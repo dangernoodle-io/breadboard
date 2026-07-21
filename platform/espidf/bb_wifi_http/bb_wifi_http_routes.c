@@ -10,7 +10,6 @@
 #include "bb_http_body.h"
 #include "bb_http_serialize_stream.h"
 #include "bb_http_server.h"
-#include "bb_json.h"
 #include "bb_openapi.h"
 #include "bb_serialize.h"
 
@@ -20,6 +19,11 @@
 // include/ (mirrors bb_health.c's relative include of
 // bb_health_wire_priv.h).
 #include "../../../components/bb_wifi_http/bb_wifi_http_wire_priv.h"
+
+// POST /api/wifi/scan wire descriptor -- migration of scan_handler's
+// bb_json_t-based emitter to a bb_serialize descriptor. Private header,
+// same relative-include convention as bb_wifi_http_wire_priv.h above.
+#include "../../../components/bb_wifi_http/bb_wifi_http_scan_wire_priv.h"
 
 #if CONFIG_BB_WIFI_RECONFIGURE
 #include "bb_data.h"
@@ -67,24 +71,10 @@ static bb_err_t wifi_info_handler(bb_http_request_t *req)
 
 static bb_err_t scan_handler(bb_http_request_t *req)
 {
-    bb_wifi_scan_start_async();
+    bb_wifi_http_scan_wire_t snap;
+    bb_wifi_http_scan_wire_fill(&snap);
 
-    bb_wifi_ap_t aps[WIFI_SCAN_MAX];
-    memset(aps, 0, sizeof(aps));
-    int count = bb_wifi_scan_get_cached(aps, WIFI_SCAN_MAX);
-
-    bb_http_json_stream_t stream;
-    bb_err_t rc = bb_http_resp_json_arr_begin(req, &stream);
-    if (rc != BB_OK) return rc;
-    for (int i = 0; i < count; i++) {
-        bb_json_t ap = bb_json_obj_new();
-        bb_json_obj_set_string(ap, "ssid",   aps[i].ssid);
-        bb_json_obj_set_number(ap, "rssi",   aps[i].rssi);
-        bb_json_obj_set_bool(ap,   "secure", aps[i].secure);
-        bb_http_resp_json_arr_emit(&stream, ap);
-        bb_json_free(ap);
-    }
-    return bb_http_resp_json_arr_end(&stream);
+    return bb_http_serialize_stream(req, &bb_wifi_http_scan_wire_desc, &snap);
 }
 
 // ---------------------------------------------------------------------------
@@ -124,21 +114,24 @@ static const bb_route_t s_wifi_route = {
 
 static const bb_route_response_t s_scan_responses[] = {
     { 200, "application/json",
-      "{\"type\":\"array\","
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"aps\":{\"type\":\"array\","
       "\"items\":{"
       "\"type\":\"object\","
       "\"properties\":{"
       "\"ssid\":{\"type\":\"string\"},"
       "\"rssi\":{\"type\":\"integer\"},"
       "\"secure\":{\"type\":\"boolean\"}},"
-      "\"required\":[\"ssid\",\"rssi\",\"secure\"]}}",
-      "list of visible access points" },
+      "\"required\":[\"ssid\",\"rssi\",\"secure\"]}}},"
+      "\"required\":[\"aps\"]}",
+      "visible access points, wrapped in an aps array" },
     { 0 },
 };
 
 static const bb_route_t s_scan_route = {
     .method   = BB_HTTP_POST,
-    .path     = "/api/scan",
+    .path     = "/api/wifi/scan",
     .tag      = BB_TOPIC_WIFI,
     .summary  = "Trigger Wi-Fi network scan and return cached results",
     .responses = s_scan_responses,
@@ -386,9 +379,9 @@ bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
 bb_err_t bb_wifi_routes_reserve(void)
 {
 #if CONFIG_BB_WIFI_RECONFIGURE
-    bb_http_reserve_routes(3);  // GET /api/wifi + POST /api/scan + PATCH /api/wifi
+    bb_http_reserve_routes(3);  // GET /api/wifi + POST /api/wifi/scan + PATCH /api/wifi
 #else
-    bb_http_reserve_routes(2);  // GET /api/wifi + POST /api/scan
+    bb_http_reserve_routes(2);  // GET /api/wifi + POST /api/wifi/scan
 #endif
     return BB_OK;
 }

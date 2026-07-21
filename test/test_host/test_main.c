@@ -1710,6 +1710,18 @@ void test_wifi_pending_validate_buf_null_ssid_returns_invalid_arg(void);
 void test_wifi_pending_validate_buf_empty_ssid_returns_invalid_arg(void);
 void test_wifi_pending_validate_buf_null_pass_returns_ok(void);
 
+// Forward declarations from test_wifi_scan_wire.c
+void test_wifi_scan_wire_expected_json_zero_aps(void);
+void test_wifi_scan_wire_expected_json_one_ap(void);
+void test_wifi_scan_wire_expected_json_max_cap(void);
+void test_wifi_scan_wire_expected_json_escaped_ssid(void);
+void test_wifi_scan_wire_expected_json_control_char_ssid(void);
+void test_wifi_scan_wire_fill_populates_snapshot(void);
+void test_wifi_scan_wire_row_field_count_matches(void);
+void test_wifi_scan_wire_clamp_count_negative_clamps_to_zero(void);
+void test_wifi_scan_wire_clamp_count_over_cap_clamps_to_max(void);
+void test_wifi_scan_wire_clamp_count_in_range_passes_through(void);
+
 // Forward declarations from test_wifi_creds_apply_route.c
 void test_wifi_creds_apply_post_mode_does_not_reuse_stale_pending_password(void);
 void test_wifi_creds_apply_patch_mode_would_reuse_stale_pending_password(void);
@@ -6138,6 +6150,18 @@ int main(void) {
     RUN_TEST(test_wifi_pending_validate_buf_null_ssid_returns_invalid_arg);
     RUN_TEST(test_wifi_pending_validate_buf_empty_ssid_returns_invalid_arg);
     RUN_TEST(test_wifi_pending_validate_buf_null_pass_returns_ok);
+
+    // Wi-Fi scan wire (bb_json -> bb_serialize migration) tests
+    RUN_TEST(test_wifi_scan_wire_expected_json_zero_aps);
+    RUN_TEST(test_wifi_scan_wire_expected_json_one_ap);
+    RUN_TEST(test_wifi_scan_wire_expected_json_max_cap);
+    RUN_TEST(test_wifi_scan_wire_expected_json_escaped_ssid);
+    RUN_TEST(test_wifi_scan_wire_expected_json_control_char_ssid);
+    RUN_TEST(test_wifi_scan_wire_fill_populates_snapshot);
+    RUN_TEST(test_wifi_scan_wire_row_field_count_matches);
+    RUN_TEST(test_wifi_scan_wire_clamp_count_negative_clamps_to_zero);
+    RUN_TEST(test_wifi_scan_wire_clamp_count_over_cap_clamps_to_max);
+    RUN_TEST(test_wifi_scan_wire_clamp_count_in_range_passes_through);
 
     // Route registry tests
     RUN_TEST(test_route_registry_count_starts_at_zero);

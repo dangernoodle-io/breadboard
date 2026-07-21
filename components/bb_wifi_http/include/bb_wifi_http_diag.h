@@ -4,7 +4,7 @@
 // B1-1077 PR-3a. Replaces the prior hand-rolled exact route (diag_wifi_handler
 // in platform/espidf/bb_wifi_http/bb_wifi_http_routes.c, removed this PR)
 // with a bb_diag_register_section() fill adapter. GET /api/wifi and POST
-// /api/scan are UNCHANGED -- only the diag snapshot moves.
+// /api/wifi/scan are UNCHANGED -- only the diag snapshot moves.
 //
 // reason_histogram (B1-1077 PR-3a fork #3): N present-gated fixed fields,
 // one per bb_wifi_disc_reason_t bucket (BB_WIFI_DISC_UNKNOWN..
