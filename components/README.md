@@ -57,7 +57,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_log](./bb_log/) | — |
 | [bb_log_event](./bb_log_event/) | "log" `bb_event` stream topic sink, carved out of `bb_log` (KB #708/#704). |
 | [bb_log_http](./bb_log_http/) | GET/POST `/api/log/level` routes sink, carved out of `bb_log` (KB #708/#704). |
-| [bb_manifest](./bb_manifest/) | — |
 | [bb_mdns](./bb_mdns/) | — |
 | [bb_mdns_cache](./bb_mdns_cache/) | — |
 | [bb_mem_arena](./bb_mem_arena/) | — |

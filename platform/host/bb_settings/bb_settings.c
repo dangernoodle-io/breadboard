@@ -668,7 +668,7 @@ bb_err_t bb_settings_wifi_rtc_mirror_clear(void)
 }
 
 // ---------------------------------------------------------------------------
-// Creds-boot heal/seed shell + /api/manifest registration (B1-963/B1-708:
+// Creds-boot heal/seed shell + NVS-key schema overlay (B1-963/B1-708:
 // relocated VERBATIM from platform/espidf/bb_nv/bb_nv.c's
 // bb_nv_config_init()/bb_nv_config_manifest_init() -- see bb_settings.h for
 // the public contract of each).
@@ -679,8 +679,8 @@ bb_err_t bb_settings_wifi_rtc_mirror_clear(void)
 // types s_overlay_fields below actually uses (BOOL, STR) are distinguished;
 // anything else defaults to "str" -- widen this (mirroring the fuller
 // "str"|"u8"|"u16"|"u32"|"i32"|"blob"|"bool" vocabulary the old
-// bb_manifest_nv_t.type hand-typed literals used) if/when the overlay's
-// field scope grows to cover a scalar-numeric field.
+// manifest-registration component's hand-typed type literals used) if/when
+// the overlay's field scope grows to cover a scalar-numeric field.
 static const char *bb_settings_config_type_to_str(bb_config_type_t t)
 {
     switch (t) {

@@ -216,11 +216,6 @@
       "type": "component"
     },
     {
-      "id": "bb_manifest",
-      "path": "components/bb_manifest",
-      "type": "component"
-    },
-    {
       "id": "bb_mdns",
       "path": "components/bb_mdns",
       "type": "component"
