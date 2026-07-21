@@ -12,7 +12,10 @@
 //   /api/update/apply      - ota_update_handler calls esp_restart() (ESP-IDF only);
 //                            ota_boot_handler same. Both handlers are static in
 //                            ESP-IDF platform files.
-//   /api/update/partitions - calls esp_ota_get_running_partition (ESP-IDF only)
+//   /api/update/partitions - calls esp_ota_get_running_partition (ESP-IDF only);
+//                            the wire descriptor + copy_rows fn now have
+//                            host coverage, see test_ota_validator_partitions_wire.c
+//                            (same posture as /api/wifi/scan above)
 //   /api/update/recover    - calls esp_ota_erase_last_boot_app_partition (ESP-IDF only)
 //   /api/update/mark-valid (200) - bb_ota_is_pending() always false on host; 409 path covered
 //   /api/diag/heap         - calls heap_caps_* (ESP-IDF only)

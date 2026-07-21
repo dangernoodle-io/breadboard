@@ -9,10 +9,16 @@
 #include "esp_partition.h"
 #include "esp_app_format.h"
 #include "bb_http.h"
+#include "bb_http_serialize_stream.h"
 #include "bb_http_server.h"
-#include "bb_json.h"
 #include "bb_log.h"
 #include "bb_system.h"
+
+// GET /api/update/partitions wire descriptor -- migration of
+// partitions_handler's bb_json_t-based emitter to a bb_serialize
+// descriptor. Private header, component-root relative include (same
+// convention as bb_wifi_http_scan_wire_priv.h).
+#include "../../../components/bb_ota_validator/bb_ota_validator_partitions_wire_priv.h"
 
 static const char *TAG = "bb_ota_val";
 
@@ -100,59 +106,12 @@ bool bb_ota_is_validated(void)
     return result;
 }
 
-static const char *ota_state_str(esp_ota_img_states_t st)
-{
-    switch (st) {
-    case ESP_OTA_IMG_NEW:            return "new";
-    case ESP_OTA_IMG_PENDING_VERIFY: return "pending_verify";
-    case ESP_OTA_IMG_VALID:          return "valid";
-    case ESP_OTA_IMG_INVALID:        return "invalid";
-    case ESP_OTA_IMG_ABORTED:        return "aborted";
-    case ESP_OTA_IMG_UNDEFINED:      return "undefined";
-    default:                         return "undefined";
-    }
-}
-
 static bb_err_t partitions_handler(bb_http_request_t *req)
 {
-    const esp_partition_t *running = esp_ota_get_running_partition();
+    bb_ota_validator_partitions_wire_t snap;
+    bb_ota_validator_partitions_wire_fill(&snap);
 
-    bb_http_json_stream_t arr;
-    bb_err_t rc = bb_http_resp_json_arr_begin(req, &arr);
-    if (rc != BB_OK) return rc;
-
-    // Iterate all app partitions: factory + ota_0..ota_N
-    esp_partition_iterator_t it = esp_partition_find(ESP_PARTITION_TYPE_APP,
-                                                      ESP_PARTITION_SUBTYPE_ANY,
-                                                      NULL);
-    while (it) {
-        const esp_partition_t *p = esp_partition_get(it);
-        if (p) {
-            bb_json_t item = bb_json_obj_new();
-            if (item) {
-                bb_json_obj_set_string(item, "label",   p->label);
-                bb_json_obj_set_number(item, "address", (double)p->address);
-                bb_json_obj_set_number(item, "size",    (double)p->size);
-                bb_json_obj_set_bool  (item, "running", p == running);
-
-                esp_ota_img_states_t st;
-                const char *state_str;
-                if (esp_ota_get_state_partition(p, &st) == ESP_OK) {
-                    state_str = ota_state_str(st);
-                } else {
-                    state_str = "undefined";
-                }
-                bb_json_obj_set_string(item, "state", state_str);
-
-                bb_http_resp_json_arr_emit(&arr, item);
-                bb_json_free(item);
-            }
-        }
-        it = esp_partition_next(it);
-    }
-    esp_partition_iterator_release(it);
-
-    return bb_http_resp_json_arr_end(&arr);
+    return bb_http_serialize_stream(req, &bb_ota_validator_partitions_wire_desc, &snap);
 }
 
 static bb_err_t recover_handler(bb_http_request_t *req)
@@ -248,7 +207,8 @@ bb_err_t bb_ota_validator_init(bb_http_handle_t server)
 
     static const bb_route_response_t s_partitions_responses[] = {
         { 200, "application/json",
-          "{\"type\":\"array\","
+          "{\"type\":\"object\","
+          "\"properties\":{\"partitions\":{\"type\":\"array\","
           "\"items\":{\"type\":\"object\","
           "\"properties\":{"
           "\"label\":{\"type\":\"string\"},"
@@ -256,7 +216,8 @@ bb_err_t bb_ota_validator_init(bb_http_handle_t server)
           "\"size\":{\"type\":\"integer\"},"
           "\"running\":{\"type\":\"boolean\"},"
           "\"state\":{\"type\":\"string\"}},"
-          "\"required\":[\"label\",\"address\",\"size\",\"running\",\"state\"]}}",
+          "\"required\":[\"label\",\"address\",\"size\",\"running\",\"state\"]}}},"
+          "\"required\":[\"partitions\"]}",
           "list of OTA app partition slot states" },
         { 0 },
     };

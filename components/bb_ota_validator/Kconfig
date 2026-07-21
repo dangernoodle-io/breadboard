@@ -1,3 +1,12 @@
 menu "breadboard: bb_ota_validator"
 
+config BB_OTA_VALIDATOR_PARTITIONS_ROW_CAP
+    int "GET /api/update/partitions: max app-partition rows per response"
+    default 18
+    range 1 32
+    help
+        Caller-allocated array capacity for the GET /api/update/partitions
+        response's "partitions" row list (factory + ota_0..ota_N app
+        partitions).
+
 endmenu
