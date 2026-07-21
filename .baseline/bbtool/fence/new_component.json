@@ -41,11 +41,6 @@
       "type": "component"
     },
     {
-      "id": "bb_cache_serialize",
-      "path": "components/bb_cache_serialize",
-      "type": "component"
-    },
-    {
       "id": "bb_collection",
       "path": "components/bb_collection",
       "type": "component"

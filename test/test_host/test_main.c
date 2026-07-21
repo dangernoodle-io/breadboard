@@ -4827,12 +4827,13 @@ void setUp(void) {
     bb_wdt_test_reset();
     bb_openapi_schema_registry_clear();
     bb_mem_reset_stats();
-    // bb_cache_serialize (PR2, B1-981) dispatches through the format-dispatch
-    // registry rather than a hardcoded BB_FORMAT_JSON branch, so a test that
-    // exercises it needs BB_FORMAT_JSON actually registered. Idempotent --
-    // safe to call before every test, including ones in
-    // test_bb_serialize_format.c that immediately clear the registry via
-    // bb_serialize_format_test_reset() and register their own dummy entries.
+    // Several consumers (bb_diag_section, bb_http_section, bb_sensors, ...)
+    // dispatch through the format-dispatch registry rather than a hardcoded
+    // BB_FORMAT_JSON branch, so a test that exercises them needs
+    // BB_FORMAT_JSON actually registered. Idempotent -- safe to call before
+    // every test, including ones in test_bb_serialize_format.c that
+    // immediately clear the registry via bb_serialize_format_test_reset()
+    // and register their own dummy entries.
     bb_serialize_json_register_format();
 }
 void tearDown(void) {}
@@ -4929,38 +4930,6 @@ void test_bb_cache_snapshot_plain_owned_unwritten_returns_zeroed_state(void);
 void test_bb_cache_snapshot_delete_race_returns_not_found(void);
 void test_bb_cache_state_version_delete_race_returns_not_found(void);
 void test_bb_cache_snapshot_evicts_past_evict_age(void);
-
-// Forward declarations from test_bb_cache_serialize.c
-void test_bb_cache_serialize_get_hit_same_version_returns_identical_bytes_and_render_count_once(void);
-void test_bb_cache_serialize_get_recache_on_state_version_bump_bumps_render_count(void);
-void test_bb_cache_serialize_get_byte_identical_to_direct_json_render(void);
-void test_bb_cache_serialize_get_unsupported_format_returns_unsupported(void);
-void test_bb_cache_serialize_get_unsupported_format_with_existing_json_slot_for_same_key(void);
-void test_bb_cache_serialize_get_unsupported_format_absent_key_returns_unsupported(void);
-void test_bb_cache_serialize_get_absent_key_returns_not_found(void);
-void test_bb_cache_serialize_get_getter_mode_key_returns_invalid_state(void);
-void test_bb_cache_serialize_get_render_overflow_returns_no_space_slot_left_invalid(void);
-void test_bb_cache_serialize_get_snapshot_oversize_returns_no_space_slot_left_invalid(void);
-void test_bb_cache_serialize_get_slot_table_exhaustion_returns_no_space_last_key_previous_still_hits(void);
-void test_bb_cache_serialize_get_null_args_return_invalid_arg(void);
-void test_bb_cache_serialize_get_distinct_keys_independent_slots(void);
-void test_bb_cache_serialize_reset_for_test_clears_table_fresh_miss_after_reset(void);
-void test_bb_cache_serialize_reset_for_test_clears_registry_rebind_after_reset_renders_fresh(void);
-void test_bb_cache_serialize_get_bb_cache_registered_key_with_no_serialize_binding_returns_not_found(void);
-void test_bb_cache_serialize_register_override_invalidates_memo_renders_new_descriptor(void);
-void test_bb_cache_serialize_register_null_args_return_invalid_arg(void);
-void test_bb_cache_serialize_register_registry_exhaustion_returns_no_space(void);
-void test_bb_cache_serialize_refresh_gather_bumps_state_version_get_rerenders(void);
-void test_bb_cache_serialize_refresh_null_gather_returns_invalid_state(void);
-void test_bb_cache_serialize_refresh_unbound_key_returns_not_found(void);
-void test_bb_cache_serialize_refresh_null_key_returns_invalid_arg(void);
-void test_bb_cache_serialize_get_serialize_bound_key_not_in_bb_cache_returns_not_found(void);
-void test_bb_cache_serialize_refresh_oversize_snap_returns_no_space(void);
-void test_bb_cache_serialize_refresh_gather_error_propagates(void);
-void test_bb_cache_serialize_refresh_bb_cache_update_error_propagates(void);
-void test_bb_cache_serialize_refresh_bb_cache_size_exceeds_scratch_cap_returns_no_space(void);
-void test_bb_cache_serialize_refresh_partial_gather_preserves_untouched_tail(void);
-void test_bb_cache_serialize_register_over_length_key_returns_invalid_arg(void);
 
 // Forward declarations from test_bb_cache_write_notify.c
 void test_bb_cache_write_notify_default_empty_is_safe_noop(void);
@@ -9338,40 +9307,6 @@ int main(void) {
     RUN_TEST(test_bb_cache_snapshot_delete_race_returns_not_found);
     RUN_TEST(test_bb_cache_state_version_delete_race_returns_not_found);
     RUN_TEST(test_bb_cache_snapshot_evicts_past_evict_age);
-
-    // bb_cache_serialize render memo (B1-767 PR-4)
-    RUN_TEST(test_bb_cache_serialize_get_hit_same_version_returns_identical_bytes_and_render_count_once);
-    RUN_TEST(test_bb_cache_serialize_get_recache_on_state_version_bump_bumps_render_count);
-    RUN_TEST(test_bb_cache_serialize_get_byte_identical_to_direct_json_render);
-    RUN_TEST(test_bb_cache_serialize_get_unsupported_format_returns_unsupported);
-    RUN_TEST(test_bb_cache_serialize_get_unsupported_format_with_existing_json_slot_for_same_key);
-    RUN_TEST(test_bb_cache_serialize_get_unsupported_format_absent_key_returns_unsupported);
-    RUN_TEST(test_bb_cache_serialize_get_absent_key_returns_not_found);
-    RUN_TEST(test_bb_cache_serialize_get_getter_mode_key_returns_invalid_state);
-    RUN_TEST(test_bb_cache_serialize_get_render_overflow_returns_no_space_slot_left_invalid);
-    RUN_TEST(test_bb_cache_serialize_get_snapshot_oversize_returns_no_space_slot_left_invalid);
-    RUN_TEST(test_bb_cache_serialize_get_slot_table_exhaustion_returns_no_space_last_key_previous_still_hits);
-    RUN_TEST(test_bb_cache_serialize_get_null_args_return_invalid_arg);
-    RUN_TEST(test_bb_cache_serialize_get_distinct_keys_independent_slots);
-    RUN_TEST(test_bb_cache_serialize_reset_for_test_clears_table_fresh_miss_after_reset);
-
-    // bb_cache_serialize consumer descriptor registration + refresh (B1-767 PR-5)
-    RUN_TEST(test_bb_cache_serialize_reset_for_test_clears_registry_rebind_after_reset_renders_fresh);
-    RUN_TEST(test_bb_cache_serialize_get_bb_cache_registered_key_with_no_serialize_binding_returns_not_found);
-    RUN_TEST(test_bb_cache_serialize_register_override_invalidates_memo_renders_new_descriptor);
-    RUN_TEST(test_bb_cache_serialize_register_null_args_return_invalid_arg);
-    RUN_TEST(test_bb_cache_serialize_register_registry_exhaustion_returns_no_space);
-    RUN_TEST(test_bb_cache_serialize_refresh_gather_bumps_state_version_get_rerenders);
-    RUN_TEST(test_bb_cache_serialize_refresh_null_gather_returns_invalid_state);
-    RUN_TEST(test_bb_cache_serialize_refresh_unbound_key_returns_not_found);
-    RUN_TEST(test_bb_cache_serialize_refresh_null_key_returns_invalid_arg);
-    RUN_TEST(test_bb_cache_serialize_get_serialize_bound_key_not_in_bb_cache_returns_not_found);
-    RUN_TEST(test_bb_cache_serialize_refresh_oversize_snap_returns_no_space);
-    RUN_TEST(test_bb_cache_serialize_refresh_gather_error_propagates);
-    RUN_TEST(test_bb_cache_serialize_refresh_bb_cache_update_error_propagates);
-    RUN_TEST(test_bb_cache_serialize_refresh_bb_cache_size_exceeds_scratch_cap_returns_no_space);
-    RUN_TEST(test_bb_cache_serialize_refresh_partial_gather_preserves_untouched_tail);
-    RUN_TEST(test_bb_cache_serialize_register_over_length_key_returns_invalid_arg);
 
     // bb_cache write-notify seam (B1-767 PR-3)
     RUN_TEST(test_bb_cache_write_notify_default_empty_is_safe_noop);

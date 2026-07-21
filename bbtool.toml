@@ -135,7 +135,7 @@ paths = []
 [capability.core]
 components = [
     "bb_attrs", "bb_bqueue", "bb_button",
-    "bb_button_events", "bb_button_gpio", "bb_cache", "bb_cache_reactive", "bb_cache_serialize",
+    "bb_button_events", "bb_button_gpio", "bb_cache", "bb_cache_reactive",
     "bb_cache_routes", "bb_collection", "bb_config", "bb_core", "bb_data", "bb_data_http", "bb_diag",
     "bb_display",
     "bb_fan", "bb_filter", "bb_fmt", "bb_fsm", "bb_health", "bb_http",
