@@ -4598,33 +4598,6 @@ void test_bb_sensors_e2e_fan_patch_applies_and_validates(void);
 void test_bb_sensors_fan_apply_driver_capability_gap_returns_invalid_state(void);
 #endif
 
-// Forward declarations from test_bb_response.c
-void test_bb_response_register_ok(void);
-void test_bb_response_register_null_reg_returns_invalid_arg(void);
-void test_bb_response_register_null_name_returns_invalid_arg(void);
-void test_bb_response_register_null_get_returns_invalid_arg(void);
-void test_bb_response_register_readonly_null_patch_ok(void);
-void test_bb_response_register_capacity_returns_no_space(void);
-void test_bb_response_build_get_empty_registry(void);
-void test_bb_response_build_get_one_section(void);
-void test_bb_response_build_get_two_sections(void);
-void test_bb_response_assemble_schema_no_sections(void);
-void test_bb_response_assemble_schema_one_section_with_props(void);
-void test_bb_response_assemble_schema_two_sections(void);
-void test_bb_response_assemble_schema_null_schema_props_omitted(void);
-void test_bb_response_freeze_rejects_register_after(void);
-void test_bb_response_freeze_build_get_still_works(void);
-void test_bb_response_register_dup_name_returns_invalid_state(void);
-void test_bb_response_register_dup_name_different_case_allowed(void);
-void test_bb_response_assemble_schema_mixed_null_and_props(void);
-void test_bb_response_register_per_instance_cap(void);
-void test_bb_response_register_cap_zero_uses_default(void);
-void test_bb_response_register_cap_exceeds_max_clamped(void);
-
-// Forward declarations from test_bb_response_assemble.c
-void test_bb_response_freeze_and_assemble_non_null(void);
-void test_bb_response_freeze_and_assemble_null_on_oom(void);
-
 // Forward declarations from test_bb_thermal_collect.c
 void test_bb_thermal_collect_all_absent(void);
 void test_bb_thermal_collect_soc_present(void);
@@ -9026,31 +8999,6 @@ int main(void) {
     RUN_TEST(test_bb_http_client_session_health_desc_walks_all_four_keys);
     RUN_TEST(test_bb_http_client_host_set_session_calloc_overrides_allocator);
     RUN_TEST(test_bb_http_client_host_set_session_calloc_null_reverts_to_real_calloc);
-
-    // bb_response tests
-    RUN_TEST(test_bb_response_register_ok);
-    RUN_TEST(test_bb_response_register_null_reg_returns_invalid_arg);
-    RUN_TEST(test_bb_response_register_null_name_returns_invalid_arg);
-    RUN_TEST(test_bb_response_register_null_get_returns_invalid_arg);
-    RUN_TEST(test_bb_response_register_readonly_null_patch_ok);
-    RUN_TEST(test_bb_response_register_capacity_returns_no_space);
-    RUN_TEST(test_bb_response_build_get_empty_registry);
-    RUN_TEST(test_bb_response_build_get_one_section);
-    RUN_TEST(test_bb_response_build_get_two_sections);
-    RUN_TEST(test_bb_response_assemble_schema_no_sections);
-    RUN_TEST(test_bb_response_assemble_schema_one_section_with_props);
-    RUN_TEST(test_bb_response_assemble_schema_two_sections);
-    RUN_TEST(test_bb_response_assemble_schema_null_schema_props_omitted);
-    RUN_TEST(test_bb_response_freeze_rejects_register_after);
-    RUN_TEST(test_bb_response_freeze_build_get_still_works);
-    RUN_TEST(test_bb_response_register_dup_name_returns_invalid_state);
-    RUN_TEST(test_bb_response_register_dup_name_different_case_allowed);
-    RUN_TEST(test_bb_response_assemble_schema_mixed_null_and_props);
-    RUN_TEST(test_bb_response_register_per_instance_cap);
-    RUN_TEST(test_bb_response_register_cap_zero_uses_default);
-    RUN_TEST(test_bb_response_register_cap_exceeds_max_clamped);
-    RUN_TEST(test_bb_response_freeze_and_assemble_non_null);
-    RUN_TEST(test_bb_response_freeze_and_assemble_null_on_oom);
 
     // bb_sensors tests (B1-828 PR-2, FULL BREAK of the old /api/sensors)
     RUN_TEST(test_bb_sensors_power_gather_no_primary_all_absent);

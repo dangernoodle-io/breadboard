@@ -341,11 +341,6 @@
       "type": "component"
     },
     {
-      "id": "bb_response",
-      "path": "components/bb_response",
-      "type": "component"
-    },
-    {
       "id": "bb_ring_diag",
       "path": "components/bb_ring_diag",
       "type": "component"
