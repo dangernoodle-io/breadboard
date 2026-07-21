@@ -22,7 +22,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_cache](./bb_cache/) | — |
 | [bb_cache_reactive](./bb_cache_reactive/) | — |
 | [bb_cache_routes](./bb_cache_routes/) | — |
-| [bb_cache_serialize](./bb_cache_serialize/) | Compositional serialized-render cache (render memo), keyed (format_id, key, state_version). Format-agnostic: dispatches rendering through the format registry (bb_serialize_format) and deliberately declares NO dependency on any format backend. Rendering via bb_cache_serialize_get() therefore requires the composition to have registered a bb_serialize_* backend for the requested format -- an inherent property of registry dispatch, not a privileged default. A consumer that does not render through this path is unaffected. |
 | [bb_collection](./bb_collection/) | A humble, fixed-capacity, thread-safe ordered collection of caller-owned opaque items. |
 | [bb_config](./bb_config/) | Typed configuration layer over `bb_storage` — gives its blob-only vtable scalar-typed meaning (bool/u8/u16/u32/i32/str/blob) via a caller-owned field descriptor table. |
 | [bb_core](./bb_core/) | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. |
