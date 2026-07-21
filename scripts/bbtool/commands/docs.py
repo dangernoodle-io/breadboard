@@ -6,10 +6,18 @@ Subcommands:
                                   every components/<name>/README.md that
                                   already contains them.
     bbtool docs scaffold <name>   Stamp scripts/bbtool/templates/component-readme.md
-                                  into components/<name>/README.md (error, never
+                                  into <name>'s real on-disk directory (resolved
+                                  via the discovery SSOT; components/<name>/ when
+                                  not yet discoverable) — README.md (error, never
                                   overwrite, if it already exists), substitute
                                   tokens, then run the same marker-region
                                   generation as `gen` over the fresh file.
+    bbtool docs scaffold --group <name>
+                                  Stamp a new components/<name>/README.md GROUP
+                                  stub (hand-authored prose placeholder above an
+                                  empty bbtool:group-index marker region) — see
+                                  scripts/gen_components_readme.py, which owns
+                                  populating that marker region.
 
 There is no --check mode: the drift gate is simply `bbtool docs gen` followed
 by `git diff --exit-code` (wired into `make check`).
@@ -100,9 +108,51 @@ from cmake_parse import (
     strip_cmake_comments as _strip_cmake_comments,
 )
 from header_annot import extract_brief as _extract_brief, primary_header as _primary_header
+from discovery import build_index, normalize_roots
 
 NAME = "docs"
 HELP = "Regenerate generated marker regions in component READMEs"
+
+
+def _resolve_component_dir(root: Path, name: str) -> Path:
+    """Resolve `name`'s real on-disk directory via the discovery SSOT
+    (`discovery.build_index`) — works at any nesting depth for a component
+    with a `CMakeLists.txt`. Falls back to the flat `components/<name>/`
+    convention when the component isn't (yet) discoverable — e.g. before
+    its `CMakeLists.txt` exists (a fresh `docs scaffold` target), or a unit
+    fixture exercising a single render function against a bare tree with no
+    `CMakeLists.txt` at all. Never raises — callers that need "not a real
+    component" to be a hard error (the brief region) check the RESULT
+    (`primary_header`/`extract_brief` returning `None`), not this
+    resolver."""
+    comp_dir = build_index(normalize_roots(root)).component_dir(name)
+    return comp_dir if comp_dir is not None else root / "components" / name
+
+
+def _header_for_dir(comp_dir: Path, name: str) -> Optional[Path]:
+    """Primary public header path for a component whose real on-disk
+    directory (`comp_dir`) is ALREADY KNOWN — computed directly
+    (`comp_dir/include/<name>.h`), never re-resolved through
+    `discovery.build_index` by bare name. This is what keeps the two-pass
+    `gen_all`/`_check_component_readme` walk PATH-aware rather than
+    NAME-aware: once a caller already has a specific directory in hand
+    (pass 1's own `iterdir()` walk, or pass 2's discovery-indexed leaf),
+    re-deriving the header from the bare name alone would let an unrelated
+    directory elsewhere in the tree that happens to share the same
+    component name silently supply THIS directory's header — discovery's
+    collision guard only fires between two INDEXED leaves (each with its
+    own `CMakeLists.txt`); a directory with no `CMakeLists.txt` of its own
+    is invisible to it and can share a name with a real leaf elsewhere with
+    zero error.
+
+    Returns `None` when `comp_dir` has no `CMakeLists.txt` of its own —
+    mirrors `header_annot.primary_header`'s "not a discovered component"
+    contract, but keyed on the actual directory already resolved by the
+    caller, never a fresh name lookup."""
+    if not (comp_dir / "CMakeLists.txt").is_file():
+        return None
+    return comp_dir / "include" / f"{name}.h"
+
 
 # ---------------------------------------------------------------------------
 # CMakeLists.txt REQUIRES / PRIV_REQUIRES parsing — lifted to cmake_parse.py
@@ -188,11 +238,18 @@ def _render_deps(root: Path, name: str, requires: List[str], priv_requires: List
 # Public API region — linked list of headers under components/<name>/include/
 # ---------------------------------------------------------------------------
 
-def _render_api(root: Path, name: str) -> str:
+def _render_api(root: Path, name: str, comp_dir: Optional[Path] = None) -> str:
     """Render the Public API region: a linked list of every public header
     under components/<name>/include/*.h, sorted, followed by a line naming
-    the component's symbol prefix."""
-    include_dir = root / "components" / name / "include"
+    the component's symbol prefix. `comp_dir` lets a caller that already
+    resolved the component's real on-disk directory (e.g.
+    `_gen_component_readme`) pass it straight through instead of paying a
+    second `_resolve_component_dir` lookup; defaults to resolving it here
+    for a standalone caller (e.g. tests exercising this function in
+    isolation)."""
+    if comp_dir is None:
+        comp_dir = _resolve_component_dir(root, name)
+    include_dir = comp_dir / "include"
     headers = sorted(p.name for p in include_dir.glob("*.h")) if include_dir.is_dir() else []
     prefix = _component_prefix(name)
     lines = [f"- [`{h}`](include/{h})" for h in headers]
@@ -212,8 +269,14 @@ class DocsGenError(Exception):
     or stale brief region."""
 
 
-def _render_brief(root: Path, name: str) -> str:
-    header = _primary_header(root, name)
+def _render_brief(root: Path, name: str, comp_dir: Optional[Path] = None) -> str:
+    """`comp_dir`, when given, is the ALREADY-RESOLVED directory this
+    component's README lives in (threaded through by `_gen_component_readme`
+    so the two-pass `gen_all` walk stays path-aware — see `_header_for_dir`).
+    Defaults to a fresh discovery-by-name lookup (`header_annot.primary_header`)
+    for a standalone caller, e.g. tests exercising this function in
+    isolation."""
+    header = _header_for_dir(comp_dir, name) if comp_dir is not None else _primary_header(root, name)
     if header is None:
         raise DocsGenError(
             f"components/{name}/README.md has a bbtool:brief marker but "
@@ -442,23 +505,31 @@ def _rewrite_markers(content: str, generators: Dict[str, Callable[[], str]],
     return new_content
 
 
-def _gen_component_readme(root: Path, name: str, config: Optional[dict] = None) -> Tuple[Path, bool]:
+def _gen_component_readme(root: Path, name: str, config: Optional[dict] = None,
+                           comp_dir: Optional[Path] = None) -> Tuple[Path, bool]:
     """Regenerate marker regions in components/<name>/README.md in place.
     `config` is the parsed bbtool.toml dict (only its `[docs]` block matters
-    here, for the links region); defaults to {} when omitted. Returns
-    (path, changed)."""
+    here, for the links region); defaults to {} when omitted. `comp_dir`,
+    when given, is the caller's ALREADY-RESOLVED real directory for `name`
+    (threaded straight through to `_render_brief`/`_render_api` so a bare
+    NAME is never re-resolved through discovery mid-pipeline — see
+    `_header_for_dir`'s docstring for why that matters for `gen_all`'s
+    two-pass walk); defaults to `_resolve_component_dir(root, name)` for a
+    standalone caller (e.g. `scaffold_component`). Returns (path, changed)."""
     config = config or {}
-    readme_path = root / "components" / name / "README.md"
+    if comp_dir is None:
+        comp_dir = _resolve_component_dir(root, name)
+    readme_path = comp_dir / "README.md"
     content = readme_path.read_text(encoding="utf-8")
 
-    cmake_path = root / "components" / name / "CMakeLists.txt"
+    cmake_path = comp_dir / "CMakeLists.txt"
     cmake_text = cmake_path.read_text(encoding="utf-8") if cmake_path.is_file() else ""
     requires, priv_requires = _parse_requires(cmake_text, component=name)
     matrix = _platform_matrix(root, name)
 
     generators: Dict[str, Callable[[], str]] = {
-        "brief": lambda: _render_brief(root, name),
-        "api": lambda: _render_api(root, name),
+        "brief": lambda: _render_brief(root, name, comp_dir),
+        "api": lambda: _render_api(root, name, comp_dir),
         "deps": lambda: _render_deps(root, name, requires, priv_requires),
         "platform": lambda: _render_platform(matrix),
         "links": lambda: _render_links(config, name),
@@ -474,21 +545,71 @@ def _gen_component_readme(root: Path, name: str, config: Optional[dict] = None) 
 
 
 def gen_all(root: str, config: Optional[dict] = None) -> List[Tuple[Path, bool]]:
-    """Regenerate marker regions in every components/*/README.md that has one.
-    Components without a README.md are untouched — this command never creates
-    or scaffolds a README. Returns [(path, changed), ...], sorted by name."""
+    """Regenerate marker regions in every components/*/README.md that has
+    one — a TWO-PASS walk, not a discovery-only one:
+
+    1. The depth-1 `iterdir()` walk, UNCHANGED from the pre-hierarchy
+       behaviour: every direct `components/<name>/` directory with a
+       README.md gets regenerated, regardless of whether discovery.py's
+       leaf rule recognizes it as a real component. This is deliberate — a
+       bare/malformed directory (no `CMakeLists.txt` anywhere under it, so
+       invisible to the discovery SSOT) carrying marker regions must still
+       be regenerated, never silently skipped just because it isn't a real
+       component. Dropping this pass would silently stop regenerating such
+       a directory with zero signal (the exact defect class PR2's
+       `ComponentIndexError` was introduced to make loud, not the one to
+       reintroduce here — see B1-1128 for the sibling gap in the fence's
+       identity fallback).
+    2. A supplemental discovery-SSOT pass (`discovery.build_index`) for any
+       component DIRECTORY not already covered by pass 1 — i.e. a component
+       nested under `components/<group>/<name>/`, unreachable by a depth-1
+       walk.
+
+    PATH-aware dedup, not name-aware: pass 2 skips a discovery-indexed leaf
+    only when its resolved directory is IDENTICAL to one pass 1 already
+    walked — never merely because its NAME matches a pass-1 directory.
+    Discovery's own collision guard only fires between two INDEXED leaves
+    (each with a `CMakeLists.txt`); a pass-1 directory with none is
+    invisible to it and can legitimately share a name with an unrelated
+    indexed leaf elsewhere in the tree (e.g. a flat, undiscovered
+    `components/bb_foo/` alongside a real nested
+    `components/bb_group/bb_foo/`). Deduping on name alone would either
+    (a) skip the real nested leaf entirely (its own missing README/marker
+    regen going unnoticed), or (b) feed pass 1's directory-scoped call a
+    bare name that `_resolve_component_dir`/`_render_brief` would silently
+    re-resolve to the UNRELATED indexed directory instead — both are the
+    exact defect this two-pass split exists to avoid. Threading each pass's
+    already-known `comp_dir` straight into `_gen_component_readme` (never
+    re-derived from the bare name mid-pipeline) is what makes this safe.
+
+    Components without a README.md are untouched — this command never
+    creates or scaffolds a README. Returns [(path, changed), ...], sorted by
+    name within each pass (pass 1 first, by directory name; pass 2 after,
+    by component name)."""
     root_p = Path(root)
     comp_root = root_p / "components"
     results: List[Tuple[Path, bool]] = []
     if not comp_root.is_dir():
         return results
+
+    processed_dirs: set = set()
     for child in sorted(comp_root.iterdir()):
         if not child.is_dir():
             continue
         readme = child / "README.md"
+        if readme.is_file():
+            results.append(_gen_component_readme(root_p, child.name, config, comp_dir=child))
+        processed_dirs.add(Path(os.path.realpath(str(child))))
+
+    index = build_index(normalize_roots(root_p))
+    for name in sorted(index.names()):
+        comp_dir = index.component_dir(name)
+        if comp_dir is None or comp_dir in processed_dirs:
+            continue
+        readme = comp_dir / "README.md"
         if not readme.is_file():
             continue
-        results.append(_gen_component_readme(root_p, child.name, config))
+        results.append(_gen_component_readme(root_p, name, config, comp_dir=comp_dir))
     return results
 
 
@@ -542,7 +663,8 @@ def scaffold_component(root: str, component: str, config: dict) -> Path:
     `@brief` tag (the template's brief region is a bbtool:brief marker).
     """
     root_p = Path(root)
-    readme_path = root_p / "components" / component / "README.md"
+    comp_dir = _resolve_component_dir(root_p, component)
+    readme_path = comp_dir / "README.md"
     if readme_path.exists():
         raise FileExistsError(f"{readme_path} already exists; docs scaffold refuses to overwrite it")
 
@@ -566,9 +688,57 @@ def scaffold_component(root: str, component: str, config: dict) -> Path:
     readme_path.parent.mkdir(parents=True, exist_ok=True)
     readme_path.write_text(rendered, encoding="utf-8")
 
-    # Populate the freshly-stamped marker regions in the same pass.
-    _gen_component_readme(root_p, component, config)
+    # Populate the freshly-stamped marker regions in the same pass -- pass
+    # the already-resolved comp_dir through rather than a bare-name lookup.
+    _gen_component_readme(root_p, component, config, comp_dir=comp_dir)
     return readme_path
+
+
+# ---------------------------------------------------------------------------
+# docs scaffold --group — stamp a hand-authored components/<group>/README.md
+# stub for a NEW group directory (see scripts/gen_components_readme.py's
+# two-level index, which owns the `bbtool:group-index` marker region's
+# actual content generation — this only creates the file with a prose
+# placeholder above an empty marker region for that generator to fill in).
+# ---------------------------------------------------------------------------
+
+GROUP_INDEX_BEGIN = "<!-- BEGIN bbtool:group-index -->"
+GROUP_INDEX_END = "<!-- END bbtool:group-index -->"
+
+_GROUP_README_TEMPLATE = (
+    "# {group}\n\n"
+    "TODO: describe this component group (one prose paragraph — this text\n"
+    "is what `scripts/gen_components_readme.py` surfaces as the group's\n"
+    "description in the top-level components/README.md index).\n\n"
+    f"{GROUP_INDEX_BEGIN}\n"
+    "_(placeholder — run `python3 scripts/gen_components_readme.py` to populate)_\n"
+    f"{GROUP_INDEX_END}\n"
+)
+
+
+def scaffold_group(root: str, group: str) -> Path:
+    """Stamp a new components/<group>/README.md stub: a hand-authored
+    prose placeholder (edit this) above an empty `bbtool:group-index`
+    marker region (populated by `scripts/gen_components_readme.py`, not by
+    this function). Raises FileExistsError if the README already exists —
+    this function must NEVER overwrite one."""
+    root_p = Path(root)
+    readme_path = root_p / "components" / group / "README.md"
+    if readme_path.exists():
+        raise FileExistsError(f"{readme_path} already exists; docs scaffold refuses to overwrite it")
+    readme_path.parent.mkdir(parents=True, exist_ok=True)
+    readme_path.write_text(_GROUP_README_TEMPLATE.format(group=group), encoding="utf-8")
+    return readme_path
+
+
+def _cmd_scaffold_group(root: str, group: str) -> int:
+    try:
+        path = scaffold_group(root, group)
+    except FileExistsError as e:
+        print(f"bbtool docs scaffold: error: {e}", file=sys.stderr)
+        return 1
+    print(f"bbtool docs scaffold: {path} (created)")
+    return 0
 
 
 def _cmd_scaffold(root: str, component: str, config: dict) -> int:
@@ -595,48 +765,96 @@ _BRIEF_MARKER_RE = re.compile(r'<!-- BEGIN bbtool:brief -->')
 
 
 def _check_component_readme(ctx: Context) -> list:
-    """Rule: component-readme — flags components/<name>/ directories with no
-    README.md (fires broadly on the undocumented components today by
+    """Rule: component-readme — flags a `components/<name>/` directory with
+    no README.md (fires broadly on the undocumented components today by
     design; severity stays "warn" until the fill lands — B1-646), and ALSO
     flags a README that carries a `bbtool:brief` marker whose primary
     public header has no `@brief` tag (same "warn" severity — `docs gen`
     itself fails loud/hard on this case; the lint surfaces it ahead of a
-    `make check` run)."""
+    `make check` run).
+
+    TWO-PASS, not discovery-only (mirrors `gen_all` — see its docstring for
+    the full PATH-vs-NAME-aware rationale):
+
+    1. The depth-1 `iterdir()` walk, UNCHANGED from the pre-hierarchy
+       behaviour: every direct `components/<name>/` directory is checked,
+       regardless of whether discovery.py's leaf rule recognizes it as a
+       real component. Deliberate — a bare/malformed directory (no
+       `CMakeLists.txt` anywhere under it) must still be a visible lint
+       finding (missing-README, or "not a discovered component" on its
+       brief marker), never silently dropped from this rule's coverage just
+       because it isn't a real component. See B1-1128 for the sibling gap
+       in the fence's identity fallback.
+    2. A supplemental discovery-SSOT pass (`discovery.build_index`) for any
+       component DIRECTORY not already covered by pass 1 — i.e. a component
+       nested under `components/<group>/<name>/`, unreachable by a depth-1
+       walk.
+
+    PATH-aware dedup, not name-aware: pass 2 skips a discovery-indexed leaf
+    only when its resolved directory is IDENTICAL to one pass 1 already
+    walked. The per-directory header lookup (`_header_for_dir`) is likewise
+    keyed on the ALREADY-RESOLVED `comp_dir`, never re-derived from the bare
+    name — a flat, undiscovered `components/bb_foo/` sharing a name with an
+    unrelated real `components/bb_group/bb_foo/` must never have its brief
+    marker satisfied by borrowing the unrelated component's `@brief` (a
+    name-keyed `header_annot.primary_header` lookup would do exactly that,
+    since discovery's collision guard only fires between two INDEXED
+    leaves — a directory with no `CMakeLists.txt` is invisible to it)."""
     violations = []
     root = Path(ctx.root)
     comp_root = root / "components"
     if not comp_root.is_dir():
         return violations
+
+    def _check_dir(comp_dir: Path, name: str, rel_label: str) -> None:
+        readme = comp_dir / "README.md"
+        if not readme.is_file():
+            violations.append(ctx.violation(comp_dir, 1, f"{rel_label}/ has no README.md"))
+            return
+        content = ctx.read(readme)
+        if not _BRIEF_MARKER_RE.search(content):
+            return
+        header = _header_for_dir(comp_dir, name)
+        if header is None:
+            violations.append(
+                ctx.violation(
+                    readme, 1,
+                    f"{rel_label}/README.md has a bbtool:brief"
+                    f" marker but '{name}' is not a discovered"
+                    f" component (no CMakeLists.txt found under"
+                    f" {rel_label}/)",
+                )
+            )
+        elif _extract_brief(header) is None:
+            violations.append(
+                ctx.violation(
+                    readme, 1,
+                    f"{rel_label}/README.md has a bbtool:brief"
+                    f" marker but {header} has no @brief tag",
+                )
+            )
+
+    processed_dirs: set = set()
     for child in sorted(comp_root.iterdir()):
         if not child.is_dir():
             continue
-        readme = child / "README.md"
-        if not readme.is_file():
-            violations.append(
-                ctx.violation(child, 1, f"components/{child.name}/ has no README.md")
-            )
+        _check_dir(child, child.name, f"components/{child.name}")
+        processed_dirs.add(Path(os.path.realpath(str(child))))
+
+    # `discovery.build_index` canonicalizes roots via `os.path.realpath`, so
+    # every returned `comp_dir` is realpath-rooted -- compute `rel_label`
+    # against the SAME canonicalized root rather than `root` verbatim, or a
+    # symlinked tmp/root spelling (e.g. macOS's /var -> /private/var) makes
+    # `relative_to` raise ValueError.
+    real_root = Path(os.path.realpath(str(root)))
+    index = build_index(normalize_roots(root))
+    for name in sorted(index.names()):
+        comp_dir = index.component_dir(name)
+        if comp_dir is None or comp_dir in processed_dirs:
             continue
-        content = ctx.read(readme)
-        if _BRIEF_MARKER_RE.search(content):
-            header = _primary_header(root, child.name)
-            if header is None:
-                violations.append(
-                    ctx.violation(
-                        readme, 1,
-                        f"components/{child.name}/README.md has a bbtool:brief"
-                        f" marker but '{child.name}' is not a discovered"
-                        f" component (no CMakeLists.txt found under"
-                        f" components/{child.name}/)",
-                    )
-                )
-            elif _extract_brief(header) is None:
-                violations.append(
-                    ctx.violation(
-                        readme, 1,
-                        f"components/{child.name}/README.md has a bbtool:brief"
-                        f" marker but {header} has no @brief tag",
-                    )
-                )
+        rel_label = comp_dir.relative_to(real_root).as_posix()
+        _check_dir(comp_dir, name, rel_label)
+
     return violations
 
 
@@ -683,7 +901,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "component",
         nargs="?",
         default=None,
-        help="component name, e.g. bb_foo (required for 'scaffold')",
+        help="component name, e.g. bb_foo (required for 'scaffold'; a group"
+             " name, e.g. bb_display, when --group is also given)",
+    )
+    parser.add_argument(
+        "--group",
+        action="store_true",
+        help="'scaffold' only: stamp a new components/<name>/README.md"
+             " GROUP stub (hand-authored prose + an empty bbtool:group-index"
+             " marker region) instead of a component README",
     )
 
 
@@ -698,6 +924,8 @@ def run(args: argparse.Namespace) -> int:
         if not args.component:
             print("bbtool docs scaffold: error: component name required", file=sys.stderr)
             return 1
+        if getattr(args, "group", False):
+            return _cmd_scaffold_group(root, args.component)
         config = getattr(args, "_config_dict", None) or {}
         return _cmd_scaffold(root, args.component, config)
     return 1

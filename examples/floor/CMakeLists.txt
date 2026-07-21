@@ -25,8 +25,10 @@ cmake_minimum_required(VERSION 3.16.0)
 # proven separately via `make floor-codegen` (see repo Makefile) -- it does
 # not touch discovery here, and floor's primary build stays hand-wired.
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/bb_component_dirs.cmake")
+bb_component_dirs("${CMAKE_CURRENT_SOURCE_DIR}/../../components" BB_COMPONENT_DIRS)
 list(APPEND EXTRA_COMPONENT_DIRS
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../components"
+    ${BB_COMPONENT_DIRS}
 )
 
 # Same P4-only-target workaround as examples/smoke/CMakeLists.txt: the

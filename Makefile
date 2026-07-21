@@ -17,7 +17,7 @@ docs: ## Regenerate generated marker regions in component READMEs
 	python3 scripts/bbtool.py docs gen
 
 docs-check: docs ## Verify component README marker regions match generated content (no drift)
-	git diff --exit-code -- 'components/*/README.md'
+	git diff --exit-code -- 'components/**/README.md'
 
 docs-index-check: ## Verify components/README.md matches generated content (no drift)
 	python3 scripts/gen_components_readme.py --check
