@@ -1722,6 +1722,15 @@ void test_wifi_scan_wire_clamp_count_negative_clamps_to_zero(void);
 void test_wifi_scan_wire_clamp_count_over_cap_clamps_to_max(void);
 void test_wifi_scan_wire_clamp_count_in_range_passes_through(void);
 
+// Forward declarations from test_ota_validator_partitions_wire.c
+void test_ota_validator_partitions_wire_expected_json_zero_rows(void);
+void test_ota_validator_partitions_wire_expected_json_one_row(void);
+void test_ota_validator_partitions_wire_expected_json_max_cap(void);
+void test_ota_validator_partitions_wire_expected_json_all_states(void);
+void test_ota_validator_partitions_wire_expected_json_escaped_label(void);
+void test_ota_validator_partitions_wire_copy_rows_null_label_and_state(void);
+void test_ota_validator_partitions_wire_row_field_count_matches(void);
+
 // Forward declarations from test_wifi_creds_apply_route.c
 void test_wifi_creds_apply_post_mode_does_not_reuse_stale_pending_password(void);
 void test_wifi_creds_apply_patch_mode_would_reuse_stale_pending_password(void);
@@ -6162,6 +6171,15 @@ int main(void) {
     RUN_TEST(test_wifi_scan_wire_clamp_count_negative_clamps_to_zero);
     RUN_TEST(test_wifi_scan_wire_clamp_count_over_cap_clamps_to_max);
     RUN_TEST(test_wifi_scan_wire_clamp_count_in_range_passes_through);
+
+    // OTA partitions wire (bb_json -> bb_serialize migration) tests
+    RUN_TEST(test_ota_validator_partitions_wire_expected_json_zero_rows);
+    RUN_TEST(test_ota_validator_partitions_wire_expected_json_one_row);
+    RUN_TEST(test_ota_validator_partitions_wire_expected_json_max_cap);
+    RUN_TEST(test_ota_validator_partitions_wire_expected_json_all_states);
+    RUN_TEST(test_ota_validator_partitions_wire_expected_json_escaped_label);
+    RUN_TEST(test_ota_validator_partitions_wire_copy_rows_null_label_and_state);
+    RUN_TEST(test_ota_validator_partitions_wire_row_field_count_matches);
 
     // Route registry tests
     RUN_TEST(test_route_registry_count_starts_at_zero);
