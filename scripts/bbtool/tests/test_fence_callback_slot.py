@@ -26,7 +26,30 @@ def _write(root: Path, rel: str, content: str) -> Path:
     path = root / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+    _ensure_component_cmakelists(root, rel)
     return path
+
+
+def _ensure_component_cmakelists(root: Path, rel: str) -> None:
+    """Every real `components/<name>/` in this repo has a direct
+    `CMakeLists.txt` — discovery.py's leaf rule (depth-agnostic-layout
+    lane, PR1) requires one to discover a component at all. These
+    fixtures model a synthetic `components/<name>/...` tree with only
+    source/header files, which no longer matches that reality; write a
+    minimal sibling `CMakeLists.txt` so the fixture stays a genuinely
+    discoverable component, same as every real one. Skipped for a `rel`
+    with no nested directory under `components/` (e.g. `components/
+    bb_fake.c`, 2 parts) -- there's no component directory to write into,
+    and that shape is the deliberate zero-nesting-depth gap fixture for
+    `owner_of_path`'s fallback (kept broken on purpose, unrelated to this
+    fix)."""
+    parts = Path(rel).parts
+    if len(parts) < 3 or parts[0] != "components":
+        return
+    cmake = root / "components" / parts[1] / "CMakeLists.txt"
+    if not cmake.is_file():
+        cmake.parent.mkdir(parents=True, exist_ok=True)
+        cmake.write_text("idf_component_register()\n", encoding="utf-8")
 
 
 class TestFamilyDiscovery(unittest.TestCase):

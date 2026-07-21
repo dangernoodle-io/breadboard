@@ -266,6 +266,18 @@ def counts_by_bucket(markers: Set[Marker], bucket_fn: Callable[[str], str] = Non
 # silent-drift scenario observable (fence_cmd.py folds the count into the
 # per-family summary line) without making the fallback itself fatal — it
 # stays a safety net, not a new failure mode.
+#
+# UPDATE (discovery.py's leaf-rule PR, B1-1090-ish): the "not reachable given
+# the current tree layout" claim above is now STALE — don't trust it as a
+# guarantee. `discovery.py` redefined component identity as the innermost
+# directory containing a `CMakeLists.txt`; any `components/<name>/...` (or
+# `platform/<plat>/<name>/...`) directory that's missing/incomplete (no
+# `CMakeLists.txt` found anywhere on that branch) is now a real, reachable
+# way to land here — `owner_of_path` correctly returns `None` for it, and
+# this fallback fires. That's a legitimate new gap shape on top of the two
+# above, not a discovery/family drift bug — flagged as a follow-up (see the
+# PR's report) whether this fallback should keep silently returning a
+# plausible-looking-but-wrong component name at all.
 # ---------------------------------------------------------------------------
 
 _FALLBACK_COUNTS: Dict[str, int] = {}
