@@ -31,11 +31,6 @@
       "type": "component"
     },
     {
-      "id": "bb_cache_reactive",
-      "path": "components/bb_cache_reactive",
-      "type": "component"
-    },
-    {
       "id": "bb_cache_routes",
       "path": "components/bb_cache_routes",
       "type": "component"

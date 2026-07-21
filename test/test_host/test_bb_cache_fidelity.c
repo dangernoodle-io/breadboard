@@ -755,6 +755,71 @@ void test_bb_cache_register_key_at_max_length_boundary_succeeds(void)
 }
 
 // ---------------------------------------------------------------------------
+// cfg->out_first_time (B1-1118: bb_cache_register/_ex collapsed into a
+// single bb_cache_register(cfg), with first-time reporting now a nullable
+// cfg->out_first_time out-param instead of a separate _ex entry point).
+// ---------------------------------------------------------------------------
+
+void test_bb_cache_register_out_first_time_true_on_first_registration(void)
+{
+    reset_all();
+    bool first_time = false;
+    bb_cache_config_t cfg = {
+        .key            = "test.first_time",
+        .snapshot       = NULL,
+        .snap_size      = sizeof(synth_snap_t),
+        .serialize      = synth_serialize,
+        .flags          = BB_CACHE_FLAG_NONE,
+        .out_first_time = &first_time,
+    };
+    bb_err_t err = bb_cache_register(&cfg);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_TRUE(first_time);
+}
+
+void test_bb_cache_register_out_first_time_false_on_reregister(void)
+{
+    reset_all();
+    bool first_time = false;
+    bb_cache_config_t cfg = {
+        .key            = "test.reregister",
+        .snapshot       = NULL,
+        .snap_size      = sizeof(synth_snap_t),
+        .serialize      = synth_serialize,
+        .flags          = BB_CACHE_FLAG_NONE,
+        .out_first_time = &first_time,
+    };
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+    TEST_ASSERT_TRUE(first_time);
+
+    // Idempotent re-register of the same (still-live) key: still BB_OK, but
+    // this call did NOT perform the first-time registration.
+    first_time = true;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+    TEST_ASSERT_FALSE(first_time);
+    TEST_ASSERT_EQUAL_UINT(1, bb_cache_count());
+}
+
+// out_first_time is nullable -- callers that don't need first-time detection
+// (the vast majority) may leave it unset (NULL, via zero-init) with no
+// behavior change from the pre-collapse bb_cache_register().
+void test_bb_cache_register_out_first_time_null_is_optional(void)
+{
+    reset_all();
+    bb_cache_config_t cfg = {
+        .key       = "test.no_out_param",
+        .snapshot  = NULL,
+        .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize,
+        .flags     = BB_CACHE_FLAG_NONE,
+        // .out_first_time left NULL (zero-init).
+    };
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+    TEST_ASSERT_EQUAL_UINT(1, bb_cache_count());
+}
+
+// ---------------------------------------------------------------------------
 // Envelope contract (B1-570 PR-3): bb_cache_get_serialized wraps the
 // serializer's output as {"ts_ms":<n>,"data":{...}}. bb_cache_serialize_into
 // stays raw (embed-a-section primitive, no envelope).

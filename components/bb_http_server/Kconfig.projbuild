@@ -95,15 +95,6 @@ config BB_HTTP_TASK_STACK_SIZE
       does deep work (large stack frames, nested JSON); lower only on RAM-tight
       builds with shallow handlers.
 
-      Note (B1-589/B1-592): when CONFIG_BB_CACHE_REACTIVE_ENABLE is on, a
-      WS-connect snapshot-on-connect path
-      (ws_connect_cb -> bb_cache_foreach) runs on this same worker task and
-      adds ~3.5 KB of stack (bb_cache_foreach's BB_CACHE_MAX_TOPICS *
-      BB_CACHE_KEY_MAX key snapshot, default 32*96 = 3 KB, plus the
-      per-key envelope/frame buffers in snapshot_key_to_fd). Boards enabling
-      WS reactive snapshot-on-connect should budget for this on top of the
-      JSON-handler headroom above.
-
 config BB_HTTP_LWIP_RESERVE
     int "Sockets reserved for non-httpd usage (stratum, mDNS, transient outbound)"
     default 3

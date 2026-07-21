@@ -56,7 +56,7 @@ config BB_CACHE_SWEEP_WORKER_STACK
         FreeRTOS task stack for the sweep's dedicated bb_timer_worker task.
         Each sweep pass's call chain is sweep_cb -> evict_if_aged_out_locked
         -> bb_cache_delete_if_generation -> the evict-notify hook -> (when
-        bb_cache_reactive is enabled) fire_on_remove -> an ARBITRARY
+        a composer has installed one, e.g. bb_mdns_cache) an ARBITRARY
         consumer-supplied on_remove callback -- the depth of that last hop
         is not something bb_cache controls or can bound. 8192 matches
         the house precedent for a TLS-tier background worker stack (a

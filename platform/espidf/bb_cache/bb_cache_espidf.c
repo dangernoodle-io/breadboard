@@ -78,10 +78,10 @@ typedef struct {
     uint32_t             generation;
     // Monotonic per-key write counter (B1-767 PR-3): bumped exactly once per
     // successful OWNED-mode bb_cache_update() write, under e->lock. Resets
-    // to 0 on register/free (see free_entry_locked() and
-    // bb_cache_register_ex()). Deliberately distinct from `generation`
-    // above -- see the header-level doc comment on bb_cache.h's
-    // state_version section for the full contrast.
+    // to 0 on register/free (see free_entry_locked() and bb_cache_register()'s
+    // cfg->out_first_time-reporting fresh-slot init). Deliberately distinct
+    // from `generation` above -- see the header-level doc comment on
+    // bb_cache.h's state_version section for the full contrast.
     uint32_t             state_version;
 } bb_cache_entry_t;
 
@@ -92,17 +92,18 @@ static pthread_once_t   s_init_once = PTHREAD_ONCE_INIT;
 // One-way evict-notify hook (B1-592 A3, revises A2). Fired by bb_cache_delete()
 // (explicit delete AND the age-out eviction path, which funnels through
 // bb_cache_delete_if_generation()) after a slot has actually been freed,
-// outside all bb_cache locks. bb_cache_reactive installs its fire_on_remove
-// here so explicit deletes and age-out evictions both fire on_remove through
-// the same single path -- see bb_cache_reactive_espidf.c.
+// outside all bb_cache locks. Single-slot contract, deliberately not an
+// N-observer registry (see bb_cache_internal.h): exactly one composer
+// installs a hook here at a time -- currently bb_mdns_cache (B1-1118, which
+// replaced the former installer, bb_cache_reactive).
 //
-// _Atomic (firmware-review fix, revises A3): the raw global was written by
-// bb_cache_reactive_espidf.c's bb_cache_reactive_observe() (first-observe
-// install) and read here on every delete/eviction, from whichever thread
-// happens to be deleting/evicting -- a plain `void (*)()` global read/written
-// from multiple threads with no synchronization is a data race. Relaxed
-// ordering is sufficient: this is a one-shot install-then-fire pointer with
-// no other memory it needs to publish-with (the callback itself takes its own
+// _Atomic (firmware-review fix, revises A3): the installer's
+// bb_cache_set_evict_notify_fn() call writes this from its own thread, and
+// it is read here on every delete/eviction, from whichever thread happens to
+// be deleting/evicting -- a plain `void (*)()` global read/written from
+// multiple threads with no synchronization is a data race. Relaxed ordering
+// is sufficient: this is a one-shot install-then-fire pointer with no other
+// memory it needs to publish-with (the callback itself takes its own
 // locks), so we only need atomicity of the pointer read/write, not a
 // happens-before edge to any other data.
 static _Atomic(void (*)(const char *key)) s_evict_notify_fn = NULL;
@@ -528,9 +529,9 @@ static bb_err_t serialize_locked(bb_cache_entry_t *e, const char *key, uint32_t 
 // Public API
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_cache_register_ex(const bb_cache_config_t *cfg, bool *out_first_time)
+bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
 {
-    if (out_first_time) *out_first_time = false;
+    if (cfg && cfg->out_first_time) *cfg->out_first_time = false;
 
     if (!cfg || !cfg->key || !cfg->serialize) return BB_ERR_INVALID_ARG;
     if (strlen(cfg->key) >= BB_CACHE_KEY_MAX) {
@@ -569,9 +570,9 @@ bb_err_t bb_cache_register_ex(const bb_cache_config_t *cfg, bool *out_first_time
 
     // Idempotent: already registered? Find-or-init happens under this SINGLE
     // s_reg_lock acquisition (B1-592 firmware-review fix) -- callers that need
-    // atomic first-time detection (bb_cache_reactive's on_register) must never
-    // pair a separate bb_cache_exists() probe with this call, which would
-    // leave a TOCTOU window between the two lock acquisitions.
+    // atomic first-time detection (cfg->out_first_time) must never pair a
+    // separate bb_cache_exists() probe with this call, which would leave a
+    // TOCTOU window between the two lock acquisitions.
     if (find_entry(cfg->key)) {
         pthread_mutex_unlock(&s_reg_lock);
         return BB_OK;
@@ -639,13 +640,8 @@ bb_err_t bb_cache_register_ex(const bb_cache_config_t *cfg, bool *out_first_time
     slot->state_version = 0;  // B1-767 PR-3: fresh incarnation starts at 0
 
     pthread_mutex_unlock(&s_reg_lock);
-    if (out_first_time) *out_first_time = true;
+    if (cfg->out_first_time) *cfg->out_first_time = true;
     return BB_OK;
-}
-
-bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
-{
-    return bb_cache_register_ex(cfg, NULL);
 }
 
 bb_err_t bb_cache_update(const bb_cache_update_t *req)
@@ -766,8 +762,8 @@ bb_err_t bb_cache_delete(const char *key)
     // delete -- explicit callers of bb_cache_delete() AND the LAZY/SWEEP
     // age-out eviction paths (which call bb_cache_delete_if_generation()
     // internally, see evict_if_aged_out_locked()) -- outside all bb_cache
-    // locks, so the installed hook (bb_cache_reactive's fire_on_remove) may
-    // safely call back into bb_cache without deadlocking.
+    // locks, so the installed hook (currently bb_mdns_cache's on_peer_evicted,
+    // B1-1118) may safely call back into bb_cache without deadlocking.
     void (*notify)(const char *) = atomic_load_explicit(&s_evict_notify_fn, memory_order_relaxed);
     if (notify) notify(key);
     return BB_OK;
@@ -1166,8 +1162,8 @@ static void sweep_cb(const char *key, void *ctx)
 // (Kconfig, default 8192). Sized generously for a TLS-capable worker stack,
 // because sweep_cb()'s call chain is consumer-controlled at its far end:
 // sweep_cb -> evict_if_aged_out_locked
-// -> bb_cache_delete_if_generation -> the evict-notify hook -> (when
-// bb_cache_reactive is enabled) fire_on_remove -> an ARBITRARY
+// -> bb_cache_delete_if_generation -> the evict-notify hook -> (when a
+// composer has installed one, e.g. bb_mdns_cache) an ARBITRARY
 // consumer-supplied on_remove callback. bb_cache has no way to bound that
 // last hop's stack depth, so it cannot safely run on the ESP-IDF pthread
 // default (~3072 bytes) the sweep used before this firmware-review fix.

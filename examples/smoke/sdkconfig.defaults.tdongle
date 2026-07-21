@@ -32,6 +32,3 @@ CONFIG_BB_DISPLAY_ST77XX_VARIANT_ST7735=y
 # Enable RST-based SSE abort teardown (B1-517): bb_http_req_async_abort's
 # SO_LINGER{on,0} setsockopt is inert without this — see bb_http.h.
 CONFIG_LWIP_SO_LINGER=y
-# Exercise bb_cache_reactive change-driven WS deltas + snapshot-on-connect
-# (B1-589 PR-4b) on this board (default n -- see components/bb_cache_reactive/Kconfig).
-CONFIG_BB_CACHE_REACTIVE_ENABLE=y

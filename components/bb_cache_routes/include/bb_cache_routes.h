@@ -1,7 +1,7 @@
 #pragma once
 
-// bb_cache_routes — REST pull face over bb_cache (sibling to bb_cache_reactive's
-// push face). ONE route: GET /api/cache?key=<key> returns the key's enveloped
+// bb_cache_routes — REST pull face over bb_cache. ONE route:
+// GET /api/cache?key=<key> returns the key's enveloped
 // {"ts_ms":N,"data":{...}} snapshot straight from bb_cache_get_serialized().
 //
 // Query-param (not path-param) because bb_dispatch_api is exact-match only

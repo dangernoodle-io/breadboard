@@ -4861,6 +4861,9 @@ void test_bb_cache_register_config_struct_null_args(void);
 void test_bb_cache_register_key_is_copied_no_uaf(void);
 void test_bb_cache_register_overlength_key_rejected(void);
 void test_bb_cache_register_key_at_max_length_boundary_succeeds(void);
+void test_bb_cache_register_out_first_time_true_on_first_registration(void);
+void test_bb_cache_register_out_first_time_false_on_reregister(void);
+void test_bb_cache_register_out_first_time_null_is_optional(void);
 void test_bb_cache_envelope_get_serialized_owned_mode_shape(void);
 void test_bb_cache_envelope_owned_mode_ts_frozen_between_reads(void);
 void test_bb_cache_envelope_owned_mode_ts_advances_on_update(void);
@@ -4948,7 +4951,7 @@ void test_bb_cache_evaluate_age_evict_takes_priority_over_stale(void);
 // Forward declarations from test_bb_cache_evict.c
 void test_bb_cache_evict_lazy_read_before_evict_age_still_served(void);
 void test_bb_cache_evict_lazy_read_at_evict_age_misses_and_frees(void);
-void test_bb_cache_evict_lazy_fires_on_remove_via_reactive_hook(void);
+void test_bb_cache_evict_lazy_fires_on_remove_via_evict_notify_hook(void);
 void test_bb_cache_evict_lazy_get_raw_evicts(void);
 void test_bb_cache_evict_lazy_serialize_into_evicts(void);
 void test_bb_cache_evict_lazy_get_serialized_evicts(void);
@@ -4956,7 +4959,7 @@ void test_bb_cache_evict_pinned_policy_never_evicts(void);
 void test_bb_cache_evict_sweep_evicts_unread_key(void);
 void test_bb_cache_evict_sweep_skips_still_fresh_key(void);
 void test_bb_cache_evict_sweep_skips_pinned_key(void);
-void test_bb_cache_evict_sweep_fires_on_remove_via_reactive_hook(void);
+void test_bb_cache_evict_sweep_fires_on_remove_via_evict_notify_hook(void);
 void test_bb_cache_evict_sweep_no_registered_keys_is_noop(void);
 void test_bb_cache_is_stale_fresh_reports_false(void);
 void test_bb_cache_is_stale_between_stale_and_evict_reports_true(void);
@@ -4972,45 +4975,6 @@ void test_bb_cache_evict_sweep_generation_mismatch_race_skips_key(void);
 void test_bb_cache_evict_sweep_reentrant_delete_key_already_gone(void);
 void test_bb_cache_evict_lazy_generation_mismatch_race_preserves_reregistered_incarnation(void);
 void test_bb_cache_evict_lazy_key_deleted_during_race_is_silent_noop(void);
-
-// Forward declarations from test_bb_cache_reactive.c
-void test_bb_cache_reactive_observe_null_cfg_returns_invalid_arg(void);
-void test_bb_cache_reactive_observe_overlength_key_returns_invalid_arg(void);
-void test_bb_cache_reactive_observe_pool_full_returns_no_space(void);
-void test_bb_cache_reactive_update_fires_on_change_only_when_changed(void);
-void test_bb_cache_reactive_update_key_filter_specific_key(void);
-void test_bb_cache_reactive_update_observe_all_matches_every_key(void);
-void test_bb_cache_reactive_update_no_observers_is_plain_passthrough(void);
-void test_bb_cache_reactive_update_respects_caller_out_changed(void);
-void test_bb_cache_reactive_update_null_req_returns_invalid_arg(void);
-void test_bb_cache_reactive_update_unknown_key_propagates_error_no_fire(void);
-void test_bb_cache_reactive_register_fires_on_register_exactly_once(void);
-void test_bb_cache_reactive_register_reregister_same_key_does_not_refire(void);
-void test_bb_cache_reactive_delete_fires_on_remove_once_with_correct_key(void);
-void test_bb_cache_reactive_plain_bb_cache_delete_also_fires_on_remove(void);
-void test_bb_cache_reactive_delete_no_matching_observer_is_noop(void);
-void test_bb_cache_reactive_observe_all_receives_register_and_remove(void);
-void test_bb_cache_reactive_register_delete_register_interleave(void);
-void test_bb_cache_reactive_register_null_cfg_returns_invalid_arg(void);
-void test_bb_cache_reactive_register_null_key_returns_invalid_arg(void);
-void test_bb_cache_reactive_register_mismatched_key_observer_not_fired(void);
-void test_bb_cache_reactive_register_observer_without_on_register_is_skipped(void);
-void test_bb_cache_reactive_delete_observer_without_on_remove_is_skipped(void);
-void test_bb_cache_reactive_delete_null_key_returns_invalid_arg(void);
-void test_bb_cache_reactive_delete_unknown_key_propagates_error_no_fire(void);
-void test_bb_cache_reactive_observer_without_on_change_is_skipped(void);
-void test_bb_cache_reactive_on_change_callback_reentrant_no_deadlock(void);
-void test_bb_cache_reactive_on_register_callback_reentrant_no_deadlock(void);
-void test_bb_cache_reactive_on_remove_callback_reentrant_no_deadlock(void);
-void test_bb_cache_reactive_fire_on_change_oversized_envelope_no_fire(void);
-void test_bb_cache_reactive_fire_on_change_malloc_fail_no_fire(void);
-void test_bb_cache_reactive_fire_on_change_malformed_envelope_no_fire(void);
-
-// Forward declarations from test_bb_cache_reactive_off.c (LOW-3: runtime
-// exercise of the BB_CACHE_REACTIVE_ENABLE=0 static-inline path).
-void test_bb_cache_reactive_off_observe_returns_unsupported(void);
-void test_bb_cache_reactive_off_update_matches_bb_cache_update(void);
-void test_bb_cache_reactive_off_update_null_req_returns_invalid_arg(void);
 
 // Forward declarations from test_bb_mqtt_on_message.c
 void test_bb_mqtt_on_message_receives_injected_message(void);
@@ -9238,6 +9202,9 @@ int main(void) {
     RUN_TEST(test_bb_cache_register_key_is_copied_no_uaf);
     RUN_TEST(test_bb_cache_register_overlength_key_rejected);
     RUN_TEST(test_bb_cache_register_key_at_max_length_boundary_succeeds);
+    RUN_TEST(test_bb_cache_register_out_first_time_true_on_first_registration);
+    RUN_TEST(test_bb_cache_register_out_first_time_false_on_reregister);
+    RUN_TEST(test_bb_cache_register_out_first_time_null_is_optional);
     RUN_TEST(test_bb_cache_envelope_get_serialized_owned_mode_shape);
     RUN_TEST(test_bb_cache_envelope_owned_mode_ts_frozen_between_reads);
     RUN_TEST(test_bb_cache_envelope_owned_mode_ts_advances_on_update);
@@ -9329,7 +9296,7 @@ int main(void) {
     // bb_cache age-out eviction (LAZY + SWEEP + is_stale + register guards)
     RUN_TEST(test_bb_cache_evict_lazy_read_before_evict_age_still_served);
     RUN_TEST(test_bb_cache_evict_lazy_read_at_evict_age_misses_and_frees);
-    RUN_TEST(test_bb_cache_evict_lazy_fires_on_remove_via_reactive_hook);
+    RUN_TEST(test_bb_cache_evict_lazy_fires_on_remove_via_evict_notify_hook);
     RUN_TEST(test_bb_cache_evict_lazy_get_raw_evicts);
     RUN_TEST(test_bb_cache_evict_lazy_serialize_into_evicts);
     RUN_TEST(test_bb_cache_evict_lazy_get_serialized_evicts);
@@ -9337,7 +9304,7 @@ int main(void) {
     RUN_TEST(test_bb_cache_evict_sweep_evicts_unread_key);
     RUN_TEST(test_bb_cache_evict_sweep_skips_still_fresh_key);
     RUN_TEST(test_bb_cache_evict_sweep_skips_pinned_key);
-    RUN_TEST(test_bb_cache_evict_sweep_fires_on_remove_via_reactive_hook);
+    RUN_TEST(test_bb_cache_evict_sweep_fires_on_remove_via_evict_notify_hook);
     RUN_TEST(test_bb_cache_evict_sweep_no_registered_keys_is_noop);
     RUN_TEST(test_bb_cache_is_stale_fresh_reports_false);
     RUN_TEST(test_bb_cache_is_stale_between_stale_and_evict_reports_true);
@@ -9353,42 +9320,6 @@ int main(void) {
     RUN_TEST(test_bb_cache_evict_sweep_reentrant_delete_key_already_gone);
     RUN_TEST(test_bb_cache_evict_lazy_generation_mismatch_race_preserves_reregistered_incarnation);
     RUN_TEST(test_bb_cache_evict_lazy_key_deleted_during_race_is_silent_noop);
-
-    // bb_cache_reactive
-    RUN_TEST(test_bb_cache_reactive_observe_null_cfg_returns_invalid_arg);
-    RUN_TEST(test_bb_cache_reactive_observe_overlength_key_returns_invalid_arg);
-    RUN_TEST(test_bb_cache_reactive_observe_pool_full_returns_no_space);
-    RUN_TEST(test_bb_cache_reactive_update_fires_on_change_only_when_changed);
-    RUN_TEST(test_bb_cache_reactive_update_key_filter_specific_key);
-    RUN_TEST(test_bb_cache_reactive_update_observe_all_matches_every_key);
-    RUN_TEST(test_bb_cache_reactive_update_no_observers_is_plain_passthrough);
-    RUN_TEST(test_bb_cache_reactive_update_respects_caller_out_changed);
-    RUN_TEST(test_bb_cache_reactive_update_null_req_returns_invalid_arg);
-    RUN_TEST(test_bb_cache_reactive_update_unknown_key_propagates_error_no_fire);
-    RUN_TEST(test_bb_cache_reactive_register_fires_on_register_exactly_once);
-    RUN_TEST(test_bb_cache_reactive_register_reregister_same_key_does_not_refire);
-    RUN_TEST(test_bb_cache_reactive_delete_fires_on_remove_once_with_correct_key);
-    RUN_TEST(test_bb_cache_reactive_plain_bb_cache_delete_also_fires_on_remove);
-    RUN_TEST(test_bb_cache_reactive_delete_no_matching_observer_is_noop);
-    RUN_TEST(test_bb_cache_reactive_observe_all_receives_register_and_remove);
-    RUN_TEST(test_bb_cache_reactive_register_delete_register_interleave);
-    RUN_TEST(test_bb_cache_reactive_register_null_cfg_returns_invalid_arg);
-    RUN_TEST(test_bb_cache_reactive_register_null_key_returns_invalid_arg);
-    RUN_TEST(test_bb_cache_reactive_register_mismatched_key_observer_not_fired);
-    RUN_TEST(test_bb_cache_reactive_register_observer_without_on_register_is_skipped);
-    RUN_TEST(test_bb_cache_reactive_delete_observer_without_on_remove_is_skipped);
-    RUN_TEST(test_bb_cache_reactive_delete_null_key_returns_invalid_arg);
-    RUN_TEST(test_bb_cache_reactive_delete_unknown_key_propagates_error_no_fire);
-    RUN_TEST(test_bb_cache_reactive_observer_without_on_change_is_skipped);
-    RUN_TEST(test_bb_cache_reactive_on_change_callback_reentrant_no_deadlock);
-    RUN_TEST(test_bb_cache_reactive_on_register_callback_reentrant_no_deadlock);
-    RUN_TEST(test_bb_cache_reactive_on_remove_callback_reentrant_no_deadlock);
-    RUN_TEST(test_bb_cache_reactive_fire_on_change_oversized_envelope_no_fire);
-    RUN_TEST(test_bb_cache_reactive_fire_on_change_malloc_fail_no_fire);
-    RUN_TEST(test_bb_cache_reactive_fire_on_change_malformed_envelope_no_fire);
-    RUN_TEST(test_bb_cache_reactive_off_observe_returns_unsupported);
-    RUN_TEST(test_bb_cache_reactive_off_update_matches_bb_cache_update);
-    RUN_TEST(test_bb_cache_reactive_off_update_null_req_returns_invalid_arg);
 
     RUN_TEST(test_bb_ota_check_topic_value_is_update_available);
 
