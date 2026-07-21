@@ -1247,6 +1247,17 @@ void test_storage_delete_unknown_backend_returns_500(void);
 void test_storage_delete_backend_without_erase_namespace_returns_501(void);
 void test_storage_delete_explicit_backend_selects_correct_backend(void);
 void test_storage_delete_key_not_found_still_returns_200(void);
+void test_storage_delete_ns_array_over_cap_returns_400_before_erase(void);
+
+// Forward declarations from test_bb_storage_http_delete_wire.c
+void test_bb_storage_http_delete_wire_expected_json_zero_no_key(void);
+void test_bb_storage_http_delete_wire_expected_json_one_ns_no_key(void);
+void test_bb_storage_http_delete_wire_expected_json_ns_and_key(void);
+void test_bb_storage_http_delete_wire_expected_json_multiple_ns(void);
+void test_bb_storage_http_delete_wire_expected_json_escaped_ns(void);
+void test_bb_storage_http_delete_wire_expected_json_max_cap(void);
+void test_bb_storage_http_delete_wire_key_omitted_when_absent(void);
+void test_bb_storage_http_delete_wire_key_included_when_present(void);
 
 // Forward declarations from test_bb_storage_http_factory_reset.c
 void test_storage_http_factory_reset_no_body_returns_400(void);
@@ -6122,6 +6133,17 @@ int main(void) {
     RUN_TEST(test_storage_delete_backend_without_erase_namespace_returns_501);
     RUN_TEST(test_storage_delete_explicit_backend_selects_correct_backend);
     RUN_TEST(test_storage_delete_key_not_found_still_returns_200);
+    RUN_TEST(test_storage_delete_ns_array_over_cap_returns_400_before_erase);
+
+    // DELETE /api/diag/storage response emit (bb_serialize wire descriptor)
+    RUN_TEST(test_bb_storage_http_delete_wire_expected_json_zero_no_key);
+    RUN_TEST(test_bb_storage_http_delete_wire_expected_json_one_ns_no_key);
+    RUN_TEST(test_bb_storage_http_delete_wire_expected_json_ns_and_key);
+    RUN_TEST(test_bb_storage_http_delete_wire_expected_json_multiple_ns);
+    RUN_TEST(test_bb_storage_http_delete_wire_expected_json_escaped_ns);
+    RUN_TEST(test_bb_storage_http_delete_wire_expected_json_max_cap);
+    RUN_TEST(test_bb_storage_http_delete_wire_key_omitted_when_absent);
+    RUN_TEST(test_bb_storage_http_delete_wire_key_included_when_present);
 
     // POST /api/diag/factory-reset route tests (B1-960, rehomed off bb_nv)
     RUN_TEST(test_storage_http_factory_reset_no_body_returns_400);
