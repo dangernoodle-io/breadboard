@@ -165,7 +165,8 @@ static void bb_oa_write_items(bb_oa_ctx_t *ctx, const bb_serialize_field_t *f,
         }
         bb_oa_puts(ctx, ",\"additionalProperties\":false");
     } else {
-        bb_oa_puts(ctx, "\"type\":\"string\"");
+        bb_oa_puts(ctx, "\"type\":");
+        bb_oa_write_type(ctx, f->elem_type);
     }
     bb_oa_putc(ctx, '}');
 }
