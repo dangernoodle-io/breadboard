@@ -84,6 +84,9 @@ const char *bb_mdns_get_hostname(void);
 #include "bb_json.h"
 #include "cJSON.h"
 
+#include "bb_http_serialize_stream.h"
+#include "../../components/bb_wifi_http/bb_wifi_http_wire_priv.h"
+
 // ---------------------------------------------------------------------------
 // Production schemas (copied from production route descriptors)
 // Any edit to the production literal must also update the copy here.
@@ -298,28 +301,21 @@ static bb_err_t h_health(bb_http_request_t *req)
     return err;
 }
 
-// B1-467: calls the real production emitter (bb_wifi_emit_section,
-// platform/host/bb_wifi/bb_wifi_emit.c) instead of hand-copying its fields,
-// so this fidelity fixture exercises the SSOT directly.  Mirrors the
-// live-read fallback path in wifi_info_handler
-// (platform/espidf/bb_wifi/bb_wifi_routes.c).
+// B1-467/B1-1057: calls the real production fill fn + wire descriptor
+// (bb_wifi_http_info_wire_fill/bb_wifi_http_info_wire_desc,
+// components/bb_wifi_http/bb_wifi_http_wire_priv.h) instead of hand-copying
+// its fields, so this fidelity fixture exercises the SSOT directly. Mirrors
+// the live-read fallback path in wifi_info_handler
+// (platform/espidf/bb_wifi_http/bb_wifi_http_routes.c).
 static bb_err_t h_wifi_info(bb_http_request_t *req)
 {
     bb_wifi_info_t info;
     bb_wifi_get_info(&info);
 
-    bb_json_t root = bb_json_obj_new();
-    if (!root) return BB_ERR_NO_SPACE;
-    bb_wifi_emit_section(root, &info);
+    bb_wifi_http_info_wire_t snap;
+    bb_wifi_http_info_wire_fill(&snap, &info);
 
-    char *str = bb_json_serialize(root);
-    bb_json_free(root);
-    if (!str) return BB_ERR_NO_SPACE;
-    bb_http_resp_set_type(req, "application/json");
-    bb_err_t err = bb_http_resp_send_chunk(req, str, -1);
-    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
-    bb_json_free_str(str);
-    return err;
+    return bb_http_serialize_stream(req, &bb_wifi_http_info_wire_desc, &snap);
 }
 
 // OTA status: mirrors ota_status_handler idle-state path.

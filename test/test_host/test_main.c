@@ -790,6 +790,8 @@ void test_v2_golden_widget_fixture_label_longer_str_n(void);
 void test_v2_golden_health_root_slice_populated(void);
 void test_v2_golden_health_root_slice_disconnected(void);
 void test_v2_golden_health_full_document(void);
+void test_v2_golden_wifi_info_populated(void);
+void test_v2_golden_wifi_info_disconnected(void);
 
 // Forward declarations from test_bb_serialize_meta_validate.c
 void test_bb_serialize_meta_validate_widget_happy_path(void);
@@ -10231,6 +10233,8 @@ int main(void) {
     RUN_TEST(test_v2_golden_health_root_slice_populated);
     RUN_TEST(test_v2_golden_health_root_slice_disconnected);
     RUN_TEST(test_v2_golden_health_full_document);
+    RUN_TEST(test_v2_golden_wifi_info_populated);
+    RUN_TEST(test_v2_golden_wifi_info_disconnected);
 
     RUN_TEST(test_bb_serialize_meta_validate_widget_happy_path);
     RUN_TEST(test_bb_serialize_meta_validate_type_name_mismatch);

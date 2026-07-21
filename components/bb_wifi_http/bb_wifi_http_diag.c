@@ -183,7 +183,8 @@ bb_err_t bb_wifi_http_diag_fill(void *dst, const bb_diag_fill_args_t *args)
     bb_wifi_info_t info;
     bb_wifi_get_info(&info);
 
-    // Shared fields -- SSOT with GET /api/wifi (bb_wifi_emit_section).
+    // Shared fields -- SSOT with GET /api/wifi (bb_wifi_http_info_wire_fill,
+    // bb_wifi_http_wire_priv.h).
     bb_strlcpy(snap->ssid, info.ssid, sizeof(snap->ssid));
     bb_wifi_http_format_bssid(snap->bssid, info.bssid);
     snap->rssi = (int64_t)info.rssi;

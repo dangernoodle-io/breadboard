@@ -533,11 +533,13 @@ bb_err_t bb_wifi_ping(uint32_t target_addr, uint32_t timeout_ms,
 bool bb_wifi_gateway_reachable(uint32_t timeout_ms);
 #endif /* ESP_PLATFORM */
 
-// bb_wifi_emit_section / bb_wifi_emit_status (bb_json_t-based JSON emitters)
-// moved to bb_wifi_http.h (PR1, KB 781) — bb_wifi's public header no longer
-// includes bb_json.h so the STA core stays free of the http/json/openapi
-// dependency closure. Callers that need the JSON emitters (e.g. bb_health)
-// include bb_wifi_http.h instead.
+// bb_wifi_emit_status (bb_json_t-based JSON emitter) moved to bb_wifi_http.h
+// (PR1, KB 781) — bb_wifi's public header no longer includes bb_json.h so
+// the STA core stays free of the http/json/openapi dependency closure.
+// Callers that need the JSON emitter (e.g. bb_health) include
+// bb_wifi_http.h instead. bb_wifi_emit_section, the GET /api/wifi
+// counterpart, migrated off bb_json entirely (B1-1057) to a
+// bb_serialize_desc_t -- see bb_wifi_http_wire_priv.h.
 
 // ---------------------------------------------------------------------------
 // Runtime WiFi reconfigure (brick-safe pending-creds try)

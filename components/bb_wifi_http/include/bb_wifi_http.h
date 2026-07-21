@@ -26,16 +26,16 @@ extern "C" {
 
 // Format `bssid` as a colon-hex MAC string ("aa:bb:cc:dd:ee:ff") into `out`
 // (must be at least 18 bytes). Pure, host-testable -- the shared idiom
-// behind bb_wifi_emit_section/bb_wifi_emit_status and the "wifi" bb_diag
-// section's fill (bb_wifi_http_diag.h), factored out per the
-// hand-roll-twice-extract convention rather than a third snprintf copy.
+// behind bb_wifi_emit_status and the "wifi" bb_diag section's fill
+// (bb_wifi_http_diag.h) and the GET /api/wifi wire descriptor
+// (bb_wifi_http_wire_priv.h), factored out per the hand-roll-twice-extract
+// convention rather than a third snprintf copy.
 void bb_wifi_http_format_bssid(char out[18], const uint8_t bssid[6]);
 
-// Emit the canonical wifi section into a bb_json_t object.
-// Writes: ssid, bssid (colon-hex), rssi (integer), ip, connected,
-// disc_reason (integer), disc_age_s (integer), retry_count (integer).
-// When disconnected all numeric fields are 0/false, strings empty/"0.0.0.0".
-void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info);
+// The GET /api/wifi bb_json_t emitter (bb_wifi_emit_section) was migrated
+// to a bb_serialize_desc_t (B1-1057) -- see bb_wifi_http_wire_priv.h
+// (bb_wifi_http_info_wire_desc / bb_wifi_http_info_wire_fill), the SSOT
+// wifi_info_handler now renders through.
 
 // Emit status-only wifi fields into a bb_json_t object (TA-505).
 // Writes: ssid, bssid (colon-hex), ip, connected — no numeric fields.

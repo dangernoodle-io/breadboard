@@ -8,15 +8,21 @@
 
 #include "bb_http.h"
 #include "bb_http_body.h"
+#include "bb_http_serialize_stream.h"
 #include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_openapi.h"
+#include "bb_serialize.h"
 
 #include "esp_wifi.h"
 
+// GET /api/wifi wire descriptor (B1-1057) -- private header, not under
+// include/ (mirrors bb_health.c's relative include of
+// bb_health_wire_priv.h).
+#include "../../../components/bb_wifi_http/bb_wifi_http_wire_priv.h"
+
 #if CONFIG_BB_WIFI_RECONFIGURE
 #include "bb_data.h"
-#include "bb_serialize.h"
 #include "bb_settings.h"
 #include "bb_wifi_pending.h"
 #include "bb_wifi_http_apply_status.h"
@@ -50,20 +56,13 @@ static bb_err_t wifi_info_handler(bb_http_request_t *req)
     }
 
     // Cache miss (pre-first-tick or not registered): fall back to live read.
-    bb_json_t root = bb_json_obj_new();
-    if (!root) return BB_ERR_NO_SPACE;
     bb_wifi_info_t info;
     bb_wifi_get_info(&info);
-    bb_wifi_emit_section(root, &info);
 
-    char *str = bb_json_serialize(root);
-    bb_json_free(root);
-    if (!str) return BB_ERR_NO_SPACE;
-    bb_err_t err = bb_http_resp_set_type(req, "application/json");
-    if (err == BB_OK) err = bb_http_resp_send_chunk(req, str, -1);
-    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
-    bb_json_free_str(str);
-    return err;
+    bb_wifi_http_info_wire_t snap;
+    bb_wifi_http_info_wire_fill(&snap, &info);
+
+    return bb_http_serialize_stream(req, &bb_wifi_http_info_wire_desc, &snap);
 }
 
 static bb_err_t scan_handler(bb_http_request_t *req)

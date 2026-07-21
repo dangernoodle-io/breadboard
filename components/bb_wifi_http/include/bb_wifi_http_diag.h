@@ -47,9 +47,9 @@ typedef struct {
     int64_t top_reason_count;
 } bb_wifi_http_diag_hist_t;
 
-// Section snapshot. Shared fields (ssid..disconnect_rssi) mirror
-// bb_wifi_emit_section's GET /api/wifi shape; roam_count..has_ip are
-// diag-only additions.
+// Section snapshot. Shared fields (ssid..disconnect_rssi) mirror the
+// GET /api/wifi shape (bb_wifi_http_info_wire_t, bb_wifi_http_wire_priv.h);
+// roam_count..has_ip are diag-only additions.
 typedef struct {
     char                  ssid[33];
     char                  bssid[18];  // "aa:bb:cc:dd:ee:ff"

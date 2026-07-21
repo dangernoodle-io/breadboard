@@ -35,10 +35,13 @@
 #include "bb_mqtt_client.h"
 #include "bb_temp.h"
 #include "bb_temp_test.h"
+#include "bb_wifi.h"
+#include "bb_wifi_test.h"
 
 #include "test_serialize_fixture.h"
 #include "../../components/bb_health/bb_health_wire_priv.h"
 #include "../../components/bb_health/bb_health_compose_priv.h"
+#include "../../components/bb_wifi_http/bb_wifi_http_wire_priv.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -245,4 +248,70 @@ void test_v2_golden_health_full_document(void)
     bb_http_host_capture_free(&cap);
     bb_mqtt_client_default_set(NULL);
     bb_mqtt_client_destroy(h);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/wifi (bb_wifi_http_info_wire_t) -- byte-fidelity golden for the
+// B1-1057 migration off bb_wifi_emit_section (the retired bb_json_t
+// emitter). Exercises the real production fill fn
+// (bb_wifi_http_info_wire_fill) against a hand-built bb_wifi_info_t, so a
+// field reorder/type change/present-gating regression in either the
+// descriptor OR the fill fn fails here. restart_sta_count/disconnect_rssi
+// come from bb_wifi's global test hooks (bb_wifi_test.h,
+// BB_WIFI_TESTING) -- same sources the fill fn itself reads via
+// bb_wifi_get_restart_sta_count()/bb_wifi_get_disconnect_rssi().
+// ---------------------------------------------------------------------------
+
+void test_v2_golden_wifi_info_populated(void)
+{
+    bb_wifi_test_set_restart_sta_count(3);
+    bb_wifi_test_set_disconnect_rssi(-70);
+
+    bb_wifi_info_t info;
+    memset(&info, 0, sizeof(info));
+    strncpy(info.ssid, "testnet", sizeof(info.ssid) - 1);
+    info.bssid[0] = 0xaa; info.bssid[1] = 0xbb; info.bssid[2] = 0xcc;
+    info.bssid[3] = 0xdd; info.bssid[4] = 0xee; info.bssid[5] = 0xff;
+    info.rssi = -42;
+    strncpy(info.ip, "192.168.1.50", sizeof(info.ip) - 1);
+    info.connected = true;
+    info.disc_reason = BB_WIFI_DISC_UNKNOWN;
+    info.disc_age_s = 0;
+    info.retry_count = 0;
+
+    bb_wifi_http_info_wire_t snap;
+    bb_wifi_http_info_wire_fill(&snap, &info);
+
+    render_eq(&bb_wifi_http_info_wire_desc, &snap,
+              "{\"ssid\":\"testnet\",\"bssid\":\"aa:bb:cc:dd:ee:ff\",\"rssi\":-42,"
+              "\"ip\":\"192.168.1.50\",\"connected\":true,\"disc_reason\":\"unknown\","
+              "\"disc_age_s\":0,\"retry_count\":0,\"restart_sta_count\":3,"
+              "\"disconnect_rssi\":-70}");
+
+    bb_wifi_test_set_restart_sta_count(0);
+    bb_wifi_test_set_disconnect_rssi(INT8_MIN);
+}
+
+void test_v2_golden_wifi_info_disconnected(void)
+{
+    bb_wifi_test_set_restart_sta_count(0);
+    bb_wifi_test_set_disconnect_rssi(0);
+
+    bb_wifi_info_t info;
+    memset(&info, 0, sizeof(info));
+    strncpy(info.ip, "0.0.0.0", sizeof(info.ip) - 1);
+    info.disc_reason = BB_WIFI_DISC_HANDSHAKE_TIMEOUT;
+    info.disc_age_s = 42;
+    info.retry_count = 5;
+
+    bb_wifi_http_info_wire_t snap;
+    bb_wifi_http_info_wire_fill(&snap, &info);
+
+    render_eq(&bb_wifi_http_info_wire_desc, &snap,
+              "{\"ssid\":\"\",\"bssid\":\"00:00:00:00:00:00\",\"rssi\":0,"
+              "\"ip\":\"0.0.0.0\",\"connected\":false,\"disc_reason\":\"handshake_timeout\","
+              "\"disc_age_s\":42,\"retry_count\":5,\"restart_sta_count\":0,"
+              "\"disconnect_rssi\":0}");
+
+    bb_wifi_test_set_disconnect_rssi(INT8_MIN);
 }
