@@ -214,6 +214,12 @@ class DocsGenError(Exception):
 
 def _render_brief(root: Path, name: str) -> str:
     header = _primary_header(root, name)
+    if header is None:
+        raise DocsGenError(
+            f"components/{name}/README.md has a bbtool:brief marker but "
+            f"'{name}' is not a discovered component (no CMakeLists.txt"
+            f" found under components/{name}/)"
+        )
     brief = _extract_brief(header)
     if brief is None:
         raise DocsGenError(
@@ -613,7 +619,17 @@ def _check_component_readme(ctx: Context) -> list:
         content = ctx.read(readme)
         if _BRIEF_MARKER_RE.search(content):
             header = _primary_header(root, child.name)
-            if _extract_brief(header) is None:
+            if header is None:
+                violations.append(
+                    ctx.violation(
+                        readme, 1,
+                        f"components/{child.name}/README.md has a bbtool:brief"
+                        f" marker but '{child.name}' is not a discovered"
+                        f" component (no CMakeLists.txt found under"
+                        f" components/{child.name}/)",
+                    )
+                )
+            elif _extract_brief(header) is None:
                 violations.append(
                     ctx.violation(
                         readme, 1,

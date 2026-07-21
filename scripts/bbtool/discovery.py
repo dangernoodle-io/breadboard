@@ -339,7 +339,13 @@ def build_index(roots: List[str], platforms=PLATFORMS) -> ComponentIndex:
     cache entry instead of scanning (and diffing) it twice. Call
     `build_index.cache_clear()` to invalidate (tests that build fresh temp
     trees should do this defensively, even though distinct temp paths
-    already give distinct cache keys)."""
+    already give distinct cache keys). NOTE: "static within one tool
+    invocation" is an invariant of today's callers (every CLI subcommand
+    scans, acts, and exits — one process, one static tree), not something
+    this cache enforces itself; a future single-process command that WRITES
+    a new component dir and then re-queries `build_index()` in the same
+    invocation would silently see the pre-write, now-stale index unless it
+    calls `cache_clear()` first."""
     deduped = list(dict.fromkeys(os.path.realpath(str(r)) for r in roots))
     return _build_index_cached(tuple(deduped), tuple(platforms))
 

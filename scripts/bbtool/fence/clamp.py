@@ -172,10 +172,15 @@ def _opposite_direction(op1: str, op2: str) -> bool:
 # The canonical implementation (platform/host/bb_num/) and its public
 # header (components/bb_num/, which carries clamp-shaped doc-comment
 # examples) are excluded, as are tests (excluded generically by
-# fence/_base.py's EXCLUDE_DIRS).
+# fence/_base.py's EXCLUDE_DIRS). Matched by COMPONENT NAME via the
+# discovery SSOT (index.owner_of_path), not a path-prefix tuple — a path
+# prefix silently stops matching if bb_num ever relocates, which would make
+# the canonical implementation trip its own fence (B1-1090 consumer
+# migration); name-based matching survives a relocation since `bb_num` stays
+# `bb_num` regardless of nesting depth.
 # ---------------------------------------------------------------------------
 
-_CANONICAL_CLAMP_PREFIXES = ("platform/host/bb_num/", "components/bb_num/")
+_CANONICAL_CLAMP_COMPONENTS = ("bb_num",)
 
 _IF_ASSIGN_RE = re.compile(
     r'^if\s*\(\s*(\w+)\s*(<=|>=|<|>)\s*([\w.]+)\s*\)\s*\1\s*=\s*[\w.]+\s*;\s*$'
@@ -257,7 +262,7 @@ def _scan_clamp(root: Path) -> Set[Marker]:
     index = build_index([str(root)])
     for path in _base.iter_files(root, _SCAN_ROOTS, _SRC_GLOBS):
         rel = _base.rel(root, path)
-        if rel.startswith(_CANONICAL_CLAMP_PREFIXES):
+        if index.owner_of_path(rel) in _CANONICAL_CLAMP_COMPONENTS:
             continue
         text = _base.read(path)
         lines = text.splitlines()

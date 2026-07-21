@@ -118,9 +118,11 @@ _HDR_GLOBS = ["**/*.h"]
 # regexes from matching it (see module docstring point 2), but excluding
 # the file explicitly documents the intent and matches this codebase's
 # established per-family canonical-impl exclusion convention (see
-# `clamp.py`'s `_CANONICAL_CLAMP_PREFIXES`, `scalar_parse.py`'s
-# `_SCALAR_PARSE_EXCLUDE_PREFIXES`).
-_CANONICAL_PREFIXES = ("components/bb_core/",)
+# `clamp.py`'s `_CANONICAL_CLAMP_COMPONENTS`, `scalar_parse.py`'s
+# `_SCALAR_PARSE_EXCLUDE_COMPONENTS`). Matched by COMPONENT NAME via the
+# discovery SSOT (index.owner_of_path), not a path prefix — a path prefix
+# silently stops matching if bb_core ever relocates.
+_CANONICAL_COMPONENTS = ("bb_core",)
 
 # ---------------------------------------------------------------------------
 # Marker-type -> reporting bucket
@@ -374,7 +376,7 @@ def _scan_callback_slot(root: Path) -> Set[Marker]:
     found: Set[Marker] = set()
     for path in _base.iter_files(root, _SCAN_ROOTS, _SRC_GLOBS):
         rel = _base.rel(root, path)
-        if rel.startswith(_CANONICAL_PREFIXES):
+        if index.owner_of_path(rel) in _CANONICAL_COMPONENTS:
             continue
         text = _base.read(path)
         lines = text.splitlines()

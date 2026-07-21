@@ -63,8 +63,12 @@ class TestProfileFiltering(unittest.TestCase):
     def test_library_runs_all_profiles(self):
         """library profile: public-header-leak MUST fire."""
         with tempfile.TemporaryDirectory() as td:
-            inc = Path(td) / "components" / "bb_fake" / "include"
+            comp_dir = Path(td) / "components" / "bb_fake"
+            inc = comp_dir / "include"
             inc.mkdir(parents=True)
+            # A CMakeLists.txt marks this dir as a leaf component under
+            # discovery.py's leaf rule (B1-1084 consumer migration).
+            (comp_dir / "CMakeLists.txt").write_text("")
             (inc / "bb_fake.h").write_text('#pragma once\n#include "esp_http_server.h"\n')
             args = argparse.Namespace(
                 root=td,

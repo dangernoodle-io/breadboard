@@ -127,11 +127,38 @@ class TestExtractBriefAbsentOrMissing(unittest.TestCase):
 
 class TestPrimaryHeader(unittest.TestCase):
     def test_derives_conventional_path(self):
-        root = Path("/repo")
-        self.assertEqual(
-            primary_header(root, "bb_example"),
-            root / "components" / "bb_example" / "include" / "bb_example.h",
-        )
+        with tempfile.TemporaryDirectory() as td:
+            # discovery.build_index() canonicalizes the root via
+            # os.path.realpath before scanning (resolving e.g. macOS's
+            # /var -> /private/var tmp-dir symlink), so the expected path
+            # must be built off the same realpath'd root to compare equal.
+            root = Path(os.path.realpath(td))
+            comp_dir = root / "components" / "bb_example"
+            inc = comp_dir / "include"
+            inc.mkdir(parents=True)
+            # A CMakeLists.txt marks this dir as a leaf component under
+            # discovery.py's leaf rule (B1-1084 consumer migration) —
+            # mirrors the fixture pattern applied across the other lint/
+            # fence test files in this same lane.
+            (comp_dir / "CMakeLists.txt").write_text("")
+            self.assertEqual(
+                primary_header(root, "bb_example"),
+                inc / "bb_example.h",
+            )
+
+    def test_unknown_component_returns_none(self):
+        """No discovered `components/<name>/` entry — e.g. `name` is a
+        group/intermediate directory with no `CMakeLists.txt` of its own,
+        or simply doesn't exist — must return `None`, never a fabricated
+        flat-convention path (that would silently point at a location that
+        neither exists nor has the right shape for a real leaf header)."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.assertIsNone(primary_header(root, "bb_example"))
+
+    def test_nonexistent_root_returns_none(self):
+        root = Path("/nonexistent/repo/root/for/this/test")
+        self.assertIsNone(primary_header(root, "bb_example"))
 
 
 if __name__ == "__main__":

@@ -34,6 +34,8 @@ import sys
 from pathlib import Path
 from typing import Set
 
+from discovery import build_index
+
 from fence import _base
 from fence._base import Marker
 
@@ -71,7 +73,10 @@ _SCALAR_PARSE_NAMES = ("bb_url_parse_bool", "bb_url_parse_uint")
 _SCALAR_PARSE_DEF_RE = re.compile(
     r'(?m)^[ \t]*(?:static\s+)?bool\s+(' + "|".join(_SCALAR_PARSE_NAMES) + r')\s*\('
 )
-_SCALAR_PARSE_EXCLUDE_PREFIXES = ("components/bb_scalar/", "platform/host/bb_scalar/")
+# Matched by COMPONENT NAME via the discovery SSOT (index.owner_of_path),
+# not a path-prefix tuple — a path prefix silently stops matching if
+# bb_scalar ever relocates.
+_SCALAR_PARSE_EXCLUDE_COMPONENTS = ("bb_scalar",)
 
 
 def _sig_terminator(text: str, open_paren_idx: int):
@@ -102,9 +107,10 @@ def _sig_terminator(text: str, open_paren_idx: int):
 
 def _scan_scalar_parse(root: Path) -> Set[Marker]:
     found: Set[Marker] = set()
+    index = build_index([str(root)])
     for path in _base.iter_files(root, _SCAN_ROOTS, _SRC_GLOBS):
         rel = _base.rel(root, path)
-        if rel.startswith(_SCALAR_PARSE_EXCLUDE_PREFIXES):
+        if index.owner_of_path(rel) in _SCALAR_PARSE_EXCLUDE_COMPONENTS:
             continue
         text = _base.read(path)
         lines = text.splitlines()

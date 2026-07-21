@@ -205,11 +205,13 @@ def _add_ternary_matches(index: ComponentIndex, found: Set[Marker], rel: str, te
 
 
 # No canonical sat_sub helper exists yet (extraction is B3, parked — see
-# module docstring), but `platform/host/bb_num/` is excluded anyway, same
-# as clamp.py: its header/impl can carry doc-comment examples contrasting
-# a two-sided clamp against a one-sided saturate, and that reference must
-# never self-fire any fence family.
-_SAT_SUB_EXCLUDE_PREFIXES = ("platform/host/bb_num/", "components/bb_num/")
+# module docstring), but `bb_num` is excluded anyway, same as clamp.py: its
+# header/impl can carry doc-comment examples contrasting a two-sided clamp
+# against a one-sided saturate, and that reference must never self-fire any
+# fence family. Matched by COMPONENT NAME via the discovery SSOT
+# (index.owner_of_path), not a path-prefix tuple — a path prefix silently
+# stops matching if bb_num ever relocates.
+_SAT_SUB_EXCLUDE_COMPONENTS = ("bb_num",)
 
 
 def _scan_sat_sub(root: Path) -> Set[Marker]:
@@ -217,7 +219,7 @@ def _scan_sat_sub(root: Path) -> Set[Marker]:
     index = build_index([str(root)])
     for path in _base.iter_files(root, _SCAN_ROOTS, _SRC_GLOBS):
         rel = _base.rel(root, path)
-        if rel.startswith(_SAT_SUB_EXCLUDE_PREFIXES):
+        if index.owner_of_path(rel) in _SAT_SUB_EXCLUDE_COMPONENTS:
             continue
         text = _base.read(path)
         lines = text.splitlines()
@@ -293,7 +295,7 @@ def _scan_sat_sub_delta(root: Path) -> Set[Marker]:
     index = build_index([str(root)])
     for path in _base.iter_files(root, _SCAN_ROOTS, _SRC_GLOBS):
         rel = _base.rel(root, path)
-        if rel.startswith(_SAT_SUB_EXCLUDE_PREFIXES):
+        if index.owner_of_path(rel) in _SAT_SUB_EXCLUDE_COMPONENTS:
             continue
         text = _base.read(path)
         lines = text.splitlines()

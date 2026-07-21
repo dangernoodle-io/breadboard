@@ -12,6 +12,8 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from discovery import build_index, normalize_roots
+
 # Matches an `@brief` tag in any of the three supported comment styles,
 # capturing everything up to end-of-line as the initial text. Continuation
 # lines (block-comment ` * ` noise, or repeated `///`/`//!` prefixes) are
@@ -102,7 +104,21 @@ def extract_brief(path: Path) -> Optional[str]:
     return None
 
 
-def primary_header(root: Path, name: str) -> Path:
+def primary_header(root: Path, name: str) -> Optional[Path]:
     """Return the conventional primary public header for component `name`:
-    components/<name>/include/<name>.h."""
-    return root / "components" / name / "include" / f"{name}.h"
+    <owning-dir>/include/<name>.h, resolved via the discovery SSOT
+    (`discovery.build_index`) so it works at any depth. Returns `None` when
+    the discovery index has no `components/`-layer entry for `name` (e.g.
+    `root` doesn't exist on disk, or `name` names a group/intermediate
+    directory with no `CMakeLists.txt` of its own rather than a real leaf
+    component) — deliberately NOT a fabricated flat-convention path: under
+    nesting that would silently return a plausible-but-wrong location
+    (neither existing nor shaped like a real leaf header), masking "that
+    name isn't a component" as a misleading "component has no @brief tag"
+    downstream. Callers must handle `None` explicitly (see
+    `commands/docs.py`'s `_render_brief`/`_check_component_readme`, which
+    name the real cause)."""
+    comp_dir = build_index(normalize_roots(root)).component_dir(name)
+    if comp_dir is None:
+        return None
+    return comp_dir / "include" / f"{name}.h"

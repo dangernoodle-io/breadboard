@@ -18,6 +18,7 @@ import fence as fence_pkg  # noqa: E402
 from fence import Marker  # noqa: E402
 from fence.new_component import scan_all, counts_by_bucket, rename_pairs  # noqa: E402
 from commands import fence_cmd  # noqa: E402
+from discovery import build_index  # noqa: E402
 
 
 def _write(root: Path, rel: str, content: str = "") -> Path:
@@ -28,6 +29,11 @@ def _write(root: Path, rel: str, content: str = "") -> Path:
 
 
 def _mkcomponent(root: Path, name: str) -> None:
+    # A CMakeLists.txt marks this dir as a leaf component under
+    # discovery.py's leaf rule (B1-1084 consumer migration) — without it,
+    # build_index() finds zero components and the new_component family
+    # never sees this fixture at all.
+    _write(root, f"components/{name}/CMakeLists.txt", "")
     _write(root, f"components/{name}/README.md", f"# {name}\n")
 
 
@@ -125,6 +131,15 @@ class TestCountsByBucket(unittest.TestCase):
 
 
 def _run_fence_cli(root: str, family=None, update_baseline: bool = False, seed=None, approve=None) -> tuple:
+    # discovery.build_index() is memoized per (canonicalized-roots, platforms)
+    # tuple for the lifetime of the process (safe in production — one real
+    # CLI invocation is one process, so the on-disk tree is genuinely static
+    # for its duration). These CLI tests instead mutate the SAME tmp root
+    # across several `_run_fence_cli` calls within one test process, so a
+    # stale cached index would silently hide a just-added/removed component
+    # on the next call — clear it before every invocation to force a fresh
+    # scan, mirroring `discovery.py`'s own documented test convention.
+    build_index.cache_clear()
     args = argparse.Namespace(
         root=root, family=family, update_baseline=update_baseline, seed=seed, approve=approve
     )

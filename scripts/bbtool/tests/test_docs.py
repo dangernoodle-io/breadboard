@@ -367,16 +367,22 @@ class TestRenderBrief(unittest.TestCase):
     def test_sources_from_header_brief(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            include_dir = root / "components" / "bb_fake" / "include"
+            comp_dir = root / "components" / "bb_fake"
+            include_dir = comp_dir / "include"
             include_dir.mkdir(parents=True)
+            # A CMakeLists.txt marks this dir as a leaf component under
+            # discovery.py's leaf rule (B1-1084 consumer migration).
+            (comp_dir / "CMakeLists.txt").write_text("", encoding="utf-8")
             (include_dir / "bb_fake.h").write_text(_BRIEF_HEADER, encoding="utf-8")
             self.assertEqual(_render_brief(root, "bb_fake"), "Fake component for tests.")
 
     def test_raises_when_header_has_no_brief(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            include_dir = root / "components" / "bb_fake" / "include"
+            comp_dir = root / "components" / "bb_fake"
+            include_dir = comp_dir / "include"
             include_dir.mkdir(parents=True)
+            (comp_dir / "CMakeLists.txt").write_text("", encoding="utf-8")
             (include_dir / "bb_fake.h").write_text("#pragma once\nvoid a(void);\n", encoding="utf-8")
             with self.assertRaises(DocsGenError):
                 _render_brief(root, "bb_fake")
@@ -386,6 +392,19 @@ class TestRenderBrief(unittest.TestCase):
             root = Path(td)
             with self.assertRaises(DocsGenError):
                 _render_brief(root, "bb_fake")
+
+    def test_raises_when_component_not_discovered(self):
+        """`name` has no `components/<name>/` entry at all (no
+        CMakeLists.txt anywhere on that branch) — `primary_header` returns
+        `None`, and `_render_brief` must raise DocsGenError naming the real
+        cause ('not a discovered component'), not crash on a None header or
+        silently point at a fabricated path."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "components" / "bb_fake" / "include").mkdir(parents=True)
+            with self.assertRaises(DocsGenError) as ctx:
+                _render_brief(root, "bb_fake")
+            self.assertIn("not a discovered component", str(ctx.exception))
 
 
 class TestPlatformMatrix(unittest.TestCase):
@@ -844,8 +863,15 @@ def _scaffold_with_brief(root, component, config):
     """scaffold_component, then seed the primary header with an @brief so
     the immediate post-scaffold `_gen_component_readme` brief region
     resolves instead of raising DocsGenError."""
-    include_dir = Path(root) / "components" / component / "include"
+    comp_dir = Path(root) / "components" / component
+    include_dir = comp_dir / "include"
     include_dir.mkdir(parents=True, exist_ok=True)
+    # A CMakeLists.txt marks this dir as a leaf component under
+    # discovery.py's leaf rule (B1-1084 consumer migration) — without it,
+    # header_annot.primary_header() can't resolve this fixture's header at
+    # all and _render_brief raises DocsGenError before the @brief seeded
+    # below is ever read.
+    (comp_dir / "CMakeLists.txt").write_text("", encoding="utf-8")
     (include_dir / f"{component}.h").write_text(
         f"#pragma once\n/** @brief {component} test fixture. */\nvoid noop(void);\n",
         encoding="utf-8",
