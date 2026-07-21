@@ -27,6 +27,7 @@
 
 #include "unity.h"
 #include "bb_storage_http.h"
+#include "../../components/bb_storage_http/bb_storage_http_delete_wire_priv.h"
 #include "bb_storage.h"
 #include "bb_settings.h"
 #include "bb_http.h"
@@ -34,6 +35,7 @@
 #include "bb_http_host.h"
 #include "cJSON.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -422,6 +424,34 @@ void test_storage_delete_key_with_array_ns_returns_400(void)
         "{\"namespace\":[\"bb_mqtt\",\"bb_scratch_a\"],\"key\":\"broker\",\"confirm\":true}");
     TEST_ASSERT_EQUAL_INT(400, cap.status);
     bb_http_host_capture_free(&cap);
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/diag/storage — array namespace count exceeds
+// BB_STORAGE_HTTP_DELETE_NS_MAX -> 400, rejected fail-closed BEFORE any
+// erase is performed (proves the erase loop never even started: the
+// pre-existing entry below survives).
+// ---------------------------------------------------------------------------
+
+void test_storage_delete_ns_array_over_cap_returns_400_before_erase(void)
+{
+    reset_all();
+    fake_set_pub("nvs", "bb_survivor", "k", "v");
+
+    char body[512];
+    size_t off = 0;
+    off += (size_t)snprintf(body + off, sizeof(body) - off, "{\"namespace\":[");
+    for (int i = 0; i < BB_STORAGE_HTTP_DELETE_NS_MAX + 1; i++) {
+        if (i > 0) body[off++] = ',';
+        off += (size_t)snprintf(body + off, sizeof(body) - off, "\"ns%d\"", i);
+    }
+    off += (size_t)snprintf(body + off, sizeof(body) - off, "],\"confirm\":true}");
+
+    bb_http_host_capture_t cap = run_handler_body(body);
+    TEST_ASSERT_EQUAL_INT(400, cap.status);
+    bb_http_host_capture_free(&cap);
+
+    TEST_ASSERT_TRUE(fake_exists_pub("nvs", "bb_survivor", "k"));
 }
 
 // ---------------------------------------------------------------------------

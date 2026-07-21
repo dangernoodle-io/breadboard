@@ -7,10 +7,12 @@
 // is the whole point of rehoming this route off bb_nv.
 
 #include "bb_storage_http.h"
+#include "../../../components/bb_storage_http/bb_storage_http_delete_wire_priv.h"
 #include "bb_data.h"
 #include "bb_http.h"
 #include "bb_http_body.h"
 #include "bb_http_server.h"
+#include "bb_http_serialize_stream.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mem.h"
@@ -176,6 +178,20 @@ static bb_err_t storage_delete_handler(bb_http_request_t *req)
         return BB_ERR_INVALID_ARG;
     }
 
+    /* --- array-namespace count bound: fail closed BEFORE any erase is
+     * performed. The array-namespace erase loop was previously uncapped
+     * (bounded only by the request body's own 1024-byte cap) -- this is a
+     * NEW, deliberate validation introduced by the bb_serialize response
+     * migration (the "deleted" wire snapshot has a fixed
+     * BB_STORAGE_HTTP_DELETE_NS_MAX-row capacity, so an oversized request
+     * must be rejected up front rather than silently truncating the
+     * response after partially erasing). --- */
+    if (ns_is_array && bb_json_arr_size(ns_item) > BB_STORAGE_HTTP_DELETE_NS_MAX) {
+        bb_json_free(parsed);
+        send_400(req, "\"namespace\" array exceeds maximum allowed entries");
+        return BB_ERR_INVALID_ARG;
+    }
+
     /* --- optional key: forbidden with array namespace; oversized value is
      * rejected (400), never silently truncated -- see
      * get_string_field_checked(). --- */
@@ -234,13 +250,14 @@ static bb_err_t storage_delete_handler(bb_http_request_t *req)
     /* --- Perform erase(s) --- */
     bb_err_t overall = BB_OK;
 
-    /* Build the response "deleted" array as we go. */
-    bb_json_t deleted_arr = bb_json_arr_new();
-    if (!deleted_arr) {
-        bb_json_free(parsed);
-        send_500(req, "out of memory");
-        return BB_ERR_NO_SPACE;
-    }
+    /* Copy each successfully-erased namespace name into a fixed local
+     * buffer as we go (while `parsed` is still live) instead of appending
+     * to a live cJSON array -- decouples the response emit (below, after
+     * `parsed` is freed) from the request's parse tree. Bounded by the
+     * BB_STORAGE_HTTP_DELETE_NS_MAX array-size check above (the ns_is_str
+     * case erases exactly one namespace, always within bound). */
+    char   deleted_names[BB_STORAGE_HTTP_DELETE_NS_MAX][BB_STORAGE_HTTP_DELETE_NS_LEN];
+    size_t n_deleted = 0;
 
     if (ns_is_str) {
         const char *ns = bb_json_item_get_string(ns_item);
@@ -258,7 +275,8 @@ static bb_err_t storage_delete_handler(bb_http_request_t *req)
         if (err != BB_OK) {
             overall = err;
         } else {
-            bb_json_arr_append_string(deleted_arr, ns);
+            bb_strlcpy(deleted_names[n_deleted], ns, sizeof(deleted_names[n_deleted]));
+            n_deleted++;
         }
     } else {
         /* array of namespaces — erase each in turn; continue on individual errors */
@@ -274,7 +292,8 @@ static bb_err_t storage_delete_handler(bb_http_request_t *req)
             if (err != BB_OK) {
                 if (overall == BB_OK) overall = err;
             } else {
-                bb_json_arr_append_string(deleted_arr, ns);
+                bb_strlcpy(deleted_names[n_deleted], ns, sizeof(deleted_names[n_deleted]));
+                n_deleted++;
             }
         }
     }
@@ -282,7 +301,6 @@ static bb_err_t storage_delete_handler(bb_http_request_t *req)
     bb_json_free(parsed);
 
     if (overall != BB_OK) {
-        bb_json_free(deleted_arr);
         if (overall == BB_ERR_UNSUPPORTED) {
             send_501(req, "backend does not support namespace-level erase");
         } else {
@@ -291,30 +309,13 @@ static bb_err_t storage_delete_handler(bb_http_request_t *req)
         return overall;
     }
 
-    /* 200 {"deleted": [...]} */
-    bb_json_t resp = bb_json_obj_new();
-    if (!resp) {
-        bb_json_free(deleted_arr);
-        send_500(req, "out of memory");
-        return BB_ERR_NO_SPACE;
-    }
-    bb_json_obj_set_arr(resp, "deleted", deleted_arr);
-    if (has_key) {
-        bb_json_obj_set_string(resp, "key", key);
-    }
+    /* 200 {"deleted": [...], "key": <optional>} via bb_serialize -- "key" is
+     * omitted entirely when !has_key (see bb_storage_http_delete_wire_desc's
+     * present-predicate). */
+    bb_storage_http_delete_wire_t snap;
+    bb_storage_http_delete_wire_fill(&snap, deleted_names, n_deleted, key, has_key);
 
-    char *json = bb_json_serialize(resp);
-    bb_json_free(resp);
-    if (!json) {
-        send_500(req, "serialize failed");
-        return BB_ERR_NO_SPACE;
-    }
-
-    bb_http_resp_set_type(req, "application/json");
-    bb_http_resp_send_chunk(req, json, (int)strlen(json));
-    bb_http_resp_send_chunk(req, NULL, 0);
-    bb_json_free_str(json);
-    return BB_OK;
+    return bb_http_serialize_stream(req, &bb_storage_http_delete_wire_desc, &snap);
 }
 
 // ---------------------------------------------------------------------------
