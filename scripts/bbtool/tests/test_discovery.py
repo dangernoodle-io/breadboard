@@ -394,6 +394,148 @@ class TestBuildIndexCanonicalizesDirectly(_DiscoveryTestCase):
                 build_index([str(root_a), str(root_b)])
 
 
+def _make_nested_component(root: Path, *group_path, name: str) -> None:
+    """Write `components/<group_path...>/<name>/CMakeLists.txt` (+ a header
+    under `include/`), mirroring `_make_component`'s flat-layout shape one
+    or more group levels deeper."""
+    comp = root.joinpath("components", *group_path, name)
+    _write(comp / "CMakeLists.txt", "idf_component_register()\n")
+    _write(comp / "include" / f"{name}.h", "#pragma once\n")
+
+
+class TestLeafRuleDiscovery(_DiscoveryTestCase):
+    """PR1 of the depth-agnostic-layout lane: component identity is the
+    innermost directory containing a `CMakeLists.txt`, not a fixed depth-1
+    position under `components/`."""
+
+    def test_flat_layout_indexes_identically(self):
+        """No-regression assertion: today's flat `components/<name>/`
+        layout must resolve exactly as it did pre-leaf-rule."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            _make_component(root, "bb_core")
+            _make_component(root, "bb_num")
+            _make_platform(root, "host", "bb_core")
+            index = build_index([str(root)])
+            self.assertEqual(index.names(), {"bb_core", "bb_num"})
+            self.assertEqual(index.component_dir("bb_core"), root / "components" / "bb_core")
+            self.assertEqual(index.component_dir("bb_num"), root / "components" / "bb_num")
+            self.assertEqual(
+                index.platform_dir("bb_core", "host"), root / "platform" / "host" / "bb_core"
+            )
+
+    def test_nested_group_resolves_to_leaf_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            _make_nested_component(root, "wifi", name="bb_wifi_net")
+            index = build_index([str(root)])
+            self.assertEqual(index.names(), {"bb_wifi_net"})
+            self.assertEqual(
+                index.component_dir("bb_wifi_net"),
+                root / "components" / "wifi" / "bb_wifi_net",
+            )
+
+    def test_group_dir_never_itself_a_component(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            _make_nested_component(root, "wifi", name="bb_wifi_net")
+            index = build_index([str(root)])
+            self.assertNotIn("wifi", index.names())
+
+    def test_owner_of_path_attributes_to_leaf_not_group(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            _make_nested_component(root, "wifi", name="bb_wifi_net")
+            src = root / "components" / "wifi" / "bb_wifi_net" / "src" / "x.c"
+            _write(src, "// x\n")
+            index = build_index([str(root)])
+            self.assertEqual(index.owner_of_path(src), "bb_wifi_net")
+
+    def test_deeper_nesting_two_plus_levels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            _make_nested_component(root, "net", "wifi", name="bb_wifi_deep")
+            index = build_index([str(root)])
+            self.assertEqual(index.names(), {"bb_wifi_deep"})
+            self.assertEqual(
+                index.component_dir("bb_wifi_deep"),
+                root / "components" / "net" / "wifi" / "bb_wifi_deep",
+            )
+            self.assertNotIn("net", index.names())
+            self.assertNotIn("wifi", index.names())
+            src = root / "components" / "net" / "wifi" / "bb_wifi_deep" / "src" / "x.c"
+            _write(src, "// x\n")
+            self.assertEqual(index.owner_of_path(src), "bb_wifi_deep")
+
+    def test_duplicate_leaf_name_in_different_groups_collides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            _make_nested_component(root, "a", name="bb_dup_leaf")
+            _make_nested_component(root, "b", name="bb_dup_leaf")
+            with self.assertRaises(CollisionError) as cm:
+                build_index([str(root)])
+            self.assertIn("bb_dup_leaf", str(cm.exception))
+
+    def test_symlinked_directory_cycle_terminates(self):
+        """Review nit: `_leaf_component_dirs`'s recursive walk follows
+        symlinks (via `Path.is_dir()`/`iterdir()`), so a symlinked
+        directory cycle under `components/` must not recurse unboundedly.
+        `components/loop/back` symlinks back to `components/loop` itself,
+        the simplest self-cycle; unguarded, this recurses until Python's
+        default recursion limit (~1000) trips a `RecursionError` -- it
+        does not hang forever. The walk must terminate cleanly instead,
+        and still discover a genuine leaf elsewhere in the tree."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            loop_dir = root / "components" / "loop"
+            loop_dir.mkdir(parents=True)
+            (loop_dir / "back").symlink_to(loop_dir, target_is_directory=True)
+            _make_component(root, "bb_real")
+            index = build_index([str(root)])
+            self.assertEqual(index.names(), {"bb_real"})
+
+    def test_symlinked_directory_cycle_two_hop(self):
+        """Two-directory mutual cycle (`components/a/to_b` ->
+        `components/b`, `components/b/to_a` -> `components/a`) — a cycle
+        that doesn't revisit the exact starting directory on the very
+        first recursive call, unlike the direct self-cycle above."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            dir_a = root / "components" / "a"
+            dir_b = root / "components" / "b"
+            dir_a.mkdir(parents=True)
+            dir_b.mkdir(parents=True)
+            (dir_a / "to_b").symlink_to(dir_b, target_is_directory=True)
+            (dir_b / "to_a").symlink_to(dir_a, target_is_directory=True)
+            index = build_index([str(root)])
+            self.assertEqual(index.names(), set())
+
+    def test_symlinked_diamond_is_not_suppressed_still_collides(self):
+        """Regression test for the guard's ancestor-scoping (review
+        finding): a non-cyclic symlink DIAMOND -- two sibling dirs
+        `components/alias_one` and `components/alias_two` both pointing at
+        the SAME real group dir containing a leaf component -- is not a
+        cycle at all, and must still surface the pre-existing behavior:
+        the same component name discovered twice (once per alias) raises
+        `CollisionError`, exactly as it would with the cycle guard absent
+        entirely. A global "ever visited realpath" guard would silently
+        skip the second alias's subtree instead (no error, only one
+        alias's component found) -- precisely the silent-misattribution
+        failure mode this whole lane exists to remove, so this asserts
+        the loud failure is preserved, not swallowed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            real_group = root / "components" / "real_group"
+            _make_nested_component(root, "real_group", name="bb_diamond")
+            alias_one = root / "components" / "alias_one"
+            alias_two = root / "components" / "alias_two"
+            alias_one.symlink_to(real_group, target_is_directory=True)
+            alias_two.symlink_to(real_group, target_is_directory=True)
+            with self.assertRaises(CollisionError) as cm:
+                build_index([str(root)])
+            self.assertIn("bb_diamond", str(cm.exception))
+
+
 class TestRealTreeSanity(_DiscoveryTestCase):
     """B1-979: the real repo tree, single root, resolves without error and
     every discovered name owns its own directory's paths."""

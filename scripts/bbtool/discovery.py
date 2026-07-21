@@ -3,6 +3,30 @@ discovery (B1-979). Replaces the 4 hand-rolled path-position encodings
 previously scattered across `boards.py`, `commands/wire.py`, and
 `commands/lint.py` with one build+query pair.
 
+Component identity — the leaf rule (PR1 of the depth-agnostic-layout lane):
+  - On the `components/` side, a component is the INNERMOST directory
+    (walking down from `components/`) that directly contains a
+    `CMakeLists.txt`. An intermediate/group directory with no
+    `CMakeLists.txt` of its own is never itself a component — this makes
+    today's flat `components/<name>/CMakeLists.txt` and a future grouped
+    `components/<group>/<name>/CMakeLists.txt` both resolve to component
+    name `<name>`, at any nesting depth. Once a directory is accepted as a
+    leaf, its subtree is not walked further (components never nest inside
+    components), and a `.`-prefixed directory name is skipped entirely.
+  - On the `platform/<plat>/` side, discovery stays a one-level `iterdir()`
+    with NO `CMakeLists.txt` check, unchanged from pre-leaf-rule behavior.
+    In-tree investigation (this PR) found that of ~140 `platform/<plat>/
+    <name>/` directories, only 2 (`platform/espidf/bb_ota_push`,
+    `platform/espidf/bb_queue_espidf`) carry their own `CMakeLists.txt` —
+    the rest build as part of the owning component's CMakeLists via
+    REQUIRES/PRIV_REQUIRES + platform-guarded sources, not a separate CMake
+    target. Requiring a `CMakeLists.txt` here would silently drop nearly
+    every platform-side entry, so the leaf rule applies to `components/`
+    only for now; the two exceptions already work fine under the unchanged
+    one-level scan (they simply happen to also have a `CMakeLists.txt` at
+    that same depth-1 position). Nested platform-side layouts are out of
+    scope for this PR.
+
 Model (decided, B1-979):
   - Single global bare-NAME namespace: one component name maps to exactly
     one `ComponentEntry`. The index is keyed on name across the entire
@@ -67,6 +91,32 @@ class ComponentIndex:
     def __init__(self, entries: Dict[str, ComponentEntry], roots: List[str]) -> None:
         self._entries = entries
         self._roots = [Path(r) for r in roots]
+        # Precomputed (abs_dir, rel_dir, name) triples for `owner_of_path`'s
+        # longest-prefix match, sorted deepest-first (most path `parts`) so
+        # a leaf component's own dir is matched before any shallower
+        # indexed dir could (there never IS a shallower indexed dir on the
+        # same branch under the leaf rule -- group dirs are never
+        # components -- but sorting deepest-first keeps this correct even
+        # if that invariant is ever relaxed). `rel_dir` is the dir
+        # expressed relative to its OWNING entry's own root (`None` if that
+        # relation doesn't hold, which never happens in practice since
+        # every dir is scanned from under its own root) -- used to resolve
+        # already-root-relative `path` arguments without requiring an
+        # absolute root prefix.
+        dirs = []
+        for name, e in entries.items():
+            root_path = Path(e.root)
+            candidates = list(e.platform_dirs.values())
+            if e.component_dir is not None:
+                candidates.append(e.component_dir)
+            for d in candidates:
+                try:
+                    rel_dir = d.relative_to(root_path)
+                except ValueError:
+                    rel_dir = None
+                dirs.append((d, rel_dir, name))
+        dirs.sort(key=lambda t: len(t[0].parts), reverse=True)
+        self._dirs_by_depth = dirs
 
     def names(self) -> set:
         return set(self._entries.keys())
@@ -84,53 +134,121 @@ class ComponentIndex:
 
     def owner_of_path(self, path) -> Optional[str]:
         """Derive the owning component name from a path (absolute — under
-        one of this index's roots — or already root-relative), mirroring
-        the directory convention `build_index()` scanned:
-        `components/<name>/...` -> name; `platform/<plat>/<name>/...` ->
-        name. Returns `None` for a path outside that convention, or for an
-        owner name this index doesn't actually contain — never raises.
+        one of this index's roots — or already root-relative) via
+        LONGEST-PREFIX match against this index's actually-discovered
+        component/platform directories — not a fixed path-position
+        encoding, so it stays correct under any nesting depth on the
+        `components/` side (a file under `components/<group>/<name>/...`
+        attributes to the leaf component `<name>`, never the group).
+        Returns `None` for a path that isn't under any indexed directory —
+        never raises.
 
         An absolute `path` is canonicalized via `os.path.realpath` before
-        matching against `self._roots` (also canonical, since `build_index()`
-        canonicalizes every root) — a caller passing an absolute path built
-        from an un-normalized root spelling (e.g. a symlink alias) still
-        resolves correctly, symmetric with how roots themselves are
-        canonicalized. A relative `path` is left untouched (there is nothing
-        to resolve against)."""
+        matching (symmetric with how every indexed directory and root is
+        already canonical, since `build_index()` canonicalizes every
+        root) — a caller passing an absolute path built from an
+        un-normalized root spelling (e.g. a symlink alias) still resolves
+        correctly. A relative `path` is matched against each indexed
+        directory expressed relative to ITS OWN owning root (`entry.root`)
+        — the already-root-relative convention every pre-existing caller
+        relies on — never against an absolute root prefix."""
         p = Path(path)
         if p.is_absolute():
             p = Path(os.path.realpath(str(p)))
-        rel = p
-        for root in self._roots:
+            for abs_dir, _rel_dir, name in self._dirs_by_depth:
+                try:
+                    p.relative_to(abs_dir)
+                    return name
+                except ValueError:
+                    continue
+            return None
+
+        for _abs_dir, rel_dir, name in self._dirs_by_depth:
+            if rel_dir is None:
+                continue
             try:
-                rel = p.relative_to(root)
-                break
+                p.relative_to(rel_dir)
+                return name
             except ValueError:
                 continue
+        return None
 
-        parts = rel.parts
-        if len(parts) >= 2 and parts[0] == "components":
-            name = parts[1]
-        elif len(parts) >= 3 and parts[0] == "platform":
-            name = parts[2]
+
+def _leaf_component_dirs(base: Path, _ancestors: frozenset = frozenset()):
+    """Yield each leaf-component directory under `base`, depth-first: the
+    innermost directory (per branch, walking down from `base`) that
+    directly contains a `CMakeLists.txt` — the "leaf rule". A directory is
+    never descended into once accepted as a leaf (components don't nest
+    inside components), so a stray `CMakeLists.txt` somewhere under an
+    already-accepted leaf (e.g. a vendored subproject) can never surface as
+    a second, spurious component. A directory whose name starts with `.`
+    is skipped entirely (and not descended into), matching this repo's
+    general excluded/hidden-dir convention. Yields nothing for a `base`
+    that doesn't exist or isn't a directory.
+
+    `_ancestors` (internal, realpath-keyed) guards against a symlink cycle:
+    `Path.is_dir()`/`iterdir()` follow symlinks by default, so an unguarded
+    recursive walk over a symlinked directory cycle under `components/`
+    would recurse until Python's default recursion limit trips a
+    `RecursionError` — a risk this walk introduces that the old
+    single-level `iterdir()` it replaced could not structurally hit.
+
+    Deliberately ANCESTOR-SCOPED (the current recursion path, passed down
+    as a new `frozenset` per call — never a single mutated/shared set):
+    skip a directory only when its realpath is already among its OWN
+    ancestors on THIS branch — a genuine cycle. A global "ever visited"
+    set would also silently suppress a non-cyclic symlink DIAMOND — e.g.
+    two sibling dirs `components/alias_one` and `components/alias_two`
+    both pointing at the same real group dir — discarding the second
+    alias's subtree entirely and turning what should be a loud
+    `CollisionError` (the SAME leaf component reachable via two different
+    on-disk paths) into a silent single-pick. Each sibling branch starts
+    fresh from its parent's ancestor set, so a diamond is walked down BOTH
+    aliases and the duplicate is still discovered; only an actual
+    self/mutual cycle (a realpath repeating within one branch's own
+    ancestor chain) is skipped. Do not "simplify" this back to a shared/
+    mutated set — that reintroduces the diamond-suppression bug."""
+    if not base.is_dir():
+        return
+    real = os.path.realpath(str(base))
+    if real in _ancestors:
+        return
+    child_ancestors = _ancestors | {real}
+    for child in sorted(base.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        if (child / "CMakeLists.txt").is_file():
+            yield child
         else:
-            return None
-        return name if name in self._entries else None
+            yield from _leaf_component_dirs(child, child_ancestors)
 
 
 def _scan_root(root: str, platforms) -> Dict[str, ComponentEntry]:
-    """Single-root scan mirroring the pre-index `boards.discover_components`
-    walk: every directory name under `components/` or
-    `platform/{platforms}/`, recording the discovered dir(s) per name."""
+    """Single-root scan. `components/` side: the leaf rule
+    (`_leaf_component_dirs`) — a component's NAME is its leaf directory's
+    own name, at any nesting depth, never a group/intermediate directory's
+    name. Two distinct leaf directories resolving to the same name within
+    this one root (e.g. `components/a/bb_dup/` and `components/b/bb_dup/`)
+    is a `CollisionError`, raised immediately — mirrors the cross-root
+    collision `build_index()` already enforces, just one level earlier
+    (within-root, same identity rule: one name, one directory).
+    `platform/{platforms}/` side: unchanged one-level `iterdir()`, no
+    `CMakeLists.txt` check — see the module docstring's "leaf rule" section
+    for why."""
     root_p = Path(root)
     raw: Dict[str, Dict[str, object]] = {}
 
     comp_root = root_p / "components"
-    if comp_root.is_dir():
-        for child in sorted(comp_root.iterdir()):
-            if child.is_dir():
-                raw.setdefault(child.name, {"component_dir": None, "platform_dirs": {}})
-                raw[child.name]["component_dir"] = child
+    comp_seen: Dict[str, Path] = {}
+    for leaf in _leaf_component_dirs(comp_root):
+        if leaf.name in comp_seen:
+            raise CollisionError(
+                f"component name collision within root '{root}': "
+                f"'{leaf.name}' in {sorted([str(comp_seen[leaf.name]), str(leaf)])}"
+            )
+        comp_seen[leaf.name] = leaf
+        raw.setdefault(leaf.name, {"component_dir": None, "platform_dirs": {}})
+        raw[leaf.name]["component_dir"] = leaf
 
     for plat in platforms:
         plat_root = root_p / "platform" / plat
