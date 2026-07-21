@@ -1,7 +1,7 @@
 # bb_wifi_http
 
 Opt-in STA route bundle for `bb_wifi` (PR1 of the bb_wifi split, KB 781/809).
-Registers `GET /api/wifi`, `GET /api/diag/wifi`, `POST /api/scan`, and —
+Registers `GET /api/wifi`, `GET /api/diag/wifi`, `POST /api/wifi/scan`, and —
 when `CONFIG_BB_WIFI_RECONFIGURE=y` (default) — `PATCH /api/wifi` on the
 shared `bb_http_server`. This is a route **bundle**, not a server: there is one
 `bb_http_server` per device; `bb_wifi_http` composes on top of it and on top
@@ -18,7 +18,7 @@ heap.
 
 ## What moved here (relocation, no behavior change)
 
-- `GET /api/wifi`, `POST /api/scan`, and the `CONFIG_BB_WIFI_RECONFIGURE`
+- `GET /api/wifi`, `POST /api/wifi/scan`, and the `CONFIG_BB_WIFI_RECONFIGURE`
   `PATCH /api/wifi` handler — unchanged from `bb_wifi`'s prior
   `platform/espidf/bb_wifi/bb_wifi_routes.c`.
 - `bb_wifi_emit_section` / `bb_wifi_emit_status` — the `bb_json_t`-based wifi

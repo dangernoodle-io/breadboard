@@ -10,7 +10,7 @@ extern "C" {
  * @brief bb_wifi_prov — Wi-Fi provisioning HTTP routes: parses a POSTed
  * SSID/password form and a captive-portal redirect. Registers POST /save
  * and a captive GET /* wildcard on the shared HTTP server; does not
- * register /api/version, /api/scan, or /api/reboot (those live in
+ * register /api/version, /api/wifi/scan, or /api/reboot (those live in
  * bb_wifi_http / bb_system), and does not itself bring up SoftAP or drive
  * a Wi-Fi lifecycle state machine (see bb_wifi_ap for AP bring-up).
  */
@@ -73,7 +73,7 @@ void bb_wifi_prov_set_save_callback(bb_wifi_prov_save_cb_t cb);
  *
  * Pass NULL when the prov UI needs no extra routes beyond POST /save and
  * the captive-portal wildcard. bb_wifi_prov itself does not register
- * /api/version, /api/scan, or /api/reboot — those live in bb_wifi_http /
+ * /api/version, /api/wifi/scan, or /api/reboot — those live in bb_wifi_http /
  * bb_system; a consumer wanting them wires them in via this callback or
  * its own codegen/handwire composition.
  */

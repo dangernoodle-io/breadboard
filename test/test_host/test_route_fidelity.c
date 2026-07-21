@@ -6,7 +6,7 @@
 //
 // SKIPPED ROUTES (with rationale):
 //   /api/events            - SSE stream (text/event-stream); not JSON
-//   /api/scan              - bb_wifi_routes.c includes <esp_wifi.h> which cannot
+//   /api/wifi/scan         - bb_wifi_routes.c includes <esp_wifi.h> which cannot
 //                            link on host; scan uses esp_wifi_scan internally.
 //                            Follow-up: add a bb_wifi_scan host shim (B1-???).
 //   /api/update/apply      - ota_update_handler calls esp_restart() (ESP-IDF only);

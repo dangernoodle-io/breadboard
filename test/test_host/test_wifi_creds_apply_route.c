@@ -2,7 +2,8 @@
 // PATCH /api/wifi in platform/espidf/bb_wifi_http/bb_wifi_http_routes.c.
 // That TU is ESP-IDF-only (its component REQUIRES esp_wifi, and it includes
 // <esp_wifi.h> unconditionally) and cannot link on host -- see
-// test_route_fidelity.c's SKIPPED ROUTES note for /api/scan, the same file.
+// test_route_fidelity.c's SKIPPED ROUTES note for /api/wifi/scan, the same
+// file.
 //
 // This file duplicates the binding's field descriptor (key names
 // "ssid"/"password", buffer sizing) and gather/apply hooks against the
