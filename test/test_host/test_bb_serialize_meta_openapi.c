@@ -263,9 +263,13 @@ void test_bb_serialize_meta_openapi_success_null_out_len(void)
 // 7. branch-coverage fixture -- combinations the golden/nested/depth-guard
 // fixtures above don't reach: U64/F64 type-switch cases, a title needing
 // quote/backslash escaping, a multi-entry "examples" array (comma path),
-// an ARR-of-OBJ field with a REAL (non-NULL) meta row, and an OBJ field
+// an ARR-of-OBJ field with a REAL (non-NULL) meta row, an OBJ field
 // whose children mix "has a row" / "has no row" / "required" so both the
-// properties-comma and required-comma paths fire.
+// properties-comma and required-comma paths fire, ARR fields of NON-OBJ
+// scalar elem_type (B1-1109 regression -- items schema must follow the
+// real elem_type, not a hardcoded "string"), and a field whose row sets
+// enum_vals (B1-1108 -- bb_oa_write_docs' enum branch had zero direct
+// coverage).
 // ---------------------------------------------------------------------------
 
 static const bb_serialize_field_t s_cov_oa_obj_child_fields[] = {
@@ -288,13 +292,19 @@ static const bb_serialize_field_t s_cov_oa_fields[] = {
     { .key = "arrf", .type = BB_TYPE_ARR, .elem_type = BB_TYPE_OBJ,
       .children = s_cov_oa_arr_child_fields, .n_children = 2 },
     { .key = "reff", .type = BB_TYPE_REF, .ref_key = "some.sibling" },
+    { .key = "arrints", .type = BB_TYPE_ARR, .elem_type = BB_TYPE_I64 },
+    { .key = "arrnums", .type = BB_TYPE_ARR, .elem_type = BB_TYPE_F64 },
+    { .key = "arrflags", .type = BB_TYPE_ARR, .elem_type = BB_TYPE_BOOL },
+    { .key = "enumf", .type = BB_TYPE_STR },
 };
 
 static const bb_serialize_desc_t s_cov_oa_desc = {
-    .type_name = "cov_oa", .fields = s_cov_oa_fields, .n_fields = 6,
+    .type_name = "cov_oa", .fields = s_cov_oa_fields, .n_fields = 10,
 };
 
 static const char *const s_cov_oa_examples[] = { "\"a\"", "\"b\"", NULL };
+
+static const char *const s_cov_oa_enum_vals[] = { "on", "off", NULL };
 
 static const bb_serialize_field_meta_t s_cov_oa_obj_child_rows[] = {
     { .key = "a", .required = true },
@@ -313,10 +323,11 @@ static const bb_serialize_field_meta_t s_cov_oa_rows[] = {
     { .key = "esc", .title = "Say \"hi\" \\ ok", .examples = s_cov_oa_examples },
     { .key = "objf", .children = s_cov_oa_obj_child_rows, .n_children = 2 },
     { .key = "arrf", .children = s_cov_oa_arr_child_rows, .n_children = 2 },
+    { .key = "enumf", .enum_vals = s_cov_oa_enum_vals },
 };
 
 static const bb_serialize_desc_meta_t s_cov_oa_meta = {
-    .type_name = "cov_oa", .rows = s_cov_oa_rows, .n_rows = 5,
+    .type_name = "cov_oa", .rows = s_cov_oa_rows, .n_rows = 6,
 };
 
 void test_bb_serialize_meta_openapi_coverage_fixture(void)
@@ -341,4 +352,12 @@ void test_bb_serialize_meta_openapi_coverage_fixture(void)
     // reff: BB_TYPE_REF documented as an opaque object (no static properties
     // expansion -- the sibling descriptor isn't known here).
     TEST_ASSERT_TRUE(strstr(buf, "\"reff\":{\"type\":\"object\"}") != NULL);
+    // arrints/arrnums/arrflags: B1-1109 regression -- a NON-OBJ elem_type
+    // must render its real scalar type, never a hardcoded "string".
+    TEST_ASSERT_TRUE(strstr(buf, "\"arrints\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}}") != NULL);
+    TEST_ASSERT_TRUE(strstr(buf, "\"arrnums\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}}") != NULL);
+    TEST_ASSERT_TRUE(strstr(buf, "\"arrflags\":{\"type\":\"array\",\"items\":{\"type\":\"boolean\"}}") != NULL);
+    // enumf: B1-1108 -- bb_oa_write_docs' enum_vals branch, dedicated
+    // fixture independent of the golden widget's "region" field.
+    TEST_ASSERT_TRUE(strstr(buf, "\"enumf\":{\"type\":\"string\",\"enum\":[\"on\",\"off\"]}") != NULL);
 }
