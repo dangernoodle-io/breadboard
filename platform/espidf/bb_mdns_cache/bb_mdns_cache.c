@@ -28,6 +28,16 @@ static const char *TAG = "bb_mdns_cache";
 // this cap is truncated LOUDLY (bb_log_w below), never silently dropped.
 #define BB_MDNS_CACHE_REQUERY_TXT_MAX 8
 
+// bb_mdns_cache_wire_priv.h's BB_MDNS_CACHE_WIRE_TXT_MAX is the SAME cap,
+// applied to the "txt" wire array's row count (B1-1115 PR-3) -- the two
+// live in different translation units (this file is ESP-IDF-gated; the
+// wire descriptor is portable/host-compilable) so they cannot share a
+// single #define, but they MUST stay numerically identical or a consumer
+// whose TXT set fits the requery path could silently lose rows on the wire.
+#include "../../../components/bb_mdns_cache/bb_mdns_cache_wire_priv.h"
+_Static_assert(BB_MDNS_CACHE_REQUERY_TXT_MAX == BB_MDNS_CACHE_WIRE_TXT_MAX,
+               "BB_MDNS_CACHE_REQUERY_TXT_MAX and BB_MDNS_CACHE_WIRE_TXT_MAX must stay in lockstep");
+
 typedef struct {
     char     service[32];
     char     proto[8];
