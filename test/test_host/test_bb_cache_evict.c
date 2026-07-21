@@ -1,22 +1,24 @@
 // Tests for bb_cache's opt-in AGE_OUT eviction policy (B1-592 A3): the LAZY
 // (read-time) floor, the SWEEP backstop's single-pass logic, the register-
-// time guards, bb_cache_is_stale(), and the evict-notify hook wiring into
-// bb_cache_reactive's on_remove (revised A2 behavior -- see
-// bb_cache_reactive.h's doc comment).
+// time guards, bb_cache_is_stale(), and the evict-notify hook
+// (bb_cache_set_evict_notify_fn(), bb_cache_internal.h) that fires on_remove
+// for both eviction paths (B1-1118: bb_cache_reactive, the hook's former
+// installer, is gone -- these tests install the hook directly, the same way
+// a single composer does in production).
 //
 // Uses bb_cache_test_set_clock() (BB_CACHE_TESTING) to advance "now"
 // deterministically -- no real sleeps or threads anywhere in this file.
 
 #include "unity.h"
 #include "bb_cache.h"
-#include "bb_cache_reactive.h"
+#include "bb_cache_internal.h"
 #include "bb_json.h"
 
 #include <string.h>
 #include <stdint.h>
 
-// Test reset/injection hooks (BB_CACHE_TESTING / BB_CACHE_REACTIVE_TESTING),
-// defined in platform/espidf/bb_cache/bb_cache_espidf.c.
+// Test reset/injection hooks (BB_CACHE_TESTING), defined in
+// platform/espidf/bb_cache/bb_cache_espidf.c.
 void bb_cache_reset_for_test(void);
 void bb_cache_test_set_clock(uint64_t (*fn)(void));
 void bb_cache_evict_sweep_once_for_test(void);
@@ -98,9 +100,8 @@ static const void *evict_getter(void)
 static int  s_on_remove_calls;
 static char s_last_remove_key[BB_CACHE_KEY_MAX];
 
-static void spy_on_remove(const char *key, void *ctx)
+static void spy_on_remove(const char *key)
 {
-    (void)ctx;
     s_on_remove_calls++;
     strncpy(s_last_remove_key, key, sizeof(s_last_remove_key) - 1);
     s_last_remove_key[sizeof(s_last_remove_key) - 1] = '\0';
@@ -113,7 +114,7 @@ static void spy_on_remove(const char *key, void *ctx)
 static void evict_setup(void)
 {
     bb_cache_reset_for_test();
-    bb_cache_reactive_reset_for_test();
+    bb_cache_set_evict_notify_fn(NULL);
     bb_cache_test_set_clock(fake_clock);
     s_fake_now_ms      = 1000000;  // arbitrary non-zero epoch
     s_on_remove_calls  = 0;
@@ -122,6 +123,7 @@ static void evict_setup(void)
 
 static void evict_teardown(void)
 {
+    bb_cache_set_evict_notify_fn(NULL);
     bb_cache_test_set_clock(NULL);
 }
 
@@ -159,13 +161,10 @@ void test_bb_cache_evict_lazy_read_at_evict_age_misses_and_frees(void)
     evict_teardown();
 }
 
-void test_bb_cache_evict_lazy_fires_on_remove_via_reactive_hook(void)
+void test_bb_cache_evict_lazy_fires_on_remove_via_evict_notify_hook(void)
 {
     evict_setup();
-    bb_cache_reactive_observer_t obs = {
-        .key = "evict.a", .on_remove = spy_on_remove, .ctx = NULL,
-    };
-    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+    bb_cache_set_evict_notify_fn(spy_on_remove);
 
     TEST_ASSERT_EQUAL(BB_OK, reg_owned_age_out("evict.a", 500, 1000));
     TEST_ASSERT_EQUAL(BB_OK, update_value("evict.a", 42));
@@ -289,13 +288,10 @@ void test_bb_cache_evict_sweep_skips_pinned_key(void)
     evict_teardown();
 }
 
-void test_bb_cache_evict_sweep_fires_on_remove_via_reactive_hook(void)
+void test_bb_cache_evict_sweep_fires_on_remove_via_evict_notify_hook(void)
 {
     evict_setup();
-    bb_cache_reactive_observer_t obs = {
-        .key = NULL, .on_remove = spy_on_remove, .ctx = NULL,  // observe-all
-    };
-    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+    bb_cache_set_evict_notify_fn(spy_on_remove);
 
     TEST_ASSERT_EQUAL(BB_OK, reg_owned_age_out("evict.sweep", 500, 1000));
     TEST_ASSERT_EQUAL(BB_OK, update_value("evict.sweep", 1));
@@ -503,9 +499,8 @@ void test_bb_cache_evict_sweep_generation_mismatch_race_skips_key(void)
 // "evict.sweep_b" BEFORE sweep_cb() ever reaches it in the snapshot loop --
 // so sweep_cb("evict.sweep_b")'s own find_entry_locked_ref() must return
 // "not found" (the entry is already gone, not merely a generation mismatch).
-static void reentrant_delete_sweep_b(const char *key, void *ctx)
+static void reentrant_delete_sweep_b(const char *key)
 {
-    (void)ctx;
     if (strcmp(key, "evict.sweep_a") == 0) {
         TEST_ASSERT_EQUAL(BB_OK, bb_cache_delete("evict.sweep_b"));
     }
@@ -514,10 +509,7 @@ static void reentrant_delete_sweep_b(const char *key, void *ctx)
 void test_bb_cache_evict_sweep_reentrant_delete_key_already_gone(void)
 {
     evict_setup();
-    bb_cache_reactive_observer_t obs = {
-        .key = NULL, .on_remove = reentrant_delete_sweep_b, .ctx = NULL,  // observe-all
-    };
-    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+    bb_cache_set_evict_notify_fn(reentrant_delete_sweep_b);
 
     // Registration order controls bb_cache_foreach()'s snapshot slot order --
     // "evict.sweep_a" must be registered (and therefore processed by sweep_cb)
@@ -575,10 +567,7 @@ static void race_stage1_arm_stage2_reregister(const char *key)
 void test_bb_cache_evict_lazy_generation_mismatch_race_preserves_reregistered_incarnation(void)
 {
     evict_setup();
-    bb_cache_reactive_observer_t obs = {
-        .key = NULL, .on_remove = spy_on_remove, .ctx = NULL,  // observe-all
-    };
-    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+    bb_cache_set_evict_notify_fn(spy_on_remove);
 
     TEST_ASSERT_EQUAL(BB_OK, reg_owned_age_out("evict.race_gen", 500, 1000));
     TEST_ASSERT_EQUAL(BB_OK, update_value("evict.race_gen", 42));
@@ -645,10 +634,7 @@ static void race_stage1_arm_stage2_delete_only(const char *key)
 void test_bb_cache_evict_lazy_key_deleted_during_race_is_silent_noop(void)
 {
     evict_setup();
-    bb_cache_reactive_observer_t obs = {
-        .key = NULL, .on_remove = spy_on_remove, .ctx = NULL,  // observe-all
-    };
-    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+    bb_cache_set_evict_notify_fn(spy_on_remove);
 
     TEST_ASSERT_EQUAL(BB_OK, reg_owned_age_out("evict.race_gone", 500, 1000));
     TEST_ASSERT_EQUAL(BB_OK, update_value("evict.race_gone", 1));

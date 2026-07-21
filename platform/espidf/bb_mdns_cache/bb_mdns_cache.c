@@ -6,7 +6,7 @@
 #include "bb_mdns_cache.h"
 #include "bb_mdns.h"
 #include "bb_cache.h"
-#include "bb_cache_reactive.h"
+#include "bb_cache_internal.h"
 #include "bb_json.h"
 #include "bb_timer.h"
 #include "bb_log.h"
@@ -64,32 +64,53 @@ static void entry_serialize(bb_json_t obj, const void *snap)
     }
 }
 
-// Register key in bb_cache (AGE_OUT policy) if not already present, then
-// copy in the entry. Called from both the hello handler and the re-query
-// worker -- bb_cache_reactive_register is idempotent, so a race between the two
-// contexts registering the same key concurrently is harmless.
+// Register key in bb_cache (AGE_OUT policy), then copy in the entry. Called
+// from both the hello handler and the re-query worker -- bb_cache_register()
+// is idempotent, so a race between the two contexts registering the same key
+// concurrently is harmless. out_first_time reports atomically (single
+// s_reg_lock acquisition inside bb_cache) whether THIS call performed the
+// key's first-time registration -- closes the TOCTOU a separate
+// bb_cache_exists() probe + bb_cache_register() pair would leave open
+// between two racing first-time registers of the same key.
 static void cache_upsert(const char *key, const void *entry)
 {
-    if (!bb_cache_exists(key)) {
-        bb_cache_config_t cfg = {
-            .key       = key,
-            .snapshot  = NULL,
-            .snap_size = effective_entry_size(),
-            .serialize = entry_serialize,
-            .flags     = BB_CACHE_FLAG_NONE,
-            .eviction  = {
-                .policy       = BB_CACHE_EVICT_AGE_OUT,
-                .stale_age_ms = s_state.stale_age_ms,
-                .evict_age_ms = s_state.evict_age_ms,
-            },
-        };
-        bb_err_t err = bb_cache_reactive_register(&cfg);
-        if (err != BB_OK) {
-            bb_log_w(TAG, "bb_cache_reactive_register(%s) failed: %d", key, (int)err);
-            return;
-        }
+    bool first_time = false;
+    bb_cache_config_t cfg = {
+        .key            = key,
+        .snapshot       = NULL,
+        .snap_size      = effective_entry_size(),
+        .serialize      = entry_serialize,
+        .flags          = BB_CACHE_FLAG_NONE,
+        .eviction       = {
+            .policy       = BB_CACHE_EVICT_AGE_OUT,
+            .stale_age_ms = s_state.stale_age_ms,
+            .evict_age_ms = s_state.evict_age_ms,
+        },
+        .out_first_time = &first_time,
+    };
+    bb_err_t err = bb_cache_register(&cfg);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "bb_cache_register(%s) failed: %d", key, (int)err);
+        return;
     }
-    bb_cache_reactive_update(&(bb_cache_update_t){ .key = key, .snap = entry });
+    if (first_time) {
+        bb_log_d(TAG, "peer appeared: %s", key);
+    }
+    bb_cache_update(&(bb_cache_update_t){ .key = key, .snap = entry });
+}
+
+// Installed via bb_cache_set_evict_notify_fn() at bb_mdns_cache_start() --
+// bb_mdns_cache is the current installer of that single-slot hook (see
+// bb_cache_internal.h's contract comment: exactly one composer at a time,
+// never a registry). Fires AFTER free, outside all bb_cache locks, for BOTH
+// the LAZY (read-time) floor and the SWEEP backstop -- this is the reliable
+// "peer genuinely departed" signal that on_bye below is NOT (see its
+// comment): age-out only fires once a peer has stopped being bumped by hello
+// or the re-query worker for evict_age_ms, whereas on_bye also fires on
+// browse-refresh churn for still-present peers.
+static void on_peer_evicted(const char *key)
+{
+    bb_log_i(TAG, "peer left: %s", key ? key : "(null)");
 }
 
 // Light -- no blocking, no mDNS re-entry. Runs on the bb_mdns dispatch task.
@@ -262,6 +283,10 @@ bb_err_t bb_mdns_cache_start(const bb_mdns_cache_config_t *cfg)
     s_state.txt_fields = cfg->txt_fields;
     s_state.txt_count  = cfg->txt_count;
 
+    // Single-slot install (see bb_cache_internal.h's contract comment) --
+    // only reached once, gated by the s_state.started early-return above.
+    bb_cache_set_evict_notify_fn(on_peer_evicted);
+
     bb_err_t err = bb_mdns_browse_start(s_state.service, s_state.proto, on_hello, on_bye, NULL);
     if (err != BB_OK) {
         bb_log_e(TAG, "bb_mdns_browse_start(%s.%s) failed: %d",
@@ -310,6 +335,30 @@ bb_err_t bb_mdns_cache_stop(void)
     }
     bb_mdns_browse_stop(s_state.service, s_state.proto);
     s_state.started = false;
+
+    // Release the single-slot evict-notify hook (bb_cache_internal.h's
+    // contract) LAST, after hello/bye and the re-query worker are already
+    // stopped -- no new AGE_OUT registrations/upserts can land past this
+    // point, so on_peer_evicted only has to contend with entries this
+    // session already registered. Ordering relative to bb_cache's own sweep
+    // worker (BB_CACHE_SWEEP_ENABLE) is a non-issue, not a race we can
+    // "win" by reordering: that worker is independent global infrastructure
+    // (its own dedicated task, started once by bb_cache_evict_start(), never
+    // owned or stopped by bb_mdns_cache) that can run a pass concurrently
+    // with this call regardless of where in this function the uninstall
+    // happens. bb_cache_set_evict_notify_fn()'s _Atomic-relaxed
+    // install-then-fire contract already covers that: a sweep pass
+    // in-flight right now reads the OLD (non-NULL) pointer and safely calls
+    // on_peer_evicted with a snapshotted key -- never a torn read, never a
+    // NULL-deref -- and on_peer_evicted touches no bb_mdns_cache-owned state
+    // (it only logs), so a stray post-stop firing is a harmless log line,
+    // not a use-after-teardown hazard. A LATER sweep pass (after this store
+    // is visible) sees NULL and is a silent no-op (bb_cache_espidf.c's
+    // `if (notify) notify(key);` guard). Uninstalling here (rather than
+    // leaving it installed indefinitely) is what actually matters: it frees
+    // the slot for a future composer, honoring the "current installer, not
+    // a permanent owner" contract.
+    bb_cache_set_evict_notify_fn(NULL);
     return BB_OK;
 }
 

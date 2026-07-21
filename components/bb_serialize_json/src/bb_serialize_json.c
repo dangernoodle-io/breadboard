@@ -506,7 +506,10 @@ static bb_err_t bb_json_render_impl(const bb_serialize_desc_t *desc, const void 
 
 // Thin wrapper: bb_serialize_json_render_ex(desc, snap, buf, cap, out_len,
 // false) -- same "_ex adds a trailing opt-in param, original keeps today's
-// default" idiom as e.g. bb_cache_register_ex()/bb_queue_create_ex().
+// default" idiom as e.g. bb_queue_create_ex() (bb_cache took the other
+// approach for its own opt-in first-time reporting: a nullable
+// cfg->out_first_time field folded into bb_cache_register() itself, no _ex
+// variant -- see bb_cache.h, B1-1118).
 bb_err_t bb_serialize_json_render(const bb_serialize_desc_t *desc, const void *snap,
                                    char *buf, size_t cap, size_t *out_len)
 {

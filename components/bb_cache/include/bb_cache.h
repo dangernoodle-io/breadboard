@@ -184,6 +184,17 @@ typedef void (*bb_cache_serialize_fn)(bb_json_t obj, const void *snap);
 //                behavior. BB_CACHE_EVICT_AGE_OUT is only valid on OWNED
 //                entries (snapshot == NULL) -- see bb_cache_register()'s
 //                validation below.
+//   out_first_time — nullable out-param. On BB_OK, reports whether THIS call
+//                performed the key's first-time registration (true) or
+//                merely observed an already-registered key and returned
+//                early (false). Left untouched on error other than being
+//                defaulted to false at entry. Exists so a caller that needs
+//                atomic first-time detection (e.g. bb_mdns_cache's own
+//                "peer appeared" event) never has to pair a separate
+//                bb_cache_exists() probe with bb_cache_register() -- two
+//                SEPARATE lock acquisitions leave a TOCTOU window where two
+//                racing first-time registers of the same key could both
+//                observe "not yet registered".
 typedef struct {
     const char             *key;
     const void            *(*snapshot)(void);
@@ -191,6 +202,7 @@ typedef struct {
     bb_cache_serialize_fn   serialize;
     bb_cache_flags_t        flags;
     bb_cache_eviction_t     eviction;
+    bool                   *out_first_time;
 } bb_cache_config_t;
 
 // Register a cache entry.
@@ -201,7 +213,9 @@ typedef struct {
 // Returns BB_ERR_NO_SPACE if the registry is full, or (owned mode) the
 // snapshot buffer could not be allocated.
 // Idempotent: registering an already-registered key returns BB_OK without
-// creating a duplicate entry.
+// creating a duplicate entry -- the find-or-init happens atomically under a
+// SINGLE lock acquisition, so cfg->out_first_time (see above) is a reliable
+// first-time signal even under concurrent same-key registration races.
 //
 // AGE_OUT eviction validation (B1-592 A3, cfg->eviction.policy ==
 // BB_CACHE_EVICT_AGE_OUT only -- BB_CACHE_EVICT_PINNED is unrestricted):
@@ -211,24 +225,6 @@ typedef struct {
 // read, so age-out is meaningless there -- AGE_OUT is only valid on OWNED
 // entries).
 bb_err_t bb_cache_register(const bb_cache_config_t *cfg);
-
-// Config-struct + explicit first-time-reporting variant of bb_cache_register().
-//
-// Performs the identical find-or-init atomically under a SINGLE lock
-// acquisition and additionally reports, via out_first_time (nullable), whether
-// THIS call performed the key's first-time registration (true) or merely
-// observed an already-registered key and returned early (false). Exists so a
-// caller that needs atomic first-time detection (e.g. bb_cache_reactive's
-// on_register firing) never has to pair a separate bb_cache_exists() probe
-// with bb_cache_register() -- two SEPARATE lock acquisitions leave a TOCTOU
-// window where two racing first-time registers of the same key could both
-// observe "not yet registered" and both fire on_register, violating the
-// exactly-once contract.
-// bb_cache_register(cfg) is a thin wrapper: bb_cache_register_ex(cfg, NULL).
-// Same validation/error contract as bb_cache_register() (see above);
-// out_first_time is left untouched on error other than being defaulted to
-// false at entry.
-bb_err_t bb_cache_register_ex(const bb_cache_config_t *cfg, bool *out_first_time);
 
 // Configuration for a bb_cache_update() call.
 //
