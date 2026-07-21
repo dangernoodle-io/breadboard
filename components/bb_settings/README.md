@@ -6,7 +6,7 @@ bb's default WiFi-credentials store — a wifi-creds field table over `bb_config
 
 Use it when a consumer wants bb's ready-made wifi-creds store without hand-rolling its own `bb_config_field_t` table. Compose it (add `REQUIRES bb_settings`) — `bb_wifi` reads `bb_settings_wifi_ssid_get`/`bb_settings_wifi_pass_get`/`bb_settings_wifi_has_creds` directly for the live-creds connect path.
 
-**Scope note:** this component ships the field table + direct accessors only. NVS lifecycle (factory-reset/boot-count/pending-creds) and `bb_manifest` dissolution are deferred to later PRs.
+**Scope note:** this component ships the field table + direct accessors only. NVS lifecycle (factory-reset/boot-count/pending-creds) is deferred to later PRs.
 
 ## Public API
 

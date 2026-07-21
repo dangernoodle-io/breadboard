@@ -22,8 +22,6 @@
 //   /api/diag/panic/trigger- debug-only; ESP-IDF only
 //   /api/openapi.json      - uses bb_openapi_emit_stream; no fixed schema to validate
 //                            (self-describing meta-spec); already covered by test_openapi_emit.c
-//   /api/manifest          - wraps bb_manifest_emit; no fidelity schema declared
-//                            (descriptor .handler = NULL); already covered by test_manifest.c
 //   DELETE /api/diag/boot  - returns 204 No Content; no JSON body
 //   POST /api/log/level    - returns 204 No Content on success; JSON only on 400 errors
 //   /api/diag/partitions   - deleted (B1-1077 PR-3a); duplicated the shipped
@@ -51,6 +49,10 @@
 //   /api/ota/status        - moved to GET /api/update/progress
 //   /api/ota/push          - moved to POST /api/update/push
 //   /api/ota/mark-valid    - moved to POST /api/update/mark-valid
+//   GET .../manifest       - the manifest-registration component (empty
+//                            nvs/mdns arrays in every shipped build since
+//                            B1-708 PR7's last registrant removal) deleted
+//                            outright; zero external consumers
 
 #include "unity.h"
 #include "bb_http.h"

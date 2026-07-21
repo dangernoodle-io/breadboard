@@ -3,7 +3,7 @@
 //
 // Walks bb_http_route_registry_foreach (the same iterator the OpenAPI emitter
 // uses) and asserts that every responses[].schema and request_schema string
-// literal parses as JSON. Catches the bb_manifest-class regression where a
+// literal parses as JSON. Catches the class of regression where a
 // hand-authored schema literal is malformed and bb_json_obj_set_raw silently
 // substitutes JSON null in the spec.
 //
@@ -34,51 +34,6 @@ static const char k_wifi_patch_request_schema[] =
     "\"properties\":{\"ssid\":{\"type\":\"string\",\"maxLength\":31},"
     "\"password\":{\"type\":\"string\",\"maxLength\":63}},"
     "\"required\":[\"ssid\"]}";
-
-// Mirrors platform/espidf/bb_manifest/bb_manifest_register.c. Copy-pasted
-// intentionally: any future edit to the production literal must also update
-// this string, which forces a re-validation pass through the test.
-static const char k_manifest_schema[] =
-    "{\"type\":\"object\","
-    "\"properties\":{"
-    "\"nvs\":{\"type\":\"array\","
-    "\"items\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"namespace\":{\"type\":\"string\"},"
-    "\"keys\":{\"type\":\"array\","
-    "\"items\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"key\":{\"type\":\"string\"},"
-    "\"type\":{\"type\":\"string\"},"
-    "\"default\":{\"type\":\"string\"},"
-    "\"desc\":{\"type\":\"string\"},"
-    "\"reboot_required\":{\"type\":\"boolean\"},"
-    "\"provisioning_only\":{\"type\":\"boolean\"}}"
-    "}}}},"
-    "\"mdns\":{\"type\":\"array\","
-    "\"items\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"service\":{\"type\":\"string\"},"
-    "\"txt\":{\"type\":\"array\","
-    "\"items\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"key\":{\"type\":\"string\"},"
-    "\"desc\":{\"type\":\"string\"},"
-    "\"values\":{\"type\":\"string\"}}}}}}}}}}";
-
-static const bb_route_response_t s_manifest_responses[] = {
-    { 200, "application/json", k_manifest_schema, "manifest schema fixture" },
-    { 0 },
-};
-
-static const bb_route_t s_manifest_route = {
-    .method    = BB_HTTP_GET,
-    .path      = "/api/manifest",
-    .tag       = "manifest",
-    .summary   = "manifest schema fixture",
-    .responses = s_manifest_responses,
-    .handler   = NULL,
-};
 
 static const bb_route_response_t s_wifi_patch_responses[] = {
     { 202, "application/json",
@@ -247,14 +202,6 @@ static void route_schema_walker(const bb_route_t *route, void *ctx_)
 // Tests
 // ---------------------------------------------------------------------------
 
-void test_route_schemas_manifest_fixture_parses(void)
-{
-    cJSON *parsed = cJSON_Parse(k_manifest_schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(parsed,
-        "bb_manifest schema literal must parse as valid JSON");
-    cJSON_Delete(parsed);
-}
-
 // B1-398: guard the telemetry PATCH 200 response schema (new publisher_unavailable field).
 void test_route_schemas_telemetry_patch_200_parses(void)
 {
@@ -283,9 +230,7 @@ void test_route_schemas_telemetry_patch_200_parses(void)
 void test_route_schemas_registry_all_valid(void)
 {
     bb_http_route_registry_clear();
-    bb_err_t err = bb_http_register_route_descriptor_only(&s_manifest_route);
-    TEST_ASSERT_EQUAL(BB_OK, err);
-    err = bb_http_register_route_descriptor_only(&s_wifi_patch_route);
+    bb_err_t err = bb_http_register_route_descriptor_only(&s_wifi_patch_route);
     TEST_ASSERT_EQUAL(BB_OK, err);
     err = bb_http_register_route_descriptor_only(&s_telemetry_patch_route_fixture);
     TEST_ASSERT_EQUAL(BB_OK, err);
@@ -493,8 +438,6 @@ static const desc_audit_entry_t k_desc_audit[] = {
     { "/api/update/mark-valid", BB_HTTP_POST,
       { NULL },             false, 500, "application/json" },
     { "/api/diag/tasks",    BB_HTTP_GET,
-      { NULL },             false, 500, "application/json" },
-    { "/api/manifest",      BB_HTTP_GET,
       { NULL },             false, 500, "application/json" },
     // B1-413: request body schemas
     { "/api/telemetry", BB_HTTP_PATCH,
@@ -708,23 +651,6 @@ static const bb_route_t s_tasks_route_fixture = {
     .handler   = NULL,
 };
 
-// GET /api/manifest fixture (extends the existing k_manifest_schema fixture)
-static const bb_route_response_t s_manifest_with_500_responses_fixture[] = {
-    { 200, "application/json", k_manifest_schema, "manifest" },
-    { 500, "application/json",
-      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
-      "emit or serialize failed" },
-    { 0 },
-};
-static const bb_route_t s_manifest_with_500_route_fixture = {
-    .method    = BB_HTTP_GET,
-    .path      = "/api/manifest",
-    .tag       = "manifest",
-    .responses = s_manifest_with_500_responses_fixture,
-    .handler   = NULL,
-};
-
-
 // ---------------------------------------------------------------------------
 // Walker helpers for descriptor-audit assertions
 // ---------------------------------------------------------------------------
@@ -777,7 +703,6 @@ static void seed_desc_audit_fixtures(void)
     bb_http_register_route_descriptor_only(&s_ota_update_route_fixture);
     bb_http_register_route_descriptor_only(&s_mark_valid_route_fixture);
     bb_http_register_route_descriptor_only(&s_tasks_route_fixture);
-    bb_http_register_route_descriptor_only(&s_manifest_with_500_route_fixture);
     bb_http_register_route_descriptor_only(&s_telemetry_patch_route_fixture);
 }
 

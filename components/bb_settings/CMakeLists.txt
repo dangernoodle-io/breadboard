@@ -22,13 +22,13 @@ idf_component_register(
 # bb_storage_nvs_flash_init and bb_log_{w,e,i} are called from bb_settings.c
 # but neither's types appear in bb_settings.h's public signatures.
 #
-# bb_manifest DROPPED (B1-708 PR7): bb_settings_creds_boot_manifest_init and
-# its s_creds_boot_manifest_keys[] table were deleted in favor of
+# Manifest-registration DROPPED (B1-708 PR7): bb_settings_creds_boot_manifest_init
+# and its s_creds_boot_manifest_keys[] table were deleted in favor of
 # bb_settings_nv_overlay_entries(), a pure read-only projection over this
 # component's own bb_config_field_t literals -- nothing in bb_settings.c
-# calls bb_manifest_register_nv anymore (this was bb_manifest's ONLY
-# registrant; the first caller removed ahead of bb_manifest's own eventual
-# deletion). bb_settings_creds_boot_decide.c is a private pure-decision
+# calls the manifest-registration API anymore (this was that component's
+# ONLY registrant; the first caller removed ahead of its own eventual
+# deletion, now complete). bb_settings_creds_boot_decide.c is a private pure-decision
 # helper (src/, mirroring bb_storage_nvs_get_decision's PRIV_INCLUDE_DIRS
 # "src" pattern) -- moved+renamed from bb_nv's own
 # components/bb_nv/src/bb_nv_creds_boot_decide.{c,h}.

@@ -1888,7 +1888,6 @@ void test_route_registry_foreach_null_cb_is_safe(void);
 void test_route_registry_descriptor_fields_preserved(void);
 void test_route_registry_count_after_clear_and_readd(void);
 // Forward declarations from test_route_schemas.c
-void test_route_schemas_manifest_fixture_parses(void);
 void test_route_schemas_telemetry_patch_200_parses(void);
 void test_route_schemas_registry_all_valid(void);
 void test_route_schemas_walker_flags_malformed(void);
@@ -2141,42 +2140,6 @@ void test_bb_wifi_ap_dns_build_response_null_req_returns_zero(void);
 void test_bb_wifi_ap_dns_build_response_null_answer_ip_returns_zero(void);
 void test_bb_wifi_ap_dns_build_response_null_out_returns_zero(void);
 void test_bb_wifi_ap_dns_build_response_different_answer_ip(void);
-
-// Forward declarations from test_manifest.c
-void test_manifest_empty_emits_empty_arrays(void);
-void test_manifest_register_nv_single_namespace(void);
-void test_manifest_register_nv_multiple_namespaces(void);
-void test_manifest_nv_default_null_emits_json_null(void);
-void test_manifest_nv_default_string_emits_json_string(void);
-void test_manifest_nv_max_len_zero_omitted(void);
-void test_manifest_register_mdns_single_service(void);
-void test_manifest_register_mdns_multiple_services(void);
-void test_manifest_mdns_values_null_omits_field(void);
-void test_manifest_mdns_values_string_emits_array(void);
-void test_manifest_register_nv_overflow_returns_err(void);
-void test_manifest_register_mdns_overflow_returns_err(void);
-void test_manifest_register_nv_too_many_keys_per_namespace(void);
-void test_manifest_register_mdns_too_many_keys_per_service(void);
-void test_manifest_register_nv_duplicate_namespace_returns_err(void);
-void test_manifest_register_mdns_duplicate_service_returns_err(void);
-void test_manifest_register_nv_null_namespace_returns_err(void);
-void test_manifest_register_nv_null_keys_returns_err(void);
-void test_manifest_register_nv_zero_keys_returns_err(void);
-void test_manifest_register_mdns_null_service_returns_err(void);
-void test_manifest_register_mdns_null_keys_returns_err(void);
-void test_manifest_register_mdns_zero_keys_returns_err(void);
-void test_manifest_emit_oom_root_object(void);
-void test_manifest_emit_oom_nvs_array(void);
-void test_manifest_emit_oom_namespace_object(void);
-void test_manifest_emit_oom_keys_array(void);
-void test_manifest_emit_oom_key_object(void);
-void test_manifest_emit_oom_mdns_array(void);
-void test_manifest_emit_oom_service_object(void);
-void test_manifest_emit_oom_txt_array(void);
-void test_manifest_emit_oom_txt_object(void);
-void test_manifest_emit_oom_values_array(void);
-void test_manifest_emit_oom_emit_values_arr_new(void);
-void test_manifest_mdns_values_string_skips_empty_segments(void);
 
 // Forward declarations from test_openapi_emit.c
 void test_openapi_emit_openapi_version(void);
@@ -6109,7 +6072,7 @@ int main(void) {
     RUN_TEST(test_bb_settings_creds_boot_wifi_pass_empty_after_init);
 
     // bb_settings_nv_overlay_entries pure-function tests (B1-708 PR7:
-    // replaces the deleted bb_manifest registration)
+    // replaces the now-fully-deleted manifest-registration component)
     RUN_TEST(test_bb_settings_nv_overlay_entries_returns_known_count);
     RUN_TEST(test_bb_settings_nv_overlay_entries_wifi_pass_is_secret);
     RUN_TEST(test_bb_settings_nv_overlay_entries_provisioned_is_not_secret);
@@ -6206,7 +6169,6 @@ int main(void) {
     RUN_TEST(test_route_registry_foreach_null_cb_is_safe);
     RUN_TEST(test_route_registry_descriptor_fields_preserved);
     RUN_TEST(test_route_registry_count_after_clear_and_readd);
-    RUN_TEST(test_route_schemas_manifest_fixture_parses);
     RUN_TEST(test_route_schemas_telemetry_patch_200_parses);
     RUN_TEST(test_route_schemas_registry_all_valid);
     RUN_TEST(test_route_schemas_walker_flags_malformed);
@@ -6513,42 +6475,6 @@ int main(void) {
     RUN_TEST(test_bb_wifi_ap_dns_build_response_null_answer_ip_returns_zero);
     RUN_TEST(test_bb_wifi_ap_dns_build_response_null_out_returns_zero);
     RUN_TEST(test_bb_wifi_ap_dns_build_response_different_answer_ip);
-
-    // bb_manifest tests
-    RUN_TEST(test_manifest_empty_emits_empty_arrays);
-    RUN_TEST(test_manifest_register_nv_single_namespace);
-    RUN_TEST(test_manifest_register_nv_multiple_namespaces);
-    RUN_TEST(test_manifest_nv_default_null_emits_json_null);
-    RUN_TEST(test_manifest_nv_default_string_emits_json_string);
-    RUN_TEST(test_manifest_nv_max_len_zero_omitted);
-    RUN_TEST(test_manifest_register_mdns_single_service);
-    RUN_TEST(test_manifest_register_mdns_multiple_services);
-    RUN_TEST(test_manifest_mdns_values_null_omits_field);
-    RUN_TEST(test_manifest_mdns_values_string_emits_array);
-    RUN_TEST(test_manifest_register_nv_overflow_returns_err);
-    RUN_TEST(test_manifest_register_mdns_overflow_returns_err);
-    RUN_TEST(test_manifest_register_nv_too_many_keys_per_namespace);
-    RUN_TEST(test_manifest_register_mdns_too_many_keys_per_service);
-    RUN_TEST(test_manifest_register_nv_duplicate_namespace_returns_err);
-    RUN_TEST(test_manifest_register_mdns_duplicate_service_returns_err);
-    RUN_TEST(test_manifest_register_nv_null_namespace_returns_err);
-    RUN_TEST(test_manifest_register_nv_null_keys_returns_err);
-    RUN_TEST(test_manifest_register_nv_zero_keys_returns_err);
-    RUN_TEST(test_manifest_register_mdns_null_service_returns_err);
-    RUN_TEST(test_manifest_register_mdns_null_keys_returns_err);
-    RUN_TEST(test_manifest_register_mdns_zero_keys_returns_err);
-    RUN_TEST(test_manifest_emit_oom_root_object);
-    RUN_TEST(test_manifest_emit_oom_nvs_array);
-    RUN_TEST(test_manifest_emit_oom_namespace_object);
-    RUN_TEST(test_manifest_emit_oom_keys_array);
-    RUN_TEST(test_manifest_emit_oom_key_object);
-    RUN_TEST(test_manifest_emit_oom_mdns_array);
-    RUN_TEST(test_manifest_emit_oom_service_object);
-    RUN_TEST(test_manifest_emit_oom_txt_array);
-    RUN_TEST(test_manifest_emit_oom_txt_object);
-    RUN_TEST(test_manifest_emit_oom_values_array);
-    RUN_TEST(test_manifest_emit_oom_emit_values_arr_new);
-    RUN_TEST(test_manifest_mdns_values_string_skips_empty_segments);
 
     // bb_openapi emitter tests
     RUN_TEST(test_openapi_emit_openapi_version);

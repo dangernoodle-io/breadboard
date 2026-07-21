@@ -14,7 +14,7 @@
 // reads it directly via the accessors below. Nothing here self-registers.
 //
 // DEFERRED to later PRs (not in scope here): NVS lifecycle (factory-reset/
-// boot-count/pending-creds) and bb_manifest dissolution.
+// boot-count/pending-creds).
 
 #include "bb_core.h"
 #include <stddef.h>
@@ -266,10 +266,11 @@ bb_err_t bb_settings_creds_boot_init(void);
 // ---------------------------------------------------------------------------
 // NVS-key schema overlay (B1-708 PR7): a read-only projection over the
 // bb_config_field_t literals bb_settings already declares -- replaces the
-// hand-duplicated bb_manifest registration this component used to own
+// hand-duplicated manifest registration this component used to own
 // (bb_settings_creds_boot_manifest_init/s_creds_boot_manifest_keys, deleted
-// here; this is the FIRST bb_manifest caller removed, a precondition for
-// bb_manifest's own eventual deletion). Pure schema metadata, no storage
+// here; this was the FIRST manifest-registration caller removed, a
+// precondition for that component's own eventual deletion, now complete).
+// Pure schema metadata, no storage
 // access -- mirrors the old manifest registration's exact scope (the 3 live
 // "bb_cfg" keys: wifi_ssid/wifi_pass/provisioned), not the pending-creds or
 // RTC-mirror fields (least-surprise; a future consumer can widen this if it
