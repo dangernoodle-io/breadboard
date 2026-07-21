@@ -2621,6 +2621,16 @@ void test_bb_mdns_cache_validate_config_pass_case_accepted(void);
 void test_bb_mdns_cache_validate_config_no_descriptor_default_size_accepted(void);
 void test_bb_mdns_cache_validate_config_txt_fields_zero_count_default_size_accepted(void);
 
+// Forward declarations from test_bb_mdns_cache_wire.c (B1-1115 PR-3)
+void test_bb_mdns_cache_wire_render_no_txt(void);
+void test_bb_mdns_cache_wire_render_txt_fields_zero_count_is_empty(void);
+void test_bb_mdns_cache_wire_fill_null_fields_high_count_no_drop(void);
+void test_bb_mdns_cache_wire_render_with_txt(void);
+void test_bb_mdns_cache_wire_fill_field_null_key_skipped(void);
+void test_bb_mdns_cache_wire_fill_field_out_of_bounds_skipped(void);
+void test_bb_mdns_cache_wire_fill_value_bounded_by_dest_len(void);
+void test_bb_mdns_cache_wire_fill_caps_at_wire_txt_max(void);
+
 // Forward declarations from test_bb_str.c
 void test_bb_strlcpy_table_driven(void);
 void test_bb_strlcpy_truncation_is_detected_via_return_value(void);
@@ -9514,6 +9524,15 @@ int main(void) {
     RUN_TEST(test_bb_mdns_cache_validate_config_pass_case_accepted);
     RUN_TEST(test_bb_mdns_cache_validate_config_no_descriptor_default_size_accepted);
     RUN_TEST(test_bb_mdns_cache_validate_config_txt_fields_zero_count_default_size_accepted);
+
+    RUN_TEST(test_bb_mdns_cache_wire_render_no_txt);
+    RUN_TEST(test_bb_mdns_cache_wire_render_txt_fields_zero_count_is_empty);
+    RUN_TEST(test_bb_mdns_cache_wire_fill_null_fields_high_count_no_drop);
+    RUN_TEST(test_bb_mdns_cache_wire_render_with_txt);
+    RUN_TEST(test_bb_mdns_cache_wire_fill_field_null_key_skipped);
+    RUN_TEST(test_bb_mdns_cache_wire_fill_field_out_of_bounds_skipped);
+    RUN_TEST(test_bb_mdns_cache_wire_fill_value_bounded_by_dest_len);
+    RUN_TEST(test_bb_mdns_cache_wire_fill_caps_at_wire_txt_max);
 
     // bb_attrs — intrusive attrs header
     RUN_TEST(test_bb_attrs_container_of_round_trip);
