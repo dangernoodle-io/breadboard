@@ -266,6 +266,64 @@ class TestHierarchicalGroups(unittest.TestCase):
                 content = gcr.build_content()
             self.assertIn("| [bb_display/](./bb_display/) | Display backends. |", content)
 
+    def test_group_row_wrapped_description_renders_complete_sentence(self):
+        """A hand-authored group description is normal markdown prose and
+        commonly wraps across several physical lines (e.g. 80-column
+        wrapping). The generated top-level index row must render that
+        wrapped paragraph as ONE complete, well-formed table cell (first
+        sentence, every `(`/`` ` `` closed) -- not truncated mid-sentence at
+        the first physical line (the #984 defect this regression-tests)."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            _mk_group_component(
+                root, "bb_display", "bb_display_ssd1306",
+                header_body="#pragma once\n/** @brief SSD1306 driver. */\nvoid noop(void);\n",
+            )
+            wrapped_desc = (
+                "Display driver backends for `bb_display` (the portable\n"
+                "framebuffer/font primitive) -- one component per\n"
+                "panel/controller. A second sentence follows the wrap."
+            )
+            _mk_group_readme(root, "bb_display", desc=wrapped_desc)
+            with self._patched(root):
+                content = gcr.build_content()
+            self.assertIn(
+                "| [bb_display/](./bb_display/) | Display driver backends for"
+                " `bb_display` (the portable framebuffer/font primitive) --"
+                " one component per panel/controller. |",
+                content,
+            )
+            # never a dangling/unclosed backtick or paren from a mid-line cut
+            self.assertNotIn("(the portable framebuffer/font |", content)
+
+    def test_group_row_wrapped_description_with_no_sentence_terminator(self):
+        """`first_sentence()`'s no-terminator fallback (falls back to the
+        text verbatim) must be exercised, not just hand-verified: a wrapped
+        paragraph with no closing `.`/`!`/`?` anywhere still renders
+        complete (the whole joined paragraph), never truncated at the first
+        physical line and never raising."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            _mk_group_component(
+                root, "bb_display", "bb_display_ssd1306",
+                header_body="#pragma once\n/** @brief SSD1306 driver. */\nvoid noop(void);\n",
+            )
+            wrapped_desc_no_terminator = (
+                "Display driver backends for `bb_display` (the portable\n"
+                "framebuffer/font primitive) -- one component per\n"
+                "panel/controller with no closing punctuation"
+            )
+            _mk_group_readme(root, "bb_display", desc=wrapped_desc_no_terminator)
+            with self._patched(root):
+                content = gcr.build_content()
+            self.assertIn(
+                "| [bb_display/](./bb_display/) | Display driver backends for"
+                " `bb_display` (the portable framebuffer/font primitive) --"
+                " one component per panel/controller with no closing"
+                " punctuation |",
+                content,
+            )
+
     def test_group_and_ungrouped_rows_sorted_together(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(os.path.realpath(td))
