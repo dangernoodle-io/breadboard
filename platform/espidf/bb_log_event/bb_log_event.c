@@ -13,12 +13,13 @@
 
 #include "bb_log_event.h"
 #include "bb_log_event_wire.h"
+#include "../../../components/bb_log_event/bb_log_event_line_wire_priv.h"
 #include "../../host/bb_log_event/bb_log_event_parse.h"
 #include "../../../components/bb_log/src/bb_log_internal.h"
 #include "bb_log.h"
 #include "bb_data.h"
 #include "bb_http_server.h"
-#include "bb_json.h"
+#include "bb_serialize_json.h"
 #include "bb_clock.h"
 #include "bb_openapi.h"
 #include "bb_task.h"
@@ -26,6 +27,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include <assert.h>
 #include <string.h>
 #include <stdio.h>
 #include <inttypes.h>
@@ -63,6 +65,19 @@ static TaskHandle_t     s_task      = NULL;
 // paths above) is unchanged.
 static char s_last_log_json[BB_LOG_EVENT_LOG_TEXT_MAX];
 
+// Render scratch for bb_serialize_json_render(), sized to
+// BB_LOG_EVENT_LINE_JSON_MAX (bb_log_event_line_wire_priv.h) -- the
+// descriptor's true worst case, so render can never return
+// BB_ERR_NO_SPACE. FILE-SCOPE STATIC, not a stack local: at 1431 bytes it
+// would eat ~47% of s_forwarder_task's LOG_EVENT_TASK_STACK (3072 bytes)
+// on top of that task's existing locals (tag[48] + msgbuf[168] + the
+// bb_log_event_line_wire_t snap, ~226B already) plus the
+// bb_serialize_json_render()/bb_data_touch() call chain -- too little
+// headroom. s_forwarder_task is the only reader/writer (single dedicated
+// task, no reentrancy), same rationale as the existing static
+// s_last_log_json stash above.
+static char s_render_buf[BB_LOG_EVENT_LINE_JSON_MAX];
+
 // ---------------------------------------------------------------------------
 // Forwarder task
 // ---------------------------------------------------------------------------
@@ -83,26 +98,31 @@ static void s_forwarder_task(void *arg)
 
         uint64_t ts = bb_clock_now_ms64();
 
-        bb_json_t obj = bb_json_obj_new();
-        if (!obj) continue;
-
+        bb_log_event_line_wire_t snap;
+        memset(&snap, 0, sizeof(snap));
+        // Exact-decimal int64 render (not cJSON's double-cast path) --
+        // deliberate: identical digit output for realistic ms-epoch values,
+        // with none of double's precision loss at large magnitudes.
+        snap.ts = (int64_t)ts;
         char level_str[2] = { level, '\0' };
-        bb_json_obj_set_int(obj, "ts", (int64_t)ts);
-        bb_json_obj_set_string(obj, "level", level_str);
-        bb_json_obj_set_string(obj, "tag", tag);
-        bb_json_obj_set_string(obj, "msg", msgbuf);
+        bb_strlcpy(snap.level, level_str, sizeof(snap.level));
+        bb_strlcpy(snap.tag, tag, sizeof(snap.tag));
+        bb_strlcpy(snap.msg, msgbuf, sizeof(snap.msg));
 
-        char *payload = bb_json_serialize(obj);
-        bb_json_free(obj);
-        if (!payload) continue;
+        size_t out_len = 0;
+        bb_err_t rc = bb_serialize_json_render(&bb_log_event_line_wire_desc, &snap,
+                                                s_render_buf, sizeof(s_render_buf), &out_len);
+        if (rc != BB_OK) continue;
 
         // B1-1045 PR-4: stash first, THEN bump the "log" bb_data generation
         // -- a consumer that observes the new generation must always see the
         // fresh stash, never a stale one (mirrors every other producer's
-        // stash-then-touch ordering).
-        bb_strlcpy(s_last_log_json, payload, sizeof(s_last_log_json));
+        // stash-then-touch ordering). bb_strlcpy truncates a line whose full
+        // render exceeds the 220-byte stash -- parity with the old cJSON
+        // path, which built the full string then truncated on copy; never
+        // dropped.
+        bb_strlcpy(s_last_log_json, s_render_buf, sizeof(s_last_log_json));
         bb_data_touch("log");
-        bb_json_free_str(payload);
     }
 }
 
@@ -135,6 +155,13 @@ static const char k_log_event_schema[] =
 bb_err_t bb_log_event_init(bb_http_handle_t server)
 {
     (void)server;
+
+    // Belt-and-suspenders: s_render_buf must never be smaller than the
+    // descriptor's true worst case, or bb_serialize_json_render() could
+    // return BB_ERR_NO_SPACE and silently drop a line again. Runtime
+    // assert, not _Static_assert -- bb_serialize_json_bound() walks the
+    // descriptor's fields at runtime, not a compile-time constant.
+    assert(sizeof(s_render_buf) >= bb_serialize_json_bound(&bb_log_event_line_wire_desc));
 
     bb_openapi_register_topic_schema("log", k_log_event_schema, "LogEvent");
 

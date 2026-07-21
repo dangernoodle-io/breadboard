@@ -47,10 +47,10 @@ component's forwarder task.
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
 | `bb_data` | private | bb_data core binding table (B1-832) -- OWNS the `key -> (desc, gather)` binding table for the future bidirectional data path (the B1-828 epic replacing bb_pub + bb_sub + all bb_sink_*). | [bb_data](../bb_data/README.md) |
 | `bb_http_server` | public | — | [bb_http_server](../README.md) |
-| `bb_json` | public | — | [bb_json](../README.md) |
 | `bb_log` | public | — | [bb_log](../README.md) |
 | `bb_openapi` | public | — | [bb_openapi](../README.md) |
 | `bb_serialize` | public | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
+| `bb_serialize_json` | private | Hand-rolled, no-heap, bounded-buffer JSON bb_serialize_emit_t backend -- the default wire-format implementation for bb_serialize. | [bb_serialize_json](../bb_serialize_json/README.md) |
 | `bb_str` | private | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. | [bb_str](../bb_str/README.md) |
 | `bb_task` | public | — | [bb_task](../README.md) |
 <!-- END bbtool:deps -->
