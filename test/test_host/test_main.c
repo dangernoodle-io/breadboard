@@ -789,6 +789,7 @@ void test_v2_golden_widget_fixture_serial_boundary_no_nul(void);
 void test_v2_golden_widget_fixture_label_longer_str_n(void);
 void test_v2_golden_health_root_slice_populated(void);
 void test_v2_golden_health_root_slice_disconnected(void);
+void test_v2_golden_health_full_document(void);
 
 // Forward declarations from test_bb_serialize_meta_validate.c
 void test_bb_serialize_meta_validate_widget_happy_path(void);
@@ -1202,6 +1203,9 @@ void test_http_serialize_stream_compose_null_groups_nonzero_n_invalid_arg(void);
 void test_http_serialize_stream_compose_null_groups_zero_n_ok(void);
 void test_http_serialize_stream_compose_set_type_fail_short_circuits(void);
 void test_http_serialize_stream_compose_send_chunk_fail_propagates_original_error(void);
+void test_http_serialize_stream_compose_ex_f64_shortest_false_is_fixed_decimal(void);
+void test_http_serialize_stream_compose_ex_f64_shortest_true_is_shortest(void);
+void test_http_serialize_stream_compose_thin_wrapper_matches_ex_false(void);
 
 // Forward declarations from test_bb_settings_creds_boot.c
 void test_bb_settings_creds_boot_init_success(void);
@@ -3254,15 +3258,13 @@ void test_wire_desc_ota_check_render_last_check_ts_nonzero_present(void);
 void test_wire_desc_ota_check_gather_rejects_null(void);
 
 // Forward declarations from test_bb_health.c
-void test_bb_health_register_section_null_name_returns_err(void);
-void test_bb_health_register_section_null_get_returns_err(void);
-void test_bb_health_register_section_ok(void);
-void test_bb_health_register_section_capacity(void);
 void test_bb_health_register_section_after_freeze_returns_invalid_state(void);
 void test_bb_health_assembled_schema_no_sections_equals_base_plus_suffix(void);
 void test_bb_health_assembled_schema_is_valid_json(void);
 void test_bb_health_assembled_schema_contains_section_props(void);
 void test_bb_health_assembled_schema_with_section_is_valid_json(void);
+void test_bb_health_assembled_schema_oom_returns_null(void);
+void test_bb_health_assembled_schema_repeated_calls_do_not_reassemble(void);
 void test_bb_health_assembled_schema_section_comma_is_valid_json(void);
 void test_bb_health_compute_ok_false_on_host(void);
 void test_bb_health_compute_ok_true_when_wifi_and_board_validated(void);
@@ -3275,7 +3277,6 @@ void test_bb_health_schema_network_no_disc_reason(void);
 void test_bb_health_schema_no_free_heap(void);
 void test_bb_health_schema_network_no_rssi(void);
 void test_bb_health_schema_network_has_mdns(void);
-void test_bb_health_section_get_fn_invoked(void);
 
 // Forward declarations from test_bb_health_section.c
 void test_bb_health_section_register_success(void);
@@ -3292,6 +3293,19 @@ void test_bb_health_section_register_duplicate_name_wins_over_table_full(void);
 void test_bb_health_section_register_snap_size_exceeds_scratch_returns_no_space(void);
 void test_bb_health_section_register_after_freeze_returns_invalid_state(void);
 void test_bb_health_section_register_before_freeze_still_ok(void);
+void test_bb_health_section_count_zero_when_empty(void);
+void test_bb_health_section_count_reflects_registrations(void);
+void test_bb_health_section_get_by_index_returns_registration_order(void);
+void test_bb_health_section_get_by_index_out_of_range_returns_null(void);
+void test_bb_health_section_get_by_index_empty_registry_returns_null(void);
+
+// Forward declarations from test_bb_health_compose.c
+void test_bb_health_compose_null_req_returns_invalid_arg(void);
+void test_bb_health_compose_null_root_returns_invalid_arg(void);
+void test_bb_health_compose_happy_path_no_sections(void);
+void test_bb_health_compose_happy_path_with_sections(void);
+void test_bb_health_compose_section_fill_failure_returns_500_zero_normal_bytes(void);
+void test_bb_health_compose_table_full_all_sections_render(void);
 
 // Forward declarations from test_bb_health_stack.c
 void test_bb_health_stack_build_json_low_true(void);
@@ -6131,6 +6145,9 @@ int main(void) {
     RUN_TEST(test_http_serialize_stream_compose_null_groups_zero_n_ok);
     RUN_TEST(test_http_serialize_stream_compose_set_type_fail_short_circuits);
     RUN_TEST(test_http_serialize_stream_compose_send_chunk_fail_propagates_original_error);
+    RUN_TEST(test_http_serialize_stream_compose_ex_f64_shortest_false_is_fixed_decimal);
+    RUN_TEST(test_http_serialize_stream_compose_ex_f64_shortest_true_is_shortest);
+    RUN_TEST(test_http_serialize_stream_compose_thin_wrapper_matches_ex_false);
 
     // bb_settings creds-boot shell tests (B1-963: relocated from
     // bb_nv_config_init)
@@ -7396,15 +7413,13 @@ int main(void) {
     RUN_TEST(test_wire_desc_ota_check_gather_rejects_null);
 
     // bb_health tests
-    RUN_TEST(test_bb_health_register_section_null_name_returns_err);
-    RUN_TEST(test_bb_health_register_section_null_get_returns_err);
-    RUN_TEST(test_bb_health_register_section_ok);
-    RUN_TEST(test_bb_health_register_section_capacity);
     RUN_TEST(test_bb_health_register_section_after_freeze_returns_invalid_state);
     RUN_TEST(test_bb_health_assembled_schema_no_sections_equals_base_plus_suffix);
     RUN_TEST(test_bb_health_assembled_schema_is_valid_json);
     RUN_TEST(test_bb_health_assembled_schema_contains_section_props);
     RUN_TEST(test_bb_health_assembled_schema_with_section_is_valid_json);
+    RUN_TEST(test_bb_health_assembled_schema_oom_returns_null);
+    RUN_TEST(test_bb_health_assembled_schema_repeated_calls_do_not_reassemble);
     RUN_TEST(test_bb_health_assembled_schema_section_comma_is_valid_json);
     RUN_TEST(test_bb_health_compute_ok_false_on_host);
     RUN_TEST(test_bb_health_compute_ok_true_when_wifi_and_board_validated);
@@ -7417,10 +7432,10 @@ int main(void) {
     RUN_TEST(test_bb_health_schema_no_free_heap);
     RUN_TEST(test_bb_health_schema_network_no_rssi);
     RUN_TEST(test_bb_health_schema_network_has_mdns);
-    RUN_TEST(test_bb_health_section_get_fn_invoked);
 
-    // bb_health_section tests (B1-1096 PR-1, epic B1-1054 -- additive,
-    // inert composer-shaped registry; nothing consumes it yet)
+    // bb_health_section tests (B1-1096 PR-1, epic B1-1054 -- LIVE composer
+    // registry as of B1-1100; count/get_by_index are the iterator the
+    // composer walks)
     RUN_TEST(test_bb_health_section_register_success);
     RUN_TEST(test_bb_health_section_register_success_schema_props_round_trips);
     RUN_TEST(test_bb_health_section_register_null_section_returns_invalid_arg);
@@ -7435,6 +7450,19 @@ int main(void) {
     RUN_TEST(test_bb_health_section_register_snap_size_exceeds_scratch_returns_no_space);
     RUN_TEST(test_bb_health_section_register_after_freeze_returns_invalid_state);
     RUN_TEST(test_bb_health_section_register_before_freeze_still_ok);
+    RUN_TEST(test_bb_health_section_count_zero_when_empty);
+    RUN_TEST(test_bb_health_section_count_reflects_registrations);
+    RUN_TEST(test_bb_health_section_get_by_index_returns_registration_order);
+    RUN_TEST(test_bb_health_section_get_by_index_out_of_range_returns_null);
+    RUN_TEST(test_bb_health_section_get_by_index_empty_registry_returns_null);
+
+    // bb_health_compose tests (B1-1100 -- gather-then-stream composer)
+    RUN_TEST(test_bb_health_compose_null_req_returns_invalid_arg);
+    RUN_TEST(test_bb_health_compose_null_root_returns_invalid_arg);
+    RUN_TEST(test_bb_health_compose_happy_path_no_sections);
+    RUN_TEST(test_bb_health_compose_happy_path_with_sections);
+    RUN_TEST(test_bb_health_compose_section_fill_failure_returns_500_zero_normal_bytes);
+    RUN_TEST(test_bb_health_compose_table_full_all_sections_render);
 
     // bb_health_stack tests (task-registry unification PR3: low-stack
     // transition + debounce coverage moved to
@@ -10254,6 +10282,7 @@ int main(void) {
     RUN_TEST(test_v2_golden_widget_fixture_label_longer_str_n);
     RUN_TEST(test_v2_golden_health_root_slice_populated);
     RUN_TEST(test_v2_golden_health_root_slice_disconnected);
+    RUN_TEST(test_v2_golden_health_full_document);
 
     RUN_TEST(test_bb_serialize_meta_validate_widget_happy_path);
     RUN_TEST(test_bb_serialize_meta_validate_type_name_mismatch);

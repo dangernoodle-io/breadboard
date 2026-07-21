@@ -297,13 +297,15 @@ remove_components = ["bb_wifi_ap"]
 #
 # B1-1045 PR-4 (cutover): floor expands into the full Model-B egress vehicle
 # -- bb_log_event binds the "log" bb_data key (the sole dissolved-bb_event
-# producer floor scopes in; the other 5 -- bb_ota_hooks, bb_health,
-# diag.boot, bb_display, bb_ota_check -- stay out of floor's manifest,
-# smoke's own event-cutover rehab is B1-1051); bb_mqtt_client + bb_mdns
-# observe the repointed "wifi" bb_lifecycle service; bb_data_http is the
-# converged SSE/WS broadcaster served at /api/events. Floor's heap-baseline
-# identity moves as a result (near-term measurement vehicle, not smoke's
-# closure).
+# producer floor scopes in; the other 5 producer keys -- ota.progress
+# (bb_ota_hooks), health.stack (bb_health, unrelated to the /api/health
+# route added below), diag.boot, health.display (bb_display),
+# update.available (bb_ota_check) -- stay out of floor's bb_data-bound
+# scope, smoke's own event-cutover rehab is B1-1051); bb_mqtt_client +
+# bb_mdns observe the repointed "wifi" bb_lifecycle service; bb_data_http
+# is the converged SSE/WS broadcaster served at /api/events. Floor's
+# heap-baseline identity moves as a result (near-term measurement vehicle,
+# not smoke's closure).
 #
 # PR11 (B1-diag-dissolution, floor HW-validation gate): bb_diag added --
 # NOT for the dissolved-bb_event "diag.boot" producer key above (that stays
@@ -312,12 +314,22 @@ remove_components = ["bb_wifi_ap"]
 # "meminfo"/"system" sections (converted off the old bb_data-bound exact
 # routes) plus the "storage/nvs"/"storage/partitions" inventory sections
 # (PR9) that previously had zero call sites.
+#
+# B1-1100 (bb_health/bb_response migration chain, PR-5, epic B1-1054):
+# bb_health + bb_temp added -- floor is the handwire HW-validation vehicle
+# for the composed GET /api/health cutover (gather-then-stream off the
+# bb_health_section registry). bb_health_init(server) is called from
+# http_lifecycle_observer's RUNNING-entry branch; bb_temp_autoregister_init()
+# and bb_mqtt_client_health_autoregister_init() (mqtt client is already in
+# this manifest) register the "temp"/"mqtt" sections composition-time-only,
+# before that freeze. This is unrelated to the still-out-of-scope
+# "health.stack" bb_data producer key noted above.
 components = [
     "bb_log", "bb_meminfo", "bb_timer",
     "bb_wifi", "bb_storage_nvs", "bb_storage_rtc", "bb_settings",
     "bb_http", "bb_http_server", "bb_lifecycle",
     "bb_data", "bb_serialize_json", "bb_system", "bb_diag",
-    "bb_serialize_console",
+    "bb_serialize_console", "bb_health", "bb_temp",
     "bb_log_event", "bb_mqtt_client", "bb_mdns", "bb_data_http",
 ]
 

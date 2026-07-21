@@ -84,6 +84,20 @@ void bb_health_section_freeze(void)
     bb_registry_freeze(&s_bb_health_section_registry);
 }
 
+uint16_t bb_health_section_count(void)
+{
+    return bb_registry_count(&s_bb_health_section_registry);
+}
+
+const bb_health_section_t *bb_health_section_get_by_index(uint16_t idx)
+{
+    bb_registry_entry_t entry;
+    if (bb_registry_get_by_index(&s_bb_health_section_registry, idx, &entry) != BB_OK) return NULL;
+
+    const bb_health_section_slot_t *slot = (const bb_health_section_slot_t *)entry.value;
+    return &slot->section;
+}
+
 #ifdef BB_HEALTH_SECTION_TESTING
 void bb_health_section_test_reset(void)
 {

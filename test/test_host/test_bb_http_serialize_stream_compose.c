@@ -44,6 +44,21 @@ static const bb_serialize_desc_t s_y_desc = {
     .snap_size = sizeof(y_snap_t),
 };
 
+typedef struct {
+    double z;
+} z_snap_t;
+
+static const bb_serialize_field_t s_z_fields[] = {
+    { .key = "z", .type = BB_TYPE_F64, .offset = offsetof(z_snap_t, z) },
+};
+
+static const bb_serialize_desc_t s_z_desc = {
+    .type_name = "z_snap_t",
+    .fields = s_z_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(z_snap_t),
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -201,5 +216,69 @@ void test_http_serialize_stream_compose_send_chunk_fail_propagates_original_erro
     // terminator call, always issued regardless of the content flush's
     // failure -- same shape as bb_http_serialize_stream()'s own test.
     TEST_ASSERT_EQUAL_size_t(2, call_count);
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
+// 6. bb_http_serialize_stream_compose_ex() -- f64_shortest pass-through
+// (B1-1102/B1-1100). bb_http_serialize_stream_compose() itself is a thin
+// wrapper calling _ex(..., false); these prove the flag actually reaches
+// the JSON backend through the HTTP bridge.
+// ---------------------------------------------------------------------------
+
+void test_http_serialize_stream_compose_ex_f64_shortest_false_is_fixed_decimal(void)
+{
+    z_snap_t zs = { .z = 55.3 };
+    const bb_serialize_compose_entry_t entries[] = {
+        { .desc = &s_z_desc, .snap = &zs },
+    };
+    const bb_serialize_compose_group_t groups[] = {
+        { .entries = entries, .n = 1, .shape = BB_SERIALIZE_COMPOSE_RAW },
+    };
+
+    cap_begin();
+    bb_err_t err = bb_http_serialize_stream_compose_ex(s_req, groups, 1, false);
+    cap_end();
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_STRING("{\"z\":55.300000}", s_cap.body);
+    cap_free();
+}
+
+void test_http_serialize_stream_compose_ex_f64_shortest_true_is_shortest(void)
+{
+    z_snap_t zs = { .z = 55.3 };
+    const bb_serialize_compose_entry_t entries[] = {
+        { .desc = &s_z_desc, .snap = &zs },
+    };
+    const bb_serialize_compose_group_t groups[] = {
+        { .entries = entries, .n = 1, .shape = BB_SERIALIZE_COMPOSE_RAW },
+    };
+
+    cap_begin();
+    bb_err_t err = bb_http_serialize_stream_compose_ex(s_req, groups, 1, true);
+    cap_end();
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_STRING("{\"z\":55.3}", s_cap.body);
+    cap_free();
+}
+
+void test_http_serialize_stream_compose_thin_wrapper_matches_ex_false(void)
+{
+    z_snap_t zs = { .z = 1.5 };
+    const bb_serialize_compose_entry_t entries[] = {
+        { .desc = &s_z_desc, .snap = &zs },
+    };
+    const bb_serialize_compose_group_t groups[] = {
+        { .entries = entries, .n = 1, .shape = BB_SERIALIZE_COMPOSE_RAW },
+    };
+
+    cap_begin();
+    bb_err_t err = bb_http_serialize_stream_compose(s_req, groups, 1);
+    cap_end();
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_STRING("{\"z\":1.500000}", s_cap.body);
     cap_free();
 }

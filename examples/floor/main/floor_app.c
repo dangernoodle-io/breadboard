@@ -39,6 +39,8 @@
 #include "bb_log_event_wire.h"
 #include "bb_mqtt_client.h"
 #include "bb_mdns.h"
+#include "bb_health.h"
+#include "bb_temp.h"
 #include <inttypes.h>
 #include <stdbool.h>
 
@@ -157,6 +159,14 @@ static void http_lifecycle_observer(const bb_lifecycle_event_t *evt, void *user)
             if (route_err != BB_OK) {
                 bb_log_w(TAG, "diag_sections_init failed (%d)", (int)route_err);
             }
+            // B1-1100 cutover: GET /api/health, gather-then-stream composed
+            // from the bb_health_section registry (mqtt/temp registered
+            // below, composition-time-only, before the server ever starts).
+            // Freezes the registry (the FREEZE TRIPWIRE) as a side effect.
+            route_err = bb_health_init(server);
+            if (route_err != BB_OK) {
+                bb_log_w(TAG, "health_init failed (%d)", (int)route_err);
+            }
             // B1-1045: start the bb_data_http broadcaster task (idempotent)
             // and serve /api/events off it now that the server is up.
             bb_err_t bcast_err = bb_data_http_espidf_start();
@@ -269,6 +279,27 @@ void app_main(void)
     if (err != BB_OK) {
         bb_log_w(TAG, "diag_storage_partitions_register failed (%d)", (int)err);
     }
+
+    // B1-1100: /api/health sections -- composition-time-only, before the
+    // bb_health_section registry is frozen (bb_health_init(), called from
+    // http_lifecycle_observer's RUNNING-entry branch below). "temp" is a
+    // fill-agnostic satellite (bb_temp_autoregister_init() is its
+    // // bbtool:init marker fn, called directly here per floor's handwire
+    // convention); "mqtt" reads bb_mqtt_client_default() at request time,
+    // so it's safe to register before bb_mqtt_client_init_default() runs.
+    err = bb_temp_autoregister_init();
+    if (err != BB_OK) {
+        bb_log_w(TAG, "temp_autoregister_init failed (%d)", (int)err);
+    }
+    err = bb_mqtt_client_health_autoregister_init();
+    if (err != BB_OK) {
+        bb_log_w(TAG, "mqtt_client_health_autoregister_init failed (%d)", (int)err);
+    }
+    // bb_health_reserve_routes() (PRE_HTTP tier) is intentionally not called
+    // here -- it is vestigial (platform/espidf/bb_http_server/bb_http.c: max_
+    // uri_handlers is a single constant knob now, route count no longer
+    // drives it), matching floor's existing selectivity (it calls no other
+    // component's *_reserve_routes() either).
 
     // B1-1045 PR-4: bind the "log" dissolved-bb_event producer key. Its
     // underlying stash is populated by bb_log_event's own forwarder task

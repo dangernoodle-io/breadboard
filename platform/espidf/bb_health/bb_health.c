@@ -1,85 +1,65 @@
 #include "bb_health.h"
-#include "bb_response.h"
 
 #include <stdbool.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "bb_board.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
-#include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mdns.h"
+#include "bb_wifi.h"
 #include "bb_wifi_http.h"
 
+#include "../../../components/bb_health/bb_health_compose_priv.h"
 #include "../../../components/bb_health/bb_health_schema_priv.h"
 #include "../../../components/bb_health/bb_health_stack.h"
+#include "bb_health_section.h"
 
 // Forward declaration from bb_health_stack.c
 bb_err_t bb_health_stack_monitor_init(void);
 
 static const char *TAG = "bb_health";
 
-// File-scope section registry for /api/health.
-static bb_response_registry_t s_health_reg = { .tag = "bb_health" };
-
 // ---------------------------------------------------------------------------
-// Public API
+// Route handler -- GATHER-THEN-STREAM (B1-1100)
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_health_register_section(const char *name,
-                                     bb_response_get_fn get,
-                                     void *ctx,
-                                     const char *schema_props)
-{
-    return bb_response_register(&s_health_reg, name, get, NULL, ctx, schema_props);
-}
-
-// ---------------------------------------------------------------------------
-// JSON helpers
-// ---------------------------------------------------------------------------
-
-// Serialize a bb_json_t tree and stream it via chunked transfer.
-static bb_err_t send_json_tree(bb_http_request_t *req, bb_json_t root)
-{
-    char *str = bb_json_serialize(root);
-    if (!str) return BB_ERR_NO_SPACE;
-    bb_err_t err = bb_http_resp_set_type(req, "application/json");
-    if (err == BB_OK) err = bb_http_resp_send_chunk(req, str, -1);
-    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
-    bb_json_free_str(str);
-    return err;
-}
-
+// Gathers the ROOT wire slice (ok/validated/network) from device-specific
+// sources (bb_wifi/bb_mdns/bb_board -- none of which are host-reproducible,
+// which is why this gather stays in this ESP-IDF-only file) and hands it to
+// bb_health_compose_and_stream() (bb_health_compose_priv.h), the portable
+// seam that walks the bb_health_section registry and streams the composed
+// document. This handler is a thin wrapper; the gather-then-stream
+// algorithm itself is host-testable (test/test_host/test_bb_health_compose.c).
 static bb_err_t health_handler(bb_http_request_t *req)
 {
+    bb_health_wire_t root;
+    memset(&root, 0, sizeof(root));
+
+    root.ok = bb_health_compute_ok();
+
     bb_board_info_t b;
     bb_board_get_info(&b);
+    root.validated = b.ota_validated;
+
+    // network: status bools/strings only (TA-505) -- ssid/bssid/ip/connected,
+    // no numeric fields.
+    bb_wifi_info_t info;
+    bb_wifi_get_info(&info);
+    strncpy(root.network.ssid, info.ssid, sizeof(root.network.ssid) - 1);
+    root.network.ssid[sizeof(root.network.ssid) - 1] = '\0';
+    bb_wifi_http_format_bssid(root.network.bssid, info.bssid);
+    strncpy(root.network.ip, info.ip, sizeof(root.network.ip) - 1);
+    root.network.ip[sizeof(root.network.ip) - 1] = '\0';
+    root.network.connected = info.connected;
 
     const char *hostname = bb_mdns_get_hostname();
+    root.network.mdns = hostname
+        ? (bb_serialize_str_n_t){ .ptr = hostname, .len = strlen(hostname) }
+        : (bb_serialize_str_n_t){ 0 };
 
-    bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_bool(root, "ok", bb_health_compute_ok());
-    bb_json_obj_set_bool(root, "validated", b.ota_validated);
-
-    // network: status bools/strings only (TA-505) — bb_wifi_emit_status emits
-    // only connected/ssid/bssid/ip; no numeric fields.
-    bb_json_t net = bb_json_obj_new();
-    bb_wifi_emit_status(net);
-    if (hostname) {
-        bb_json_obj_set_string(net, "mdns", hostname);
-    } else {
-        bb_json_obj_set_null(net, "mdns");
-    }
-    bb_json_obj_set_obj(root, "network", net);
-
-    // Sections: mqtt, temp, and any other registered sections.
-    bb_response_build_get(&s_health_reg, root);
-
-    bb_err_t err = send_json_tree(req, root);
-    bb_json_free(root);
-    return err;
+    return bb_health_compose_and_stream(req, &root);
 }
 
 // ---------------------------------------------------------------------------
@@ -88,7 +68,7 @@ static bb_err_t health_handler(bb_http_request_t *req)
 
 static bb_route_response_t s_health_responses[] = {
     { 200, "application/json",
-      NULL,  // filled by bb_response_assemble_schema() at init
+      NULL,  // filled by bb_health_assemble_schema() at init
       "liveness check" },
     { 0 },
 };
@@ -105,7 +85,23 @@ static const bb_route_t s_health_route = {
 bb_err_t bb_health_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
-    s_health_responses[0].schema = bb_response_freeze_and_assemble(&s_health_reg, k_health_base, k_health_suffix);
+
+    // FREEZE TRIPWIRE (B1-1100): the bb_health_section registry is the
+    // ONLY registry the live handler renders from now -- freeze it here,
+    // at server-start, the same lifecycle point bb_health_init() used to
+    // freeze the retired legacy bb_response registry.
+    bb_health_section_freeze();
+
+    // Assemble the schema exactly ONCE: bb_health_init() is re-entrant
+    // (examples/floor's http_lifecycle_observer re-fires it on every WiFi
+    // pause/resume) but the schema is static after the registry is frozen
+    // above (frozen == no more section registrations, and freeze itself is
+    // idempotent) -- reassembling on every re-entry would leak the previous
+    // heap-allocated string (bb_health_assemble_schema() mallocs) for no
+    // behavior change, since the bytes it produces can't differ.
+    if (!s_health_responses[0].schema) {
+        s_health_responses[0].schema = bb_health_assemble_schema();
+    }
 
     bb_err_t err = bb_http_register_described_route(server, &s_health_route);
     if (err != BB_OK) return err;

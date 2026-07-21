@@ -11,18 +11,21 @@
  * bb_serialize_desc_t snapshots instead of hand-rolled bb_json_t builder
  * callbacks.
  *
- * ADDITIVE AND INERT: nothing in this PR consumes this registry. The live
- * /api/health handler (platform/espidf/bb_health/bb_health.c) is untouched
- * and keeps using the legacy bb_health_register_section() API (bb_health.h)
- * for now. This is a NEW, separate file/API -- deliberately not folded into
- * bb_health.h -- so the legacy one can be deleted cleanly once every
- * producer has moved over (B1-1054 PR-5/6).
+ * LIVE (B1-1100, PR-5 of 6): the /api/health handler
+ * (platform/espidf/bb_health/bb_health.c) composes its document from this
+ * registry via bb_health_compose_and_stream() (bb_health_compose_priv.h) --
+ * gathering every registered section's fill hook into a request-scoped
+ * arena, then streaming it alongside the root wire slice
+ * (bb_health_wire_desc). The legacy bb_health_register_section()/
+ * bb_response_registry_t path (bb_health.h/bb_response.h) is retired; every
+ * producer (mqtt, temp) registers here instead.
  */
 
 #include "bb_core.h"
 #include "bb_serialize.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -97,6 +100,20 @@ bb_err_t bb_health_section_register(const bb_health_section_t *section);
 // bb_response_freeze_and_assemble() today, B1-1054 PR-5); exposed now so
 // this PR's own tests can exercise the reject-after-freeze contract.
 void bb_health_section_freeze(void);
+
+// Returns the number of currently registered sections
+// (0..BB_HEALTH_SECTION_TABLE_CAP). The composer (bb_health_compose_priv.h)
+// walks 0..count via bb_health_section_get_by_index() to build its
+// per-request arena/entries -- an iterator over the otherwise-private
+// registry table, mirroring bb_registry_count()/bb_registry_get_by_index()'s
+// own shape.
+uint16_t bb_health_section_count(void);
+
+// Returns the section registered at position `idx` (0-based, in
+// registration order), or NULL if `idx` >= bb_health_section_count().
+// BORROWED -- valid for the process lifetime, same lifetime contract as
+// bb_health_section_register()'s own copied-in entry.
+const bb_health_section_t *bb_health_section_get_by_index(uint16_t idx);
 
 #ifdef BB_HEALTH_SECTION_TESTING
 // Test-only: clears every registered section and un-freezes the registry.
