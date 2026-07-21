@@ -6,8 +6,7 @@
 // bb_health_emit.c. See bb_health_compose.c for the algorithm doc comment.
 // Included by:
 //   - platform/espidf/bb_health/bb_health.c (the ESP-IDF route handler,
-//     which gathers the ROOT slice from bb_wifi/bb_mdns/bb_board and hands
-//     it here)
+//     which gathers the ROOT slice from bb_wifi/bb_mdns and hands it here)
 //   - test/test_host/test_bb_health_compose.c
 
 #include "bb_health_wire_priv.h"
@@ -19,10 +18,10 @@ extern "C" {
 #endif
 
 // Composes and streams the full /api/health document to `req`: `root`
-// (caller-pre-filled ok/validated/network) as a RAW group merging flat at
+// (caller-pre-filled ok/network) as a RAW group merging flat at
 // the document root, followed by every currently-registered
 // bb_health_section as a named OBJECT group -- e.g.
-// {"ok":true,"validated":true,"network":{...},"mqtt":{...},"temp":{...}}.
+// {"ok":true,"network":{...},"mqtt":{...},"temp":{...}}.
 //
 // GATHER-THEN-STREAM: every registered section's fill hook runs into a
 // request-scoped stack arena FIRST (phase 1). If ANY fill returns

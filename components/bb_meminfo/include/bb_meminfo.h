@@ -5,9 +5,10 @@
 // This is the ONE place in breadboard that calls heap_caps_get_free_size /
 // heap_caps_get_minimum_free_size / heap_caps_get_largest_free_block /
 // heap_caps_get_total_size / esp_get_minimum_free_heap_size. Every other
-// consumer (bb_board's accessors, bb_diag, bb_ota_boot, bb_ota_pull, ...)
-// either delegates to bb_meminfo_get() or is a SSOT-consolidation follow-up
-// (see bb_meminfo's README / KB #699).
+// consumer (bb_diag, bb_ota_boot, bb_ota_pull, ...) either delegates to
+// bb_meminfo_get() or is a SSOT-consolidation follow-up (see bb_meminfo's
+// README / KB #699). bb_board (whose heap_/psram_/rtc_ accessors used to
+// delegate here) was dissolved in B1-977.
 //
 // bb_meminfo is a pure READER — it does not allocate. The allocator facade
 // (bb_malloc_prefer_spiram / bb_mem_get_stats / ...) stays in bb_core
@@ -40,25 +41,22 @@ typedef struct {
 } bb_meminfo_region_t;
 
 typedef struct {
-    // MALLOC_CAP_DEFAULT — PSRAM-inclusive general-purpose heap. Mirrors
-    // bb_board_heap_free_total / heap_minimum_ever / heap_largest_free_block.
+    // MALLOC_CAP_DEFAULT — PSRAM-inclusive general-purpose heap.
     bb_meminfo_region_t default_region;
 
     // MALLOC_CAP_INTERNAL. largest_free_block uses
-    // MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT (value-preserving match of
-    // bb_board_heap_internal_largest_free_block's original cap set).
+    // MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT (value-preserving match of the
+    // now-dissolved bb_board's original cap set).
     bb_meminfo_region_t internal;
 
-    // MALLOC_CAP_DMA — DMA-capable heap. Not currently surfaced by any
-    // bb_board accessor; new in this pass.
+    // MALLOC_CAP_DMA — DMA-capable heap.
     bb_meminfo_region_t dma;
 
     // MALLOC_CAP_SPIRAM. All fields 0 on boards with no PSRAM.
     bb_meminfo_region_t spiram;
 
     // MALLOC_CAP_EXEC -- executable heap (IRAM). Folded in from the legacy
-    // /api/diag/heap route (heap reconciliation, B1-diag-dissolution); not
-    // surfaced by any bb_board accessor.
+    // /api/diag/heap route (heap reconciliation, B1-diag-dissolution).
     bb_meminfo_region_t exec;
 
     // esp_get_minimum_free_heap_size() — IDF's classic overall watermark,
@@ -72,13 +70,11 @@ typedef struct {
     size_t   mem_peak_outstanding;
     uint32_t mem_alloc_fail;
 
-    // RTC slow memory — static partition, not a heap. Mirrors
-    // bb_board_rtc_used / bb_board_rtc_total.
+    // RTC slow memory — static partition, not a heap.
     size_t rtc_used;
     size_t rtc_total;
 
-    // Internal DRAM static (.data + .bss) bytes at link time. Mirrors
-    // bb_board_dram_static_bytes.
+    // Internal DRAM static (.data + .bss) bytes at link time.
     size_t dram_static_bytes;
 } bb_meminfo_snapshot_t;
 
@@ -91,7 +87,7 @@ bb_err_t bb_meminfo_get(bb_meminfo_snapshot_t *out);
 // no I/O, no allocation; identical on host and ESP-IDF. Fields (in emitted
 // order): internal free / min-ever-free / largest-free-block, spiram free,
 // dma free, esp_min_free_heap. Deliberately HEAP-ONLY — board/flash/app-size
-// fields belong to a different domain (bb_board/build), out of scope here.
+// fields belong to a different domain (bb_system/build), out of scope here.
 //
 // Returns the number of bytes that would have been written — matches
 // snprintf's buffer/truncation semantics for len>0 (may exceed len on
@@ -164,6 +160,68 @@ bb_err_t bb_memreport_register_arena(const char *name, bb_mem_arena_t a);
 // Remove a previously registered arena by name. No-op (safe) if name was
 // never registered.
 void bb_memreport_deregister(const char *name);
+
+// ---------------------------------------------------------------------------
+// Heap state — relocated from bb_board (B1-977 dissolution). Pure,
+// host-testable, no ESP-IDF dependency.
+// ---------------------------------------------------------------------------
+
+// Heap-threshold thresholds (compile-time overridable). On ESP-IDF, Kconfig
+// generates CONFIG_BB_MEMINFO_* symbols; bridge them here so menuconfig
+// changes take effect. On the host build there is no sdkconfig, so we fall
+// straight through to the numeric fallbacks.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_MEMINFO_HEAP_LOW_BYTES
+#    define BB_MEMINFO_HEAP_LOW_BYTES CONFIG_BB_MEMINFO_HEAP_LOW_BYTES
+#  endif
+#endif
+#ifndef BB_MEMINFO_HEAP_LOW_BYTES
+#define BB_MEMINFO_HEAP_LOW_BYTES      40000  // free heap bytes below which → LOW
+#endif
+
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_MEMINFO_HEAP_CRITICAL_BYTES
+#    define BB_MEMINFO_HEAP_CRITICAL_BYTES CONFIG_BB_MEMINFO_HEAP_CRITICAL_BYTES
+#  endif
+#endif
+#ifndef BB_MEMINFO_HEAP_CRITICAL_BYTES
+#define BB_MEMINFO_HEAP_CRITICAL_BYTES 20000  // free heap bytes below which → CRITICAL
+#endif
+
+/**
+ * Coarse heap health bucket. Zero-init is BB_MEMINFO_HEAP_STATE_OK so host
+ * stubs and uninitialised-state callers always get a sane default.
+ */
+typedef enum {
+    BB_MEMINFO_HEAP_STATE_OK       = 0,
+    BB_MEMINFO_HEAP_STATE_LOW      = 1,
+    BB_MEMINFO_HEAP_STATE_CRITICAL = 2,
+} bb_meminfo_heap_state_t;
+
+/**
+ * Pure heap classifier: maps total free heap bytes to a bb_meminfo_heap_state_t
+ * bucket against the BB_MEMINFO_HEAP_LOW_BYTES / BB_MEMINFO_HEAP_CRITICAL_BYTES
+ * thresholds. No side-effects; host-testable.
+ */
+bb_meminfo_heap_state_t bb_meminfo_classify_heap(size_t free_bytes);
+
+/**
+ * Return the latest heap state computed by the evaluator.
+ * Thread-safe: reads a module-static set by the evaluator.
+ * Returns BB_MEMINFO_HEAP_STATE_OK on host (no evaluator runs there).
+ */
+bb_meminfo_heap_state_t bb_meminfo_heap_state(void);
+
+/**
+ * Return a static string for a bb_meminfo_heap_state_t value.
+ * "ok", "low", or "critical". Never returns NULL.
+ */
+const char *bb_meminfo_heap_state_str(bb_meminfo_heap_state_t state);
+
+// bb_meminfo_set_heap_state is intentionally NOT declared here — internal
+// setter, not part of the public API. A caller forward-declares it with
+// extern (mirrors bb_board's own convention); awaits a future periodic
+// heap-evaluator call site (no production caller exists yet).
 
 #ifdef __cplusplus
 }

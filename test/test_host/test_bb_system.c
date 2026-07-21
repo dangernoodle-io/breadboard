@@ -1059,3 +1059,61 @@ void test_bb_system_boot_banner_format_truncation(void)
     TEST_ASSERT_TRUE(n >= (int)sizeof(buf));
     TEST_ASSERT_EQUAL_CHAR('\0', buf[sizeof(buf) - 1]);
 }
+
+// ---------------------------------------------------------------------------
+// HW-identity accessors (relocated from bb_board, B1-977 dissolution).
+// Host stub values mirror bb_board's own host-stub contract.
+// ---------------------------------------------------------------------------
+
+void test_bb_system_get_cores_callable(void)
+{
+    uint8_t cores = bb_system_get_cores();
+    TEST_ASSERT_EQUAL_UINT8(1, cores);
+}
+
+void test_bb_system_get_chip_model_writes_host_string(void)
+{
+    TEST_ASSERT_EQUAL_STRING("host", bb_system_get_chip_model());
+}
+
+void test_bb_system_get_flash_size_returns_zero_on_host(void)
+{
+    // Host stub has no real flash — must return 0 (matches get_app_size:
+    // real values require an ESP-IDF partition table).
+    TEST_ASSERT_EQUAL_UINT32(0, bb_system_get_flash_size());
+}
+
+void test_bb_system_get_app_size_returns_zero_on_host(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0, bb_system_get_app_size());
+}
+
+void test_bb_system_get_mac_null_out_returns_invalid_arg(void)
+{
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_system_get_mac(NULL, 16));
+}
+
+void test_bb_system_get_mac_zero_size_returns_invalid_arg(void)
+{
+    char buf[16];
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_system_get_mac(buf, 0));
+}
+
+void test_bb_system_get_mac_writes_empty_string_on_host(void)
+{
+    // Host stub has no real MAC source — must return BB_OK with an empty
+    // string (distinct from an error: callers can format "" without special-casing).
+    char buf[16] = "not-empty";
+    TEST_ASSERT_EQUAL(BB_OK, bb_system_get_mac(buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_STRING("", buf);
+}
+
+void test_bb_system_chip_revision_callable(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0, bb_system_chip_revision());
+}
+
+void test_bb_system_cpu_freq_mhz_callable(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0, bb_system_cpu_freq_mhz());
+}

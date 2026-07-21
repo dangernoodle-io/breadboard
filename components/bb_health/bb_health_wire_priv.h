@@ -7,7 +7,7 @@
 // the root-identity fields ONLY (see test/test_host/test_v2_golden.c) --
 // the fields the ESP-IDF /api/health handler
 // (platform/espidf/bb_health/bb_health.c) gathers directly from
-// bb_wifi/bb_mdns/bb_board and hands to bb_health_compose_and_stream()
+// bb_wifi/bb_mdns and hands to bb_health_compose_and_stream()
 // (bb_health_compose_priv.h) as a RAW group, merged flat at the document
 // root ahead of the registered sections ("mqtt", "temp", ...), which
 // compose as a named OBJECT group in the same call. This descriptor is
@@ -30,10 +30,11 @@ typedef struct {
     bb_serialize_str_n_t  mdns;  // .ptr == NULL -> emit_null
 } bb_health_net_wire_t;
 
-// Root -- field order matches health_handler(): ok, validated, network.
+// Root -- field order matches health_handler(): ok, network. validated
+// dropped (B1-977, bb_board dissolution -- BREAKING CHANGE: GET /api/health
+// no longer returns "validated").
 typedef struct {
     bool                  ok;
-    bool                  validated;
     bb_health_net_wire_t  network;
 } bb_health_wire_t;
 

@@ -3,7 +3,7 @@
 // seam, host-testable per embedded.md ("factor decode/classify/compute
 // logic into pure functions ... keep the platform call site a thin
 // wrapper") -- the ESP-IDF handler (platform/espidf/bb_health/bb_health.c)
-// only gathers the ROOT slice from bb_wifi/bb_mdns/bb_board and calls this.
+// only gathers the ROOT slice from bb_wifi/bb_mdns and calls this.
 
 #include "unity.h"
 
@@ -62,7 +62,6 @@ static void cap_free(void)  { bb_http_host_capture_free(&s_cap); }
 
 static const bb_health_wire_t k_sample_root = {
     .ok = true,
-    .validated = true,
     .network = {
         .ssid = "testnet",
         .bssid = "aa:bb:cc:dd:ee:ff",
@@ -107,7 +106,7 @@ void test_bb_health_compose_happy_path_no_sections(void)
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL_STRING("application/json", s_cap.content_type);
     TEST_ASSERT_EQUAL_STRING(
-        "{\"ok\":true,\"validated\":true,\"network\":{\"ssid\":\"testnet\","
+        "{\"ok\":true,\"network\":{\"ssid\":\"testnet\","
         "\"bssid\":\"aa:bb:cc:dd:ee:ff\",\"ip\":\"192.168.1.50\","
         "\"connected\":true,\"mdns\":null}}",
         s_cap.body);
@@ -129,7 +128,7 @@ void test_bb_health_compose_happy_path_with_sections(void)
 
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL_STRING(
-        "{\"ok\":true,\"validated\":true,\"network\":{\"ssid\":\"testnet\","
+        "{\"ok\":true,\"network\":{\"ssid\":\"testnet\","
         "\"bssid\":\"aa:bb:cc:dd:ee:ff\",\"ip\":\"192.168.1.50\","
         "\"connected\":true,\"mdns\":null},\"alpha\":{\"n\":1},\"beta\":{\"n\":2}}",
         s_cap.body);

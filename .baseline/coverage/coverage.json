@@ -1,46 +1,6 @@
 {
   "entries": [
     {
-      "id": "35",
-      "path": "platform/host/bb_board/bb_board_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "37",
-      "path": "platform/host/bb_board/bb_board_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "40",
-      "path": "platform/host/bb_board/bb_board_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "42",
-      "path": "platform/host/bb_board/bb_board_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "74",
-      "path": "platform/host/bb_board/bb_board_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "76",
-      "path": "platform/host/bb_board/bb_board_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "77",
-      "path": "platform/host/bb_board/bb_board_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "78",
-      "path": "platform/host/bb_board/bb_board_host.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "165",
       "path": "platform/host/bb_button_events/bb_button_events.c",
       "type": "uncovered_line"
@@ -158,11 +118,6 @@
     {
       "id": "45",
       "path": "platform/host/bb_diag/bb_diag_panic.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "27",
-      "path": "platform/host/bb_health/bb_health_emit.c",
       "type": "uncovered_line"
     },
     {

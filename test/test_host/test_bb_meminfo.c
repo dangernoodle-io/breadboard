@@ -271,3 +271,94 @@ void test_bb_memreport_format_truncates_cleanly(void)
     TEST_ASSERT_GREATER_THAN(sizeof(buf) - 1, (size_t)n);
     TEST_ASSERT_EQUAL('\0', buf[sizeof(buf) - 1]);
 }
+
+// ---------------------------------------------------------------------------
+// bb_meminfo_classify_heap — pure bucket classifier (relocated from
+// bb_board, B1-977 dissolution; bb_board itself relocated it from
+// bb_net_health_classify_heap, B1-439).
+// ---------------------------------------------------------------------------
+
+// Heap well above both thresholds → OK.
+void test_bb_meminfo_classify_heap_ok(void)
+{
+    bb_meminfo_heap_state_t s = bb_meminfo_classify_heap(BB_MEMINFO_HEAP_LOW_BYTES + 1);
+    TEST_ASSERT_EQUAL_INT(BB_MEMINFO_HEAP_STATE_OK, s);
+}
+
+// Heap between CRITICAL and LOW → LOW.
+void test_bb_meminfo_classify_heap_low(void)
+{
+    size_t mid = (BB_MEMINFO_HEAP_CRITICAL_BYTES + BB_MEMINFO_HEAP_LOW_BYTES) / 2;
+    bb_meminfo_heap_state_t s = bb_meminfo_classify_heap(mid);
+    TEST_ASSERT_EQUAL_INT(BB_MEMINFO_HEAP_STATE_LOW, s);
+}
+
+// Heap below CRITICAL → CRITICAL.
+void test_bb_meminfo_classify_heap_critical(void)
+{
+    bb_meminfo_heap_state_t s = bb_meminfo_classify_heap(BB_MEMINFO_HEAP_CRITICAL_BYTES - 1);
+    TEST_ASSERT_EQUAL_INT(BB_MEMINFO_HEAP_STATE_CRITICAL, s);
+}
+
+// Zero free bytes is also CRITICAL.
+void test_bb_meminfo_classify_heap_zero(void)
+{
+    bb_meminfo_heap_state_t s = bb_meminfo_classify_heap(0);
+    TEST_ASSERT_EQUAL_INT(BB_MEMINFO_HEAP_STATE_CRITICAL, s);
+}
+
+// ---------------------------------------------------------------------------
+// bb_meminfo_heap_state_str — string helper, including the default/unknown
+// branch (relocated from bb_board, B1-977 dissolution).
+// ---------------------------------------------------------------------------
+
+void test_bb_meminfo_heap_state_str_ok(void)
+{
+    TEST_ASSERT_EQUAL_STRING("ok", bb_meminfo_heap_state_str(BB_MEMINFO_HEAP_STATE_OK));
+}
+
+void test_bb_meminfo_heap_state_str_low(void)
+{
+    TEST_ASSERT_EQUAL_STRING("low", bb_meminfo_heap_state_str(BB_MEMINFO_HEAP_STATE_LOW));
+}
+
+void test_bb_meminfo_heap_state_str_critical(void)
+{
+    TEST_ASSERT_EQUAL_STRING("critical", bb_meminfo_heap_state_str(BB_MEMINFO_HEAP_STATE_CRITICAL));
+}
+
+// Cast an out-of-range value to exercise the default branch.
+void test_bb_meminfo_heap_state_str_unknown_returns_ok(void)
+{
+    const char *s = bb_meminfo_heap_state_str((bb_meminfo_heap_state_t)99);
+    TEST_ASSERT_EQUAL_STRING("ok", s);
+}
+
+// ---------------------------------------------------------------------------
+// bb_meminfo_set_heap_state / bb_meminfo_heap_state
+//
+// bb_meminfo_set_heap_state is an internal setter not declared in the public
+// header; relocated from bb_board (B1-977 dissolution), which itself had no
+// production caller (its former caller, bb_net_health's periodic evaluator,
+// was dissolved in B1-969). We use the same forward-declare pattern bb_board's
+// own test used to cover the three lines (signature, body, closing brace).
+// ---------------------------------------------------------------------------
+
+extern void bb_meminfo_set_heap_state(bb_meminfo_heap_state_t state);
+
+// Round-trip: set each non-default state and read it back via the public getter.
+void test_bb_meminfo_set_heap_state_roundtrip(void)
+{
+    // Initial value must be OK (zero-init module static).
+    TEST_ASSERT_EQUAL_INT(BB_MEMINFO_HEAP_STATE_OK, bb_meminfo_heap_state());
+
+    bb_meminfo_set_heap_state(BB_MEMINFO_HEAP_STATE_LOW);
+    TEST_ASSERT_EQUAL_INT(BB_MEMINFO_HEAP_STATE_LOW, bb_meminfo_heap_state());
+
+    bb_meminfo_set_heap_state(BB_MEMINFO_HEAP_STATE_CRITICAL);
+    TEST_ASSERT_EQUAL_INT(BB_MEMINFO_HEAP_STATE_CRITICAL, bb_meminfo_heap_state());
+
+    // Restore to OK so other tests are not affected by residual state.
+    bb_meminfo_set_heap_state(BB_MEMINFO_HEAP_STATE_OK);
+    TEST_ASSERT_EQUAL_INT(BB_MEMINFO_HEAP_STATE_OK, bb_meminfo_heap_state());
+}

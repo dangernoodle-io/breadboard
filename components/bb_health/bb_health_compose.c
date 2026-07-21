@@ -3,8 +3,8 @@
 // ESP-IDF/FreeRTOS types, compiled for host + device (mirrors
 // bb_health_emit.c/bb_health_wire.c's portability). The ESP-IDF route
 // handler (platform/espidf/bb_health/bb_health.c) gathers the ROOT slice
-// (ok/validated/network -- device-specific sources: bb_wifi/bb_mdns/
-// bb_board) and hands it here; this file owns the section-registry walk
+// (ok/network -- device-specific sources: bb_wifi/bb_mdns) and hands it
+// here; this file owns the section-registry walk
 // and document streaming, neither of which needs a platform header --
 // the "host-testable seam" the ESP-IDF handler stays a thin wrapper over
 // (see test/test_host/test_bb_health_compose.c).

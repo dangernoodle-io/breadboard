@@ -6,11 +6,6 @@
       "type": "component"
     },
     {
-      "id": "bb_board",
-      "path": "components/bb_board",
-      "type": "component"
-    },
-    {
       "id": "bb_bqueue",
       "path": "components/bb_bqueue",
       "type": "component"

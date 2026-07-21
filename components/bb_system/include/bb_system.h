@@ -104,6 +104,36 @@ const char *bb_system_get_idf_version(void);
 void bb_system_restart(void);
 
 // ---------------------------------------------------------------------------
+// HW-identity accessors (relocated from bb_board, B1-977 dissolution).
+// Preserve bb_board's exact read semantics (esp_chip_info / esp_flash_get_size
+// / esp_ota_get_running_partition / esp_read_mac). Not part of bb_system_snap_t
+// — these do not change the /api/diag/system wire shape.
+// ---------------------------------------------------------------------------
+
+/// Returns the chip model string (e.g. "ESP32-S3"). "host" on host. Never NULL.
+const char *bb_system_get_chip_model(void);
+
+/// Number of CPU cores. 1 on host.
+uint8_t bb_system_get_cores(void);
+
+/// Writes the WiFi STA MAC as lowercase colon-separated hex ("aa:bb:cc:dd:ee:ff")
+/// into out (out_size >= 18). Empty string if the MAC can't be read (or on
+/// host). Returns BB_ERR_INVALID_ARG if out is NULL or out_size is 0.
+bb_err_t bb_system_get_mac(char *out, size_t out_size);
+
+/// Flash size in bytes; 0 if unknown (or on host).
+uint32_t bb_system_get_flash_size(void);
+
+/// Running app partition size in bytes; 0 if no partitions (or on host).
+uint32_t bb_system_get_app_size(void);
+
+/// Chip silicon revision. 0 on host.
+uint32_t bb_system_chip_revision(void);
+
+/// CPU frequency in MHz. 0 on host.
+uint32_t bb_system_cpu_freq_mhz(void);
+
+// ---------------------------------------------------------------------------
 // Reboot-reason SSOT (B1-527 PR-A) — enum, wire-string mapping, and the pure
 // record/history pack-unpack types live in bb_core/include/bb_reboot_reason.h
 // (re-exported above, B1-532 PR1). bb_system owns only the action: persisting

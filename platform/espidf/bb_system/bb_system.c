@@ -8,7 +8,12 @@
 #include "bb_clock.h"
 
 #include "esp_app_desc.h"
+#include "esp_chip_info.h"
+#include "esp_flash.h"
+#include "esp_mac.h"
+#include "esp_ota_ops.h"
 #include "esp_system.h"
+#include "esp_private/esp_clk.h"
 #include "soc/soc_caps.h"
 #include <stdio.h>
 #include <string.h>
@@ -124,6 +129,76 @@ const char *bb_system_get_idf_version(void)
 void bb_system_restart(void)
 {
     esp_restart();
+}
+
+// ---------------------------------------------------------------------------
+// HW-identity accessors (relocated from bb_board, B1-977 dissolution).
+// ---------------------------------------------------------------------------
+
+static const char *chip_model_str(esp_chip_model_t m)
+{
+    switch (m) {
+        case CHIP_ESP32:    return "ESP32";
+        case CHIP_ESP32S2:  return "ESP32-S2";
+        case CHIP_ESP32S3:  return "ESP32-S3";
+        case CHIP_ESP32C3:  return "ESP32-C3";
+        case CHIP_ESP32C6:  return "ESP32-C6";
+        case CHIP_ESP32H2:  return "ESP32-H2";
+        case CHIP_ESP32P4:  return "ESP32-P4";
+        default:            return "unknown";
+    }
+}
+
+const char *bb_system_get_chip_model(void)
+{
+    esp_chip_info_t chip;
+    esp_chip_info(&chip);
+    return chip_model_str(chip.model);
+}
+
+uint8_t bb_system_get_cores(void)
+{
+    esp_chip_info_t chip;
+    esp_chip_info(&chip);
+    return chip.cores;
+}
+
+bb_err_t bb_system_get_mac(char *out, size_t out_size)
+{
+    if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
+    uint8_t mac[6] = {0};
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK) {
+        out[0] = '\0';
+        return BB_OK;
+    }
+    snprintf(out, out_size, "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return BB_OK;
+}
+
+uint32_t bb_system_get_flash_size(void)
+{
+    uint32_t size = 0;
+    esp_flash_get_size(NULL, &size);
+    return size;
+}
+
+uint32_t bb_system_get_app_size(void)
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    return running ? running->size : 0;
+}
+
+uint32_t bb_system_chip_revision(void)
+{
+    esp_chip_info_t info;
+    esp_chip_info(&info);
+    return info.revision;
+}
+
+uint32_t bb_system_cpu_freq_mhz(void)
+{
+    return (uint32_t)(esp_clk_cpu_freq() / 1000000);
 }
 
 void bb_system_restart_reason(bb_reset_source_t src, const char *detail)
