@@ -4,18 +4,12 @@
 // PR1 (KB 781): relocated verbatim from platform/host/bb_wifi/bb_wifi_emit.c
 // so bb_wifi's public header (and therefore the STA core's dependency
 // closure) sheds bb_json. This is the single source of truth for the wifi
-// section wire format.
+// STATUS-ONLY (ssid/bssid/ip/connected) wire format.
 //
-// When disconnected all numeric fields are 0/false and string fields are
-// empty/"0.0.0.0", matching the current /api/wifi behaviour.
-//
-// KB 820 (bb_wifi reason contract, PR1): "disc_reason" changed from a raw
-// esp_wifi/backend-specific numeric code to a STABLE STRING label (e.g.
-// "handshake_timeout", "bb_lost_ip") backed by the portable
-// bb_wifi_disc_reason_t enum. This is a BREAKING CHANGE for any consumer
-// that parsed "disc_reason" as an integer -- the numeric value is no longer
-// wire-visible anywhere. See bb_wifi.h for the full enum + per-backend
-// mapping (bb_wifi_map_esp_reason / bb_wifi_map_wl_status).
+// B1-1057: the full GET /api/wifi emitter (bb_wifi_emit_section, the
+// numeric-fields superset of bb_wifi_emit_status below) migrated to a
+// bb_serialize_desc_t -- see bb_wifi_http_wire_priv.h
+// (bb_wifi_http_info_wire_desc / bb_wifi_http_info_wire_fill).
 #include "bb_wifi_http.h"
 
 #include <stdio.h>
@@ -25,35 +19,6 @@ void bb_wifi_http_format_bssid(char out[18], const uint8_t bssid[6])
 {
     snprintf(out, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
              bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
-}
-
-// Emit the canonical wifi section into obj.
-// Fields written (in order):
-//   ssid               (string)
-//   bssid              (string "aa:bb:cc:dd:ee:ff")
-//   rssi               (integer)
-//   ip                 (string)
-//   connected          (bool)
-//   disc_reason        (string — stable label, see bb_wifi_disc_reason_str)
-//   disc_age_s         (integer)
-//   retry_count        (integer)
-//   restart_sta_count  (integer, times bb_wifi_restart_sta was invoked)
-//   disconnect_rssi    (integer, RSSI at most recent disconnect)
-void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
-{
-    char bssid[18];
-    bb_wifi_http_format_bssid(bssid, info->bssid);
-
-    bb_json_obj_set_string(obj, "ssid",             info->ssid);
-    bb_json_obj_set_string(obj, "bssid",            bssid);
-    bb_json_obj_set_int   (obj, "rssi",             (int64_t)info->rssi);
-    bb_json_obj_set_string(obj, "ip",               info->ip);
-    bb_json_obj_set_bool  (obj, "connected",        info->connected);
-    bb_json_obj_set_string(obj, "disc_reason",      bb_wifi_disc_reason_str(info->disc_reason));
-    bb_json_obj_set_int   (obj, "disc_age_s",       (int64_t)info->disc_age_s);
-    bb_json_obj_set_int   (obj, "retry_count",      (int64_t)info->retry_count);
-    bb_json_obj_set_int   (obj, "restart_sta_count",  (int64_t)bb_wifi_get_restart_sta_count());
-    bb_json_obj_set_int   (obj, "disconnect_rssi",    (int64_t)bb_wifi_get_disconnect_rssi());
 }
 
 // Emit status-only wifi fields — ssid/bssid/ip/connected.

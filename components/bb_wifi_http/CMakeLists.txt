@@ -6,6 +6,7 @@ idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_wifi_http/bb_wifi_http_routes.c"
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_wifi_http/bb_wifi_http_emit.c"
          "${CMAKE_CURRENT_LIST_DIR}/bb_wifi_http_diag.c"
+         "${CMAKE_CURRENT_LIST_DIR}/bb_wifi_http_wire.c"
          "${CMAKE_CURRENT_LIST_DIR}/src/bb_wifi_http_apply_status.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"

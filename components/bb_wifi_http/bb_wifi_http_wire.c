@@ -1,0 +1,68 @@
+// bb_wifi_http_wire — v2 wire descriptor (SSOT) for the /api/wifi payload
+// (B1-1057). Compiles on both host and ESP-IDF; no platform-specific code.
+// See bb_wifi_http_wire_priv.h for the byte-fidelity contract.
+//
+// KB 820 (bb_wifi reason contract): "disc_reason" is a STABLE STRING label
+// (e.g. "handshake_timeout", "bb_lost_ip") backed by the portable
+// bb_wifi_disc_reason_t enum -- never a raw esp_wifi/backend-specific
+// numeric code. See bb_wifi.h for the full enum + per-backend mapping
+// (bb_wifi_map_esp_reason / bb_wifi_map_wl_status).
+
+#include "bb_wifi_http_wire_priv.h"
+
+#include "bb_wifi_http.h"
+
+#include <stddef.h>
+#include <string.h>
+
+static const bb_serialize_field_t s_wifi_info_wire_fields[] = {
+    { .key = "ssid", .type = BB_TYPE_STR,
+      .offset = offsetof(bb_wifi_http_info_wire_t, ssid),
+      .max_len = sizeof(((bb_wifi_http_info_wire_t *)0)->ssid) },
+    { .key = "bssid", .type = BB_TYPE_STR,
+      .offset = offsetof(bb_wifi_http_info_wire_t, bssid),
+      .max_len = sizeof(((bb_wifi_http_info_wire_t *)0)->bssid) },
+    { .key = "rssi", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_wifi_http_info_wire_t, rssi) },
+    { .key = "ip", .type = BB_TYPE_STR,
+      .offset = offsetof(bb_wifi_http_info_wire_t, ip),
+      .max_len = sizeof(((bb_wifi_http_info_wire_t *)0)->ip) },
+    { .key = "connected", .type = BB_TYPE_BOOL,
+      .offset = offsetof(bb_wifi_http_info_wire_t, connected) },
+    { .key = "disc_reason", .type = BB_TYPE_STR_N,
+      .offset = offsetof(bb_wifi_http_info_wire_t, disc_reason) },
+    { .key = "disc_age_s", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_wifi_http_info_wire_t, disc_age_s) },
+    { .key = "retry_count", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_wifi_http_info_wire_t, retry_count) },
+    { .key = "restart_sta_count", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_wifi_http_info_wire_t, restart_sta_count) },
+    { .key = "disconnect_rssi", .type = BB_TYPE_I64,
+      .offset = offsetof(bb_wifi_http_info_wire_t, disconnect_rssi) },
+};
+
+const bb_serialize_desc_t bb_wifi_http_info_wire_desc = {
+    .type_name = "wifi_info",
+    .fields    = s_wifi_info_wire_fields,
+    .n_fields  = sizeof(s_wifi_info_wire_fields) / sizeof(s_wifi_info_wire_fields[0]),
+    .snap_size = sizeof(bb_wifi_http_info_wire_t),
+};
+
+void bb_wifi_http_info_wire_fill(bb_wifi_http_info_wire_t *dst, const bb_wifi_info_t *info)
+{
+    strncpy(dst->ssid, info->ssid, sizeof(dst->ssid) - 1);
+    dst->ssid[sizeof(dst->ssid) - 1] = '\0';
+    bb_wifi_http_format_bssid(dst->bssid, info->bssid);
+    dst->rssi = (int64_t)info->rssi;
+    strncpy(dst->ip, info->ip, sizeof(dst->ip) - 1);
+    dst->ip[sizeof(dst->ip) - 1] = '\0';
+    dst->connected = info->connected;
+
+    const char *reason_str = bb_wifi_disc_reason_str(info->disc_reason);
+    dst->disc_reason = (bb_serialize_str_n_t){ .ptr = reason_str, .len = strlen(reason_str) };
+
+    dst->disc_age_s        = (int64_t)info->disc_age_s;
+    dst->retry_count       = (int64_t)info->retry_count;
+    dst->restart_sta_count = (int64_t)bb_wifi_get_restart_sta_count();
+    dst->disconnect_rssi   = (int64_t)bb_wifi_get_disconnect_rssi();
+}
