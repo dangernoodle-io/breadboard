@@ -1731,6 +1731,20 @@ void test_ota_validator_partitions_wire_expected_json_escaped_label(void);
 void test_ota_validator_partitions_wire_copy_rows_null_label_and_state(void);
 void test_ota_validator_partitions_wire_row_field_count_matches(void);
 
+// Forward declarations from test_log_event_line_wire.c
+void test_log_event_line_wire_expected_json_normal_row(void);
+void test_log_event_line_wire_expected_json_level_info(void);
+void test_log_event_line_wire_expected_json_level_warn(void);
+void test_log_event_line_wire_expected_json_level_error(void);
+void test_log_event_line_wire_expected_json_level_debug(void);
+void test_log_event_line_wire_expected_json_level_verbose(void);
+void test_log_event_line_wire_expected_json_level_fallback(void);
+void test_log_event_line_wire_expected_json_empty_msg(void);
+void test_log_event_line_wire_expected_json_escaped_msg(void);
+void test_log_event_line_wire_expected_json_max_length_tag_and_msg(void);
+void test_log_event_line_wire_max_length_both_renders_and_stash_truncates(void);
+void test_log_event_line_wire_row_field_count_matches(void);
+
 // Forward declarations from test_wifi_creds_apply_route.c
 void test_wifi_creds_apply_post_mode_does_not_reuse_stale_pending_password(void);
 void test_wifi_creds_apply_patch_mode_would_reuse_stale_pending_password(void);
@@ -6180,6 +6194,20 @@ int main(void) {
     RUN_TEST(test_ota_validator_partitions_wire_expected_json_escaped_label);
     RUN_TEST(test_ota_validator_partitions_wire_copy_rows_null_label_and_state);
     RUN_TEST(test_ota_validator_partitions_wire_row_field_count_matches);
+
+    // Log event line wire (bb_json -> bb_serialize migration) tests
+    RUN_TEST(test_log_event_line_wire_expected_json_normal_row);
+    RUN_TEST(test_log_event_line_wire_expected_json_level_info);
+    RUN_TEST(test_log_event_line_wire_expected_json_level_warn);
+    RUN_TEST(test_log_event_line_wire_expected_json_level_error);
+    RUN_TEST(test_log_event_line_wire_expected_json_level_debug);
+    RUN_TEST(test_log_event_line_wire_expected_json_level_verbose);
+    RUN_TEST(test_log_event_line_wire_expected_json_level_fallback);
+    RUN_TEST(test_log_event_line_wire_expected_json_empty_msg);
+    RUN_TEST(test_log_event_line_wire_expected_json_escaped_msg);
+    RUN_TEST(test_log_event_line_wire_expected_json_max_length_tag_and_msg);
+    RUN_TEST(test_log_event_line_wire_max_length_both_renders_and_stash_truncates);
+    RUN_TEST(test_log_event_line_wire_row_field_count_matches);
 
     // Route registry tests
     RUN_TEST(test_route_registry_count_starts_at_zero);
