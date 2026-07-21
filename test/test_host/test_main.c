@@ -3497,28 +3497,6 @@ void test_bb_power_set_primary_stores_handle(void);
 void test_bb_power_set_primary_null_clears(void);
 void test_bb_power_initial_snapshot_all_minus_one(void);
 
-// Forward declarations from test_bb_power_emit.c
-void test_bb_power_emit_all_fields_present(void);
-void test_bb_power_emit_vout_null_when_minus_one(void);
-void test_bb_power_emit_iout_null_when_minus_one(void);
-void test_bb_power_emit_pout_null_when_minus_one(void);
-void test_bb_power_emit_vin_null_when_minus_one(void);
-void test_bb_power_emit_temp_null_when_minus_one(void);
-void test_bb_power_emit_all_null_when_all_minus_one(void);
-
-// Forward declarations from test_bb_fan_emit.c
-void test_bb_fan_emit_all_fields_present(void);
-void test_bb_fan_emit_rpm_null_when_minus_one(void);
-void test_bb_fan_emit_duty_null_when_minus_one(void);
-void test_bb_fan_emit_die_c_null_when_nan(void);
-void test_bb_fan_emit_board_c_null_when_nan(void);
-void test_bb_fan_emit_all_null_when_unavailable(void);
-#ifdef CONFIG_BB_FAN_AUTOFAN
-void test_bb_fan_emit_autofan_fields_present(void);
-void test_bb_fan_emit_autofan_aux_mapped_to_vr(void);
-void test_bb_fan_emit_autofan_die_ema_null_when_negative(void);
-#endif /* CONFIG_BB_FAN_AUTOFAN */
-
 // Forward declarations from test_tps546_decode.c
 void test_ulinear16_to_mv_negative_exp(void);
 void test_ulinear16_to_mv_rounding(void);
@@ -7620,28 +7598,6 @@ int main(void) {
     RUN_TEST(test_bb_power_set_primary_stores_handle);
     RUN_TEST(test_bb_power_set_primary_null_clears);
     RUN_TEST(test_bb_power_initial_snapshot_all_minus_one);
-
-    // bb_power_emit builder (B1-352)
-    RUN_TEST(test_bb_power_emit_all_fields_present);
-    RUN_TEST(test_bb_power_emit_vout_null_when_minus_one);
-    RUN_TEST(test_bb_power_emit_iout_null_when_minus_one);
-    RUN_TEST(test_bb_power_emit_pout_null_when_minus_one);
-    RUN_TEST(test_bb_power_emit_vin_null_when_minus_one);
-    RUN_TEST(test_bb_power_emit_temp_null_when_minus_one);
-    RUN_TEST(test_bb_power_emit_all_null_when_all_minus_one);
-
-    // bb_fan_emit builder (B1-352)
-    RUN_TEST(test_bb_fan_emit_all_fields_present);
-    RUN_TEST(test_bb_fan_emit_rpm_null_when_minus_one);
-    RUN_TEST(test_bb_fan_emit_duty_null_when_minus_one);
-    RUN_TEST(test_bb_fan_emit_die_c_null_when_nan);
-    RUN_TEST(test_bb_fan_emit_board_c_null_when_nan);
-    RUN_TEST(test_bb_fan_emit_all_null_when_unavailable);
-#ifdef CONFIG_BB_FAN_AUTOFAN
-    RUN_TEST(test_bb_fan_emit_autofan_fields_present);
-    RUN_TEST(test_bb_fan_emit_autofan_aux_mapped_to_vr);
-    RUN_TEST(test_bb_fan_emit_autofan_die_ema_null_when_negative);
-#endif /* CONFIG_BB_FAN_AUTOFAN */
 
     // tps546_decode decode math tests
     RUN_TEST(test_ulinear16_to_mv_negative_exp);

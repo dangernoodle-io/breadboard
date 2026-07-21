@@ -4,7 +4,6 @@
 #include <stdbool.h>
 #include <math.h>
 #include "bb_core.h"
-#include "bb_json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -114,18 +113,6 @@ void bb_fan_set_autofan_persist_cb(
     void (*cb)(void *ctx, const bb_fan_autofan_cfg_t *cfg), void *ctx);
 
 #endif /* CONFIG_BB_FAN_AUTOFAN */
-
-// ---------------------------------------------------------------------------
-// JSON serializer — single builder used by REST responses.
-// Emits rpm/duty_pct/die_c/board_c (null when unavailable).
-// When CONFIG_BB_FAN_AUTOFAN: also emits die_ema_c/vr_ema_c/pid_input_c/pid_input_src.
-// ---------------------------------------------------------------------------
-#ifndef CONFIG_BB_FAN_AUTOFAN
-void bb_fan_emit(bb_json_t obj, const bb_fan_snapshot_t *snap);
-#else
-void bb_fan_emit(bb_json_t obj, const bb_fan_snapshot_t *snap,
-                 const bb_fan_autofan_telemetry_t *tel);
-#endif
 
 #ifdef __cplusplus
 }

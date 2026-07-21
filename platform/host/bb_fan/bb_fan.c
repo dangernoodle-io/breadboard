@@ -4,7 +4,6 @@
 // platform type directly.
 #include "bb_fan.h"
 #include "bb_fan_driver.h"
-#include "bb_json.h"
 #include "bb_log.h"
 #include "bb_lock.h"
 #include <stdlib.h>
@@ -316,67 +315,6 @@ void bb_fan_get_autofan_telemetry(bb_fan_handle_t h, bb_fan_autofan_telemetry_t 
 }
 
 #endif /* CONFIG_BB_FAN_AUTOFAN */
-
-// ---------------------------------------------------------------------------
-// JSON serializer — single builder used by REST responses.
-// ---------------------------------------------------------------------------
-
-#ifndef CONFIG_BB_FAN_AUTOFAN
-void bb_fan_emit(bb_json_t obj, const bb_fan_snapshot_t *snap)
-#else
-void bb_fan_emit(bb_json_t obj, const bb_fan_snapshot_t *snap,
-                 const bb_fan_autofan_telemetry_t *tel)
-#endif
-{
-    if (!obj || !snap) return;
-
-    if (snap->rpm >= 0) {
-        bb_json_obj_set_number(obj, "rpm", (double)snap->rpm);
-    } else {
-        bb_json_obj_set_null(obj, "rpm");
-    }
-
-    if (snap->duty_pct >= 0) {
-        bb_json_obj_set_number(obj, "duty_pct", (double)snap->duty_pct);
-    } else {
-        bb_json_obj_set_null(obj, "duty_pct");
-    }
-
-    if (!isnan(snap->die_c)) {
-        bb_json_obj_set_number(obj, "die_c", (double)snap->die_c);
-    } else {
-        bb_json_obj_set_null(obj, "die_c");
-    }
-
-    if (!isnan(snap->board_c)) {
-        bb_json_obj_set_number(obj, "board_c", (double)snap->board_c);
-    } else {
-        bb_json_obj_set_null(obj, "board_c");
-    }
-
-#ifdef CONFIG_BB_FAN_AUTOFAN
-    if (tel) {
-        if (tel->die_ema_c >= 0.0f) {
-            bb_json_obj_set_number(obj, "die_ema_c", (double)tel->die_ema_c);
-        } else {
-            bb_json_obj_set_null(obj, "die_ema_c");
-        }
-        if (tel->aux_ema_c >= 0.0f) {
-            bb_json_obj_set_number(obj, "vr_ema_c", (double)tel->aux_ema_c);
-        } else {
-            bb_json_obj_set_null(obj, "vr_ema_c");
-        }
-        if (tel->pid_input_c >= 0.0f) {
-            bb_json_obj_set_number(obj, "pid_input_c", (double)tel->pid_input_c);
-        } else {
-            bb_json_obj_set_null(obj, "pid_input_c");
-        }
-        const char *src = tel->pid_input_src ? tel->pid_input_src : "";
-        if (src[0] == 'a') src = "vr";
-        bb_json_obj_set_string(obj, "pid_input_src", src);
-    }
-#endif
-}
 
 #ifdef BB_FAN_TESTING
 #include "bb_fan_test.h"
