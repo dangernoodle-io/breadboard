@@ -50,14 +50,20 @@
 //
 //   Budget check against CONFIG_BB_HTTP_TASK_STACK_SIZE (6144 B total,
 //   components/bb_http_server/Kconfig.projbuild): this composer's own path
-//   must independently fit under 6144 B -- baseline call-frame overhead +
-//   128 B scratch + ~8 B/frame overhead per nested call, checked on its OWN,
-//   never summed against another handler. The WS-connect snapshot-on-connect
+//   must independently fit under 6144 B. The real worst case is NOT one
+//   section's scratch slot -- it's the full arena
+//   BB_HEALTH_SECTION_TABLE_CAP x BB_HEALTH_SECTION_SCRATCH_BYTES (8 x 128 =
+//   1024 B), PLUS the bb_serialize_json stream's own flush buffer
+//   (BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES, default 768 B,
+//   components/bb_serialize_json/Kconfig), PLUS root/entries call-frame
+//   overhead (~200 B) -- roughly 2 KB total (1024 + 768 + ~200) on the httpd
+//   worker stack, checked on its OWN, never summed against another handler.
+//   The WS-connect snapshot-on-connect
 //   path's ~3.5 KB claim (B1-589/B1-592) is a SEPARATE top-level route
 //   dispatch on the esp_http_server worker task -- sequential with, never
 //   nested inside or concurrent with, a GET /api/health dispatch on the same
 //   task type -- so it is an ALTERNATE PEAK, not a claim to subtract from a
-//   shared budget: baseline + max(3584, 768 + 128) < 6144, NOT
+//   shared budget: baseline + max(3584, 1024 + 768 + 200) < 6144, NOT
 //   6144 - 3584 - 768. It's noted here only as a reminder that ANY handler
 //   registered on this task type must independently clear the same 6144 B
 //   ceiling.

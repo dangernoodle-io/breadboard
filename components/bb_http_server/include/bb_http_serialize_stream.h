@@ -51,6 +51,15 @@ bb_err_t bb_http_serialize_stream(bb_http_request_t *req,
 bb_err_t bb_http_serialize_stream_compose(bb_http_request_t *req,
                                            const bb_serialize_compose_group_t *groups, size_t n_groups);
 
+// Same as bb_http_serialize_stream_compose() above, plus a trailing
+// `f64_shortest` -- see bb_serialize_json_render_ex()'s doc comment
+// (bb_serialize_json.h) for the contract (B1-1102). Thin-wrapper
+// relationship: bb_http_serialize_stream_compose(...) ==
+// bb_http_serialize_stream_compose_ex(..., false).
+bb_err_t bb_http_serialize_stream_compose_ex(bb_http_request_t *req,
+                                              const bb_serialize_compose_group_t *groups, size_t n_groups,
+                                              bool f64_shortest);
+
 #ifdef __cplusplus
 }
 #endif

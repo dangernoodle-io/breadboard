@@ -6,13 +6,22 @@
 // (test_serialize_fixture.h) -- not a spec for any production payload, just
 // exercise of the string/bool/i64/str_n/arr_str field-type diversity.
 //
-// health: each golden string is the SPEC for the ROOT-IDENTITY FIELD SLICE
-// ONLY -- the fields health_handler() emits INLINE, BEFORE
-// bb_response_build_get() appends the dynamically-registered sections
-// ("mqtt"/"temp"). It is NOT the full /api/health document -- see
-// bb_health_wire_priv.h for the full slice-vs-document contract. A mismatch
-// means the DESCRIPTOR (order/type/max_len/present) is wrong for that
-// slice -- fix the descriptor, never the golden.
+// health (root-identity slice): each golden string is the SPEC for the
+// ROOT-IDENTITY FIELD SLICE ONLY -- the fields the ESP-IDF /api/health
+// handler gathers directly (bb_wifi/bb_mdns/bb_board) and hands to
+// bb_health_compose_and_stream() as its RAW group. A mismatch means the
+// DESCRIPTOR (order/type/max_len/present) is wrong for that slice -- fix
+// the descriptor, never the golden.
+//
+// health (full-document golden, B1-1100 note 2): the trailing section below
+// asserts byte-exact output of the FULL composed /api/health document
+// (root + "temp" + "mqtt") via bb_health_compose_and_stream() itself --
+// registering the REAL bb_temp/bb_mqtt_client producers, not synthetic
+// fixtures -- the host-side proxy for the user's on-device curl check
+// (bb_health_compose_and_stream() is not host-reproducible for the ROOT
+// gather, since bb_mdns_get_hostname() is ESP_PLATFORM-only; the root
+// snapshot below is hand-filled with the same field values the ESP-IDF
+// handler would have gathered).
 //
 // The info-telemetry envelope golden (which mirrored
 // platform/host/bb_pub_info/bb_pub_info.c's info_serialize()) was removed
@@ -22,9 +31,14 @@
 #include "unity.h"
 
 #include "bb_serialize_json.h"
+#include "bb_http_host.h"
+#include "bb_mqtt_client.h"
+#include "bb_temp.h"
+#include "bb_temp_test.h"
 
 #include "test_serialize_fixture.h"
 #include "../../components/bb_health/bb_health_wire_priv.h"
+#include "../../components/bb_health/bb_health_compose_priv.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -172,21 +186,63 @@ void test_v2_golden_health_root_slice_disconnected(void)
 }
 
 // ---------------------------------------------------------------------------
-// health ROOT-SLICE differential -- documented as NOT tractable here
+// health FULL-DOCUMENT golden (B1-1100 note 2) -- root + "temp" + "mqtt",
+// composed via bb_health_compose_and_stream() itself (the same portable seam
+// the ESP-IDF /api/health handler calls), registering the REAL bb_temp/
+// bb_mqtt_client producers -- not synthetic fixtures. This is the host-side
+// proxy for the user's on-device curl check: byte-exact against this golden
+// here means byte-exact against today's live /api/health there too, modulo
+// the ROOT gather itself (bb_wifi/bb_mdns/bb_board), which is ESP_PLATFORM-
+// only and hand-filled below with the same field values/shapes the ESP-IDF
+// handler would have gathered.
 //
-// A true differential for the health root-identity slice (comparing against
-// health_handler() BEFORE bb_response_build_get() appends sections) would
-// need to invoke that handler directly. It lives in
-// platform/espidf/bb_health/bb_health.c -- an ESP-IDF httpd request handler
-// (esp_http_server, httpd_req_t) that is not compiled into the native/host
-// test target (platformio.ini's native env builds platform/host/* only, per
-// test_filter=test_host) and has no host-callable "root fields only, empty
-// section registry" entry point exposed today. Isolating the root-field
-// emit from the section registry would require restructuring the production
-// handler (e.g. splitting a root-only helper out of health_handler()) purely
-// to make it host-testable -- out of scope here, which must not contort
-// production code for testability. The health-slice goldens above
-// (test_v2_golden_health_root_slice_*) remain the coverage for that
-// descriptor until a future cutover PR, which will wire the descriptor
-// directly into the handler and can then assert true differential/
-// regression parity in place.
+// f64_shortest proof: bb_temp_test_set_soc(true, 55.3f) drives soc_c through
+// the SAME rounding bb_temp_health_fill() applies in production, then renders
+// via bb_health_compose_and_stream()'s f64_shortest=true path -- "55.3", not
+// the fixed-decimal "55.300000" a reverted flag would produce.
+// ---------------------------------------------------------------------------
+
+void test_v2_golden_health_full_document(void)
+{
+    // Register the REAL "temp" and "mqtt" producers (production fns, not
+    // fixtures) -- setUp()'s bb_health_reset_for_test() has already cleared
+    // the registry for this test.
+    bb_temp_test_set_soc(true, 55.3f);
+    bb_temp_register_info();
+
+    bb_mqtt_client_t h = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_client_init(&cfg, &h));
+    bb_mqtt_client_default_set(h);
+    bb_mqtt_client_health_register();
+
+    bb_health_wire_t root;
+    memset(&root, 0, sizeof(root));
+    root.ok        = true;
+    root.validated = true;
+    strncpy(root.network.ssid, "testnet", sizeof(root.network.ssid) - 1);
+    strncpy(root.network.bssid, "aa:bb:cc:dd:ee:ff", sizeof(root.network.bssid) - 1);
+    strncpy(root.network.ip, "192.168.1.50", sizeof(root.network.ip) - 1);
+    root.network.connected = true;
+    root.network.mdns = (bb_serialize_str_n_t){ .ptr = "bb-test", .len = 7 };
+
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_err_t err = bb_health_compose_and_stream(req, &root);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_STRING("application/json", cap.content_type);
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"ok\":true,\"validated\":true,\"network\":{\"ssid\":\"testnet\","
+        "\"bssid\":\"aa:bb:cc:dd:ee:ff\",\"ip\":\"192.168.1.50\","
+        "\"connected\":true,\"mdns\":\"bb-test\"},"
+        "\"temp\":{\"present\":true,\"soc_c\":55.3},"
+        "\"mqtt\":{\"enabled\":true,\"connected\":true}}",
+        cap.body);
+
+    bb_http_host_capture_free(&cap);
+    bb_mqtt_client_default_set(NULL);
+    bb_mqtt_client_destroy(h);
+}

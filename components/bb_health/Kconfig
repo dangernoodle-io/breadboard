@@ -60,7 +60,11 @@ config BB_HEALTH_SECTION_SCRATCH_BYTES
         whose snap_desc->snap_size exceeds this bound at registration time.
         Default 128 is measured, not padded: the largest known snapshot
         today is 32 B (bb_mqtt_client_health_snap_t and its bb_tcp_client/
-        bb_http_client siblings); 128 B is 4x headroom over that, and fits
+        bb_http_client siblings); 128 B is 4x headroom over that. The
+        composer's real worst-case path -- the full
+        BB_HEALTH_SECTION_TABLE_CAP x BB_HEALTH_SECTION_SCRATCH_BYTES arena
+        (1024 B) plus the bb_serialize_json flush buffer (768 B) plus
+        root/entries overhead (~200 B), roughly 2 KB total -- fits
         CONFIG_BB_HTTP_TASK_STACK_SIZE's (6144 B) budget checked on this
         composer's own path independently -- the WS-connect snapshot
         path's ~3.5 KB claim is a SEPARATE, sequential top-level route

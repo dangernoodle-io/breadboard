@@ -213,3 +213,55 @@ void test_bb_health_section_register_before_freeze_still_ok(void)
     // Registering before freeze is unaffected by a LATER freeze call.
     bb_health_section_freeze();
 }
+
+// ---------------------------------------------------------------------------
+// bb_health_section_count / bb_health_section_get_by_index (B1-1100 --
+// the iterator the composer walks to build its per-request arena/entries).
+// ---------------------------------------------------------------------------
+
+void test_bb_health_section_count_zero_when_empty(void)
+{
+    hs_reset();
+    TEST_ASSERT_EQUAL_UINT16(0, bb_health_section_count());
+}
+
+void test_bb_health_section_count_reflects_registrations(void)
+{
+    hs_reset();
+    bb_health_section_t a = { .name = "hs.a", .snap_desc = &s_hs_desc, .fill = hs_fill_ok };
+    bb_health_section_t b = { .name = "hs.b", .snap_desc = &s_hs_desc, .fill = hs_fill_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_health_section_register(&a));
+    TEST_ASSERT_EQUAL_UINT16(1, bb_health_section_count());
+    TEST_ASSERT_EQUAL(BB_OK, bb_health_section_register(&b));
+    TEST_ASSERT_EQUAL_UINT16(2, bb_health_section_count());
+}
+
+void test_bb_health_section_get_by_index_returns_registration_order(void)
+{
+    hs_reset();
+    bb_health_section_t a = { .name = "hs.first", .snap_desc = &s_hs_desc, .fill = hs_fill_ok };
+    bb_health_section_t b = { .name = "hs.second", .snap_desc = &s_hs_desc, .fill = hs_fill_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_health_section_register(&a));
+    TEST_ASSERT_EQUAL(BB_OK, bb_health_section_register(&b));
+
+    const bb_health_section_t *got0 = bb_health_section_get_by_index(0);
+    const bb_health_section_t *got1 = bb_health_section_get_by_index(1);
+    TEST_ASSERT_NOT_NULL(got0);
+    TEST_ASSERT_NOT_NULL(got1);
+    TEST_ASSERT_EQUAL_STRING("hs.first", got0->name);
+    TEST_ASSERT_EQUAL_STRING("hs.second", got1->name);
+}
+
+void test_bb_health_section_get_by_index_out_of_range_returns_null(void)
+{
+    hs_reset();
+    bb_health_section_t a = { .name = "hs.only", .snap_desc = &s_hs_desc, .fill = hs_fill_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_health_section_register(&a));
+    TEST_ASSERT_NULL(bb_health_section_get_by_index(1));
+}
+
+void test_bb_health_section_get_by_index_empty_registry_returns_null(void)
+{
+    hs_reset();
+    TEST_ASSERT_NULL(bb_health_section_get_by_index(0));
+}

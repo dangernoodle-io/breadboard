@@ -1,21 +1,19 @@
 #pragma once
 
 // Private: v2 wire descriptor for the /api/health ROOT-IDENTITY FIELD SLICE
-// (B1-767 PR-6).
+// (B1-767 PR-6; LIVE since B1-1100 PR-5).
 //
-// bb_serialize_desc_t SSOT reproducing TODAY's on-wire bytes byte-for-byte
-// for the root-identity fields ONLY (see test/test_host/test_v2_golden.c)
-// -- the fields health_handler() emits INLINE, BEFORE it calls
-// bb_response_build_get(&reg, root) to append the dynamically-registered
-// sections (today: "mqtt", "temp"). This descriptor is NOT byte-for-byte
-// fidelity for the FULL /api/health document -- full document = this root
-// slice + the registered sections. The deferred cutover must still run the
-// section registry (bb_response_build_get) after rendering this root
-// descriptor; serving sections themselves as descriptors is a separate,
-// later piece of work (composed-section conversion, see roadmap epic
-// B1-786). ADDITIVE only -- not yet wired into the live /api/health handler
-// (platform/espidf/bb_health/bb_health.c), which still emits via bb_json_t
-// directly.
+// bb_serialize_desc_t SSOT reproducing the on-wire bytes byte-for-byte for
+// the root-identity fields ONLY (see test/test_host/test_v2_golden.c) --
+// the fields the ESP-IDF /api/health handler
+// (platform/espidf/bb_health/bb_health.c) gathers directly from
+// bb_wifi/bb_mdns/bb_board and hands to bb_health_compose_and_stream()
+// (bb_health_compose_priv.h) as a RAW group, merged flat at the document
+// root ahead of the registered sections ("mqtt", "temp", ...), which
+// compose as a named OBJECT group in the same call. This descriptor is
+// NOT byte-for-byte fidelity for the FULL /api/health document on its
+// own -- full document = this root slice + the registered sections; see
+// test_v2_golden.c's full-document golden for that composed shape.
 
 #include "bb_serialize.h"
 

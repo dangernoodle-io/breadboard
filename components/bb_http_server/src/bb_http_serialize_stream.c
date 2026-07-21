@@ -44,8 +44,9 @@ bb_err_t bb_http_serialize_stream(bb_http_request_t *req,
     return fin_err;
 }
 
-bb_err_t bb_http_serialize_stream_compose(bb_http_request_t *req,
-                                           const bb_serialize_compose_group_t *groups, size_t n_groups)
+bb_err_t bb_http_serialize_stream_compose_ex(bb_http_request_t *req,
+                                              const bb_serialize_compose_group_t *groups, size_t n_groups,
+                                              bool f64_shortest)
 {
     if (!req) return BB_ERR_INVALID_ARG;
     if (!groups && n_groups) return BB_ERR_INVALID_ARG;
@@ -54,7 +55,8 @@ bb_err_t bb_http_serialize_stream_compose(bb_http_request_t *req,
     if (type_err != BB_OK) return type_err;
 
     flush_ctx_t fc = { .req = req, .failed = false, .err = BB_OK };
-    bb_err_t render_err = bb_serialize_json_stream_compose_render(groups, n_groups, http_flush, &fc, &fc.failed);
+    bb_err_t render_err = bb_serialize_json_stream_compose_render_ex(groups, n_groups, http_flush, &fc, &fc.failed,
+                                                                      f64_shortest);
 
     // Always finalize the chunked response, even on error -- an
     // unterminated chunked body can hang a strict client.
@@ -63,4 +65,10 @@ bb_err_t bb_http_serialize_stream_compose(bb_http_request_t *req,
     if (fc.failed) return fc.err;
     if (render_err != BB_OK) return render_err;
     return fin_err;
+}
+
+bb_err_t bb_http_serialize_stream_compose(bb_http_request_t *req,
+                                           const bb_serialize_compose_group_t *groups, size_t n_groups)
+{
+    return bb_http_serialize_stream_compose_ex(req, groups, n_groups, false);
 }
