@@ -12,10 +12,59 @@ from registry import Rule, RULES
 from cmake_parse import parse_requires, ConditionalSetError
 from boards import discover_components, ManifestError
 from composition import resolve_composition
-from discovery import build_index
+from discovery import build_index, normalize_roots
 
 NAME = "lint"
 HELP = "Run source lint checks"
+
+
+# ---------------------------------------------------------------------------
+# Discovery-SSOT helpers shared by every rule that used to hand-roll a
+# `comp_root.glob("*/include/*.h")` / `comp_root.glob("*/CMakeLists.txt")`
+# single-level walk (B1-1084 consumer migration). Both are depth-agnostic —
+# a nested component is found via `discovery.build_index` rather than a
+# glob shape that silently matches zero paths once a component moves off
+# `components/<name>/` (a SILENT-omission bug, not merely a stale path).
+# ---------------------------------------------------------------------------
+
+def _public_headers(ctx: Context, exclude: frozenset = frozenset()) -> List[Path]:
+    """Every public header (`include/*.h`) of every discovered component,
+    sorted for determinism. Byte-identical ordering to the old
+    `sorted(comp_root.glob("*/include/*.h"))` on today's flat tree (both are
+    a path-string sort with an identical `components/<name>/include/`
+    prefix per component)."""
+    index = build_index(normalize_roots(str(Path(ctx.root))))
+    headers: List[Path] = []
+    for name in index.names():
+        if name in exclude:
+            continue
+        comp_dir = index.component_dir(name)
+        if comp_dir is None:
+            continue
+        inc_dir = comp_dir / "include"
+        if inc_dir.is_dir():
+            headers.extend(inc_dir.glob("*.h"))
+    return sorted(headers)
+
+
+def _component_cmake_files(ctx: Context) -> List[Path]:
+    """Every discovered component's own `CMakeLists.txt` (components-layer
+    only, mirroring the old `comp_root.glob("*/CMakeLists.txt")`'s scope),
+    sorted by path for determinism — byte-identical ordering to the old glob
+    on today's flat tree."""
+    index = build_index(normalize_roots(str(Path(ctx.root))))
+    files: List[Path] = []
+    for name in index.names():
+        comp_dir = index.component_dir(name)
+        if comp_dir is None:
+            continue
+        cmake_file = comp_dir / "CMakeLists.txt"
+        if cmake_file.is_file():
+            files.append(cmake_file)
+    return sorted(files)
+
+
+_BB_DISPLAY_EK79007_EXCLUDE = frozenset({"bb_display_ek79007"})
 
 # ---------------------------------------------------------------------------
 # Rule implementations (4 ported from check_lint.sh)
@@ -46,10 +95,6 @@ def _check_deprecated_http_send(ctx: Context) -> list:
 def _check_public_header_leak(ctx: Context) -> list:
     """Rule: public-header-leak — flags ungated esp_/driver/cJSON includes in public headers."""
     violations = []
-    root = Path(ctx.root)
-    comp_root = root / "components"
-    if not comp_root.exists():
-        return violations
 
     include_pattern = re.compile(
         r'["<](esp_|freertos/|lwip/|mbedtls/)'
@@ -69,12 +114,7 @@ def _check_public_header_leak(ctx: Context) -> list:
     include_re = re.compile(r'^\s*#\s*include\b')
 
     # Find all public headers, excluding bb_display_ek79007
-    for path in sorted(comp_root.glob("*/include/*.h")):
-        # Exclude bb_display_ek79007 (any component dir named that)
-        parts = path.relative_to(comp_root).parts
-        if parts[0] == "bb_display_ek79007":
-            continue
-
+    for path in _public_headers(ctx, exclude=_BB_DISPLAY_EK79007_EXCLUDE):
         content = ctx.read(path)
         gate = 0
         for i, line in enumerate(content.splitlines(), 1):
@@ -448,10 +488,6 @@ def _check_platform_error_in_public_struct(ctx: Context) -> list:
     """Rule: platform-error-in-public-struct — flags integer struct fields that surface
     raw platform error codes (esp_err, mbedtls, tls_error_code, disc_reason…)."""
     violations = []
-    root = Path(ctx.root)
-    comp_root = root / "components"
-    if not comp_root.exists():
-        return violations
 
     # Read allowlist from config
     rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get(
@@ -459,11 +495,7 @@ def _check_platform_error_in_public_struct(ctx: Context) -> list:
     )
     allowlist: set = set(rule_cfg.get("allow", []))
 
-    for path in sorted(comp_root.glob("*/include/*.h")):
-        parts = path.relative_to(comp_root).parts
-        if parts[0] == "bb_display_ek79007":
-            continue
-
+    for path in _public_headers(ctx, exclude=_BB_DISPLAY_EK79007_EXCLUDE):
         content = ctx.read(path)
         lines = content.splitlines()
         in_struct = False
@@ -592,19 +624,11 @@ _BB_PREFIX_HGUARD_RE = re.compile(r'[A-Z0-9_]+_H(?:_)?$')
 def _check_bb_prefix(ctx: Context) -> list:
     """Rule: bb-prefix — flags public symbols in components/*/include/*.h not prefixed bb_/BB_."""
     violations = []
-    root = Path(ctx.root)
-    comp_root = root / "components"
-    if not comp_root.exists():
-        return violations
 
     rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get("bb-prefix", {})
     allowlist: set = set(rule_cfg.get("allow", []))
 
-    for path in sorted(comp_root.glob("*/include/*.h")):
-        parts = path.relative_to(comp_root).parts
-        if parts[0] == "bb_display_ek79007":
-            continue
-
+    for path in _public_headers(ctx, exclude=_BB_DISPLAY_EK79007_EXCLUDE):
         content = ctx.read(path)
         for i, line in enumerate(content.splitlines(), 1):
             # --- function declarations ---
@@ -640,18 +664,10 @@ def _check_bb_prefix(ctx: Context) -> list:
 def _check_pragma_once(ctx: Context) -> list:
     """Rule: pragma-once — flags public headers lacking a #pragma once line."""
     violations = []
-    root = Path(ctx.root)
-    comp_root = root / "components"
-    if not comp_root.exists():
-        return violations
 
     pragma_re = re.compile(r'^\s*#\s*pragma\s+once\b')
 
-    for path in sorted(comp_root.glob("*/include/*.h")):
-        parts = path.relative_to(comp_root).parts
-        if parts[0] == "bb_display_ek79007":
-            continue
-
+    for path in _public_headers(ctx, exclude=_BB_DISPLAY_EK79007_EXCLUDE):
         content = ctx.read(path)
         has_pragma = any(pragma_re.match(line) for line in content.splitlines())
         if not has_pragma:
@@ -702,16 +718,8 @@ def _check_public_header_inline_platform_call(ctx: Context) -> list:
     """Rule: public-header-inline-platform-call — flags inline function bodies in public
     headers that call platform APIs (esp_*).  They leak the dep into every consumer's TU."""
     violations = []
-    root = Path(ctx.root)
-    comp_root = root / "components"
-    if not comp_root.exists():
-        return violations
 
-    for path in sorted(comp_root.glob("*/include/*.h")):
-        parts = path.relative_to(comp_root).parts
-        if parts[0] == "bb_display_ek79007":
-            continue
-
+    for path in _public_headers(ctx, exclude=_BB_DISPLAY_EK79007_EXCLUDE):
         src = ctx.read(path)
         stripped = _strip_noise(src)
         n = len(stripped)
@@ -1274,10 +1282,6 @@ def _check_public_requires_unused(ctx: Context) -> list:
     leak; promoting to "error" here would break `make lint`/CI on the
     existing tree. Graduate to "error" once that leak is fixed downstream."""
     violations = []
-    root = Path(ctx.root)
-    comp_root = root / "components"
-    if not comp_root.exists():
-        return violations
 
     rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get(
         "public-requires-unused", {}
@@ -1291,7 +1295,7 @@ def _check_public_requires_unused(ctx: Context) -> list:
                 return True
         return False
 
-    for cmake_file in sorted(comp_root.glob("*/CMakeLists.txt")):
+    for cmake_file in _component_cmake_files(ctx):
         comp = cmake_file.parent.name
         content = ctx.read(cmake_file)
         try:

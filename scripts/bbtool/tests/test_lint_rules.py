@@ -79,8 +79,14 @@ class TestDeprecatedHttpSend(unittest.TestCase):
 
 class TestPublicHeaderLeak(unittest.TestCase):
     def _make_header(self, tmpdir: str, comp: str, filename: str, content: str) -> str:
-        inc = os.path.join(tmpdir, "components", comp, "include")
+        comp_dir = os.path.join(tmpdir, "components", comp)
+        inc = os.path.join(comp_dir, "include")
         os.makedirs(inc, exist_ok=True)
+        # A CMakeLists.txt marks this dir as a leaf component under
+        # discovery.py's leaf rule (B1-1084 consumer migration) — without
+        # it, build_index() finds zero components and the discovery-SSOT
+        # rules under test never see this fixture's header at all.
+        Path(os.path.join(comp_dir, "CMakeLists.txt")).write_text("")
         Path(os.path.join(inc, filename)).write_text(content)
         return tmpdir
 
@@ -446,8 +452,12 @@ class TestTimerCbHeavy(unittest.TestCase):
 
 class TestPlatformErrorInPublicStruct(unittest.TestCase):
     def _make_header(self, tmpdir: str, comp: str, filename: str, content: str) -> str:
-        inc = os.path.join(tmpdir, "components", comp, "include")
+        comp_dir = os.path.join(tmpdir, "components", comp)
+        inc = os.path.join(comp_dir, "include")
         os.makedirs(inc, exist_ok=True)
+        # See TestPublicHeaderLeak._make_header — a CMakeLists.txt marks
+        # this dir as a leaf component under discovery.py's leaf rule.
+        Path(os.path.join(comp_dir, "CMakeLists.txt")).write_text("")
         Path(os.path.join(inc, filename)).write_text(content)
         return tmpdir
 
@@ -627,8 +637,12 @@ class TestTicketRefInLog(unittest.TestCase):
 
 class TestBbPrefix(unittest.TestCase):
     def _make_header(self, tmpdir: str, comp: str, filename: str, content: str) -> str:
-        inc = os.path.join(tmpdir, "components", comp, "include")
+        comp_dir = os.path.join(tmpdir, "components", comp)
+        inc = os.path.join(comp_dir, "include")
         os.makedirs(inc, exist_ok=True)
+        # See TestPublicHeaderLeak._make_header — a CMakeLists.txt marks
+        # this dir as a leaf component under discovery.py's leaf rule.
+        Path(os.path.join(comp_dir, "CMakeLists.txt")).write_text("")
         Path(os.path.join(inc, filename)).write_text(content)
         return tmpdir
 
@@ -713,8 +727,12 @@ class TestBbPrefix(unittest.TestCase):
 
 class TestPragmaOnce(unittest.TestCase):
     def _make_header(self, tmpdir: str, comp: str, filename: str, content: str) -> str:
-        inc = os.path.join(tmpdir, "components", comp, "include")
+        comp_dir = os.path.join(tmpdir, "components", comp)
+        inc = os.path.join(comp_dir, "include")
         os.makedirs(inc, exist_ok=True)
+        # See TestPublicHeaderLeak._make_header — a CMakeLists.txt marks
+        # this dir as a leaf component under discovery.py's leaf rule.
+        Path(os.path.join(comp_dir, "CMakeLists.txt")).write_text("")
         Path(os.path.join(inc, filename)).write_text(content)
         return tmpdir
 
@@ -830,8 +848,12 @@ class TestStripNoise(unittest.TestCase):
 
 class TestPublicHeaderInlinePlatformCall(unittest.TestCase):
     def _make_header(self, tmpdir: str, comp: str, filename: str, content: str) -> str:
-        inc = os.path.join(tmpdir, "components", comp, "include")
+        comp_dir = os.path.join(tmpdir, "components", comp)
+        inc = os.path.join(comp_dir, "include")
         os.makedirs(inc, exist_ok=True)
+        # See TestPublicHeaderLeak._make_header — a CMakeLists.txt marks
+        # this dir as a leaf component under discovery.py's leaf rule.
+        Path(os.path.join(comp_dir, "CMakeLists.txt")).write_text("")
         Path(os.path.join(inc, filename)).write_text(content)
         return tmpdir
 

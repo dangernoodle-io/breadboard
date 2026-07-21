@@ -181,14 +181,17 @@ def derive_component(roots, name: str, platform: str) -> Dict[str, List[str]]:
     includes: Set[str] = set()
     sources: Set[str] = set()
 
+    def _rel(p: Path) -> str:
+        return str(p.relative_to(root_p)).replace(os.sep, "/")
+
     if comp_dir is not None:
         comp_include = comp_dir / "include"
         if comp_include.is_dir():
-            includes.add(f"components/{name}/include")
+            includes.add(_rel(comp_include))
 
         comp_src = comp_dir / "src"
         if comp_src.is_dir():
-            includes.add(f"components/{name}/src")
+            includes.add(_rel(comp_src))
             sources.update(_glob_c_files(root_p, comp_src, recursive=False))
 
         # Flat component layout: top-level *.c files live directly under
@@ -199,15 +202,15 @@ def derive_component(roots, name: str, platform: str) -> Dict[str, List[str]]:
         # both are globbed when both exist.
         flat_sources = _glob_c_files(root_p, comp_dir, recursive=False)
         if flat_sources:
-            includes.add(f"components/{name}")
+            includes.add(_rel(comp_dir))
             sources.update(flat_sources)
 
     if plat_dir is not None:
         plat_include = plat_dir / "include"
         if plat_include.is_dir():
-            includes.add(f"platform/{platform}/{name}/include")
+            includes.add(_rel(plat_include))
         else:
-            includes.add(f"platform/{platform}/{name}")
+            includes.add(_rel(plat_dir))
         sources.update(_glob_c_files(root_p, plat_dir, recursive=False))
 
     hints = parse_hints(cmake_text)

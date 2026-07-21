@@ -8,13 +8,29 @@ create-a-new-component, KB #402), extending an existing component is the
 default; a genuinely new component requires a distinct dependency, a real
 consumer, and reviewed design sign-off — never a speculative/ad-hoc add.
 
-Marker type scanned: `component` — one marker per directory directly under
-`components/` (each subdir is one component). Identity is the component
-name alone (`id`), so a directory rename is NOT treated as a new component
-so long as the name is unchanged — the tree layout uses one flat
-`components/<name>/` level, never nested, so path and name always agree in
-practice; identity is name-keyed per the same rename-stability convention
-every other family uses (see `_base.diff`).
+Marker type scanned: `component` — one marker per LEAF component directory
+under `components/` (per `discovery.py`'s leaf rule: the innermost directory,
+walking down from `components/`, that directly contains a `CMakeLists.txt`;
+an intermediate/group directory with no `CMakeLists.txt` of its own is never
+itself a component). Identity is the component name alone (`id`), so a
+directory rename — or a relocation to a different nesting depth, as long as
+the leaf directory's own name is unchanged — is NOT treated as a new
+component; identity is name-keyed per the same rename-stability convention
+every other family uses (see `_base.diff`). The marker's `path` field
+reflects wherever the leaf directory actually lives (`components/<name>` on
+today's flat tree, `components/<group>/<name>` under a future grouped
+layout) — `diff()` pairs by exact path first, so on today's tree this is
+byte-identical to the old fixed `components/<name>` convention; a pure
+relocation to a different depth is identity-stable (same `id`, no baseline
+change needed), same as any other family's rename tolerance.
+
+LATENT GAP: requiring a `CMakeLists.txt` to count as a leaf component means
+a stray non-`EXCLUDE_DIRS` directory under `components/` that has no
+`CMakeLists.txt` of its own is now silently NOT fenced — previously
+(directly-under-`components/`, no CMakeLists.txt check) it would have
+tripped the guardrail as an unapproved new component. A no-op on today's
+tree (every real component has a `CMakeLists.txt`), but worth knowing if
+this guardrail is ever relied on to catch a bare/incomplete directory add.
 
 **Guardrail semantics — the flip side of every other family's shrink-only
 freeze.** A REMOVED component (e.g. the bb_pub_wifi deletion) prunes
@@ -53,10 +69,12 @@ other deliberate baseline edit would, but through a validated,
 mistake-resistant command instead of hand-editing JSON.
 """
 from __future__ import annotations
+import os
 import sys
 from pathlib import Path
 from typing import List, Set, Tuple
 
+from discovery import build_index
 from fence import _base
 from fence._base import Marker
 
@@ -84,17 +102,23 @@ def counts_by_bucket(markers: Set[Marker]) -> dict:
 # ---------------------------------------------------------------------------
 
 def _scan_new_component(root: Path) -> Set[Marker]:
+    """One marker per LEAF component directory under `components/` (the
+    discovery SSOT's leaf rule — `discovery.build_index`), not a fixed
+    directly-under-`components/` scan: a group/intermediate directory with
+    no `CMakeLists.txt` of its own is never itself a component. Byte-
+    identical marker set to the old direct-child scan on today's flat tree
+    (every leaf dir is still exactly one level under `components/`)."""
     found: Set[Marker] = set()
-    components_dir = root / _COMPONENTS_DIR
-    if not components_dir.is_dir():
-        return found
-    for entry in components_dir.iterdir():
-        if not entry.is_dir():
+    index = build_index([str(root)])
+    root_p = Path(os.path.realpath(str(root)))
+    for name in index.names():
+        comp_dir = index.component_dir(name)
+        if comp_dir is None:
             continue
-        if entry.name in _base.EXCLUDE_DIRS:
+        if comp_dir.name in _base.EXCLUDE_DIRS:
             continue
-        name = entry.name
-        found.add(Marker("component", f"{_COMPONENTS_DIR}/{name}", name))
+        path = comp_dir.relative_to(root_p).as_posix()
+        found.add(Marker("component", path, name))
     return found
 
 

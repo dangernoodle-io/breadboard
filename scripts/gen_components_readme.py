@@ -67,11 +67,31 @@ def _first_prose_line(readme_path: Path) -> str:
     return "—"  # em dash
 
 
+class ComponentIndexError(Exception):
+    """Raised when a `components/<name>/` directory found by
+    `collect_components`'s depth-1 walk isn't actually a discovered
+    component — `header_annot.primary_header` returns `None` because no
+    `CMakeLists.txt` was found anywhere under `components/<name>/` (a
+    group/intermediate directory, per discovery.py's leaf rule). Fail loud
+    rather than either (a) crash on `extract_brief(None)`, or (b) silently
+    skip/placeholder the entry — a skip would produce a WRONG index (a real
+    on-disk directory quietly missing from components/README.md), which is
+    exactly the drift this script exists to catch."""
+
+
 def extract_purpose(readme_path: Path, name: str) -> str:
     """Pull a one-line Purpose for component `name`: sourced from its
     primary public header's `@brief` when present, else falls back to the
-    README's first prose line (marker-skipping)."""
+    README's first prose line (marker-skipping). Raises ComponentIndexError
+    if `name` isn't a real discovered component (see that class's
+    docstring)."""
     header = primary_header(REPO_ROOT, name)
+    if header is None:
+        raise ComponentIndexError(
+            f"components/{name}/ has a README.md but is not a discovered"
+            f" component (no CMakeLists.txt found under components/{name}/)"
+            " — cannot source its Purpose"
+        )
     brief = extract_brief(header)
     if brief:
         return brief
@@ -121,7 +141,11 @@ def main():
     )
     args = parser.parse_args()
 
-    expected = build_content()
+    try:
+        expected = build_content()
+    except ComponentIndexError as exc:
+        print(f"gen_components_readme: error: {exc}", file=sys.stderr)
+        return 1
 
     if args.check:
         if not OUTPUT_FILE.is_file():
