@@ -7,8 +7,9 @@ extern "C" {
 #include <stdbool.h>
 #include "bb_core.h"
 
-// Compute the /api/health.ok gate: true when WiFi has IP AND OTA is validated.
-// mDNS is intentionally excluded (locked decision B1-269).
+// Compute the /api/health.ok gate: true when WiFi has IP. ota_validated
+// dropped (B1-977, bb_board dissolution). mDNS is intentionally excluded
+// (locked decision B1-269).
 bool bb_health_compute_ok(void);
 
 // Register a named section for /api/health: see bb_health_section_register()

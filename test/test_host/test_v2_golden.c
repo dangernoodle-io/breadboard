@@ -8,7 +8,7 @@
 //
 // health (root-identity slice): each golden string is the SPEC for the
 // ROOT-IDENTITY FIELD SLICE ONLY -- the fields the ESP-IDF /api/health
-// handler gathers directly (bb_wifi/bb_mdns/bb_board) and hands to
+// handler gathers directly (bb_wifi/bb_mdns) and hands to
 // bb_health_compose_and_stream() as its RAW group. A mismatch means the
 // DESCRIPTOR (order/type/max_len/present) is wrong for that slice -- fix
 // the descriptor, never the golden.
@@ -21,7 +21,8 @@
 // (bb_health_compose_and_stream() is not host-reproducible for the ROOT
 // gather, since bb_mdns_get_hostname() is ESP_PLATFORM-only; the root
 // snapshot below is hand-filled with the same field values the ESP-IDF
-// handler would have gathered).
+// handler would have gathered). validated dropped (B1-977, bb_board
+// dissolution).
 //
 // The info-telemetry envelope golden (which mirrored
 // platform/host/bb_pub_info/bb_pub_info.c's info_serialize()) was removed
@@ -161,7 +162,6 @@ void test_v2_golden_health_root_slice_populated(void)
     bb_health_wire_t snap;
     memset(&snap, 0, sizeof(snap));
     snap.ok        = true;
-    snap.validated = true;
     strncpy(snap.network.ssid, "testnet", sizeof(snap.network.ssid) - 1);
     strncpy(snap.network.bssid, "aa:bb:cc:dd:ee:ff", sizeof(snap.network.bssid) - 1);
     strncpy(snap.network.ip, "192.168.1.50", sizeof(snap.network.ip) - 1);
@@ -169,7 +169,7 @@ void test_v2_golden_health_root_slice_populated(void)
     snap.network.mdns = (bb_serialize_str_n_t){ .ptr = "bb-test", .len = 7 };
 
     render_eq(&bb_health_wire_desc, &snap,
-              "{\"ok\":true,\"validated\":true,\"network\":{\"ssid\":\"testnet\","
+              "{\"ok\":true,\"network\":{\"ssid\":\"testnet\","
               "\"bssid\":\"aa:bb:cc:dd:ee:ff\",\"ip\":\"192.168.1.50\","
               "\"connected\":true,\"mdns\":\"bb-test\"}}");
 }
@@ -183,7 +183,7 @@ void test_v2_golden_health_root_slice_disconnected(void)
     snap.network.mdns = (bb_serialize_str_n_t){ .ptr = NULL, .len = 0 };
 
     render_eq(&bb_health_wire_desc, &snap,
-              "{\"ok\":false,\"validated\":false,\"network\":{\"ssid\":\"\","
+              "{\"ok\":false,\"network\":{\"ssid\":\"\","
               "\"bssid\":\"00:00:00:00:00:00\",\"ip\":\"0.0.0.0\","
               "\"connected\":false,\"mdns\":null}}");
 }
@@ -195,9 +195,9 @@ void test_v2_golden_health_root_slice_disconnected(void)
 // bb_mqtt_client producers -- not synthetic fixtures. This is the host-side
 // proxy for the user's on-device curl check: byte-exact against this golden
 // here means byte-exact against today's live /api/health there too, modulo
-// the ROOT gather itself (bb_wifi/bb_mdns/bb_board), which is ESP_PLATFORM-
-// only and hand-filled below with the same field values/shapes the ESP-IDF
-// handler would have gathered.
+// the ROOT gather itself (bb_wifi/bb_mdns), which is ESP_PLATFORM-only and
+// hand-filled below with the same field values/shapes the ESP-IDF handler
+// would have gathered.
 //
 // f64_shortest proof: bb_temp_test_set_soc(true, 55.3f) drives soc_c through
 // the SAME rounding bb_temp_health_fill() applies in production, then renders
@@ -222,7 +222,6 @@ void test_v2_golden_health_full_document(void)
     bb_health_wire_t root;
     memset(&root, 0, sizeof(root));
     root.ok        = true;
-    root.validated = true;
     strncpy(root.network.ssid, "testnet", sizeof(root.network.ssid) - 1);
     strncpy(root.network.bssid, "aa:bb:cc:dd:ee:ff", sizeof(root.network.bssid) - 1);
     strncpy(root.network.ip, "192.168.1.50", sizeof(root.network.ip) - 1);
@@ -238,7 +237,7 @@ void test_v2_golden_health_full_document(void)
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL_STRING("application/json", cap.content_type);
     TEST_ASSERT_EQUAL_STRING(
-        "{\"ok\":true,\"validated\":true,\"network\":{\"ssid\":\"testnet\","
+        "{\"ok\":true,\"network\":{\"ssid\":\"testnet\","
         "\"bssid\":\"aa:bb:cc:dd:ee:ff\",\"ip\":\"192.168.1.50\","
         "\"connected\":true,\"mdns\":\"bb-test\"},"
         "\"temp\":{\"present\":true,\"soc_c\":55.3},"

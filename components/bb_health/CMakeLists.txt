@@ -28,6 +28,6 @@ idf_component_register(
     # transitively includes bb_wifi.h, which does not satisfy REQUIRES'
     # direct-deps-only rule for this symbol usage).
     REQUIRES bb_core bb_http_server bb_serialize
-    PRIV_REQUIRES bb_http bb_board bb_wifi bb_wifi_http bb_mdns bb_openapi bb_log bb_ota_validator
+    PRIV_REQUIRES bb_http bb_wifi bb_wifi_http bb_mdns bb_openapi bb_log bb_ota_validator
                   bb_data bb_task_registry bb_str bb_registry
 )

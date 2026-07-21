@@ -22,7 +22,7 @@
 #include "bb_mem.h"
 #include "bb_wifi.h"
 #include "bb_wdt.h"
-#include "bb_board.h"
+#include "bb_meminfo.h"
 #include "bb_task.h"
 #include "bb_system.h"
 #include "esp_https_ota.h"
@@ -534,7 +534,9 @@ static const char *ota_url_host(const char *url, char *buf, size_t buf_len)
 
 bool bb_ota_pull_heap_ready(void)
 {
-    size_t largest    = bb_board_heap_internal_largest_free_block();
+    bb_meminfo_snapshot_t mem;
+    bb_meminfo_get(&mem);
+    size_t largest    = mem.internal.largest_free_block;
     size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     return bb_tls_heap_guard_passes(largest, BB_OTA_HEAP_FLOOR_BYTES,
                                     total_free, BB_TLS_HEAP_TOTAL_FLOOR,
@@ -556,7 +558,9 @@ bool bb_ota_pull_heap_ready(void)
  */
 static bb_err_t ota_heap_guard(const char *stage)
 {
-    size_t largest    = bb_board_heap_internal_largest_free_block();
+    bb_meminfo_snapshot_t mem;
+    bb_meminfo_get(&mem);
+    size_t largest    = mem.internal.largest_free_block;
     size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     const char *dim   = NULL;
     if (!bb_tls_heap_guard_passes(largest, BB_OTA_HEAP_FLOOR_BYTES,

@@ -9,4 +9,27 @@ config BB_MEMREPORT_MAX_REGIONS
         aggregate (bb_memreport_register_arena capacity). Must not exceed
         BB_REGISTRY_SNAPSHOT_MAX (64).
 
+config BB_MEMINFO_HEAP_LOW_BYTES
+    int "Free-heap LOW threshold (bytes)"
+    default 40000
+    range 1000 1000000
+    help
+        Total free heap bytes below which the heap state transitions to LOW.
+        Applies to bb_meminfo_classify_heap()'s input (PSRAM + internal on
+        boards with PSRAM; internal-only on boards without). Tune down on
+        boards with PSRAM where total free can be hundreds of KB. Relocated
+        from bb_board (B1-977 dissolution); a saved sdkconfig override of the
+        old BB_BOARD_HEAP_LOW_BYTES name silently reverts to this default.
+
+config BB_MEMINFO_HEAP_CRITICAL_BYTES
+    int "Free-heap CRITICAL threshold (bytes)"
+    default 20000
+    range 1000 1000000
+    help
+        Total free heap bytes below which the heap state transitions to
+        CRITICAL. Must be less than BB_MEMINFO_HEAP_LOW_BYTES. Relocated
+        from bb_board (B1-977 dissolution); a saved sdkconfig override of the
+        old BB_BOARD_HEAP_CRITICAL_BYTES name silently reverts to this
+        default.
+
 endmenu

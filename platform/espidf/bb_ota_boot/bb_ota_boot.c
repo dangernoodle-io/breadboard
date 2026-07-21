@@ -4,6 +4,7 @@
 #include "bb_log.h"
 #include "bb_config.h"
 #include "bb_nv_namespaces.h"
+#include "bb_meminfo.h"
 #include "bb_str.h"
 
 #include <string.h>
@@ -85,7 +86,6 @@ bool bb_ota_boot_pending(void)
 
 #include "bb_ntp.h"
 #include "bb_wifi.h"
-#include "bb_board.h"
 #include "bb_ota_pull.h"
 #include "bb_ota_check.h"
 #include "bb_http.h"
@@ -170,7 +170,9 @@ static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
     // is too low — contiguous block for the mbedTLS IN buffer, total free for
     // the whole handshake transient (~20 KB on esp32-s2-mini).
     {
-        size_t largest    = bb_board_heap_internal_largest_free_block();
+        bb_meminfo_snapshot_t mem;
+        bb_meminfo_get(&mem);
+        size_t largest    = mem.internal.largest_free_block;
         size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         const char *dim   = NULL;
         if (!bb_tls_heap_guard_passes(largest, BB_OTA_BOOT_STATUS_MIN_HEAP,
@@ -234,9 +236,13 @@ static void ota_boot_worker(void *arg)
     (void)arg;
 
 #if CONFIG_BB_OTA_BOOT_PROGRESS_HTTP
-    bb_log_w(TAG, "boot-ota heap: largest_block=%u free_internal=%u",
-             (unsigned)bb_board_heap_internal_largest_free_block(),
-             (unsigned)bb_board_heap_internal_free());
+    {
+        bb_meminfo_snapshot_t mem;
+        bb_meminfo_get(&mem);
+        bb_log_w(TAG, "boot-ota heap: largest_block=%u free_internal=%u",
+                 (unsigned)mem.internal.largest_free_block,
+                 (unsigned)mem.internal.free);
+    }
 #endif
 
     // Stand up bb_ota_check synchronously — init + now() run on this stack,
@@ -263,9 +269,13 @@ static void ota_boot_worker(void *arg)
     }
 
 #if CONFIG_BB_OTA_BOOT_PROGRESS_HTTP
-    bb_log_w(TAG, "boot-ota heap pre-pull: largest_block=%u free_internal=%u",
-             (unsigned)bb_board_heap_internal_largest_free_block(),
-             (unsigned)bb_board_heap_internal_free());
+    {
+        bb_meminfo_snapshot_t mem;
+        bb_meminfo_get(&mem);
+        bb_log_w(TAG, "boot-ota heap pre-pull: largest_block=%u free_internal=%u",
+                 (unsigned)mem.internal.largest_free_block,
+                 (unsigned)mem.internal.free);
+    }
 #endif
 
     // run_sync drives START/PROGRESS/SUCCESS/FAIL through the forwarded cb.
@@ -343,9 +353,13 @@ static void boot_progress_server_start(void)
                  s_mdns_hostname, s_mdns_service_type, s_mdns_proto, (unsigned)s_mdns_port);
     }
 
-    bb_log_w(TAG, "boot-ota heap: largest_block=%u free_internal=%u",
-             (unsigned)bb_board_heap_internal_largest_free_block(),
-             (unsigned)bb_board_heap_internal_free());
+    {
+        bb_meminfo_snapshot_t mem;
+        bb_meminfo_get(&mem);
+        bb_log_w(TAG, "boot-ota heap: largest_block=%u free_internal=%u",
+                 (unsigned)mem.internal.largest_free_block,
+                 (unsigned)mem.internal.free);
+    }
 }
 #endif // CONFIG_BB_OTA_BOOT_PROGRESS_HTTP
 

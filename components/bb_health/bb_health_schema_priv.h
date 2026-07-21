@@ -6,7 +6,8 @@
 // /api/health 200 JSON-Schema:
 //   k_health_base + [,"<name>":<schema_props>]* + k_health_suffix
 //
-// Root-level fields (ok/validated/network) live in base/suffix. Named
+// Root-level fields (ok/network) live in base/suffix. validated dropped
+// (B1-977, bb_board dissolution). Named
 // sections (mqtt, temp, ...) are emitted from each bb_health_section's
 // schema_props string, walked via bb_health_section_count()/
 // bb_health_section_get_by_index() (B1-1100 -- repoints schema assembly
@@ -24,7 +25,6 @@ static const char k_health_base[] =
     "{\"type\":\"object\","
     "\"properties\":{"
     "\"ok\":{\"type\":\"boolean\"},"
-    "\"validated\":{\"type\":\"boolean\"},"
     "\"network\":{\"type\":\"object\","
     "\"properties\":{"
     "\"ssid\":{\"type\":\"string\"},"

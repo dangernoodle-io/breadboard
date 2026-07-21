@@ -3121,47 +3121,29 @@ void test_worker_create_malloc_fail(void);
 void test_worker_default_cfg(void);
 void test_worker_delete_safe(void);
 
-// Forward declarations from test_bb_board.c
-void test_bb_board_heap_free_total_callable(void);
-void test_bb_board_heap_free_internal_callable(void);
-void test_bb_board_heap_minimum_ever_callable(void);
-void test_bb_board_heap_largest_free_block_callable(void);
-void test_bb_board_chip_revision_callable(void);
-void test_bb_board_cpu_freq_mhz_callable(void);
-void test_bb_board_heap_internal_free_callable(void);
-void test_bb_board_heap_internal_total_callable(void);
-void test_bb_board_psram_free_callable(void);
-void test_bb_board_psram_total_callable(void);
-void test_bb_board_rtc_used_callable(void);
-void test_bb_board_rtc_total_callable(void);
-void test_bb_board_heap_internal_minimum_ever_callable(void);
-void test_bb_board_dram_static_bytes_callable(void);
-void test_bb_board_dram_static_bytes_returns_zero_on_host(void);
-void test_bb_board_get_cores_callable(void);
-void test_bb_board_get_chip_model_null_out_returns_invalid_arg(void);
-void test_bb_board_get_chip_model_zero_size_returns_invalid_arg(void);
-void test_bb_board_get_chip_model_writes_host_string(void);
-void test_bb_board_get_flash_size_returns_zero_on_host(void);
-void test_bb_board_get_app_size_returns_zero_on_host(void);
-void test_bb_board_get_mac_null_out_returns_invalid_arg(void);
-void test_bb_board_get_mac_zero_size_returns_invalid_arg(void);
-void test_bb_board_get_mac_writes_empty_string_on_host(void);
-void test_bb_board_get_reset_reason_null_out_returns_invalid_arg(void);
-void test_bb_board_get_reset_reason_zero_size_returns_invalid_arg(void);
-void test_bb_board_get_reset_reason_writes_power_on_string(void);
-void test_bb_board_heap_internal_largest_free_block_callable(void);
+// Forward declarations from test_bb_system.c (HW-identity accessors,
+// relocated from bb_board, B1-977 dissolution)
+void test_bb_system_get_cores_callable(void);
+void test_bb_system_get_chip_model_writes_host_string(void);
+void test_bb_system_get_flash_size_returns_zero_on_host(void);
+void test_bb_system_get_app_size_returns_zero_on_host(void);
+void test_bb_system_get_mac_null_out_returns_invalid_arg(void);
+void test_bb_system_get_mac_zero_size_returns_invalid_arg(void);
+void test_bb_system_get_mac_writes_empty_string_on_host(void);
+void test_bb_system_chip_revision_callable(void);
+void test_bb_system_cpu_freq_mhz_callable(void);
 
-// Forward declarations from test_bb_board_heap_state.c (moved from
-// bb_net_health, net_health teardown PR-C)
-void test_bb_board_classify_heap_ok(void);
-void test_bb_board_classify_heap_low(void);
-void test_bb_board_classify_heap_critical(void);
-void test_bb_board_classify_heap_zero(void);
-void test_bb_board_heap_state_str_ok(void);
-void test_bb_board_heap_state_str_low(void);
-void test_bb_board_heap_state_str_critical(void);
-void test_bb_board_heap_state_str_unknown_returns_ok(void);
-void test_bb_board_set_heap_state_roundtrip(void);
+// Forward declarations from test_bb_meminfo.c (heap-state classifier,
+// relocated from bb_board, B1-977 dissolution)
+void test_bb_meminfo_classify_heap_ok(void);
+void test_bb_meminfo_classify_heap_low(void);
+void test_bb_meminfo_classify_heap_critical(void);
+void test_bb_meminfo_classify_heap_zero(void);
+void test_bb_meminfo_heap_state_str_ok(void);
+void test_bb_meminfo_heap_state_str_low(void);
+void test_bb_meminfo_heap_state_str_critical(void);
+void test_bb_meminfo_heap_state_str_unknown_returns_ok(void);
+void test_bb_meminfo_set_heap_state_roundtrip(void);
 
 // Forward declarations from test_bb_meminfo.c
 void test_bb_meminfo_get_rejects_null(void);
@@ -3232,8 +3214,7 @@ void test_bb_health_assembled_schema_oom_returns_null(void);
 void test_bb_health_assembled_schema_repeated_calls_do_not_reassemble(void);
 void test_bb_health_assembled_schema_section_comma_is_valid_json(void);
 void test_bb_health_compute_ok_false_on_host(void);
-void test_bb_health_compute_ok_true_when_wifi_and_board_validated(void);
-void test_bb_health_compute_ok_false_when_not_validated(void);
+void test_bb_health_compute_ok_true_when_has_ip(void);
 void test_bb_health_compute_ok_false_when_no_ip(void);
 void test_bb_health_schema_network_has_ssid(void);
 void test_bb_health_schema_network_has_bssid(void);
@@ -7197,44 +7178,27 @@ int main(void) {
     RUN_TEST(test_worker_default_cfg);
     RUN_TEST(test_worker_delete_safe);
 
-    // bb_board tests
-    RUN_TEST(test_bb_board_heap_free_total_callable);
-    RUN_TEST(test_bb_board_heap_free_internal_callable);
-    RUN_TEST(test_bb_board_heap_minimum_ever_callable);
-    RUN_TEST(test_bb_board_heap_largest_free_block_callable);
-    RUN_TEST(test_bb_board_chip_revision_callable);
-    RUN_TEST(test_bb_board_cpu_freq_mhz_callable);
-    RUN_TEST(test_bb_board_heap_internal_free_callable);
-    RUN_TEST(test_bb_board_heap_internal_total_callable);
-    RUN_TEST(test_bb_board_psram_free_callable);
-    RUN_TEST(test_bb_board_psram_total_callable);
-    RUN_TEST(test_bb_board_rtc_used_callable);
-    RUN_TEST(test_bb_board_rtc_total_callable);
-    RUN_TEST(test_bb_board_heap_internal_minimum_ever_callable);
-    RUN_TEST(test_bb_board_dram_static_bytes_callable);
-    RUN_TEST(test_bb_board_dram_static_bytes_returns_zero_on_host);
-    RUN_TEST(test_bb_board_get_cores_callable);
-    RUN_TEST(test_bb_board_get_chip_model_null_out_returns_invalid_arg);
-    RUN_TEST(test_bb_board_get_chip_model_zero_size_returns_invalid_arg);
-    RUN_TEST(test_bb_board_get_chip_model_writes_host_string);
-    RUN_TEST(test_bb_board_get_flash_size_returns_zero_on_host);
-    RUN_TEST(test_bb_board_get_app_size_returns_zero_on_host);
-    RUN_TEST(test_bb_board_get_mac_null_out_returns_invalid_arg);
-    RUN_TEST(test_bb_board_get_mac_zero_size_returns_invalid_arg);
-    RUN_TEST(test_bb_board_get_mac_writes_empty_string_on_host);
-    RUN_TEST(test_bb_board_get_reset_reason_null_out_returns_invalid_arg);
-    RUN_TEST(test_bb_board_get_reset_reason_zero_size_returns_invalid_arg);
-    RUN_TEST(test_bb_board_get_reset_reason_writes_power_on_string);
-    RUN_TEST(test_bb_board_heap_internal_largest_free_block_callable);
-    RUN_TEST(test_bb_board_classify_heap_ok);
-    RUN_TEST(test_bb_board_classify_heap_low);
-    RUN_TEST(test_bb_board_classify_heap_critical);
-    RUN_TEST(test_bb_board_classify_heap_zero);
-    RUN_TEST(test_bb_board_heap_state_str_ok);
-    RUN_TEST(test_bb_board_heap_state_str_low);
-    RUN_TEST(test_bb_board_heap_state_str_critical);
-    RUN_TEST(test_bb_board_heap_state_str_unknown_returns_ok);
-    RUN_TEST(test_bb_board_set_heap_state_roundtrip);
+    // bb_system HW-identity tests (relocated from bb_board, B1-977 dissolution)
+    RUN_TEST(test_bb_system_get_cores_callable);
+    RUN_TEST(test_bb_system_get_chip_model_writes_host_string);
+    RUN_TEST(test_bb_system_get_flash_size_returns_zero_on_host);
+    RUN_TEST(test_bb_system_get_app_size_returns_zero_on_host);
+    RUN_TEST(test_bb_system_get_mac_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_system_get_mac_zero_size_returns_invalid_arg);
+    RUN_TEST(test_bb_system_get_mac_writes_empty_string_on_host);
+    RUN_TEST(test_bb_system_chip_revision_callable);
+    RUN_TEST(test_bb_system_cpu_freq_mhz_callable);
+
+    // bb_meminfo heap-state tests (relocated from bb_board, B1-977 dissolution)
+    RUN_TEST(test_bb_meminfo_classify_heap_ok);
+    RUN_TEST(test_bb_meminfo_classify_heap_low);
+    RUN_TEST(test_bb_meminfo_classify_heap_critical);
+    RUN_TEST(test_bb_meminfo_classify_heap_zero);
+    RUN_TEST(test_bb_meminfo_heap_state_str_ok);
+    RUN_TEST(test_bb_meminfo_heap_state_str_low);
+    RUN_TEST(test_bb_meminfo_heap_state_str_critical);
+    RUN_TEST(test_bb_meminfo_heap_state_str_unknown_returns_ok);
+    RUN_TEST(test_bb_meminfo_set_heap_state_roundtrip);
 
     // bb_meminfo tests
     RUN_TEST(test_bb_meminfo_get_rejects_null);
@@ -7301,8 +7265,7 @@ int main(void) {
     RUN_TEST(test_bb_health_assembled_schema_repeated_calls_do_not_reassemble);
     RUN_TEST(test_bb_health_assembled_schema_section_comma_is_valid_json);
     RUN_TEST(test_bb_health_compute_ok_false_on_host);
-    RUN_TEST(test_bb_health_compute_ok_true_when_wifi_and_board_validated);
-    RUN_TEST(test_bb_health_compute_ok_false_when_not_validated);
+    RUN_TEST(test_bb_health_compute_ok_true_when_has_ip);
     RUN_TEST(test_bb_health_compute_ok_false_when_no_ip);
     RUN_TEST(test_bb_health_schema_network_has_ssid);
     RUN_TEST(test_bb_health_schema_network_has_bssid);

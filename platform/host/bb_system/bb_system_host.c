@@ -196,3 +196,45 @@ bb_err_t bb_system_read_temp_celsius(float *out)
     return BB_ERR_UNSUPPORTED;
 }
 #endif
+
+// ---------------------------------------------------------------------------
+// HW-identity accessors (relocated from bb_board, B1-977 dissolution) — host
+// stubs match bb_board's own host-stub values.
+// ---------------------------------------------------------------------------
+
+const char *bb_system_get_chip_model(void)
+{
+    return "host";
+}
+
+uint8_t bb_system_get_cores(void)
+{
+    return 1;
+}
+
+bb_err_t bb_system_get_mac(char *out, size_t out_size)
+{
+    if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
+    out[0] = '\0';
+    return BB_OK;
+}
+
+uint32_t bb_system_get_flash_size(void)
+{
+    return 0;
+}
+
+uint32_t bb_system_get_app_size(void)
+{
+    return 0;
+}
+
+uint32_t bb_system_chip_revision(void)
+{
+    return 0;
+}
+
+uint32_t bb_system_cpu_freq_mhz(void)
+{
+    return 0;
+}

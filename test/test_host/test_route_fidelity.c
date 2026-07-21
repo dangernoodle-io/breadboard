@@ -59,7 +59,6 @@
 #include "bb_http_server.h"
 #include "bb_http_host.h"
 #include "bb_openapi.h"
-#include "bb_board.h"
 #include "bb_settings.h"
 #include "bb_wifi.h"
 #include "bb_wifi_http.h"
@@ -107,7 +106,6 @@ static const char k_health_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
     "\"ok\":{\"type\":\"boolean\"},"
-    "\"validated\":{\"type\":\"boolean\"},"
     "\"network\":{\"type\":\"object\","
     "\"properties\":{"
     "\"ssid\":{\"type\":\"string\"},"
@@ -275,14 +273,11 @@ static bb_err_t h_health(bb_http_request_t *req)
     // moved to /api/diag/wifi.  Uses bb_wifi_emit_status (SSOT) so any future
     // numeric addition to bb_wifi_emit_status would require an intentional API
     // change, and test_fidelity_health_no_raw_numbers catches it at test time.
-    bb_board_info_t b;
-    bb_board_get_info(&b);
-
+    // validated dropped (B1-977, bb_board dissolution).
     const char *hostname = bb_mdns_get_hostname();
 
     bb_json_t root = bb_json_obj_new();
     bb_json_obj_set_bool(root, "ok", bb_health_compute_ok());
-    bb_json_obj_set_bool(root, "validated", b.ota_validated);
 
     bb_json_t net = bb_json_obj_new();
     bb_wifi_emit_status(net);

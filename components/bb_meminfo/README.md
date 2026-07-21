@@ -8,11 +8,8 @@ calls `heap_caps_*`.
 Use `bb_meminfo_get()` whenever you need a heap/PSRAM/RTC/DRAM snapshot
 (diagnostics, telemetry sources). Do not call `heap_caps_*`
 directly from another component — route through `bb_meminfo` instead so
-there is exactly one call site to audit. `bb_board`'s `bb_board_heap_*` /
-`bb_board_psram_*` / `bb_board_rtc_*` / `bb_board_dram_static_bytes`
-accessors already delegate here; existing callers of those functions need no
-changes. This is a pure on-demand reader — it owns no routes, no telemetry
-source, and needs no `BB_INIT_REGISTER` hook.
+there is exactly one call site to audit. This is a pure on-demand reader — it
+owns no routes, no telemetry source, and needs no `BB_INIT_REGISTER` hook.
 
 ## Public API
 
@@ -27,7 +24,7 @@ formats a compact HEAP-ONLY diagnostic line from a snapshot (snprintf
 semantics — buf is always NUL-terminated when len > 0): internal
 free/min-ever-free/largest-free-block, spiram free, dma free, and
 esp_min_free_heap. Pure formatting, identical on host and ESP-IDF; no
-board/flash/app-size fields (that's a different domain — see `bb_board`).
+board/flash/app-size fields (that's a different domain — see `bb_system`).
 Used by `examples/floor` and `examples/smoke` for a periodic serial heap
 baseline line.
 
@@ -63,6 +60,8 @@ line is just heap + bss.
 | Kconfig | Default | Notes |
 |---------|---------|-------|
 | `CONFIG_BB_MEMREPORT_MAX_REGIONS` | 8 | `bb_memreport` region-registry capacity (`BB_MEMREPORT_MAX_REGIONS`). |
+| `CONFIG_BB_MEMINFO_HEAP_LOW_BYTES` | 40000 | Heap-state classifier LOW threshold (`bb_meminfo_classify_heap`). |
+| `CONFIG_BB_MEMINFO_HEAP_CRITICAL_BYTES` | 20000 | Heap-state classifier CRITICAL threshold; `_Static_assert(CRITICAL < LOW)`. |
 
 ## Dependencies
 
@@ -92,5 +91,5 @@ line is just heap + bss.
 
 ## See also
 
-`bb_board` (delegates its heap/psram/rtc/dram accessors here), `examples/floor`
-(the floor's first telemetry source, read every tick and logged via `bb_log`).
+`examples/floor` (the floor's first telemetry source, read every tick and
+logged via `bb_log`).

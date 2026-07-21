@@ -11,7 +11,6 @@
 
 #include "../../components/bb_health/bb_health_schema_priv.h"
 #include "../../platform/host/bb_wifi/bb_wifi_test.h"
-#include "../../platform/host/bb_board/bb_board_test.h"
 
 // ---------------------------------------------------------------------------
 // Fixture: a tiny snap_desc/fill for schema-assembly tests, registered
@@ -147,44 +146,29 @@ void test_bb_health_assembled_schema_section_comma_is_valid_json(void)
 // bb_health_compute_ok tests
 // ---------------------------------------------------------------------------
 
-// On the host stub, bb_wifi_has_ip() returns false and bb_board_get_info()
-// returns ota_validated=false, so bb_health_compute_ok() must be false.
+// On the host stub, bb_wifi_has_ip() returns false by default, so
+// bb_health_compute_ok() must be false. ota_validated dropped (B1-977,
+// bb_board dissolution) -- the gate is wifi-IP-only now.
 void test_bb_health_compute_ok_false_on_host(void)
 {
     bb_wifi_test_set_has_ip(false);
-    bb_board_test_set_ota_validated(false);
     TEST_ASSERT_FALSE(bb_health_compute_ok());
 }
 
-// When both conditions are met (wifi has IP AND board reports ota_validated),
-// bb_health_compute_ok() must be true — reproduces the hardware-validation
-// regression where health.ok was false despite /api/info showing validated:true.
-void test_bb_health_compute_ok_true_when_wifi_and_board_validated(void)
+// wifi has IP → ok.
+void test_bb_health_compute_ok_true_when_has_ip(void)
 {
     bb_wifi_test_set_has_ip(true);
-    bb_board_test_set_ota_validated(true);
     TEST_ASSERT_TRUE(bb_health_compute_ok());
     // reset to default state
     bb_wifi_test_set_has_ip(false);
-    bb_board_test_set_ota_validated(false);
 }
 
-// wifi has IP but board not yet validated → not ok.
-void test_bb_health_compute_ok_false_when_not_validated(void)
-{
-    bb_wifi_test_set_has_ip(true);
-    bb_board_test_set_ota_validated(false);
-    TEST_ASSERT_FALSE(bb_health_compute_ok());
-    bb_wifi_test_set_has_ip(false);
-}
-
-// board validated but wifi has no IP → not ok.
+// wifi has no IP → not ok.
 void test_bb_health_compute_ok_false_when_no_ip(void)
 {
     bb_wifi_test_set_has_ip(false);
-    bb_board_test_set_ota_validated(true);
     TEST_ASSERT_FALSE(bb_health_compute_ok());
-    bb_board_test_set_ota_validated(false);
 }
 
 // ---------------------------------------------------------------------------

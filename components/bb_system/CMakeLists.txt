@@ -15,7 +15,11 @@ set(_sys_srcs
 # (B1-1025, floor's diag routes are its first real consumer) that itself
 # includes bb_serialize.h (bb_serialize_desc_t), so bb_serialize must be
 # public here too.
-set(_sys_priv_reqs bb_log bb_config esp_app_format bb_http esp_driver_tsens esp_system bb_ntp bb_json bb_str bb_storage)
+# app_update/spi_flash/esp_hw_support: HW-identity accessors relocated from
+# bb_board (B1-977 dissolution) -- esp_ota_get_running_partition (app_update),
+# esp_flash_get_size (spi_flash), esp_chip_info/esp_read_mac/esp_clk_cpu_freq
+# (esp_hw_support).
+set(_sys_priv_reqs bb_log bb_config esp_app_format bb_http esp_driver_tsens esp_system bb_ntp bb_json bb_str bb_storage app_update spi_flash esp_hw_support)
 
 if(CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER)
     list(APPEND _sys_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system_routes.c")

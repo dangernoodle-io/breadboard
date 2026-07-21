@@ -134,7 +134,7 @@ paths = []
 # a real espidf consumer (B1-1045) and/or an http/egress capability exists.
 [capability.core]
 components = [
-    "bb_attrs", "bb_board", "bb_bqueue", "bb_button",
+    "bb_attrs", "bb_bqueue", "bb_button",
     "bb_button_events", "bb_button_gpio", "bb_cache", "bb_cache_reactive", "bb_cache_serialize",
     "bb_cache_routes", "bb_collection", "bb_config", "bb_core", "bb_data", "bb_data_http", "bb_diag",
     "bb_display",
@@ -204,7 +204,7 @@ components = [
     "bb_log", "bb_log_event", "bb_log_http", "bb_wifi", "bb_wifi_ap",
     "bb_wifi_http", "bb_settings", "bb_http", "bb_http_server", "bb_mdns",
     "bb_mdns_cache", "bb_ota_pull", "bb_ota_push", "bb_ota_boot",
-    "bb_board", "bb_ota_validator", "bb_system", "bb_openapi",
+    "bb_ota_validator", "bb_system", "bb_openapi",
     "bb_led", "bb_ntp", "bb_led_gpio",
     "bb_led_pwm", "bb_led_apa102", "bb_led_anim", "bb_button", "bb_button_gpio",
     "bb_button_events", "bb_queue_espidf", "bb_ring_diag",

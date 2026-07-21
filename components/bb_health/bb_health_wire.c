@@ -22,8 +22,6 @@ static const bb_serialize_field_t s_health_net_wire_fields[] = {
 static const bb_serialize_field_t s_health_wire_fields[] = {
     { .key = "ok", .type = BB_TYPE_BOOL,
       .offset = offsetof(bb_health_wire_t, ok) },
-    { .key = "validated", .type = BB_TYPE_BOOL,
-      .offset = offsetof(bb_health_wire_t, validated) },
     { .key = "network", .type = BB_TYPE_OBJ,
       .offset = offsetof(bb_health_wire_t, network),
       .children = s_health_net_wire_fields, .n_children = 5 },
@@ -32,6 +30,6 @@ static const bb_serialize_field_t s_health_wire_fields[] = {
 const bb_serialize_desc_t bb_health_wire_desc = {
     .type_name = "health",
     .fields    = s_health_wire_fields,
-    .n_fields  = 3,
+    .n_fields  = 2,
     .snap_size = sizeof(bb_health_wire_t),
 };

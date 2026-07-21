@@ -3,7 +3,6 @@
 #include <stdbool.h>
 #include <string.h>
 
-#include "bb_board.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_log.h"
@@ -25,9 +24,9 @@ static const char *TAG = "bb_health";
 // Route handler -- GATHER-THEN-STREAM (B1-1100)
 // ---------------------------------------------------------------------------
 
-// Gathers the ROOT wire slice (ok/validated/network) from device-specific
-// sources (bb_wifi/bb_mdns/bb_board -- none of which are host-reproducible,
-// which is why this gather stays in this ESP-IDF-only file) and hands it to
+// Gathers the ROOT wire slice (ok/network) from device-specific sources
+// (bb_wifi/bb_mdns -- none of which are host-reproducible, which is why this
+// gather stays in this ESP-IDF-only file) and hands it to
 // bb_health_compose_and_stream() (bb_health_compose_priv.h), the portable
 // seam that walks the bb_health_section registry and streams the composed
 // document. This handler is a thin wrapper; the gather-then-stream
@@ -38,10 +37,6 @@ static bb_err_t health_handler(bb_http_request_t *req)
     memset(&root, 0, sizeof(root));
 
     root.ok = bb_health_compute_ok();
-
-    bb_board_info_t b;
-    bb_board_get_info(&b);
-    root.validated = b.ota_validated;
 
     // network: status bools/strings only (TA-505) -- ssid/bssid/ip/connected,
     // no numeric fields.

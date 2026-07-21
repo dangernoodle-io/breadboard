@@ -1,11 +1,6 @@
 {
   "entries": [
     {
-      "id": "BB_BOARD_AUTOREGISTER",
-      "path": "components/bb_board/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_DISPLAY_EK79007_AUTOREGISTER",
       "path": "components/bb_display_ek79007/Kconfig",
       "type": "autoregister_kconfig"
