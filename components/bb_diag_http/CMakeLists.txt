@@ -16,8 +16,18 @@
 # bb_diag_http_boot_wire.c (bb_diag_boot_render_envelope()) always builds
 # regardless of either Kconfig -- same as its prior home
 # (components/bb_diag/bb_diag_boot_wire.c), host-testable directly.
+# bb_storage_http_delete_wire.c + bb_storage_http_routes.c (B1-1154, KB
+# 1477): a THIRD independent Kconfig-gated route surface, dissolved in here
+# from the former bb_storage_http component -- DELETE /api/diag/storage
+# always builds (same posture as bb_diag_http_boot_wire.c above); POST
+# /api/diag/factory-reset is internally gated by the routes file's own
+# CONFIG_BB_STORAGE_HTTP_FACTORY_RESET #if (unrelated to BB_DIAG_ROUTES/
+# BB_DIAG_SECTIONS above -- that Kconfig symbol KEEPS its bb_storage_http-era
+# name; renaming it would break any sdkconfig.defaults already setting it).
 set(_diag_http_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_http_boot_wire.c"
+    "${CMAKE_CURRENT_LIST_DIR}/bb_storage_http_delete_wire.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_storage_http_routes.c"
 )
 
 if(CONFIG_BB_DIAG_ROUTES)
@@ -43,6 +53,12 @@ endif()
 # bb_serialize: direct use in bb_diag_http_section_dispatch.c
 # (bb_serialize_query_t, bb_serialize_arr_stream_from_buf, etc) -- not solely
 # riding on bb_diag's own public REQUIRES chain.
+# bb_storage: PUBLIC -- bb_storage_http.h includes bb_storage.h directly
+# (B1-1154, bb_storage_http dissolved into bb_diag_http, KB 1477) -- the
+# DELETE /api/diag/storage route sits on the bb_storage FACADE only, never a
+# concrete backend, so any registered backend (nvs today, ram/rtc/a future
+# sdcard) works through this same route with no new route component per
+# backend.
 # bb_http/bb_cache/bb_config/bb_ntp/bb_openapi/bb_system/bb_ota_validator/
 # bb_data/bb_task_registry/bb_task/espcoredump/lwip/esp_partition/bb_str:
 # relocated wholesale from bb_diag's own PRIV_REQUIRES (B1-1153) -- every
@@ -50,11 +66,15 @@ endif()
 # heap_get_handler/tasks_get_handler/sockets_get_handler,
 # bb_diag_http_section_dispatch.c) moved here verbatim alongside the files
 # that use them.
+# bb_settings/bb_timer: relocated from bb_storage_http's own PRIV_REQUIRES
+# (B1-1154) -- bb_settings for the wipe_wifi guard's
+# bb_settings_ns_is_wifi_creds()/bb_settings_wifi_rtc_mirror_clear() calls,
+# bb_timer for the factory-reset route's deferred-reboot oneshot timer.
 idf_component_register(
     SRCS ${_diag_http_srcs}
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_diag bb_http_server bb_serialize
-    PRIV_REQUIRES bb_log bb_http bb_cache bb_config bb_ntp bb_openapi bb_system bb_ota_validator bb_data bb_task_registry bb_task espcoredump lwip esp_partition bb_str
+    REQUIRES bb_core bb_diag bb_http_server bb_serialize bb_storage
+    PRIV_REQUIRES bb_log bb_http bb_cache bb_config bb_ntp bb_openapi bb_system bb_ota_validator bb_data bb_task_registry bb_task espcoredump lwip esp_partition bb_str bb_settings bb_timer
 )
 
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)
@@ -93,3 +113,14 @@ if(CONFIG_BB_DIAG_PANIC_COREDUMP)
         target_include_directories(${COMPONENT_LIB} PRIVATE ${espcoredump_dir}/include/port/riscv)
     endif()
 endif()
+
+# bb_storage_http_routes.c is portable (no ESP-IDF-specific includes) but
+# filed under platform/espidf/ (mirrors its prior bb_storage_http-owned
+# location, which itself mirrored the old bb_nv_delete_routes.c location it
+# replaced) -- the host scaffold's directory-convention source walk
+# (scripts/bbtool/boards.py's derive_component) only looks under
+# platform/host/<name>/ for the "native" board, so this hint pulls the
+# portable route source into host test builds too (same pattern as bb_nv's
+# three source hints, carried over from bb_storage_http's own CMakeLists.txt,
+# B1-1154).
+# bbtool-scaffold-hint: source=platform/espidf/bb_diag_http/bb_storage_http_routes.c

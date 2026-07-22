@@ -52,8 +52,9 @@
  * caller-supplied `dst_scratch` in scope at all); bb_data_commit() does
  * everything downstream of a successful decode -- seed, populate, apply().
  * bb_data_apply() itself is now a thin wrapper composing the two, kept
- * around so every pre-existing caller (bb_wifi_http, bb_storage_http,
- * bb_ota_check) compiles and behaves identically with zero edits.
+ * around so every pre-existing caller (bb_wifi_http, bb_diag_http's
+ * bb_storage_http_routes.c, bb_ota_check) compiles and behaves identically
+ * with zero edits.
  */
 
 #include "bb_core.h"

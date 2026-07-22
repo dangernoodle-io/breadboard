@@ -1089,7 +1089,8 @@ bb_err_t bb_storage_nvs_erase_namespace(const char *ns)
 // Moved verbatim from platform/espidf/bb_nv/bb_nv.c's
 // bb_nv_config_factory_reset() (B1-960) -- the nvs_flash_erase() call ONLY;
 // the RTC-mirror-clear + reboot-record steps that used to live alongside it
-// now belong to the caller (bb_storage_http's factory-reset route handler).
+// now belong to the caller (bb_diag_http's, formerly bb_storage_http's per
+// B1-1154, factory-reset route handler).
 bb_err_t bb_storage_nvs_erase_all(void)
 {
     bb_log_i(TAG, "erase_all: erasing NVS partition");

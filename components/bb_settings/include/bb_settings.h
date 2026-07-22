@@ -46,8 +46,9 @@ bb_err_t bb_settings_wifi_pass_get(char *buf, size_t cap, size_t *out_len);
 bool bb_settings_wifi_has_creds(void);
 
 // True iff `ns` is the NVS namespace bb_settings stores wifi credentials
-// under. False for NULL. Lets a generic consumer (e.g. bb_storage_http's
-// DELETE route, B1-757) ask "does this namespace hold wifi creds?" without
+// under. False for NULL. Lets a generic consumer (e.g. bb_diag_http's DELETE
+// /api/diag/storage route, B1-757, dissolved in from bb_storage_http per
+// B1-1154) ask "does this namespace hold wifi creds?" without
 // copying bb_settings' namespace literal itself — a copy would silently go
 // stale if that namespace ever changed, defeating the safety guard it backs.
 bool bb_settings_ns_is_wifi_creds(const char *ns);

@@ -381,8 +381,9 @@ void test_bb_http_section_status_for_apply_commit_unsupported_is_405(void)
 // the commit-stage BB_ERR_UNSUPPORTED status via
 // bb_http_section_ns_t.unsupported_status -- 0 keeps today's 405 default
 // (exercised above); a non-zero override is sent verbatim instead. 501 here
-// mirrors bb_storage_http's factory-reset route precedent (a genuine
-// backend-capability gap, not a method-not-allowed shape).
+// mirrors bb_diag_http's (formerly bb_storage_http's, B1-1154) factory-reset
+// route precedent (a genuine backend-capability gap, not a
+// method-not-allowed shape).
 void test_bb_http_section_status_for_apply_commit_unsupported_override_is_501(void)
 {
     TEST_ASSERT_EQUAL(501, bb_http_section_status_for_apply(

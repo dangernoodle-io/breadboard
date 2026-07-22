@@ -41,7 +41,8 @@ idf_component_register(
 # directory-convention source walk (scripts/bbtool/boards.py's
 # derive_component) only looks under platform/host/<name>/ for the "native"
 # board and has no CONFIG_ awareness, so this hint pulls the portable route
-# source into host test builds too (same pattern as
-# bb_storage_http/CMakeLists.txt's own hint).
+# source into host test builds too (same pattern as bb_diag_http/
+# CMakeLists.txt's own hint, carried over from the dissolved bb_storage_http
+# component, B1-1154).
 # bbtool-scaffold-hint: source=platform/espidf/bb_system/bb_system_routes.c
 

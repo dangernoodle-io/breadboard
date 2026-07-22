@@ -366,11 +366,6 @@
       "type": "component"
     },
     {
-      "id": "bb_storage_http",
-      "path": "components/bb_storage_http",
-      "type": "component"
-    },
-    {
       "id": "bb_storage_nvs",
       "path": "components/bb_storage_nvs",
       "type": "component"

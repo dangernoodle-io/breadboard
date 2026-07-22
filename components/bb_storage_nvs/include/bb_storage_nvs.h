@@ -257,8 +257,9 @@ bb_err_t bb_storage_nvs_erase_namespace(const char *ns);
 
 // Erase the ENTIRE NVS partition (every namespace). Moved verbatim from
 // platform/espidf/bb_nv/bb_nv.c's bb_nv_config_factory_reset() (B1-960,
-// bb_nv dissolution epic B1-708) — the caller (bb_storage_http's
-// POST /api/diag/factory-reset route) is responsible for the RTC-mirror
+// bb_nv dissolution epic B1-708) — the caller (bb_diag_http's, formerly
+// bb_storage_http's per B1-1154, POST /api/diag/factory-reset route) is
+// responsible for the RTC-mirror
 // invalidation and reboot-record steps that used to live alongside this
 // call in bb_nv_config_factory_reset(); this function does ONLY the
 // partition erase.

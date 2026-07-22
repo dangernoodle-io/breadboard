@@ -65,7 +65,7 @@
 // PR.
 
 #include "bb_storage_http.h"
-#include "../../../components/bb_storage_http/bb_storage_http_delete_wire_priv.h"
+#include "../../../components/bb_diag_http/bb_storage_http_delete_wire_priv.h"
 #include "bb_data.h"
 #include "bb_http.h"
 #include "bb_http_body.h"

@@ -9,6 +9,12 @@
 
 // bb_storage_http — backend-agnostic DELETE route for bb_storage (B1-757).
 //
+// B1-1154 (KB 1477): the bb_storage_http COMPONENT was dissolved -- these
+// two routes now live under bb_diag_http (an SSOT component owns no routes;
+// both routes were already diag-namespaced). This header/its .c files moved
+// verbatim; the CONFIG_BB_STORAGE_HTTP_FACTORY_RESET Kconfig symbol below
+// KEEPS its bb_storage_http-era name unchanged.
+//
 // Registers DELETE /api/diag/storage on the shared bb_http_server. Rehomed
 // from the old DELETE /api/nvs (platform/espidf/bb_nv/bb_nv_delete_routes.c),
 // which was welded to the "nvs" backend and required bb_diag to reach into

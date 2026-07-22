@@ -36,4 +36,21 @@ config BB_DIAG_SECTIONS
         of this option; only this component's ESP-IDF wildcard-route
         dispatcher is gated.
 
+# Dissolved in from the former bb_storage_http component (B1-1154, KB 1477)
+# -- DELETE /api/diag/storage always builds (same posture as
+# BB_DIAG_SECTIONS' portable registry above); this option gates ONLY the
+# separate, destructive POST /api/diag/factory-reset route. Symbol name
+# KEPT unchanged from its bb_storage_http-era name -- renaming would break
+# any sdkconfig.defaults already setting it.
+config BB_STORAGE_HTTP_FACTORY_RESET
+    bool "Enable POST /api/diag/factory-reset route (full NVS wipe + deferred reboot)"
+    default n
+    help
+      When enabled, registers POST /api/diag/factory-reset. A valid request
+      body {"confirm":"factory-reset"} erases the entire "nvs" bb_storage
+      backend (all namespaces), invalidates the RTC creds mirror so the
+      restore-heal path cannot resurrect credentials, responds 202, then
+      reboots after ~500 ms. Disabled by default because factory reset is a
+      destructive operation that should be opt-in.
+
 endmenu
