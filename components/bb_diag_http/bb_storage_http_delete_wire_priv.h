@@ -24,8 +24,9 @@
 // on host + ESP-IDF.
 //
 // Included by:
-//   - platform/espidf/bb_storage_http/bb_storage_http_routes.c (the live
-//     handler)
+//   - platform/espidf/bb_diag_http/bb_storage_http_routes.c (the live
+//     handler; rehomed from platform/espidf/bb_storage_http/ -- B1-1154,
+//     bb_storage_http dissolved into bb_diag_http, KB 1477)
 //   - test/test_host/test_bb_storage_http_delete_wire.c (expected-JSON
 //     fixtures)
 

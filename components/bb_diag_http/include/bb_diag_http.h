@@ -23,6 +23,14 @@
  * bb_diag_boot_render_envelope() always builds regardless of either
  * Kconfig -- same as its prior home (components/bb_diag/bb_diag_boot_wire.c),
  * host-testable directly.
+ *
+ * B1-1154 (KB 1477): the former bb_storage_http component was dissolved into
+ * this one -- DELETE /api/diag/storage (bb_storage_http_routes_init(),
+ * always builds) and POST /api/diag/factory-reset
+ * (bb_storage_http_factory_reset_routes_init(), gated behind
+ * CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) are declared in bb_storage_http.h
+ * (this component's own second public header, unmerged into this file to
+ * keep the mechanical move a pure relocation).
  */
 
 #include "bb_diag.h"

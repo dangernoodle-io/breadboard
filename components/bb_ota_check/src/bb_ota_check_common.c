@@ -697,7 +697,8 @@ static bb_err_t config_apply(const void *snap, const bb_data_apply_args_t *args)
 
 // Binds the "ota_check_config" bb_data key against the production gather/
 // apply hooks above. Portable (no bb_http_handle_t server dependency,
-// unlike bb_storage_http's factory-reset binding) -- called both by
+// unlike bb_diag_http's factory-reset binding, formerly bb_storage_http's
+// per B1-1154) -- called both by
 // bb_ota_check_register_init() (ESP-IDF composition root) and directly by
 // host tests after bb_data_test_reset().
 bb_err_t bb_ota_check_config_bind(void)

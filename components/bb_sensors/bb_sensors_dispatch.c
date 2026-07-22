@@ -162,8 +162,9 @@ bb_err_t bb_sensors_bind_and_register(void)
         // bb_http_section_status_for_apply()). "no primary fan" is an
         // ordinary, possibly-transient hardware state, not "this namespace
         // doesn't support writes" -- 503 (service unavailable) restores the
-        // pre-PR-2 handler's semantics, mirrors bb_storage_http/bb_wifi_http's
-        // own unsupported_status precedent (see bb_http_section_ns_t's doc).
+        // pre-PR-2 handler's semantics, mirrors bb_diag_http's (formerly
+        // bb_storage_http's, B1-1154) / bb_wifi_http's own unsupported_status
+        // precedent (see bb_http_section_ns_t's doc).
         .unsupported_status = 503,
     };
     return bb_http_section_register_ns(&ns);

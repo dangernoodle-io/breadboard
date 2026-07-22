@@ -101,9 +101,10 @@ typedef bb_http_section_apply_result_t (*bb_http_section_apply_fn)(const char *n
 //     "the backend genuinely lacks the capability" (501, a real
 //     Not-Implemented) OR "the request shape itself isn't supported" (400,
 //     client-shaped) depending on the namespace's own domain -- merged
-//     precedent already disagrees: bb_storage_http's factory-reset route
-//     maps BB_ERR_UNSUPPORTED -> 501 (storage backend genuinely lacks
-//     erase_all), bb_wifi_http's PATCH route maps it -> 400 (unsupported
+//     precedent already disagrees: bb_diag_http's (formerly bb_storage_http's,
+//     B1-1154) factory-reset route maps BB_ERR_UNSUPPORTED -> 501 (storage
+//     backend genuinely lacks erase_all), bb_wifi_http's PATCH route maps it
+//     -> 400 (unsupported
 //     request shape). A single hardcoded 405 in the shared mapper cannot
 //     serve all three -- see unsupported_status below.
 // This is the SAME code-aliasing class PR #955 fixed one layer down (JSON

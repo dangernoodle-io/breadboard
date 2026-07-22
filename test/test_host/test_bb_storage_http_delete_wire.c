@@ -7,7 +7,7 @@
 
 #include "unity.h"
 
-#include "../../components/bb_storage_http/bb_storage_http_delete_wire_priv.h"
+#include "../../components/bb_diag_http/bb_storage_http_delete_wire_priv.h"
 
 #include "bb_serialize_json.h"
 

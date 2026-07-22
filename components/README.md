@@ -72,7 +72,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_serialize_logfmt](./bb_serialize_logfmt/) | Hand-rolled, no-heap, bounded-buffer logfmt bb_serialize_emit_t backend -- a second wire-format implementation for bb_serialize, mirroring bb_serialize_json's structure and contract shape. |
 | [bb_settings](./bb_settings/) | bb's default WiFi-credentials store — a wifi-creds field table over `bb_config`, byte-compatible with the credentials `bb_nv_config` already persists. `bb_settings` is bb's opinionated bb-config authority (KB 805/806); `bb_wifi` reads its accessors directly. |
 | [bb_storage](./bb_storage/) | Portable storage facade + backend registry: one `bb_storage_get/set/erase/exists` API dispatching by `bb_storage_addr_t.backend` to whichever backend has registered itself. |
-| [bb_storage_http](./bb_storage_http/) | Backend-agnostic DELETE /api/diag/storage route over the bb_storage facade, plus POST /api/diag/factory-reset (whole-partition erase + reboot) — works for any registered backend (nvs today, ram/rtc/a future sdcard) with no new route component per backend. |
 | [bb_storage_nvs](./bb_storage_nvs/) | ESP-IDF NVS backend for `bb_storage`. |
 | [bb_storage_ram](./bb_storage_ram/) | In-memory `bb_storage` backend — the reference implementation, a fixed-capacity key/value table with no heap allocation. |
 | [bb_storage_rtc](./bb_storage_rtc/) | Warm-reboot RTC-mirror `bb_storage` backend for WiFi credentials. |

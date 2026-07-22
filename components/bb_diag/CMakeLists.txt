@@ -24,7 +24,8 @@ set(_diag_srcs
 # through bb_config below.
 # The DELETE /api/nvs route (and the private-include boundary violation it
 # required to reach bb_nv's implementation dir) moved out to bb_storage_http
-# (B1-757) -- bb_diag no longer wires or depends on it.
+# (B1-757) -- since dissolved into bb_diag_http (B1-1154) -- bb_diag no
+# longer wires or depends on it.
 # bb_storage is now an explicit PRIV_REQUIRES: bb_diag_panic.c calls
 # bb_storage_txn_begin/set/commit directly (B1-756's last bb_nv migration,
 # PR-B) -- previously only transitively available via bb_config.h, which the
