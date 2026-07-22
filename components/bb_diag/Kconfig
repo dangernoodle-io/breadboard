@@ -45,7 +45,7 @@ config BB_DIAG_ROUTES
     depends on BB_DIAG_PANIC_CAPTURE
     help
         When enabled, bb_diag registers GET/DELETE /api/diag/panic.
-        Adds bb_http and bb_json to bb_diag's PRIV_REQUIRES.
+        Adds bb_http to bb_diag's PRIV_REQUIRES.
 
 config BB_DIAG_PANIC_TRIGGER
     bool "Expose POST /api/diag/panic/trigger to force a panic (debug only)"

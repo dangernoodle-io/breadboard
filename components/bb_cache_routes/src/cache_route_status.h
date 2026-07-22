@@ -28,6 +28,15 @@ extern "C" {
 //   BB_ERR_NO_SPACE       -> 500 (serialize/buffer failure)
 //   any other             -> 500
 // Any 500 status is logged loud on the caller side.
+//
+// BB_ERR_UNSUPPORTED is newly REACHABLE here (B1-1053 PR1's bb_cache
+// relaxation): a key registered with cfg->serialize == NULL (rendered via
+// bb_data instead) makes bb_cache_get_serialized() return
+// BB_ERR_UNSUPPORTED, which this mapper's "any other -> 500" catch-all turns
+// into a loud 500 -- a known wart, not fixed here on purpose: bb_cache_routes
+// is being folded into /api/diag/cache under B1-1121, so this mapping is
+// being deleted, not polished. If you hit a spurious 500 on GET /api/cache
+// for a NULL-serialize key, this is why.
 int cache_route_map_status(bb_err_t rc);
 
 #ifdef __cplusplus

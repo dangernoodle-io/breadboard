@@ -1,10 +1,10 @@
 #include "bb_diag.h"
 #include "bb_cache.h"
+#include "bb_diag_boot_wire.h"
 #include "bb_diag_event_priv.h"
 #include "bb_data.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
-#include "bb_json.h"
 #include "bb_log.h"
 #include "bb_openapi.h"
 #include "bb_config.h"
@@ -265,43 +265,29 @@ static bb_err_t panic_get_handler(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
-// GET /api/diag/boot — compact boot-anomaly summary (served from bb_cache)
+// GET /api/diag/boot — compact boot-anomaly summary, rendered via bb_data
+// against the "diag.boot" binding (B1-1053 PR1: cut over off the retired
+// bb_json bb_cache serializer). Response shape changed: this used to emit a
+// BARE object; it now emits the {"ts_ms":N,"data":{...}} envelope (see
+// bb_diag_boot_render_envelope()'s doc for the ts_ms semantic).
 static bb_err_t boot_get_handler(bb_http_request_t *req)
 {
-    bb_json_t obj = bb_json_obj_new();
-    if (!obj) {
-        bb_http_resp_set_status(req, 500);
-        bb_http_json_obj_stream_t err_obj;
-        bb_http_resp_json_obj_begin(req, &err_obj);
-        bb_http_resp_json_obj_set_str(&err_obj, "error", "alloc failed");
-        bb_http_resp_json_obj_end(&err_obj);
-        return BB_ERR_NO_SPACE;
-    }
-    // Refresh the cache entry with a fresh "now" so reboot_reason.age_s (and
-    // any future request-time-relative field) reflects this GET, not the
-    // last publish. bb_cache_update on an owned-mode topic is a cheap memcpy
-    // (no SSE post) — the retained SSE snapshot is unaffected.
-    {
-        bb_diag_boot_snap_t fresh;
-        build_boot_snap(&fresh);
-        bb_cache_update(&(bb_cache_update_t){ .key = BB_DIAG_BOOT_TOPIC, .snap = &fresh });
-    }
-    bb_cache_serialize_into(BB_DIAG_BOOT_TOPIC, obj);
-    char *str = bb_json_serialize(obj);
-    bb_json_free(obj);
-    if (!str) {
-        bb_http_resp_set_status(req, 500);
-        bb_http_json_obj_stream_t err_obj;
-        bb_http_resp_json_obj_begin(req, &err_obj);
-        bb_http_resp_json_obj_set_str(&err_obj, "error", "serialize failed");
-        bb_http_resp_json_obj_end(&err_obj);
-        return BB_ERR_NO_SPACE;
-    }
-    bb_err_t err = bb_http_resp_set_type(req, "application/json");
-    if (err == BB_OK) err = bb_http_resp_send_chunk(req, str, -1);
-    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
-    bb_json_free_str(str);
-    return err;
+    // DO NOT DELETE this refresh as "redundant with bb_data_render()'s
+    // per-render gather" -- it is NOT redundant for this key. VERIFIED
+    // against bb_diag_boot_gather()'s actual body (bb_diag_boot_wire.c)
+    // before this cutover: that gather hook is a PURE PASS-THROUGH -- it
+    // only widens whatever bb_cache_get_raw() currently holds, it does not
+    // itself recompute now_epoch_s/age_s. If this bb_cache_update() refresh
+    // were removed, reboot_reason.age_s would freeze at whatever it was at
+    // the last publish (init/on_validated) instead of reflecting this GET.
+    // PR2 (the other 5 dissolved-bb_event producers): re-verify this same
+    // question per producer -- do NOT assume "gather refreshes" generalizes,
+    // it does not hold for diag.boot and may not hold for the others either.
+    bb_diag_boot_snap_t fresh;
+    build_boot_snap(&fresh);
+    bb_cache_update(&(bb_cache_update_t){ .key = BB_DIAG_BOOT_TOPIC, .snap = &fresh });
+
+    return bb_diag_boot_render_envelope(req);
 }
 
 // DELETE /api/diag/boot — clear panic log + abnormal-reset counter
@@ -316,6 +302,9 @@ static bb_err_t boot_delete_handler(bb_http_request_t *req)
 static const bb_route_response_t s_boot_get_responses[] = {
     { 200, "application/json",
       "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"ts_ms\":{\"type\":\"integer\"},"
+      "\"data\":{\"type\":\"object\","
       "\"properties\":{"
       "\"reset_reason\":{\"type\":\"string\"},"
       "\"wdt_resets\":{\"type\":\"integer\"},"
@@ -341,15 +330,22 @@ static const bb_route_response_t s_boot_get_responses[] = {
       "\"uptime_s\":{\"type\":\"integer\"}},"
       "\"required\":[\"source\",\"epoch_s\",\"uptime_s\"]}}},"
       "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\",\"pending_verify\",\"rolled_back\","
-      "\"reboot_reason\",\"reboot_history\"]}",
-      "current boot reset reason, WDT-reset count, panic availability, OTA state summary, "
-      "the semantic reboot_reason SSOT (may disagree with hardware reset_reason — e.g. "
-      "an app-requested reboot still reports reset_reason=\\\"software\\\" at the hardware "
-      "level while reboot_reason.source names the app-level cause; source=\\\"unknown\\\" when "
-      "no semantic record was captured for this boot). age_s is omitted when epoch_s is 0 "
-      "or the current wall clock is not NTP-synced. reboot_history is a rolling ring of the "
-      "last 8 reboots, newest-first, including untagged/hardware resets (source=\\\"unknown\\\"); "
-      "unlike reboot_reason it is NOT cleared on read." },
+      "\"reboot_reason\",\"reboot_history\"]}},"
+      "\"required\":[\"ts_ms\",\"data\"]}",
+      "BREAKING (B1-1053 PR1): response root changed from a bare object to the "
+      "{ts_ms,data} envelope -- \\\"data\\\" carries exactly the fields this route "
+      "used to emit at the root. ts_ms is the wall-clock time (ms) this response "
+      "was rendered, NOT a sample time (bb_data has no notion of one for this key). "
+      "data.reset_reason/wdt_resets/panic/pending_verify/rolled_back: current boot "
+      "reset reason, WDT-reset count, panic availability, OTA state summary. "
+      "data.reboot_reason is the semantic reboot_reason SSOT (may disagree with "
+      "hardware reset_reason — e.g. an app-requested reboot still reports "
+      "reset_reason=\\\"software\\\" at the hardware level while reboot_reason.source "
+      "names the app-level cause; source=\\\"unknown\\\" when no semantic record was "
+      "captured for this boot). age_s is omitted when epoch_s is 0 or the current "
+      "wall clock is not NTP-synced. data.reboot_history is a rolling ring of the "
+      "last 8 reboots, newest-first, including untagged/hardware resets "
+      "(source=\\\"unknown\\\"); unlike reboot_reason it is NOT cleared on read." },
     { 0 },
 };
 
@@ -970,14 +966,15 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     load_reboot_record();
 
     // Register diag.boot in bb_cache (owned struct). SSE/broadcast delivery
-    // is now a bb_data/bb_data_http composition-root concern (B1-1045), not
-    // bb_cache's -- BB_CACHE_FLAG_NONE, no event topic.
+    // is a bb_data/bb_data_http composition-root concern (B1-1045); the REST
+    // GET path is now bb_data too (B1-1053 PR1) -- bb_cache here is purely
+    // the snapshot store bb_diag_boot_gather() reads via bb_cache_get_raw(),
+    // no .serialize slot, BB_CACHE_FLAG_NONE, no event topic.
     {
         bb_cache_config_t cache_cfg = {
             .key       = BB_DIAG_BOOT_TOPIC,
             .snapshot  = NULL,
             .snap_size = sizeof(bb_diag_boot_snap_t),
-            .serialize = bb_diag_boot_serialize,
             .flags     = BB_CACHE_FLAG_NONE,
         };
         bb_err_t cerr = bb_cache_register(&cache_cfg);
@@ -986,8 +983,21 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
         }
     }
 
+    // Bind "diag.boot" to bb_data so boot_get_handler's bb_data_render() call
+    // can resolve it -- no composition root does this today (see
+    // bb_diag_boot_wire.h's file-header note), so this component self-binds,
+    // mirroring bb_ota_check_config_bind()'s pattern. SSE/broadcast
+    // attach (bb_data_http_attach_sized()) stays a composition-root concern,
+    // out of this PR's scope.
+    {
+        bb_err_t derr = bb_diag_boot_bind();
+        if (derr != BB_OK) {
+            bb_log_w(TAG, "bb_diag_boot_bind failed: %d", (int)derr);
+        }
+    }
+
     // Publish the initial snapshot and register the OpenAPI schema for the
-    // "diag.boot" bb_data key (attach/wiring lives at the composition root).
+    // "diag.boot" bb_data key.
     {
         static const char k_diag_boot_schema[] =
             "{\"title\":\"DiagBoot\",\"x-sse-topic\":\"diag.boot\",\"type\":\"object\","

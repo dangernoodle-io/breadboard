@@ -273,6 +273,19 @@ bb_err_t bb_http_resp_json_obj_set_bool(bb_http_json_obj_stream_t *stream,
 bb_err_t bb_http_resp_json_obj_set_null(bb_http_json_obj_stream_t *stream,
                                         const char *key);
 
+/* Emit "key":<raw>, splicing `raw_len` bytes of `raw` in VERBATIM -- no
+ * escaping, no re-validation. Caller guarantees `raw` is well-formed JSON
+ * (e.g. the output of bb_data_render()/bb_serialize_json_render()) suitable
+ * to embed as-is at this position. `raw` may exceed the stream's internal
+ * BB_HTTP_JSON_OBJ_BUF_SIZE buffer -- it is flushed in chunks, never
+ * memcpy'd in one shot. Returns BB_ERR_INVALID_ARG if `raw` is NULL OR if
+ * `raw_len == 0` -- no valid JSON value is zero bytes, so a zero-length
+ * render is a producer bug; this rejects it rather than silently emitting
+ * "key": followed by nothing (which would produce invalid JSON at the next
+ * comma/brace) or substituting a plausible-looking `null`/`{}` fallback. */
+bb_err_t bb_http_resp_json_obj_set_raw(bb_http_json_obj_stream_t *stream,
+                                       const char *key, const char *raw, size_t raw_len);
+
 /* Begin a nested object: emit "key":{ and push depth.
  * Caller follows with _set_* calls, then calls _set_obj_end. */
 bb_err_t bb_http_resp_json_obj_set_obj_begin(bb_http_json_obj_stream_t *stream,

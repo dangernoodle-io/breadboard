@@ -502,6 +502,15 @@ static bb_err_t serialize_locked(bb_cache_entry_t *e, const char *key, uint32_t 
         return BB_ERR_NOT_FOUND;
     }
 
+    // No legacy bb_json serializer bound (bb_cache.h: NULL means "render
+    // this key via bb_data instead") -- loud, explicit reject rather than a
+    // NULL-deref on e->fn(...) below. Covers bb_cache_serialize_into() too
+    // (it's a thin wrapper over this function).
+    if (!e->fn) {
+        pthread_mutex_unlock(&e->lock);
+        return BB_ERR_UNSUPPORTED;
+    }
+
     const void *snap;
     if (is_plain_getter(e)) {
         // Plain getter mode: no owned buffer, always pull through.
@@ -533,7 +542,13 @@ bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
 {
     if (cfg && cfg->out_first_time) *cfg->out_first_time = false;
 
-    if (!cfg || !cfg->key || !cfg->serialize) return BB_ERR_INVALID_ARG;
+    // cfg->serialize is OPTIONAL (B1-1053 PR1 relaxation): NULL means this
+    // key has no legacy bb_json serializer -- bb_cache_serialize_into()/
+    // bb_cache_get_serialized() return BB_ERR_UNSUPPORTED for it instead of
+    // a NULL-deref crash or a silently-empty result. bb_cache still owns the
+    // snapshot store/gather role for such a key (e.g. bb_data's gather hook
+    // reads it via bb_cache_get_raw(), unaffected by this field).
+    if (!cfg || !cfg->key) return BB_ERR_INVALID_ARG;
     if (strlen(cfg->key) >= BB_CACHE_KEY_MAX) {
         bb_log_e(TAG, "key '%s' too long (max %d chars)", cfg->key, BB_CACHE_KEY_MAX - 1);
         return BB_ERR_INVALID_ARG;
@@ -854,6 +869,14 @@ bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t 
     }
     if (evict_if_aged_out_locked(e)) {
         return BB_ERR_NOT_FOUND;
+    }
+
+    // No legacy bb_json serializer bound -- see the matching guard in
+    // serialize_locked() for the rationale (bb_cache.h: NULL means "render
+    // this key via bb_data instead").
+    if (!e->fn) {
+        pthread_mutex_unlock(&e->lock);
+        return BB_ERR_UNSUPPORTED;
     }
 
     // Plain getter-mode entries (no owned buffer) have no dirty signal (data

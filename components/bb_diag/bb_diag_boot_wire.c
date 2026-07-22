@@ -7,10 +7,20 @@
 
 #include "bb_diag_event_priv.h"
 #include "bb_cache.h"
+#include "bb_clock.h"
+#include "bb_data.h"
+#include "bb_http_server.h"
 #include "bb_str.h"
 
 #include <stddef.h>
 #include <string.h>
+
+// Worst case (8 reboot_history entries, every present-gated field populated)
+// renders well under 1024 bytes -- proven today by
+// test_wire_desc_diag_boot_render_history_eight_entries_wraparound
+// (test_wire_desc_producers.c), which renders this exact descriptor into a
+// 1024-byte buffer. Keep identical headroom here.
+#define BB_DIAG_BOOT_RENDER_BUF_BYTES 1024
 
 // ---------------------------------------------------------------------------
 // Present predicates
@@ -136,17 +146,17 @@ bb_err_t bb_diag_boot_gather(bb_diag_boot_wire_t *dst)
     bb_strlcpy(dst->reboot_reason.detail, raw.reboot_detail, sizeof(dst->reboot_reason.detail));
     dst->reboot_reason.uptime_s = (int64_t)raw.reboot_uptime_s;
     dst->reboot_reason.epoch_s  = (int64_t)raw.reboot_epoch_s;
-    // Same 3-way guard as bb_diag_boot_serialize()'s age_s branch (see
-    // bb_diag_event_common.c): both the recorded epoch and the current wall
-    // clock must be known-good, or a not-yet-synced "now" would otherwise
-    // produce a bogus (huge or negative) age.
+    // Same 3-way guard the now-retired bb_json bb_cache serializer used for
+    // its age_s branch: both the recorded epoch and the current wall clock
+    // must be known-good, or a not-yet-synced "now" would otherwise produce
+    // a bogus (huge or negative) age.
     dst->reboot_reason.age_s_valid = raw.reboot_epoch_s > 0 && raw.now_epoch_valid &&
                                       raw.now_epoch_s >= raw.reboot_epoch_s;
     dst->reboot_reason.age_s = dst->reboot_reason.age_s_valid
         ? (int64_t)(raw.now_epoch_s - raw.reboot_epoch_s) : 0;
 
-    // Materialize the ring newest-first -- replicates
-    // bb_diag_boot_serialize()'s exact modular-index walk (bb_diag_event_common.c).
+    // Materialize the ring newest-first -- same modular-index walk the
+    // now-retired bb_json bb_cache serializer used (B1-1053 PR1 deleted it).
     uint8_t n = raw.reboot_history.count;
     if (n > BB_REBOOT_HISTORY_CAP) n = BB_REBOOT_HISTORY_CAP;
     for (uint8_t i = 0; i < n; i++) {
@@ -162,4 +172,57 @@ bb_err_t bb_diag_boot_gather(bb_diag_boot_wire_t *dst)
     dst->reboot_history.count = n;
 
     return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
+// bb_data bind + REST render (B1-1053 PR1) -- see the file-header note in
+// bb_diag_boot_wire.h for why the bind lives here.
+// ---------------------------------------------------------------------------
+
+// Adapter: bb_data_gather_fn wraps bb_diag_boot_gather()'s typed signature.
+// "diag.boot" has no request-scoped filter, so `args` is otherwise unused.
+static bb_err_t diag_boot_data_gather(void *dst, const bb_data_gather_args_t *args)
+{
+    (void)args;
+    return bb_diag_boot_gather((bb_diag_boot_wire_t *)dst);
+}
+
+bb_err_t bb_diag_boot_bind(void)
+{
+    bb_data_binding_t binding = {
+        .key    = BB_DIAG_BOOT_TOPIC,
+        .desc   = &bb_diag_boot_wire_desc,
+        .gather = diag_boot_data_gather,
+    };
+    return bb_data_bind(&binding);
+}
+
+bb_err_t bb_diag_boot_render_envelope(bb_http_request_t *req)
+{
+    if (!req) return BB_ERR_INVALID_ARG;
+
+    char   scratch[sizeof(bb_diag_boot_wire_t)];
+    char   data_buf[BB_DIAG_BOOT_RENDER_BUF_BYTES];
+    size_t data_len = 0;
+    bb_data_render_req_t render_req = {
+        .fmt         = BB_FORMAT_JSON,
+        .key         = BB_DIAG_BOOT_TOPIC,
+        .query       = NULL,
+        .scratch     = scratch,
+        .scratch_cap = sizeof(scratch),
+        .buf         = data_buf,
+        .buf_cap     = sizeof(data_buf),
+        .out_len     = &data_len,
+    };
+    bb_err_t err = bb_data_render(&render_req);
+    if (err != BB_OK) return err;
+
+    bb_http_json_obj_stream_t obj;
+    err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+
+    bb_http_resp_json_obj_set_int(&obj, "ts_ms", (int64_t)bb_clock_now_ms64());
+    bb_http_resp_json_obj_set_raw(&obj, "data", data_buf, data_len);
+
+    return bb_http_resp_json_obj_end(&obj);
 }

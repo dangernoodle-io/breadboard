@@ -174,7 +174,15 @@ typedef void (*bb_cache_serialize_fn)(bb_json_t obj, const void *snap);
 //                (plain OWNED, mandatory) or snapshot != NULL (OWNED+FALLBACK,
 //                optional). Ignored (may be 0) for plain GETTER mode.
 //   serialize  — serializer fn invoked by serialize_into (and the memoized
-//                bb_cache_get_serialized() path).
+//                bb_cache_get_serialized() path). OPTIONAL (B1-1053 PR1):
+//                pass NULL when this key has no legacy bb_json serializer --
+//                i.e. it is rendered exclusively via bb_data (bb_data_render()
+//                against a gather hook reading this key via bb_cache_get_raw()/
+//                bb_cache_snapshot()). bb_cache_serialize_into() and
+//                bb_cache_get_serialized() both return BB_ERR_UNSUPPORTED for
+//                a NULL-serialize key instead of invoking a non-existent fn.
+//                bb_cache still owns the snapshot store/gather role for such
+//                a key regardless of this field.
 //   flags      — BB_CACHE_FLAG_* bitmask. BB_CACHE_FLAG_NONE (0) is the only
 //                value today; SSE/broadcast delivery is a bb_data/
 //                bb_data_http composition-root concern (B1-1045), not
@@ -207,9 +215,10 @@ typedef struct {
 
 // Register a cache entry.
 //
-// Returns BB_ERR_INVALID_ARG if cfg, cfg->key, or cfg->serialize is NULL, or
-// if strlen(cfg->key) >= BB_CACHE_KEY_MAX (over-length keys are rejected
-// loudly at register time, never silently truncated).
+// Returns BB_ERR_INVALID_ARG if cfg or cfg->key is NULL, or if
+// strlen(cfg->key) >= BB_CACHE_KEY_MAX (over-length keys are rejected
+// loudly at register time, never silently truncated). cfg->serialize may be
+// NULL -- see its field doc above.
 // Returns BB_ERR_NO_SPACE if the registry is full, or (owned mode) the
 // snapshot buffer could not be allocated.
 // Idempotent: registering an already-registered key returns BB_OK without
@@ -283,6 +292,8 @@ bool bb_cache_exists(const char *key);
 // multiple keys); use bb_cache_get_serialized for the standalone wire
 // contract.
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
+// Returns BB_ERR_UNSUPPORTED if the key was registered with cfg->serialize
+// == NULL (render it via bb_data instead).
 bb_err_t bb_cache_serialize_into(const char *key, bb_json_t obj);
 
 // Memoized serialization — the core of serialize-once, COPY-OUT under the lock.
@@ -317,6 +328,8 @@ bb_err_t bb_cache_serialize_into(const char *key, bb_json_t obj);
 //   out_len  — optional; receives strlen of the copied JSON (excludes NUL).
 //
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
+// Returns BB_ERR_UNSUPPORTED if the key was registered with cfg->serialize
+// == NULL (render it via bb_data instead).
 // Returns BB_ERR_INVALID_STATE if no snapshot is available yet.
 // Returns BB_ERR_NO_SPACE on serialize allocation failure OR if cap is too
 // small to hold the serialized JSON plus its NUL terminator (buf untouched).
