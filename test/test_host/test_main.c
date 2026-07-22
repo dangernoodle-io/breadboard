@@ -937,28 +937,6 @@ void test_bb_diag_scrub_text_control_chars_replaced(void);
 void test_bb_diag_scrub_text_del_replaced(void);
 void test_bb_diag_scrub_text_all_printable_ascii(void);
 
-// Forward declarations from test_bb_diag_event.c
-void test_bb_diag_boot_serialize_poweron_clean(void);
-void test_bb_diag_boot_serialize_panic_available(void);
-void test_bb_diag_boot_serialize_rolled_back(void);
-void test_bb_diag_boot_serialize_pending_verify(void);
-void test_bb_diag_boot_serialize_panic_obj_always_present(void);
-void test_bb_diag_boot_serialize_json_braces(void);
-void test_bb_diag_boot_serialize_large_wdt_resets(void);
-void test_bb_diag_boot_serialize_panic_oom(void);
-void test_bb_diag_boot_serialize_reboot_reason_unknown_default(void);
-void test_bb_diag_boot_serialize_reboot_reason_known_source_with_detail(void);
-void test_bb_diag_boot_serialize_reboot_reason_epoch_no_age_when_now_invalid(void);
-void test_bb_diag_boot_serialize_reboot_reason_age_present_when_both_valid(void);
-void test_bb_diag_boot_serialize_reboot_reason_no_age_on_clock_skew(void);
-void test_bb_diag_boot_serialize_reboot_reason_oom(void);
-void test_bb_diag_boot_serialize_reboot_history_empty_when_count_zero(void);
-void test_bb_diag_boot_serialize_reboot_history_newest_first_no_wrap(void);
-void test_bb_diag_boot_serialize_reboot_history_newest_first_after_wrap(void);
-void test_bb_diag_boot_serialize_reboot_history_array_oom(void);
-void test_bb_diag_boot_serialize_reboot_history_count_clamped_when_out_of_range(void);
-void test_bb_diag_boot_serialize_reboot_history_item_oom_yields_partial_array(void);
-
 // Forward declarations from test_ota_pull.c
 void test_bb_ota_pull_set_http_timeout_ms_default_is_20000(void);
 void test_bb_ota_pull_set_http_timeout_ms_zero_restores_default(void);
@@ -1188,6 +1166,16 @@ void test_json_obj_set_int_emit_key_error(void);
 void test_json_obj_set_bool_emit_key_error(void);
 void test_json_obj_set_null_emit_key_error(void);
 void test_json_obj_set_num_emit_key_error(void);
+void test_json_obj_set_raw_basic(void);
+void test_json_obj_set_raw_null_stream(void);
+void test_json_obj_set_raw_null_raw(void);
+void test_json_obj_set_raw_zero_len(void);
+void test_json_obj_set_raw_not_open(void);
+void test_json_obj_set_raw_sticky_error(void);
+void test_json_obj_set_raw_multiple_fields(void);
+void test_json_obj_set_raw_large_payload(void);
+void test_json_obj_set_raw_emit_key_error(void);
+void test_json_obj_set_raw_chunk_append_error(void);
 
 // Forward declarations from test_bb_http_serialize_stream.c
 void test_http_serialize_stream_happy_path(void);
@@ -3252,6 +3240,14 @@ void test_wire_desc_diag_boot_gather_rejects_null(void);
 void test_wire_desc_diag_boot_gather_returns_err_when_not_published(void);
 void test_wire_desc_diag_boot_render_age_s_omitted_when_clock_skew(void);
 void test_wire_desc_diag_boot_render_history_count_clamped_when_out_of_range(void);
+void test_wire_desc_diag_boot_render_large_wdt_resets(void);
+
+// Forward declarations from test_bb_diag_boot_render.c
+void test_diag_boot_render_envelope_shape(void);
+void test_diag_boot_render_envelope_null_req(void);
+void test_diag_boot_render_envelope_unbound_key_propagates_not_found(void);
+void test_diag_boot_render_envelope_obj_begin_fails(void);
+
 void test_wire_desc_display_info_render_present_false(void);
 void test_wire_desc_display_info_render_present_true(void);
 void test_wire_desc_display_info_gather_returns_err_when_not_published(void);
@@ -4985,6 +4981,10 @@ void test_bb_cache_evict_sweep_generation_mismatch_race_skips_key(void);
 void test_bb_cache_evict_sweep_reentrant_delete_key_already_gone(void);
 void test_bb_cache_evict_lazy_generation_mismatch_race_preserves_reregistered_incarnation(void);
 void test_bb_cache_evict_lazy_key_deleted_during_race_is_silent_noop(void);
+void test_bb_cache_register_null_serialize_accepted(void);
+void test_bb_cache_serialize_into_null_serialize_returns_unsupported(void);
+void test_bb_cache_get_serialized_null_serialize_returns_unsupported(void);
+void test_bb_cache_get_raw_null_serialize_still_works(void);
 
 // Forward declarations from test_bb_mqtt_on_message.c
 void test_bb_mqtt_on_message_receives_injected_message(void);
@@ -5558,28 +5558,6 @@ int main(void) {
     RUN_TEST(test_bb_diag_scrub_text_del_replaced);
     RUN_TEST(test_bb_diag_scrub_text_all_printable_ascii);
 
-    // bb_diag_boot_serialize (diag.boot bb_cache serializer, nested shape)
-    RUN_TEST(test_bb_diag_boot_serialize_poweron_clean);
-    RUN_TEST(test_bb_diag_boot_serialize_panic_available);
-    RUN_TEST(test_bb_diag_boot_serialize_rolled_back);
-    RUN_TEST(test_bb_diag_boot_serialize_pending_verify);
-    RUN_TEST(test_bb_diag_boot_serialize_panic_obj_always_present);
-    RUN_TEST(test_bb_diag_boot_serialize_json_braces);
-    RUN_TEST(test_bb_diag_boot_serialize_large_wdt_resets);
-    RUN_TEST(test_bb_diag_boot_serialize_panic_oom);
-    RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_unknown_default);
-    RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_known_source_with_detail);
-    RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_epoch_no_age_when_now_invalid);
-    RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_age_present_when_both_valid);
-    RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_no_age_on_clock_skew);
-    RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_oom);
-    RUN_TEST(test_bb_diag_boot_serialize_reboot_history_empty_when_count_zero);
-    RUN_TEST(test_bb_diag_boot_serialize_reboot_history_newest_first_no_wrap);
-    RUN_TEST(test_bb_diag_boot_serialize_reboot_history_newest_first_after_wrap);
-    RUN_TEST(test_bb_diag_boot_serialize_reboot_history_array_oom);
-    RUN_TEST(test_bb_diag_boot_serialize_reboot_history_count_clamped_when_out_of_range);
-    RUN_TEST(test_bb_diag_boot_serialize_reboot_history_item_oom_yields_partial_array);
-
     // bb_partition tests
     RUN_TEST(test_bb_partition_list_count);
     RUN_TEST(test_bb_partition_ota0_running);
@@ -6016,6 +5994,16 @@ int main(void) {
     RUN_TEST(test_json_obj_set_bool_emit_key_error);
     RUN_TEST(test_json_obj_set_null_emit_key_error);
     RUN_TEST(test_json_obj_set_num_emit_key_error);
+    RUN_TEST(test_json_obj_set_raw_basic);
+    RUN_TEST(test_json_obj_set_raw_null_stream);
+    RUN_TEST(test_json_obj_set_raw_null_raw);
+    RUN_TEST(test_json_obj_set_raw_zero_len);
+    RUN_TEST(test_json_obj_set_raw_not_open);
+    RUN_TEST(test_json_obj_set_raw_sticky_error);
+    RUN_TEST(test_json_obj_set_raw_multiple_fields);
+    RUN_TEST(test_json_obj_set_raw_large_payload);
+    RUN_TEST(test_json_obj_set_raw_emit_key_error);
+    RUN_TEST(test_json_obj_set_raw_chunk_append_error);
 
     RUN_TEST(test_http_serialize_stream_happy_path);
     RUN_TEST(test_http_serialize_stream_null_req_invalid_arg);
@@ -7282,6 +7270,11 @@ int main(void) {
     RUN_TEST(test_wire_desc_diag_boot_gather_returns_err_when_not_published);
     RUN_TEST(test_wire_desc_diag_boot_render_age_s_omitted_when_clock_skew);
     RUN_TEST(test_wire_desc_diag_boot_render_history_count_clamped_when_out_of_range);
+    RUN_TEST(test_wire_desc_diag_boot_render_large_wdt_resets);
+    RUN_TEST(test_diag_boot_render_envelope_shape);
+    RUN_TEST(test_diag_boot_render_envelope_null_req);
+    RUN_TEST(test_diag_boot_render_envelope_unbound_key_propagates_not_found);
+    RUN_TEST(test_diag_boot_render_envelope_obj_begin_fails);
     RUN_TEST(test_wire_desc_display_info_render_present_false);
     RUN_TEST(test_wire_desc_display_info_render_present_true);
     RUN_TEST(test_wire_desc_display_info_gather_returns_err_when_not_published);
@@ -9330,6 +9323,10 @@ int main(void) {
     RUN_TEST(test_bb_cache_evict_sweep_reentrant_delete_key_already_gone);
     RUN_TEST(test_bb_cache_evict_lazy_generation_mismatch_race_preserves_reregistered_incarnation);
     RUN_TEST(test_bb_cache_evict_lazy_key_deleted_during_race_is_silent_noop);
+    RUN_TEST(test_bb_cache_register_null_serialize_accepted);
+    RUN_TEST(test_bb_cache_serialize_into_null_serialize_returns_unsupported);
+    RUN_TEST(test_bb_cache_get_serialized_null_serialize_returns_unsupported);
+    RUN_TEST(test_bb_cache_get_raw_null_serialize_still_works);
 
     RUN_TEST(test_bb_ota_check_topic_value_is_update_available);
 

@@ -657,3 +657,79 @@ void test_bb_cache_evict_lazy_key_deleted_during_race_is_silent_noop(void)
 
     evict_teardown();
 }
+
+// ---------------------------------------------------------------------------
+// NULL cfg->serialize (B1-1053 PR1 relaxation) -- a key rendered exclusively
+// via bb_data has no legacy bb_json serializer; bb_cache_register() now
+// accepts serialize == NULL, and the two read paths that would otherwise
+// invoke a non-existent fn (bb_cache_serialize_into(), bb_cache_get_serialized())
+// return BB_ERR_UNSUPPORTED instead of crashing or silently returning
+// nothing.
+// ---------------------------------------------------------------------------
+
+static bb_err_t reg_owned_no_serialize(const char *key)
+{
+    bb_cache_config_t cfg = {
+        .key       = key,
+        .snapshot  = NULL,
+        .snap_size = sizeof(evict_snap_t),
+        .serialize = NULL,
+        .flags     = BB_CACHE_FLAG_NONE,
+        // .eviction left zero-initialized -- BB_CACHE_EVICT_PINNED.
+    };
+    return bb_cache_register(&cfg);
+}
+
+void test_bb_cache_register_null_serialize_accepted(void)
+{
+    evict_setup();
+
+    TEST_ASSERT_EQUAL(BB_OK, reg_owned_no_serialize("evict.no_serialize"));
+    TEST_ASSERT_TRUE(bb_cache_exists("evict.no_serialize"));
+
+    evict_teardown();
+}
+
+void test_bb_cache_serialize_into_null_serialize_returns_unsupported(void)
+{
+    evict_setup();
+    TEST_ASSERT_EQUAL(BB_OK, reg_owned_no_serialize("evict.no_serialize"));
+    TEST_ASSERT_EQUAL(BB_OK, update_value("evict.no_serialize", 1));
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_cache_serialize_into("evict.no_serialize", obj));
+    bb_json_free(obj);
+
+    evict_teardown();
+}
+
+void test_bb_cache_get_serialized_null_serialize_returns_unsupported(void)
+{
+    evict_setup();
+    TEST_ASSERT_EQUAL(BB_OK, reg_owned_no_serialize("evict.no_serialize"));
+    TEST_ASSERT_EQUAL(BB_OK, update_value("evict.no_serialize", 1));
+
+    char   buf[64];
+    size_t len = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED,
+                       bb_cache_get_serialized("evict.no_serialize", buf, sizeof(buf), &len));
+
+    evict_teardown();
+}
+
+// A NULL-serialize key is still a fully functional bb_data-backed snapshot
+// store -- bb_cache_get_raw()/bb_cache_snapshot() (the paths a bb_data
+// gather hook actually uses) never touch cfg->serialize at all, so they must
+// keep working unaffected by this relaxation.
+void test_bb_cache_get_raw_null_serialize_still_works(void)
+{
+    evict_setup();
+    TEST_ASSERT_EQUAL(BB_OK, reg_owned_no_serialize("evict.no_serialize"));
+    TEST_ASSERT_EQUAL(BB_OK, update_value("evict.no_serialize", 7));
+
+    evict_snap_t out = { 0 };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_get_raw("evict.no_serialize", &out, sizeof(out)));
+    TEST_ASSERT_EQUAL(7, out.value);
+
+    evict_teardown();
+}

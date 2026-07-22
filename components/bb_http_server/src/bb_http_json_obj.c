@@ -208,6 +208,31 @@ bb_err_t bb_http_resp_json_obj_set_null(bb_http_json_obj_stream_t *stream,
     return obj_append(stream, "null", 4);
 }
 
+bb_err_t bb_http_resp_json_obj_set_raw(bb_http_json_obj_stream_t *stream,
+                                       const char *key, const char *raw, size_t raw_len)
+{
+    if (!stream) return BB_ERR_INVALID_ARG;
+    if (!stream->_open) return BB_ERR_INVALID_STATE;
+    if (stream->_err != BB_OK) return stream->_err;
+    if (!raw || raw_len == 0) return BB_ERR_INVALID_ARG;
+
+    bb_err_t err = obj_emit_key(stream, key);
+    if (err != BB_OK) return err;
+
+    // Flush in BB_HTTP_JSON_OBJ_BUF_SIZE-sized chunks so a single append
+    // never exceeds _buf's capacity, mirroring obj_emit_str_escaped's
+    // per-byte loop but batched since raw bytes need no escaping.
+    size_t off = 0;
+    while (off < raw_len) {
+        size_t chunk = raw_len - off;
+        if (chunk > BB_HTTP_JSON_OBJ_BUF_SIZE) chunk = BB_HTTP_JSON_OBJ_BUF_SIZE;
+        err = obj_append(stream, raw + off, chunk);
+        if (err != BB_OK) return err;
+        off += chunk;
+    }
+    return BB_OK;
+}
+
 bb_err_t bb_http_resp_json_obj_set_obj_begin(bb_http_json_obj_stream_t *stream,
                                              const char *key)
 {

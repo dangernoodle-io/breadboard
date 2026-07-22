@@ -1,13 +1,18 @@
 #pragma once
-// Private shared header: canonical snapshot + serializer for the diag.boot
+// Private shared header: canonical snapshot struct for the diag.boot
 // retained cache topic. No ESP-IDF or FreeRTOS types here. Included by:
 //   - platform/espidf/bb_diag/bb_diag_routes.c
-//   - components/bb_diag/bb_diag_event_common.c
-//   - test/test_host/test_bb_diag_event.c
-//   - test/test_host/test_bb_cache_fidelity.c
+//   - components/bb_diag/bb_diag_boot_wire.c
+//   - test/test_host/test_wire_desc_producers.c
+//
+// The bb_json bb_cache serializer that used to live here
+// (bb_diag_boot_serialize(), components/bb_diag/bb_diag_event_common.c) was
+// retired in B1-1053 PR1 -- the REST GET path renders via bb_data
+// (bb_diag_boot_gather()/bb_diag_boot_wire_desc, bb_diag_boot_wire.c)
+// instead. This key's bb_cache_config_t now registers with
+// cfg->serialize == NULL (see bb_cache.h's field doc).
 
 #include "bb_cache.h"
-#include "bb_json.h"
 #include "bb_reboot_reason.h"
 #include <stddef.h>
 #include <stdbool.h>
@@ -45,7 +50,3 @@ typedef struct {
     uint32_t now_epoch_s;
     bool     now_epoch_valid;
 } bb_diag_boot_snap_t;
-
-// Serializer — signature matches bb_cache_serialize_fn.
-// Emits the canonical NESTED shape (same as REST GET /api/diag/boot).
-void bb_diag_boot_serialize(bb_json_t obj, const void *snap);

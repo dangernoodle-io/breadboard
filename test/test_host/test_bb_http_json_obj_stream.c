@@ -1207,3 +1207,172 @@ void test_json_obj_set_num_emit_key_error(void)
     cap_free();
 }
 
+// ---------------------------------------------------------------------------
+// set_raw -- splices pre-rendered JSON bytes in verbatim (B1-1053 PR1, added
+// for bb_diag_boot_render_envelope() to embed bb_data_render()'s output as
+// the "data" field without cJSON).
+// ---------------------------------------------------------------------------
+
+void test_json_obj_set_raw_basic(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_err_t err = bb_http_resp_json_obj_set_raw(&obj, "data", "{\"a\":1}", 7);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    TEST_ASSERT_EQUAL_STRING("{\"data\":{\"a\":1}}", s_cap.body);
+    cap_free();
+}
+
+void test_json_obj_set_raw_null_stream(void)
+{
+    bb_err_t err = bb_http_resp_json_obj_set_raw(NULL, "k", "1", 1);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_json_obj_set_raw_null_raw(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_err_t err = bb_http_resp_json_obj_set_raw(&obj, "k", NULL, 0);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+    // The NULL/zero-length check runs BEFORE obj_emit_key(), so the stream
+    // stays unpoisoned -- the caller can retry with a valid raw value.
+    TEST_ASSERT_EQUAL(BB_OK, obj._err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+// raw != NULL but raw_len == 0 -- distinct from the NULL-raw case above.
+// No valid JSON value is zero bytes, so this is rejected too (not treated
+// as an implicit "empty"/null/{} fallback) -- a producer that renders zero
+// bytes has a bug that should surface loudly, not get papered over with a
+// plausible-looking substitute.
+void test_json_obj_set_raw_zero_len(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_err_t err = bb_http_resp_json_obj_set_raw(&obj, "k", "ignored", 0);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+    TEST_ASSERT_EQUAL(BB_OK, obj._err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    TEST_ASSERT_EQUAL_STRING("{}", s_cap.body);
+    cap_free();
+}
+
+void test_json_obj_set_raw_not_open(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_end(&obj);
+    bb_err_t err = bb_http_resp_json_obj_set_raw(&obj, "k", "1", 1);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_raw_sticky_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    obj._err = BB_ERR_NO_SPACE;
+    bb_err_t err = bb_http_resp_json_obj_set_raw(&obj, "k", "1", 1);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_raw_multiple_fields(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_set_int(&obj, "ts_ms", 123);
+    bb_http_resp_json_obj_set_raw(&obj, "data", "{\"x\":true}", 10);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    TEST_ASSERT_EQUAL_STRING("{\"ts_ms\":123,\"data\":{\"x\":true}}", s_cap.body);
+    cap_free();
+}
+
+// raw_len > BB_HTTP_JSON_OBJ_BUF_SIZE -- exercises the chunking loop inside
+// bb_http_resp_json_obj_set_raw() (mirrors
+// test_json_obj_large_string_direct_send's large-payload style).
+void test_json_obj_set_raw_large_payload(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+
+    enum { BIG = BB_HTTP_JSON_OBJ_BUF_SIZE + 500 };
+    static char big[BIG + 1];
+    memset(big, 'A', BIG);
+    big[BIG] = '\0';
+
+    bb_err_t err = bb_http_resp_json_obj_set_raw(&obj, "data", big, BIG);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    err = bb_http_resp_json_obj_end(&obj);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    cap_end();
+    TEST_ASSERT_NOT_NULL(s_cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(s_cap.body, big));
+    cap_free();
+}
+
+// err != BB_OK branch after obj_emit_key() inside set_raw (mirrors the
+// per-setter *_emit_key_error tests above, e.g.
+// test_json_obj_set_str_emit_key_error) -- distinct from the chunked-append
+// failure below, which requires emit_key to SUCCEED first.
+void test_json_obj_set_raw_emit_key_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 1);
+
+    bb_http_host_force_send_chunk_fail(true);
+    bb_err_t err = bb_http_resp_json_obj_set_raw(&obj, "x", "1", 1);
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+// err != BB_OK branch inside set_raw's chunked-flush loop (the raw-byte
+// obj_append(), not the key emission). The key "k" is sized so obj_emit_key
+// exactly fills the buffer without overflowing (so it succeeds), then the
+// first raw-byte append overflows and fails.
+void test_json_obj_set_raw_chunk_append_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 4);  // 1020 bytes; 4 slots free
+
+    bb_http_host_force_send_chunk_fail(true);
+    // '"k":' (4 bytes) exactly fills the buffer -- emit_key succeeds; the
+    // raw-byte append that follows then overflows and fails.
+    bb_err_t err = bb_http_resp_json_obj_set_raw(&obj, "k", "1", 1);
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+

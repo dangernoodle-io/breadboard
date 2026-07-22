@@ -4,17 +4,20 @@
 // bb_cache_serialize_into on a fresh obj) byte-equals REST-side serialization
 // (bb_cache_serialize_into on another fresh obj) for every registered topic.
 //
-// Synthetic topic registered here; real topics (diag.boot, update.available,
+// Synthetic topic registered here; real topics (update.available,
 // health.display) wire in below in the TOPIC TABLE comment with one entry
-// each. (net.health was removed with the bb_net_health dissolution, B1-969.)
+// each. (net.health was removed with the bb_net_health dissolution, B1-969;
+// diag.boot was removed with its bb_data cutover, B1-1053 PR1 -- it
+// registers with cfg->serialize == NULL now, so this file's serialize-based
+// fidelity check no longer applies to it.)
 //
 // EXTENSION POINT: To add a real topic, add a row to the `s_topics[]` table
-// below following the bb_cache_fidelity_topic_t shape.
+// below following the bb_cache_fidelity_topic_t shape -- ONLY if it still
+// registers a non-NULL cfg->serialize (see above).
 
 #include "unity.h"
 #include "bb_cache.h"
 #include "bb_clock.h"
-#include "bb_diag_event_priv.h"
 #include "bb_display_info_event_priv.h"
 #include "bb_json.h"
 #include "bb_log.h"
@@ -92,15 +95,6 @@ static const synth_snap_t s_synth_initial = {
     .ratio = 0.75,
 };
 
-static const bb_diag_boot_snap_t s_diag_boot_initial = {
-    .reset_reason    = "power-on",
-    .wdt_resets      = 0,
-    .panic_available = false,
-    .panic_boots_since = 0,
-    .pending_verify  = false,
-    .rolled_back     = false,
-};
-
 static const bb_display_snap_t s_display_initial = {
     .present = true,
     .panel   = "mock",
@@ -129,13 +123,10 @@ static const bb_cache_fidelity_topic_t s_topics[] = {
         .serialize    = synth_serialize,
         .initial_snap = &s_synth_initial,
     },
-    {
-        .name         = BB_DIAG_BOOT_TOPIC,
-        .snapshot     = NULL,
-        .snap_size    = sizeof(bb_diag_boot_snap_t),
-        .serialize    = bb_diag_boot_serialize,
-        .initial_snap = &s_diag_boot_initial,
-    },
+    // diag.boot REMOVED (B1-1053 PR1) -- it registers with cfg->serialize ==
+    // NULL now (rendered via bb_data instead), so it's structurally out of
+    // scope for this file's "event == REST via bb_cache_serialize_into"
+    // fidelity check. The other 3 topics below still exercise the mechanism.
     {
         .name         = BB_OTA_CHECK_TOPIC,
         .snapshot     = NULL,
@@ -647,8 +638,12 @@ void test_bb_cache_register_config_struct_basic(void)
     bb_json_free(obj);
 }
 
-// Verify bb_cache_register rejects a NULL cfg, NULL cfg->key, and NULL
-// cfg->serialize.
+// Verify bb_cache_register rejects a NULL cfg and NULL cfg->key. cfg->serialize
+// is OPTIONAL (B1-1053 PR1 relaxation, see test_bb_cache_evict.c's own
+// register_null_serialize_accepted/serialize_into_null_serialize_returns_unsupported/
+// get_serialized_null_serialize_returns_unsupported/get_raw_null_serialize_still_works
+// for the full NULL-serialize contract) -- registering with it NULL is
+// accepted here too, not rejected.
 void test_bb_cache_register_config_struct_null_args(void)
 {
     reset_all();
@@ -664,7 +659,7 @@ void test_bb_cache_register_config_struct_null_args(void)
         .key = "test.cfg.nokey", .snapshot = NULL, .snap_size = sizeof(synth_snap_t),
         .serialize = NULL, .flags = BB_CACHE_FLAG_NONE,
     };
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_register(&no_serialize));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&no_serialize));
 }
 
 // Key-copy UAF test: the caller's key buffer is freed/overwritten immediately
