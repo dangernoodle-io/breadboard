@@ -394,48 +394,75 @@ void test_bb_system_reboot_route_ts_bare_fraction_returns_400(void)
 }
 
 // B1-1148 finding 1's concrete escape input: "ts"'s digit PREFIX (before
-// the exponent) is exactly INT64_MAX's decimal text, so strtoll() -- which
-// stops at 'e' -- returns INT64_MAX WITHOUT any actual overflow, landing on
-// the exact same sentinel value a genuine saturating overflow (see the
-// "huge plain integer" test above) would produce. reboot_apply() cannot
-// tell the two apart from (i64, f64) alone (see its doc comment) and
-// instead resolves by RANGE: the true full-grammar value here
-// (9223372036854775807e1 == ~9.223e19) is itself astronomically outside
-// the accepted (0, UINT32_MAX] range, so it clamps to 0 -- 200, matching
-// what the OLD (pre-migration) double-based clamp would have done for this
-// exact input, and matching this route's posture for every other
-// out-of-range huge value (see the "huge plain integer" and
-// "over_uint32_max" tests). This is deliberately NOT a 400: see
-// test_bb_system_reboot_route_ts_sentinel_prefix_shrunk_into_range_returns_400
-// below for the genuinely dangerous sibling case this same fix rejects.
-void test_bb_system_reboot_route_ts_sentinel_prefix_with_exponent_clamps_to_zero(void)
+// the exponent) is exactly INT64_MAX's decimal text -- pre-B1-1164, that
+// used to matter, because strtoll() (which stops at 'e') returned INT64_MAX
+// WITHOUT any actual overflow, landing on the exact same sentinel value a
+// genuine saturating overflow (see the "huge plain integer" test above)
+// would produce, and the route used to disambiguate the two by range
+// rather than reject outright. Post-B1-1164, that ambiguity is GONE:
+// bb_serialize_json_tok_get_i64() refuses any "ts" whose raw text has an
+// exponent, full stop, regardless of what its digit prefix happens to
+// spell -- so this input is refused exactly like "5e1"/"1.5e10"/"1e300"/
+// "1.9" above, and reboot_apply()'s ts_f64 divergence check (ts stuck at
+// its 0 seed vs. ts_f64's real ~9.223e19) rejects it. This is CORRECT, not
+// a regression: the user-approved B1-1148 policy was always "400 on any ts
+// that isn't a clean integer" -- the previous 200 existed only because the
+// old tokenizer couldn't tell a genuine overflow from an exponent-
+// truncated prefix, forcing a range-based fallback. B1-1164 removes that
+// ambiguity, so this now does what the policy always said.
+void test_bb_system_reboot_route_ts_sentinel_prefix_with_exponent_now_refused_returns_400(void)
 {
     bb_http_host_capture_t cap = run_reboot("{\"ts\":9223372036854775807e1}", NULL);
-    TEST_ASSERT_EQUAL_INT(200, cap.status);
+    TEST_ASSERT_EQUAL_INT(400, cap.status);
     bb_http_host_capture_free(&cap);
 
-    char resolved_detail[49];
-    uint32_t resolved_ts = 999;
-    get_resolved(resolved_detail, sizeof(resolved_detail), &resolved_ts);
-    TEST_ASSERT_EQUAL_UINT32(0, resolved_ts);
+    TEST_ASSERT_FALSE(bb_system_reboot_capture_get_for_test(NULL, 0, NULL));
 }
 
-// The genuinely dangerous sibling of the test above: an exponent that
-// drags a would-be-INT64_MAX-sentinel digit prefix back DOWN into a
-// plausible, in-range value (9223372036854775807e-18 == ~9.223, an
-// ordinary, meaningful timestamp) instead of up out of range. Proves
-// reboot_apply()'s range-based resolution actually closes B1-1148 finding
-// 1's escape rather than merely relocating it: since the true value here
-// IS in (0, UINT32_MAX], the sentinel can only have been reached by
-// truncating this exponent, so it is rejected -- silently discarding this
-// input to ts=0 (what the pre-fix code did, since ts_i64 == INT64_MAX
-// exempted it unconditionally) would have thrown away a real timestamp.
+// The sibling case that originally motivated the range-based resolution
+// (B1-1148 finding 1): an exponent that drags a would-be-INT64_MAX-sentinel
+// digit prefix DOWN into a plausible, in-range value
+// (9223372036854775807e-18 == ~9.223, an ordinary, meaningful timestamp)
+// instead of up out of range. Post-B1-1164 this is no longer a special
+// case at all -- both this and the test above are refused identically
+// (any exponent/fraction in "ts"'s raw text), so the two inputs that used
+// to require careful range-based disambiguation now share one uniform
+// rejection path. Kept as its own test because it's still the sharpest
+// proof that the fix doesn't silently discard a real timestamp: the true
+// value here IS in range, so a naive "clamp on refusal" policy would have
+// been wrong for this specific input.
 void test_bb_system_reboot_route_ts_sentinel_prefix_shrunk_into_range_returns_400(void)
 {
     bb_http_host_capture_t cap = run_reboot("{\"ts\":9223372036854775807e-18}", NULL);
     TEST_ASSERT_EQUAL_INT(400, cap.status);
     bb_http_host_capture_free(&cap);
 
+    TEST_ASSERT_FALSE(bb_system_reboot_capture_get_for_test(NULL, 0, NULL));
+}
+
+// B1-1164 pin: an ABSENT "ts" and a REFUSED "ts" both leave the u64
+// BB_TYPE_U64 field at its memset0 seed (0) -- indistinguishable by that
+// field alone. Only the ts_f64 shadow binding (see its doc comment in
+// bb_system_routes.c) tells them apart: absent -> 200, ts=0 (a normal,
+// tolerated request); refused (a numeral was present but wasn't a clean
+// integer) -> 400. This pair pins that exact distinction -- if the ts_f64
+// shadow binding were ever removed, "refused" would silently collapse back
+// into "absent" and this test's second half would start seeing 200.
+void test_bb_system_reboot_route_ts_absent_vs_refused_are_distinguishable(void)
+{
+    bb_http_host_capture_t absent_cap = run_reboot("{}", NULL);
+    TEST_ASSERT_EQUAL_INT(200, absent_cap.status);
+    bb_http_host_capture_free(&absent_cap);
+
+    char     absent_detail[49];
+    uint32_t absent_ts = 999;
+    get_resolved(absent_detail, sizeof(absent_detail), &absent_ts);
+    TEST_ASSERT_EQUAL_UINT32(0, absent_ts);
+
+    bb_system_reboot_capture_reset_for_test();
+    bb_http_host_capture_t refused_cap = run_reboot("{\"ts\":5e1}", NULL);
+    TEST_ASSERT_EQUAL_INT(400, refused_cap.status);
+    bb_http_host_capture_free(&refused_cap);
     TEST_ASSERT_FALSE(bb_system_reboot_capture_get_for_test(NULL, 0, NULL));
 }
 

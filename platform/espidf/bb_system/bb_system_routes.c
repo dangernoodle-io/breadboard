@@ -73,16 +73,27 @@ typedef struct {
     uint64_t ts;
     // ts divergence guard (B1-1148 finding 1, user-approved) -- a SECOND
     // field bound to the SAME "ts" wire key, but as BB_TYPE_F64. `ts` above
-    // resolves via bb_serialize_json_tok_get_i64() (strtoll(), base-10
-    // digits only); this field resolves the identical raw number text via
-    // bb_serialize_json_tok_get_f64() (strtod(), which DOES honor the full
-    // JSON number grammar -- fraction and exponent). reboot_apply() below
-    // compares the two: for a clean base-10 integer they always agree
-    // (both are correctly-rounded conversions of the same numeral), so any
-    // mismatch means "ts"'s raw text used a fraction or exponent that
-    // strtoll() silently truncated -- see reboot_apply()'s doc comment.
-    // Not itself surfaced to any consumer; existing purely as a shadow
-    // read of "ts" for that comparison.
+    // resolves via bb_serialize_json_tok_get_i64() (BB_TYPE_U64's populate
+    // path, which is built on get_i64()); this field resolves the identical
+    // raw number text via bb_serialize_json_tok_get_f64() (strtod(), which
+    // always honors the full JSON number grammar -- fraction and exponent
+    // -- regardless of the B1-1164 refusal below).
+    //
+    // Post-B1-1164, bb_serialize_json_tok_get_i64() itself now REFUSES
+    // (returns false) whenever "ts"'s raw text has a fraction or exponent,
+    // rather than silently truncating it -- see
+    // bb_serialize_json_tok.c:tok_parse_num()'s doc comment. A refused
+    // field is, to BB_TYPE_U64's populate arm, indistinguishable from an
+    // ABSENT one: both leave `ts` untouched at its BB_DATA_APPLY_POST
+    // memset0 seed (0). Without this shadow field, reboot_apply() could
+    // never tell "ts" was absent (a normal, tolerated request -- 200, ts=0)
+    // apart from "ts" was present but refused (a malformed timestamp --
+    // must 400, not silently resolve to 0). get_f64() never refuses, so
+    // ts_f64 stays 0.0 in the absent case but picks up the real (nonzero,
+    // or occasionally coincidentally-zero) value in the refused case --
+    // reboot_apply() below compares the two to tell them apart. This field
+    // is not itself surfaced to any consumer; it exists purely for that
+    // comparison.
     double ts_f64;
     // max_len below is sizeof(detail) - 1, NOT sizeof(detail) -- populate's
     // get_str() copies min(value_len, max_len) bytes and does NOT reserve a
@@ -134,69 +145,45 @@ static bb_err_t reboot_gather(void *dst, const bb_data_gather_args_t *args)
 // supplied. This hook's ONE domain check: the ts divergence guard
 // (B1-1148 finding 1, user-approved).
 //
-// bb_serialize_json_tok.c:tok_parse_num() parses a JSON number's raw text
-// with strtoll(buf, NULL, 10) -- base-10 digits only, no exponent/fraction
-// handling -- while the scanner accepts the full JSON number grammar
-// ("5e1", "1.5e10", "1e300", "1.9" are all grammar-valid numbers). strtoll()
-// silently stops at the first character it can't consume, so "ts":"5e1"
-// (== 50) parses as the plain integer 5, and "ts":"1.5e10" (== 15000000000,
-// correctly out-of-range) parses as 1 and is wrongly ACCEPTED as in-range.
-// This is a systemic bb_serialize_json defect (tracked separately, NOT
-// fixed here) -- detected at this binding's level instead, via the ts_f64
-// shadow field declared above: it resolves the SAME "ts" text through
-// bb_serialize_json_tok_get_f64() (strtod(), which DOES honor fraction and
-// exponent). For a clean base-10 integer, strtoll() and strtod() are both
-// correctly-rounded conversions of the identical numeral (modulo strtod()
-// being CORRECTLY ROUNDED, which C does not strictly mandate -- glibc and
-// macOS's libc both are, and this is operationally moot regardless: any
-// value that far outside int64_t range only ever clamps to 0 either way,
-// so a mis-rounded ULP here could never flip the outcome), so (double)ts ==
-// ts_f64 always.
+// Post-B1-1164, bb_serialize_json_tok_get_i64() (and so BB_TYPE_U64's
+// populate arm, which `ts` above is bound as) REFUSES outright whenever
+// "ts"'s raw text has a fraction or exponent ("5e1", "1.5e10", "1e300",
+// "1.9" are all grammar-valid JSON numbers, but none is a clean base-10
+// integer) -- see tok_parse_num()'s doc comment in bb_serialize_json_tok.c.
+// A refused field leaves `ts` at its BB_DATA_APPLY_POST memset0 seed (0),
+// same as an absent one -- see ts_f64's own doc comment above for why the
+// shadow field is what tells the two apart: absent leaves BOTH `ts` and
+// `ts_f64` at 0 (get_f64() never refuses, but there was no number to read
+// either way); refused leaves `ts` at 0 while `ts_f64` picks up the real,
+// full-grammar value via strtod() -- so (double)ts_i64 != ts_f64 is exactly
+// the refused-and-therefore-must-reject signal. Every refused "ts"
+// ("5e1", "1.5e10", "1e300", "1.9", or the genuinely dangerous
+// "9223372036854775807e-18" that shrinks into an otherwise-plausible
+// in-range value) is rejected the same way: BB_ERR_VALIDATION (mapped to
+// 400 by reboot_handler), per the user's decision that a "ts" which isn't
+// a clean integer the parse can honour exactly must be rejected rather
+// than silently resolved to some other value.
 //
-// The one wrinkle: strtoll() returns EXACTLY INT64_MAX/INT64_MIN in TWO
-// distinguishable-by-cause-but-NOT-by-VALUE situations -- (a) a genuine
-// overflow of a digit run strtoll() consumed in full (a huge but CLEAN
-// plain integer, e.g. a 20-digit "ts"), where the C standard mandates that
-// exact saturated return; and (b) a digit PREFIX that strtoll() stopped
-// consuming (because the next byte is '.'/'e') that happens to equal
-// INT64_MAX/INT64_MIN exactly with no overflow at all, e.g. the leading 19
-// digits of "9223372036854775807e1". (ts_i64, ts_f64) alone can never tell
-// these apart -- there is no raw-text/endptr/errno access here, and the
-// tokenizer (which could distinguish them) is out of scope (B1-1164, do
-// not touch). Resolving this by VALUE alone (the prior "exempt whenever
-// ts_i64 is the sentinel" rule) was wrong: it silently exempted case (b)
-// too, letting an exponent that drags a would-be-sentinel prefix back into
-// a plausible, in-range value slip past uncaught (this function's own
-// escape, B1-1148 finding 1) -- e.g. "9223372036854775807e-18" (== ~9.22,
-// an ordinary, meaningful timestamp) would have been silently discarded to
-// ts=0 instead of rejected.
-//
-// Resolve the ambiguity by RANGE instead of by cause: whichever of (a)/(b)
-// produced the sentinel, if the TRUE full-grammar value (ts_f64) is itself
-// outside the route's accepted (0, UINT32_MAX] range, reboot_handler()'s
-// clamp reduces it to 0 regardless -- so no rejection is needed in either
-// case (this also matches the old double-based clamp's behavior for case
-// (a), which this migration is documented to preserve). Only when ts_f64
-// is (surprisingly) IN range do we know FOR CERTAIN the sentinel was
-// reached via case (b) -- an exponent/fraction truncated by strtoll() --
-// since a genuine case-(a) overflow can never produce an in-range ts_f64.
-// THAT case is rejected: BB_ERR_VALIDATION (mapped to 400 by
-// reboot_handler), per the user's decision that a "ts" which isn't a clean
-// integer the parse can honour exactly must be rejected rather than
-// silently mis-clamped. Every non-sentinel mismatch (a plain in-range
-// fraction/exponent -- "5e1", "1.5e10", "1e300", "1.9") is rejected the
-// same way, unconditionally.
+// The one remaining wrinkle is unrelated to refusal: a genuine, no-
+// exponent overflow of a CLEAN digit run (e.g. a 20-digit plain-integer
+// "ts") is not refused at all -- BB_TYPE_U64.num_inexact is only set by a
+// '.'/'e'/'E' in the raw text, never by magnitude alone -- so get_i64()
+// still succeeds, returning strtoll()'s C-standard-mandated saturated
+// INT64_MAX/INT64_MIN. That's a real (if extreme) value, not a refusal, so
+// it must NOT hit the mismatch check above: strtod()'s ts_f64 for the same
+// text is astronomically larger/smaller than the saturated (double)ts_i64
+// (e.g. INT64_MAX vs. ~1e20), which would otherwise misfire as a
+// divergence. reboot_handler()'s own (0, UINT32_MAX] clamp already reduces
+// any such huge value to 0 regardless, matching the deleted double-based
+// clamp's behavior for the same input -- so this case is let through here
+// unconditionally, before the general mismatch check ever runs.
 static bb_err_t reboot_apply(const void *snap, const bb_data_apply_args_t *args)
 {
     (void)args;
     const bb_system_reboot_apply_t *s = snap;
 
-    int64_t ts_i64         = (int64_t)s->ts;
-    bool    ts_is_sentinel = (ts_i64 == INT64_MAX || ts_i64 == INT64_MIN);
-    if (ts_is_sentinel) {
-        if (s->ts_f64 > 0.0 && s->ts_f64 <= (double)UINT32_MAX) {
-            return BB_ERR_VALIDATION;
-        }
+    int64_t ts_i64 = (int64_t)s->ts;
+    if (ts_i64 == INT64_MAX || ts_i64 == INT64_MIN) {
         return BB_OK;
     }
     if ((double)ts_i64 != s->ts_f64) {

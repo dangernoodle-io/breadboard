@@ -283,7 +283,11 @@ void test_bb_serialize_json_tok_clean_jobs_absent_vs_present_false(void)
     TEST_ASSERT_FALSE(out2);
 }
 
-// mining.set_difficulty -- params[0] a number.
+// mining.set_difficulty -- params[0] a number. "512.0" has a fraction, so
+// get_f64() is the correct accessor for it; get_i64() must refuse (B1-1164)
+// rather than hand back a strtoll()-truncated 512 -- covered generically by
+// the num_inexact table in test_bb_serialize_json_tok_num_exact.c, asserted
+// here too since this is the real Stratum shape that motivated it.
 void test_bb_serialize_json_tok_set_difficulty(void)
 {
     const char *doc = "{\"id\":null,\"method\":\"mining.set_difficulty\",\"params\":[512.0]}";
@@ -296,9 +300,9 @@ void test_bb_serialize_json_tok_set_difficulty(void)
     double                      f = 0;
     TEST_ASSERT_TRUE(bb_serialize_json_tok_get_f64(&rec, diff, &f));
     TEST_ASSERT_EQUAL_DOUBLE(512.0, f);
-    int64_t i = 0;
-    TEST_ASSERT_TRUE(bb_serialize_json_tok_get_i64(&rec, diff, &i));
-    TEST_ASSERT_EQUAL_INT64(512, i);
+    int64_t i = -1;
+    TEST_ASSERT_FALSE(bb_serialize_json_tok_get_i64(&rec, diff, &i));
+    TEST_ASSERT_EQUAL_INT64(-1, i);  // untouched -- safe no-op contract
 }
 
 // mining.subscribe result -- top-level ARRAY, [1] str, [2] int.
@@ -789,6 +793,145 @@ void test_bb_serialize_json_tok_get_bool_null_out_param(void)
 // silently wrapping child_count to 0 (which would corrupt
 // obj_get()/arr_size()/arr_at() navigation with no error signal).
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// B1-1164: get_i64()'s num_inexact refusal -- a fraction ('.') or exponent
+// ('e'/'E') in the number's raw text means get_i64() must return false
+// rather than hand back a strtoll()-truncated value; get_f64() is always
+// unaffected. See tok_parse_num()'s doc comment in bb_serialize_json_tok.c
+// for why this is derived from the raw text rather than from t->v.num.f64.
+// ---------------------------------------------------------------------------
+
+static bb_serialize_json_tok_idx_t num_child(bb_serialize_json_tok_recorder_t *rec, const char *num_text)
+{
+    char doc[128];
+    snprintf(doc, sizeof(doc), "{\"n\":%s}", num_text);
+    TEST_ASSERT_EQUAL(BB_OK, scan_default(rec, doc));
+    bb_serialize_json_tok_idx_t root = bb_serialize_json_tok_root(rec);
+    return str_child(rec, root, "n");
+}
+
+void test_bb_serialize_json_tok_num_exact_exponent_form_refuses_i64(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    bb_serialize_json_tok_idx_t      n = num_child(&rec, "5e1");
+    int64_t                          i = -1;
+    TEST_ASSERT_FALSE(bb_serialize_json_tok_get_i64(&rec, n, &i));
+    TEST_ASSERT_EQUAL_INT64(-1, i);
+}
+
+void test_bb_serialize_json_tok_num_exact_uppercase_exponent_form_refuses_i64(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    bb_serialize_json_tok_idx_t      n = num_child(&rec, "5E1");
+    int64_t                          i = -1;
+    TEST_ASSERT_FALSE(bb_serialize_json_tok_get_i64(&rec, n, &i));
+    TEST_ASSERT_EQUAL_INT64(-1, i);
+    double f = 0;
+    TEST_ASSERT_TRUE(bb_serialize_json_tok_get_f64(&rec, n, &f));
+    TEST_ASSERT_EQUAL_DOUBLE(50.0, f);
+}
+
+void test_bb_serialize_json_tok_num_exact_fraction_plus_exponent_refuses_i64(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    bb_serialize_json_tok_idx_t      n = num_child(&rec, "1.5e10");
+    int64_t                          i = -1;
+    TEST_ASSERT_FALSE(bb_serialize_json_tok_get_i64(&rec, n, &i));
+    TEST_ASSERT_EQUAL_INT64(-1, i);
+}
+
+void test_bb_serialize_json_tok_num_exact_large_exponent_refuses_i64_but_f64_still_works(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    bb_serialize_json_tok_idx_t      n = num_child(&rec, "1e300");
+    int64_t                          i = -1;
+    TEST_ASSERT_FALSE(bb_serialize_json_tok_get_i64(&rec, n, &i));
+    TEST_ASSERT_EQUAL_INT64(-1, i);
+    double f = 0;
+    TEST_ASSERT_TRUE(bb_serialize_json_tok_get_f64(&rec, n, &f));
+    TEST_ASSERT_EQUAL_DOUBLE(1e300, f);
+}
+
+void test_bb_serialize_json_tok_num_exact_fraction_refuses_i64(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    bb_serialize_json_tok_idx_t      n = num_child(&rec, "1.9");
+    int64_t                          i = -1;
+    TEST_ASSERT_FALSE(bb_serialize_json_tok_get_i64(&rec, n, &i));
+    TEST_ASSERT_EQUAL_INT64(-1, i);
+}
+
+void test_bb_serialize_json_tok_num_exact_negative_int(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    bb_serialize_json_tok_idx_t      n = num_child(&rec, "-5");
+    int64_t                          i = 0;
+    TEST_ASSERT_TRUE(bb_serialize_json_tok_get_i64(&rec, n, &i));
+    TEST_ASSERT_EQUAL_INT64(-5, i);
+}
+
+void test_bb_serialize_json_tok_num_exact_zero(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    bb_serialize_json_tok_idx_t      n = num_child(&rec, "0");
+    int64_t                          i = -1;
+    TEST_ASSERT_TRUE(bb_serialize_json_tok_get_i64(&rec, n, &i));
+    TEST_ASSERT_EQUAL_INT64(0, i);
+}
+
+void test_bb_serialize_json_tok_num_exact_uint32_max(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    bb_serialize_json_tok_idx_t      n = num_child(&rec, "4294967295");
+    int64_t                          i = 0;
+    TEST_ASSERT_TRUE(bb_serialize_json_tok_get_i64(&rec, n, &i));
+    TEST_ASSERT_EQUAL_INT64(4294967295LL, i);
+}
+
+void test_bb_serialize_json_tok_num_exact_uint32_max_plus_one(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    bb_serialize_json_tok_idx_t      n = num_child(&rec, "4294967296");
+    int64_t                          i = 0;
+    TEST_ASSERT_TRUE(bb_serialize_json_tok_get_i64(&rec, n, &i));
+    TEST_ASSERT_EQUAL_INT64(4294967296LL, i);
+}
+
+// 20 digits, no fraction/exponent -- out of int64_t range. strtoll()
+// saturates to INT64_MAX per C -- unchanged today, num_inexact is NOT set
+// for a plain (if overflowing) digit run, only for '.'/'e'/'E' forms.
+void test_bb_serialize_json_tok_num_exact_plain_digit_overflow_saturates_unchanged(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    bb_serialize_json_tok_idx_t      n = num_child(&rec, "99999999999999999999");
+    int64_t                          i = 0;
+    TEST_ASSERT_TRUE(bb_serialize_json_tok_get_i64(&rec, n, &i));
+    TEST_ASSERT_EQUAL_INT64(INT64_MAX, i);
+}
+
+// 2^53 + 1, plain digits, no fraction/exponent -- exactly representable in
+// int64_t but NOT exactly representable as a double (53-bit mantissa).
+// This is the regression test that catches an accidental option-(c)
+// implementation (deriving i64 from f64): get_i64() must return the exact
+// strtoll()-parsed value, not a value rounded through a double.
+void test_bb_serialize_json_tok_num_exact_above_double_mantissa_precision_still_exact(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    bb_serialize_json_tok_idx_t      n = num_child(&rec, "9007199254740993");
+    int64_t                          i = 0;
+    TEST_ASSERT_TRUE(bb_serialize_json_tok_get_i64(&rec, n, &i));
+    TEST_ASSERT_EQUAL_INT64(9007199254740993LL, i);
+}
+
+void test_bb_serialize_json_tok_num_exact_int64_max_negative_exponent_refuses_i64(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    bb_serialize_json_tok_idx_t      n = num_child(&rec, "9223372036854775807e-18");
+    int64_t                          i = -1;
+    TEST_ASSERT_FALSE(bb_serialize_json_tok_get_i64(&rec, n, &i));
+    TEST_ASSERT_EQUAL_INT64(-1, i);
+}
 
 void test_bb_serialize_json_tok_child_count_wrap_guard(void)
 {

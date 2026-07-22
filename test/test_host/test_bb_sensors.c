@@ -637,4 +637,43 @@ void test_bb_sensors_e2e_fan_patch_applies_and_validates(void)
     bb_fan_set_primary(NULL);
     free(fh);
 }
+
+// B1-1164: a fraction/exponent-form "manual_pct" (e.g. 5e1, the JSON
+// spelling of 50) used to silently truncate through strtoll() into the
+// wrong integer -- PATCH {"manual_pct":5e1} landed a fan duty of 5, not 50,
+// with no error. bb_serialize_json_tok_get_i64() now refuses that token
+// outright, which BB_TYPE_I64's populate arm (bb_serialize_populate.c)
+// already treats identically to "field absent" (same false-return
+// contract every getter shares) -- so the corrupt value is never applied:
+// PATCH-mode's gather() seed keeps manual_pct at its live pre-PATCH value,
+// still 200 (a fraction/exponent numeral is not, on its own, a malformed
+// JSON body), rather than silently landing 5.
+void test_bb_sensors_e2e_fan_patch_exponent_manual_pct_refused_not_truncated(void)
+{
+    sensors_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+    bb_fan_handle_t fh = make_autofan_handle();
+
+    bb_fan_autofan_cfg_t seed_cfg = { .enabled = true, .die_target_c = 65.0f,
+                                       .aux_target_c = 70.0f, .min_pct = 20, .manual_pct = 42 };
+    bb_fan_set_autofan(fh, &seed_cfg);
+
+    char name[BB_HTTP_SECTION_NAME_MAX];
+    const bb_http_section_ns_t *ns =
+        bb_http_section_find("/api/sensors/fan", name, sizeof(name));
+    TEST_ASSERT_NOT_NULL(ns);
+    TEST_ASSERT_NOT_NULL(ns->apply);
+
+    const char *body = "{\"manual_pct\":5e1}";
+    bb_http_section_apply_result_t result = ns->apply(name, body, strlen(body), ns->ctx);
+    TEST_ASSERT_EQUAL(200, bb_http_section_status_for_apply(result, ns->unsupported_status));
+
+    bb_fan_autofan_cfg_t cfg;
+    bb_fan_get_autofan_cfg(fh, &cfg);
+    TEST_ASSERT_EQUAL_INT(42, cfg.manual_pct);  // unchanged -- refused, not truncated to 5
+    TEST_ASSERT_NOT_EQUAL(50, cfg.manual_pct);  // and never silently corrupted to the "intended" 50 either
+
+    bb_fan_set_primary(NULL);
+    free(fh);
+}
 #endif /* CONFIG_BB_FAN_AUTOFAN */

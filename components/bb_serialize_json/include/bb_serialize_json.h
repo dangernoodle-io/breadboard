@@ -503,6 +503,9 @@ typedef int32_t bb_serialize_json_tok_idx_t;
 // static/stack array, not heap:
 //   - type/key_len: 1 byte each (type is a small enum; key_len fits
 //     BB_SERIALIZE_JSON_TOK_KEY_MAX_LEN in one byte with room to spare).
+//     key_len only needs 5 of those 8 bits (max value 24) -- the spare 3
+//     bits are reused as a TOK_NUM-only `num_inexact` flag (B1-1164, see
+//     below) plus 2 reserved bits, still exactly 1 byte, no struct growth.
 //   - child_count: uint16_t -- OBJ/ARR direct-child count; JSON grammar
 //     bounds a single container's member/element count far below 65536 for
 //     any document this recorder's pool could hold (a 65536-element array
@@ -517,6 +520,14 @@ typedef int32_t bb_serialize_json_tok_idx_t;
 //     recorder could realistically scan), the parsed NUM (both int64_t and
 //     double, so get_i64()/get_f64() are both O(1) with no re-parse), and
 //     the BOOL payload. OBJ/ARR/NULL tokens carry no payload.
+//   - num_inexact (TOK_NUM only, B1-1164): true when the number's raw text
+//     contained a '.' or 'e'/'E' (a fraction or exponent per the JSON
+//     number grammar). bb_serialize_json_tok_get_i64()/populate's
+//     get_u64() (which is built on get_i64()) refuse (return false) when
+//     this is set, rather than silently handing back a strtoll()-truncated
+//     value -- e.g. "5e1" no longer reads back as the integer 5. get_f64()
+//     is unaffected: the parsed double is unconditionally exact for
+//     whatever precision a double affords, regardless of this flag.
 // sizeof(bb_serialize_json_tok_t) is 48 bytes (8 header bytes + 24 key
 // bytes + a 16-byte union, no padding beyond that at 8-byte alignment) --
 // verified equal on both a 64-bit host build and 32-bit ARM by a
@@ -527,8 +538,10 @@ typedef int32_t bb_serialize_json_tok_idx_t;
 // exact worst-case Stratum token-count arithmetic that default is sized
 // against.
 typedef struct {
-    uint8_t                     type;       // bb_serialize_json_tok_type_t
-    uint8_t                     key_len;    // 0 => no key (array elem / root)
+    uint8_t                     type;         // bb_serialize_json_tok_type_t
+    uint8_t                     key_len   : 5; // 0 => no key (array elem / root); max BB_SERIALIZE_JSON_TOK_KEY_MAX_LEN (24)
+    uint8_t                     num_inexact : 1; // TOK_NUM only -- see the doc comment above
+    uint8_t                     _reserved : 2;   // spare, always 0
     uint16_t                    child_count; // OBJ/ARR: direct-child count
     bb_serialize_json_tok_idx_t parent;      // BB_SERIALIZE_JSON_TOK_ABSENT for root
     char                        key[BB_SERIALIZE_JSON_TOK_KEY_MAX_LEN];
@@ -641,6 +654,11 @@ bb_serialize_json_tok_idx_t bb_serialize_json_tok_arr_at(const bb_serialize_json
 // wrong-type token) -- always a safe no-op, no guard needed before the call.
 // get_str's (ptr, len) is NEVER NUL-terminated -- see the STRING VALUE
 // STORAGE note above for where `ptr` may point (`buf` or `arena`).
+// get_i64() additionally returns false (B1-1164) when the token's raw text
+// had a fraction or exponent (num_inexact, see the struct doc comment
+// above) -- it never hands back a silently truncated value; use get_f64()
+// for those. populate's get_u64() (bb_serialize_json_populate.c) is built
+// on get_i64() and inherits this refusal.
 bool bb_serialize_json_tok_get_str (const bb_serialize_json_tok_recorder_t *rec, bb_serialize_json_tok_idx_t idx,
                                      const char **out_ptr, size_t *out_len);
 bool bb_serialize_json_tok_get_i64 (const bb_serialize_json_tok_recorder_t *rec, bb_serialize_json_tok_idx_t idx,

@@ -107,6 +107,22 @@ static bb_serialize_json_tok_idx_t tok_alloc(bb_serialize_json_tok_recorder_t *r
 // WRITE-side formatter, which hand-rolls specifically to avoid
 // snprintf/locale dependence in a hot render path -- this is a cold
 // decode-time convenience, not a hot path).
+//
+// B1-1164: strtoll() is base-10 integer-only -- it silently truncates a
+// fraction/exponent form ("5e1" -> 5, "1.9" -> 1) rather than erroring,
+// since the grammar-validated text is always a well-formed *number*, just
+// not always one that fits `%lld`. Rather than deriving the integer from
+// `t->v.num.f64` instead (rejected: a double's mantissa is only exactly
+// integral up to 2^53, so that would silently corrupt values above it),
+// this records the single fact the scanner's own grammar state machine
+// already tracks internally (scan_number()'s NUM_FRAC_*/NUM_EXP_* phases
+// are only reachable after consuming a '.' or e/E) by re-deriving it from
+// the same raw text here -- cheaper than plumbing a new parameter through
+// the public bb_serialize_json_ingest_t.value_num contract (which every
+// sink, not just this recorder, would then have to accept) for a fact this
+// trivial to recompute from bytes the callee already has. get_i64() then
+// refuses (returns false) whenever it's set -- see t->num_inexact's doc
+// comment on bb_serialize_json_tok_t in bb_serialize_json.h.
 static void tok_parse_num(bb_serialize_json_tok_t *t, const char *num, size_t num_len)
 {
     char   buf[BB_SERIALIZE_JSON_SCRATCH_MAX_BYTES + 1];
@@ -115,6 +131,8 @@ static void tok_parse_num(bb_serialize_json_tok_t *t, const char *num, size_t nu
     buf[n] = '\0';
     t->v.num.f64 = strtod(buf, NULL);
     t->v.num.i64 = strtoll(buf, NULL, 10);
+    t->num_inexact = (memchr(buf, '.', n) != NULL || memchr(buf, 'e', n) != NULL
+                       || memchr(buf, 'E', n) != NULL) ? 1 : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -371,6 +389,9 @@ bool bb_serialize_json_tok_get_i64(const bb_serialize_json_tok_recorder_t *rec, 
                                     int64_t *out)
 {
     if (!bb_serialize_json_tok_is_num(rec, idx)) return false;
+    // B1-1164: refuse rather than hand back a strtoll()-truncated value --
+    // see num_inexact's doc comment on bb_serialize_json_tok_t.
+    if (rec->pool[idx].num_inexact) return false;
     if (out != NULL) *out = rec->pool[idx].v.num.i64;
     return true;
 }

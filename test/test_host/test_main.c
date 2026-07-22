@@ -694,6 +694,18 @@ void test_bb_serialize_json_tok_get_i64_null_out_param(void);
 void test_bb_serialize_json_tok_get_f64_null_out_param(void);
 void test_bb_serialize_json_tok_get_bool_null_out_param(void);
 void test_bb_serialize_json_tok_child_count_wrap_guard(void);
+void test_bb_serialize_json_tok_num_exact_exponent_form_refuses_i64(void);
+void test_bb_serialize_json_tok_num_exact_uppercase_exponent_form_refuses_i64(void);
+void test_bb_serialize_json_tok_num_exact_fraction_plus_exponent_refuses_i64(void);
+void test_bb_serialize_json_tok_num_exact_large_exponent_refuses_i64_but_f64_still_works(void);
+void test_bb_serialize_json_tok_num_exact_fraction_refuses_i64(void);
+void test_bb_serialize_json_tok_num_exact_negative_int(void);
+void test_bb_serialize_json_tok_num_exact_zero(void);
+void test_bb_serialize_json_tok_num_exact_uint32_max(void);
+void test_bb_serialize_json_tok_num_exact_uint32_max_plus_one(void);
+void test_bb_serialize_json_tok_num_exact_plain_digit_overflow_saturates_unchanged(void);
+void test_bb_serialize_json_tok_num_exact_above_double_mantissa_precision_still_exact(void);
+void test_bb_serialize_json_tok_num_exact_int64_max_negative_exponent_refuses_i64(void);
 
 // Forward declarations from test_bb_serialize_json_populate.c
 void test_bb_serialize_json_populate_flat_scalars(void);
@@ -3161,8 +3173,9 @@ void test_bb_system_reboot_route_ts_scientific_notation_returns_400(void);
 void test_bb_system_reboot_route_ts_5e1_returns_400(void);
 void test_bb_system_reboot_route_ts_decimal_exponent_returns_400(void);
 void test_bb_system_reboot_route_ts_bare_fraction_returns_400(void);
-void test_bb_system_reboot_route_ts_sentinel_prefix_with_exponent_clamps_to_zero(void);
+void test_bb_system_reboot_route_ts_sentinel_prefix_with_exponent_now_refused_returns_400(void);
 void test_bb_system_reboot_route_ts_sentinel_prefix_shrunk_into_range_returns_400(void);
+void test_bb_system_reboot_route_ts_absent_vs_refused_are_distinguishable(void);
 void test_bb_system_reboot_route_ts_over_uint32_max_clamps_to_zero(void);
 void test_bb_system_reboot_route_malformed_body_returns_400(void);
 void test_bb_system_reboot_route_truncated_body_returns_400(void);
@@ -4564,6 +4577,7 @@ void test_bb_sensors_fan_apply_manual_pct_negative_rejected(void);
 void test_bb_sensors_fan_apply_min_pct_over_100_rejected(void);
 void test_bb_sensors_fan_apply_min_pct_negative_rejected(void);
 void test_bb_sensors_e2e_fan_patch_applies_and_validates(void);
+void test_bb_sensors_e2e_fan_patch_exponent_manual_pct_refused_not_truncated(void);
 #else
 void test_bb_sensors_fan_apply_driver_capability_gap_returns_invalid_state(void);
 #endif
@@ -7163,8 +7177,9 @@ int main(void) {
     RUN_TEST(test_bb_system_reboot_route_ts_5e1_returns_400);
     RUN_TEST(test_bb_system_reboot_route_ts_decimal_exponent_returns_400);
     RUN_TEST(test_bb_system_reboot_route_ts_bare_fraction_returns_400);
-    RUN_TEST(test_bb_system_reboot_route_ts_sentinel_prefix_with_exponent_clamps_to_zero);
+    RUN_TEST(test_bb_system_reboot_route_ts_sentinel_prefix_with_exponent_now_refused_returns_400);
     RUN_TEST(test_bb_system_reboot_route_ts_sentinel_prefix_shrunk_into_range_returns_400);
+    RUN_TEST(test_bb_system_reboot_route_ts_absent_vs_refused_are_distinguishable);
     RUN_TEST(test_bb_system_reboot_route_ts_over_uint32_max_clamps_to_zero);
     RUN_TEST(test_bb_system_reboot_route_malformed_body_returns_400);
     RUN_TEST(test_bb_system_reboot_route_truncated_body_returns_400);
@@ -8861,6 +8876,7 @@ int main(void) {
     RUN_TEST(test_bb_sensors_fan_apply_min_pct_over_100_rejected);
     RUN_TEST(test_bb_sensors_fan_apply_min_pct_negative_rejected);
     RUN_TEST(test_bb_sensors_e2e_fan_patch_applies_and_validates);
+    RUN_TEST(test_bb_sensors_e2e_fan_patch_exponent_manual_pct_refused_not_truncated);
 #else
     RUN_TEST(test_bb_sensors_fan_apply_driver_capability_gap_returns_invalid_state);
 #endif
@@ -9881,6 +9897,18 @@ int main(void) {
     RUN_TEST(test_bb_serialize_json_tok_get_f64_null_out_param);
     RUN_TEST(test_bb_serialize_json_tok_get_bool_null_out_param);
     RUN_TEST(test_bb_serialize_json_tok_child_count_wrap_guard);
+    RUN_TEST(test_bb_serialize_json_tok_num_exact_exponent_form_refuses_i64);
+    RUN_TEST(test_bb_serialize_json_tok_num_exact_uppercase_exponent_form_refuses_i64);
+    RUN_TEST(test_bb_serialize_json_tok_num_exact_fraction_plus_exponent_refuses_i64);
+    RUN_TEST(test_bb_serialize_json_tok_num_exact_large_exponent_refuses_i64_but_f64_still_works);
+    RUN_TEST(test_bb_serialize_json_tok_num_exact_fraction_refuses_i64);
+    RUN_TEST(test_bb_serialize_json_tok_num_exact_negative_int);
+    RUN_TEST(test_bb_serialize_json_tok_num_exact_zero);
+    RUN_TEST(test_bb_serialize_json_tok_num_exact_uint32_max);
+    RUN_TEST(test_bb_serialize_json_tok_num_exact_uint32_max_plus_one);
+    RUN_TEST(test_bb_serialize_json_tok_num_exact_plain_digit_overflow_saturates_unchanged);
+    RUN_TEST(test_bb_serialize_json_tok_num_exact_above_double_mantissa_precision_still_exact);
+    RUN_TEST(test_bb_serialize_json_tok_num_exact_int64_max_negative_exponent_refuses_i64);
 
     RUN_TEST(test_bb_serialize_json_populate_flat_scalars);
     RUN_TEST(test_bb_serialize_json_populate_redrivable_two_descriptors);
