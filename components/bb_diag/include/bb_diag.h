@@ -222,16 +222,7 @@ size_t bb_diag_panic_order_copy(const char *buf, size_t buf_size,
 // bbtool:init tier=early fn=bb_diag_panic_init requires=storage_nvs
 bb_err_t bb_diag_panic_init(void);
 
-#if CONFIG_BB_DIAG_ROUTES
-#ifdef ESP_PLATFORM
-#include "bb_http_server.h"
-
-/**
- * Registry hook — registers GET/DELETE /api/diag/panic, GET /api/diag/boot,
- * plus heap/tasks/sockets diagnostics.
- */
-// bbtool:init tier=regular fn=bb_diag_routes_init server=true
-bb_err_t bb_diag_routes_init(bb_http_handle_t server);
-
-#endif /* ESP_PLATFORM */
-#endif /* CONFIG_BB_DIAG_ROUTES */
+// bb_diag_routes_init() (GET/DELETE /api/diag/panic, GET /api/diag/boot,
+// heap/tasks/sockets diagnostics) relocated to bb_diag_http (B1-1153, KB
+// 1477) -- see components/bb_diag_http/include/bb_diag_http.h. bb_diag
+// itself is bb_http_server-free after this split.

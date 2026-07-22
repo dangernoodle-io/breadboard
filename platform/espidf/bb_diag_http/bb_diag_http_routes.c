@@ -1,4 +1,12 @@
+// bb_diag_http_routes — relocated verbatim from components/bb_diag/
+// bb_diag_routes.c (B1-1153, KB 1477): bb_diag itself is bb_http_server-free
+// after this split, so this legacy exact-route surface (GET/DELETE
+// /api/diag/boot, GET/DELETE /api/diag/panic, GET /api/diag/coredump, GET
+// /api/diag/heap, GET /api/diag/tasks, GET /api/diag/sockets) now lives in
+// its own component. No behavior change -- same routes, same handlers, same
+// Kconfig gate (CONFIG_BB_DIAG_ROUTES).
 #include "bb_diag.h"
+#include "bb_diag_http.h"
 #include "bb_cache.h"
 #include "bb_diag_boot_wire.h"
 #include "bb_diag_event_priv.h"
@@ -38,7 +46,7 @@
 #include "lwip/ip_addr.h"
 #include "lwip/priv/tcp_priv.h"
 
-static const char *TAG = "bb_diag_routes";
+static const char *TAG = "bb_diag_http_routes";
 
 // Reboot-reason SSOT (B1-527 PR-A) — latched once at boot by load_reboot_record().
 static bb_reset_source_t s_reboot_src        = BB_RESET_SRC_UNKNOWN;

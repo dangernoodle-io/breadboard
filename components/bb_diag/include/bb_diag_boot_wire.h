@@ -2,21 +2,28 @@
 
 // bb_diag_boot_wire — PUBLIC bb_serialize_desc_t (SSOT) for the "diag.boot"
 // bb_cache topic (B1-1045 PR-2, cutover composition-root ownership decision
-// KB 1454), plus the REST GET render seam cut over onto it (B1-1053 PR1).
+// KB 1454), plus the gather/bind seam bb_diag_http's REST GET render (see
+// bb_diag_http.h's bb_diag_boot_render_envelope()) renders through.
 //
-// bb_diag_boot_bind()/bb_diag_boot_render_envelope() below are this PR's
-// addition: contrary to this PR's brief (which assumed a production
-// bb_data_bind("diag.boot", ...) call already existed from B1-1045), NO
-// composition root binds "diag.boot" to bb_data anywhere in this tree --
-// only examples/floor's "log" key does (B1-1045 PR-4's own proof-of-concept
-// scope; the other 5 dissolved-bb_event producers, including diag.boot, were
-// explicitly deferred, see floor_app.c's file header). Without a bind call,
-// bb_data_render(key="diag.boot") would return BB_ERR_NOT_FOUND on every
-// GET, so this file now self-binds (mirrors bb_ota_check_config_bind()'s
-// portable self-bind pattern, components/bb_ota_check/src/bb_ota_check_common.c)
-// -- bb_diag_routes_init() (ESP-IDF composition surface) calls
-// bb_diag_boot_bind() once, at the same point it registers the bb_cache
-// entry.
+// bb_diag_boot_bind() below is this PR's addition: contrary to this PR's
+// brief (which assumed a production bb_data_bind("diag.boot", ...) call
+// already existed from B1-1045), NO composition root binds "diag.boot" to
+// bb_data anywhere in this tree -- only examples/floor's "log" key does
+// (B1-1045 PR-4's own proof-of-concept scope; the other 5 dissolved-bb_event
+// producers, including diag.boot, were explicitly deferred, see
+// floor_app.c's file header). Without a bind call, bb_data_render(key=
+// "diag.boot") would return BB_ERR_NOT_FOUND on every GET, so this file now
+// self-binds (mirrors bb_ota_check_config_bind()'s portable self-bind
+// pattern, components/bb_ota_check/src/bb_ota_check_common.c) --
+// bb_diag_routes_init() (bb_diag_http's ESP-IDF composition surface, B1-1153)
+// calls bb_diag_boot_bind() once, at the same point it registers the
+// bb_cache entry.
+//
+// bb_diag_boot_render_envelope() (the REST GET /api/diag/boot render seam
+// that renders this binding) moved to bb_diag_http (B1-1153, KB 1477) -- its
+// sole reason for depending on bb_http_server was that one function; this
+// header (and bb_diag itself) is bb_http_server-free after the split. See
+// components/bb_diag_http/include/bb_diag_http.h for its prototype/doc.
 //
 // Mirrors bb_diag_boot_serialize()'s NESTED shape (bb_diag_event_priv.h)
 // field-for-field:
@@ -120,23 +127,10 @@ bb_err_t bb_diag_boot_gather(bb_diag_boot_wire_t *dst);
 // Binds the "diag.boot" bb_data key against bb_diag_boot_gather() above (see
 // the file-header note for why this call exists in this PR). Portable (no
 // bb_http_handle_t/ESP-IDF dependency) -- called by bb_diag_routes_init()
-// and directly by host tests after bb_data_test_reset(). Idempotent:
-// bb_data_bind() re-binding an already-bound key overrides it in place.
+// (bb_diag_http) and directly by host tests after bb_data_test_reset().
+// Idempotent: bb_data_bind() re-binding an already-bound key overrides it in
+// place.
 bb_err_t bb_diag_boot_bind(void);
 
-// Renders the "diag.boot" bb_data binding onto `req` as a {"ts_ms":N,
-// "data":{...}} envelope: "data" is bb_diag_boot_wire_desc's JSON rendering
-// (byte-identical to bb_data_render()'s own output), "ts_ms" is
-// bb_clock_now_ms64() read at render time -- this key's gather
-// (bb_diag_boot_gather()) has no notion of a wire-carried sample time (it
-// widens whatever bb_cache currently holds; bb_data_render() itself never
-// surfaces a timestamp), so "ts_ms" here means "when this response was
-// generated", not "when the underlying value was sampled". Portable
-// (compiles host + ESP-IDF; only bb_diag_boot_bind() needs to have already
-// run) -- host-testable directly via bb_http_host_capture_begin/end
-// (mirrors test_bb_http_json_obj_stream.c).
-//
-// Returns BB_ERR_INVALID_ARG if `req` is NULL. Otherwise propagates
-// bb_data_render()'s own error (e.g. BB_ERR_NOT_FOUND if "diag.boot" isn't
-// bound) or any bb_http_resp_json_obj_* stream error.
-bb_err_t bb_diag_boot_render_envelope(bb_http_request_t *req);
+// bb_diag_boot_render_envelope() -- see components/bb_diag_http/include/
+// bb_diag_http.h (B1-1153, KB 1477).

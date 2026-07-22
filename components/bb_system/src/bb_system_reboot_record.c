@@ -9,7 +9,7 @@
 //
 // Round-tripped through bb_config (typed layer over bb_storage) rather than
 // bb_nv's generic KV forwarder (B1-756, bb_nv dissolution epic B1-708) —
-// mirrors s_reboot_last_field in platform/espidf/bb_diag/bb_diag_routes.c:
+// mirrors s_reboot_last_field in platform/espidf/bb_diag_http/bb_diag_http_routes.c:
 // same ns/key, same STR encoding, byte-compatible with what this component
 // previously wrote via bb_nv_set_str (both are thin forwarders to
 // bb_storage_nvs's nvs_set_str).

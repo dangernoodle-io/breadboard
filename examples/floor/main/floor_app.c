@@ -31,6 +31,7 @@
 #include "bb_data_http.h"
 #include "bb_system_snap.h"
 #include "bb_diag_section.h"
+#include "bb_diag_http.h"
 #include "bb_diag_meminfo.h"
 #include "bb_diag_storage_nvs.h"
 #include "bb_diag_storage_partitions.h"

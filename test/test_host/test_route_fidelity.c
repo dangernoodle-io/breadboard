@@ -158,7 +158,7 @@ static const char k_mark_valid_409_schema[] =
     "\"properties\":{\"error\":{\"type\":\"string\"}},"
     "\"required\":[\"error\"]}";
 
-// GET /api/diag/boot — platform/espidf/bb_diag/bb_diag_routes.c
+// GET /api/diag/boot — platform/espidf/bb_diag_http/bb_diag_http_routes.c
 static const char k_boot_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
@@ -171,7 +171,7 @@ static const char k_boot_schema[] =
     "\"required\":[\"available\"]}},"
     "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\",\"pending_verify\",\"rolled_back\"]}";
 
-// GET /api/diag/panic — platform/espidf/bb_diag/bb_diag_routes.c
+// GET /api/diag/panic — platform/espidf/bb_diag_http/bb_diag_http_routes.c
 static const char k_panic_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
@@ -380,7 +380,7 @@ static bb_err_t h_ota_mark_valid_409(bb_http_request_t *req)
 
 // GET /api/diag/panic — no-panic path (host: bb_diag_panic_available() = false,
 // bb_diag_panic_coredump_available() = false).
-// Mirrors panic_get_handler in platform/espidf/bb_diag/bb_diag_routes.c.
+// Mirrors panic_get_handler in platform/espidf/bb_diag_http/bb_diag_http_routes.c.
 static bb_err_t h_diag_panic(bb_http_request_t *req)
 {
     bool available      = bb_diag_panic_available();

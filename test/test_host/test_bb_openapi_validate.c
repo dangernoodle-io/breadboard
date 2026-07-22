@@ -483,7 +483,7 @@ void test_validate_smoke_log_level_schema(void)
 }
 
 // Mirrors GET /api/diag/panic 200 response schema from
-// platform/espidf/bb_diag/bb_diag_routes.c — exercises nested items
+// platform/espidf/bb_diag_http/bb_diag_http_routes.c — exercises nested items
 void test_validate_smoke_panic_schema(void)
 {
     static const char schema[] =
@@ -515,7 +515,7 @@ void test_validate_smoke_panic_schema(void)
 }
 
 // Mirrors GET /api/diag/boot 200 response schema from
-// platform/espidf/bb_diag/bb_diag_routes.c — panic available + unavailable branches
+// platform/espidf/bb_diag_http/bb_diag_http_routes.c — panic available + unavailable branches
 void test_validate_smoke_boot_schema(void)
 {
     static const char schema[] =

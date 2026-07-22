@@ -1,8 +1,9 @@
 #pragma once
 // Private shared header: canonical snapshot struct for the diag.boot
 // retained cache topic. No ESP-IDF or FreeRTOS types here. Included by:
-//   - platform/espidf/bb_diag/bb_diag_routes.c
+//   - platform/espidf/bb_diag_http/bb_diag_http_routes.c
 //   - components/bb_diag/bb_diag_boot_wire.c
+//   - components/bb_diag_http/bb_diag_http_boot_wire.c
 //   - test/test_host/test_wire_desc_producers.c
 //
 // The bb_json bb_cache serializer that used to live here

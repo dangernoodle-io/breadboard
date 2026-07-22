@@ -21,8 +21,8 @@
       "type": "sat_sub"
     },
     {
-      "id": "bb_diag:coredump_get_handler:addr",
-      "path": "platform/espidf/bb_diag/bb_diag_routes.c",
+      "id": "bb_diag_http:coredump_get_handler:addr",
+      "path": "platform/espidf/bb_diag_http/bb_diag_http_routes.c",
       "type": "sat_sub"
     },
     {

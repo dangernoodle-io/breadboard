@@ -1,11 +1,13 @@
 // ESP-IDF dispatcher for the bb_diag section registry (B1-diag-dissolution
-// PR3). Thin glue only -- name parsing and query-param threading are pure,
-// portable helpers in components/bb_diag/bb_diag_section.c (see
-// bb_diag_section_priv.h), exercised directly by host tests. This file's
-// own job is exactly two things: pull request-scoped values out of
-// bb_http_request_t (bb_http_req_uri/bb_http_req_query_key_value) and drive
-// the render+respond path, same common shape as floor_app.c's
+// PR3; relocated to bb_diag_http B1-1153, KB 1477 -- bb_diag itself is
+// bb_http_server-free after this split). Thin glue only -- name parsing and
+// query-param threading are pure, portable helpers in components/bb_diag/
+// bb_diag_section.c (see bb_diag_section_priv.h), exercised directly by host
+// tests. This file's own job is exactly two things: pull request-scoped
+// values out of bb_http_request_t (bb_http_req_uri/bb_http_req_query_key_value)
+// and drive the render+respond path, same common shape as floor_app.c's
 // floor_diag_render() (examples/floor/main/floor_app.c ~L124-164).
+#include "bb_diag_http.h"
 #include "bb_diag_section_priv.h"
 
 #include "bb_http_serialize_stream.h"
@@ -16,7 +18,7 @@
 #include <stdint.h>
 #include <string.h>
 
-static const char *TAG = "bb_diag_section_dispatch";
+static const char *TAG = "bb_diag_http_section_dispatch";
 
 // bb_diag_query_getter_fn adapter over bb_http_req_query_key_value() --
 // decouples bb_diag_section_build_query() (portable, host-tested directly

@@ -1,13 +1,14 @@
-// Host unit tests for bb_diag_boot_render_envelope() (B1-1053 PR1) -- the
-// REST GET /api/diag/boot render path's portable seam: renders the
-// "diag.boot" bb_data binding as {"ts_ms":N,"data":{...}} directly onto a
-// bb_http_request_t. Exercised here via the host capture harness (mirrors
-// test_bb_http_json_obj_stream.c) -- this is the SAME function
-// boot_get_handler() (platform/espidf/bb_diag/bb_diag_routes.c) calls, no
+// Host unit tests for bb_diag_boot_render_envelope() (B1-1053 PR1;
+// relocated to bb_diag_http B1-1153, KB 1477) -- the REST GET /api/diag/boot
+// render path's portable seam: renders the "diag.boot" bb_data binding as
+// {"ts_ms":N,"data":{...}} directly onto a bb_http_request_t. Exercised here
+// via the host capture harness (mirrors test_bb_http_json_obj_stream.c) --
+// this is the SAME function boot_get_handler()
+// (platform/espidf/bb_diag_http/bb_diag_http_routes.c) calls, no
 // mirror/duplicate render path.
 //
 // ts_ms is bb_clock_now_ms64() read at render time (see
-// bb_diag_boot_render_envelope()'s own doc, bb_diag_boot_wire.h, for the
+// bb_diag_boot_render_envelope()'s own doc, bb_diag_http.h, for the
 // chosen semantic) -- not deterministic here (no bb_clock host test hook
 // exists), so these tests assert the "ts_ms" prefix STRUCTURALLY (present,
 // numeric, immediately followed by the "data" key) and the "data" portion
@@ -19,6 +20,7 @@
 #include "bb_data.h"
 #include "bb_diag_boot_wire.h"
 #include "bb_diag_event_priv.h"
+#include "bb_diag_http.h"
 #include "bb_http.h"
 #include "bb_http_host.h"
 
