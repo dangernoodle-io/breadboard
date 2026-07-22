@@ -72,14 +72,15 @@ config BB_MDNS_CACHE_ENTRY_MAX
         loud rather than risking a silent stack overflow.
 
 config BB_MDNS_CACHE_AUTOREGISTER
-    bool "Auto-start bb_mdns_cache via bb_init at PRE_HTTP"
+    bool "Auto-start bb_mdns_cache on init (PRE_HTTP tier)"
     default n
     help
-        When enabled, bb_mdns_cache self-starts through bb_init at the
-        PRE_HTTP tier using BB_MDNS_CACHE_AUTO_SERVICE /
-        BB_MDNS_CACHE_AUTO_PROTO as the compiled-in default service/proto.
-        Disable (default) to call bb_mdns_cache_start() manually with a
-        consumer-chosen service/proto.
+        When enabled, bb_mdns_cache_init() self-starts at its PRE_HTTP
+        init tier (wired in by codegen or handwire) using
+        BB_MDNS_CACHE_AUTO_SERVICE / BB_MDNS_CACHE_AUTO_PROTO as the
+        compiled-in default service/proto. Disable (default) to call
+        bb_mdns_cache_start() manually with a consumer-chosen
+        service/proto.
 
 config BB_MDNS_CACHE_AUTO_SERVICE
     string "Auto-registered mDNS service (e.g. _miner)"

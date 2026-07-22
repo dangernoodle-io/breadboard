@@ -15,6 +15,7 @@ sdkconfig.*
 
 # Tooling caches
 .code-graph/
+.breadboard/
 compile_commands.json
 gcovr-coveralls.json
 gcovr-summary.json

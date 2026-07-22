@@ -254,6 +254,40 @@ class TestHierarchicalGroups(unittest.TestCase):
             OUTPUT_FILE=root / "components" / "README.md",
         )
 
+    def test_purpose_with_pipe_is_escaped_in_top_level_index(self):
+        """B1-1135: a `|` in a component's @brief (e.g. describing a
+        pub/sub topic union `foo|bar`) must be escaped in the generated
+        table cell -- an unescaped `|` splits the row into extra columns
+        and corrupts the table."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            _mk_component(
+                root, "bb_widget",
+                header_body="#pragma once\n/** @brief Publishes to topic `foo|bar`. */\nvoid noop(void);\n",
+                readme_body="# bb_widget\n\nignored\n",
+            )
+            with self._patched(root):
+                content = gcr.build_content()
+            self.assertIn(
+                "| [bb_widget](./bb_widget/) | Publishes to topic `foo\\|bar`. |",
+                content,
+            )
+
+    def test_group_row_desc_with_pipe_is_escaped(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            _mk_group_component(
+                root, "bb_display", "bb_display_ssd1306",
+                header_body="#pragma once\n/** @brief SSD1306 driver. */\nvoid noop(void);\n",
+            )
+            _mk_group_readme(root, "bb_display", desc="Display backends for A|B panels.")
+            with self._patched(root):
+                content = gcr.build_content()
+            self.assertIn(
+                "| [bb_display/](./bb_display/) | Display backends for A\\|B panels. |",
+                content,
+            )
+
     def test_group_row_appears_in_top_level_index(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(os.path.realpath(td))
@@ -383,6 +417,23 @@ class TestHierarchicalGroups(unittest.TestCase):
             self.assertIn("| [bb_display_ssd1306](./bb_display_ssd1306/) | SSD1306 driver. |", content)
             # hand-authored prose above the marker survives byte-for-byte
             self.assertIn("Display backends.", content)
+
+    def test_group_index_member_purpose_with_pipe_is_escaped(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            _mk_group_component(
+                root, "bb_display", "bb_display_ssd1306",
+                header_body="#pragma once\n/** @brief Driver for SSD1306|SH1106 panels. */\nvoid noop(void);\n",
+                readme_body="# bb_display_ssd1306\n\nignored\n",
+            )
+            _mk_group_readme(root, "bb_display", desc="Display backends.")
+            with self._patched(root):
+                results = gcr.build_group_contents()
+            path, content = results[0]
+            self.assertIn(
+                "| [bb_display_ssd1306](./bb_display_ssd1306/) | Driver for SSD1306\\|SH1106 panels. |",
+                content,
+            )
 
     def test_group_index_second_run_is_idempotent(self):
         with tempfile.TemporaryDirectory() as td:

@@ -248,6 +248,21 @@ class TestRenderDepsKind(unittest.TestCase):
             self.assertIn("| `bb_fake` | public |", text)
 
 
+    def test_render_deps_escapes_pipe_in_role(self):
+        """B1-1135: a `|` in a dep's README first sentence (e.g. describing
+        a pub/sub topic union) must not split the Role table cell."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dep = root / "components" / "bb_dep"
+            dep.mkdir(parents=True)
+            (dep / "README.md").write_text(
+                "# bb_dep\n\nPublishes to topic foo|bar.\n",
+                encoding="utf-8",
+            )
+            text = _render_deps(root, "bb_fake", ["bb_dep"], [])
+            self.assertIn("| `bb_dep` | public | Publishes to topic foo\\|bar. |", text)
+
+
 class TestDepRoleAndLink(unittest.TestCase):
     def test_dep_with_readme_uses_first_sentence_and_own_readme_link(self):
         with tempfile.TemporaryDirectory() as td:
