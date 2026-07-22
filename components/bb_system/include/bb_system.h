@@ -462,25 +462,6 @@ bool bb_system_safeguard_reboot_allowed(bb_reboot_cause_t cause);
 /// exercise _allowed/_allowed_at/_account/_src_for_cause directly instead).
 void bb_system_safeguard_reboot(bb_reboot_cause_t cause, bool ota_validated, const char *detail);
 
-/// Pure parse of POST /api/reboot's optional JSON body: {"ts": <epoch_s>,
-/// "detail": "<string, up to 48 chars>"} — both fields optional. body may be
-/// NULL/empty/non-JSON/oversized; on any parse failure out_ts=0 and
-/// out_detail falls back per the precedence below. No platform deps beyond
-/// bb_json (host-testable; compiled on host/ESP-IDF/Arduino).
-///
-/// ts: parsed from body["ts"] and clamped to (0, UINT32_MAX] before casting
-/// (negative, zero, NaN/Inf, or >UINT32_MAX all yield out_ts=0).
-///
-/// detail precedence: body["detail"] (non-empty) > ua_or_null (non-NULL,
-/// non-empty) > "". ua_or_null is the already-resolved caller identity
-/// (e.g. a request's User-Agent header) — this function does not read any
-/// header itself, keeping it request-independent and host-testable.
-///
-/// out_ts and out_detail must be non-NULL; out_detail is bounded to
-/// out_detail_len (NUL-terminated, truncated if longer).
-void bb_system_reboot_parse_body(const char *body, int body_len, const char *ua_or_null,
-                                 uint32_t *out_ts, char *out_detail, size_t out_detail_len);
-
 /// Reads the SoC internal die-temperature sensor.
 /// Returns BB_OK and writes *out (degrees Celsius) on silicon that has the
 /// modern temperature_sensor peripheral (esp32s2/s3/c3/c6/h2/...).
@@ -532,6 +513,14 @@ bb_err_t bb_system_routes_init(bb_http_handle_t server);
 /// req is the opaque bb_http_request_t handle (no ESP_PLATFORM dependency --
 /// same posture as bb_storage_http_delete_handler_for_test).
 bb_err_t bb_system_reboot_handler_for_test(bb_http_request_t *req);
+
+/// Test-only (B1-1148 PR2): binds the "reboot" bb_data key against the
+/// production gather/apply hooks without going through bb_system_routes_init()
+/// (which additionally requires a real bb_http_handle_t server -- unavailable
+/// in host tests). Call after bb_data_test_reset() and before driving
+/// bb_system_reboot_handler_for_test(). Mirrors
+/// bb_storage_http_factory_reset_bind_for_test().
+bb_err_t bb_system_reboot_bind_for_test(void);
 #endif /* BB_SYSTEM_TESTING */
 
 #ifdef __cplusplus

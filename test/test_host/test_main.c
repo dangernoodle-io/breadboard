@@ -713,6 +713,8 @@ void test_bb_serialize_json_populate_begin_arr_guard_fails_closed_past_max_depth
 void test_bb_serialize_json_populate_get_str_exact_cap_no_overrun(void);
 void test_bb_serialize_json_populate_get_str_over_cap_truncates(void);
 void test_bb_serialize_json_populate_scalar_wrong_type_present_leaves_untouched(void);
+void test_bb_serialize_json_populate_duplicate_key_resolves_independently(void);
+void test_bb_serialize_json_populate_duplicate_key_order_irrelevant(void);
 
 // Forward declarations from test_bb_serialize_json_parse.c
 void test_bb_serialize_json_parse_bytes_null_args_return_invalid_arg(void);
@@ -2425,24 +2427,6 @@ void test_bb_reboot_pick_epoch_ntp_synced_but_below_floor_falls_to_caller(void);
 void test_bb_reboot_pick_epoch_caller_only(void);
 void test_bb_reboot_pick_epoch_both_absent_returns_zero(void);
 void test_bb_reboot_pick_epoch_caller_below_floor_returns_zero(void);
-void test_bb_system_reboot_parse_body_null_body(void);
-void test_bb_system_reboot_parse_body_empty_body(void);
-void test_bb_system_reboot_parse_body_non_json(void);
-void test_bb_system_reboot_parse_body_oversized_garbage(void);
-void test_bb_system_reboot_parse_body_detail_used(void);
-void test_bb_system_reboot_parse_body_empty_detail_falls_back_to_ua(void);
-void test_bb_system_reboot_parse_body_no_detail_uses_ua(void);
-void test_bb_system_reboot_parse_body_no_detail_no_ua_empty(void);
-void test_bb_system_reboot_parse_body_ts_negative_zero(void);
-void test_bb_system_reboot_parse_body_ts_zero_stays_zero(void);
-void test_bb_system_reboot_parse_body_ts_huge_returns_zero(void);
-void test_bb_system_reboot_parse_body_ts_over_uint32_max_returns_zero(void);
-void test_bb_system_reboot_parse_body_ts_valid(void);
-void test_bb_system_reboot_parse_body_ua_truncated_to_out_len(void);
-void test_bb_system_reboot_parse_body_empty_ua_stays_empty(void);
-void test_bb_system_reboot_parse_body_guard_out_detail_len_zero_is_safe_noop(void);
-void test_bb_system_reboot_parse_body_guard_out_detail_null_is_safe_noop(void);
-void test_bb_system_reboot_parse_body_guard_out_ts_null_is_safe_noop(void);
 void test_bb_system_reboot_record_save_round_trips_via_get_str(void);
 void test_bb_system_reboot_record_save_null_detail(void);
 void test_bb_reboot_history_push_null_args(void);
@@ -3161,6 +3145,8 @@ void test_bb_system_cpu_freq_mhz_callable(void);
 // Forward declarations from test_bb_system_routes.c
 void test_bb_system_reboot_route_no_body_returns_200(void);
 void test_bb_system_reboot_route_empty_body_returns_200(void);
+void test_bb_system_reboot_route_empty_object_body_returns_200(void);
+void test_bb_system_reboot_route_unknown_field_ignored(void);
 void test_bb_system_reboot_route_valid_ts_returns_200(void);
 void test_bb_system_reboot_route_detail_present_returns_200(void);
 void test_bb_system_reboot_route_detail_absent_falls_back_to_user_agent(void);
@@ -3168,11 +3154,23 @@ void test_bb_system_reboot_route_no_body_falls_back_to_user_agent(void);
 void test_bb_system_reboot_route_detail_present_wins_over_user_agent(void);
 void test_bb_system_reboot_route_no_detail_no_user_agent_resolves_empty(void);
 void test_bb_system_reboot_route_valid_ts_resolves_via_capture(void);
-void test_bb_system_reboot_route_malformed_body_returns_200(void);
+void test_bb_system_reboot_route_ts_negative_clamps_to_zero(void);
+void test_bb_system_reboot_route_ts_zero_stays_zero(void);
+void test_bb_system_reboot_route_ts_huge_plain_integer_clamps_to_zero(void);
+void test_bb_system_reboot_route_ts_scientific_notation_returns_400(void);
+void test_bb_system_reboot_route_ts_5e1_returns_400(void);
+void test_bb_system_reboot_route_ts_decimal_exponent_returns_400(void);
+void test_bb_system_reboot_route_ts_bare_fraction_returns_400(void);
+void test_bb_system_reboot_route_ts_sentinel_prefix_with_exponent_clamps_to_zero(void);
+void test_bb_system_reboot_route_ts_sentinel_prefix_shrunk_into_range_returns_400(void);
+void test_bb_system_reboot_route_ts_over_uint32_max_clamps_to_zero(void);
+void test_bb_system_reboot_route_malformed_body_returns_400(void);
+void test_bb_system_reboot_route_truncated_body_returns_400(void);
 void test_bb_system_reboot_route_oversized_body_returns_200(void);
 void test_bb_system_reboot_route_recv_fail_treated_as_no_body(void);
 void test_bb_system_reboot_route_json_obj_begin_fail_propagates(void);
 void test_bb_system_reboot_route_json_obj_end_fail_propagates(void);
+void test_bb_system_reboot_route_gather_stub_reachable_via_patch_mode(void);
 
 // Forward declarations from test_bb_meminfo.c (heap-state classifier,
 // relocated from bb_board, B1-977 dissolution)
@@ -6679,24 +6677,6 @@ int main(void) {
     RUN_TEST(test_bb_reboot_pick_epoch_caller_only);
     RUN_TEST(test_bb_reboot_pick_epoch_both_absent_returns_zero);
     RUN_TEST(test_bb_reboot_pick_epoch_caller_below_floor_returns_zero);
-    RUN_TEST(test_bb_system_reboot_parse_body_null_body);
-    RUN_TEST(test_bb_system_reboot_parse_body_empty_body);
-    RUN_TEST(test_bb_system_reboot_parse_body_non_json);
-    RUN_TEST(test_bb_system_reboot_parse_body_oversized_garbage);
-    RUN_TEST(test_bb_system_reboot_parse_body_detail_used);
-    RUN_TEST(test_bb_system_reboot_parse_body_empty_detail_falls_back_to_ua);
-    RUN_TEST(test_bb_system_reboot_parse_body_no_detail_uses_ua);
-    RUN_TEST(test_bb_system_reboot_parse_body_no_detail_no_ua_empty);
-    RUN_TEST(test_bb_system_reboot_parse_body_ts_negative_zero);
-    RUN_TEST(test_bb_system_reboot_parse_body_ts_zero_stays_zero);
-    RUN_TEST(test_bb_system_reboot_parse_body_ts_huge_returns_zero);
-    RUN_TEST(test_bb_system_reboot_parse_body_ts_over_uint32_max_returns_zero);
-    RUN_TEST(test_bb_system_reboot_parse_body_ts_valid);
-    RUN_TEST(test_bb_system_reboot_parse_body_ua_truncated_to_out_len);
-    RUN_TEST(test_bb_system_reboot_parse_body_empty_ua_stays_empty);
-    RUN_TEST(test_bb_system_reboot_parse_body_guard_out_detail_len_zero_is_safe_noop);
-    RUN_TEST(test_bb_system_reboot_parse_body_guard_out_detail_null_is_safe_noop);
-    RUN_TEST(test_bb_system_reboot_parse_body_guard_out_ts_null_is_safe_noop);
     RUN_TEST(test_bb_system_reboot_record_save_round_trips_via_get_str);
     RUN_TEST(test_bb_system_reboot_record_save_null_detail);
     RUN_TEST(test_bb_reboot_history_push_null_args);
@@ -7167,6 +7147,8 @@ int main(void) {
     // bb_system POST /api/reboot route tests (B1-1148 PR1)
     RUN_TEST(test_bb_system_reboot_route_no_body_returns_200);
     RUN_TEST(test_bb_system_reboot_route_empty_body_returns_200);
+    RUN_TEST(test_bb_system_reboot_route_empty_object_body_returns_200);
+    RUN_TEST(test_bb_system_reboot_route_unknown_field_ignored);
     RUN_TEST(test_bb_system_reboot_route_valid_ts_returns_200);
     RUN_TEST(test_bb_system_reboot_route_detail_present_returns_200);
     RUN_TEST(test_bb_system_reboot_route_detail_absent_falls_back_to_user_agent);
@@ -7174,11 +7156,23 @@ int main(void) {
     RUN_TEST(test_bb_system_reboot_route_detail_present_wins_over_user_agent);
     RUN_TEST(test_bb_system_reboot_route_no_detail_no_user_agent_resolves_empty);
     RUN_TEST(test_bb_system_reboot_route_valid_ts_resolves_via_capture);
-    RUN_TEST(test_bb_system_reboot_route_malformed_body_returns_200);
+    RUN_TEST(test_bb_system_reboot_route_ts_negative_clamps_to_zero);
+    RUN_TEST(test_bb_system_reboot_route_ts_zero_stays_zero);
+    RUN_TEST(test_bb_system_reboot_route_ts_huge_plain_integer_clamps_to_zero);
+    RUN_TEST(test_bb_system_reboot_route_ts_scientific_notation_returns_400);
+    RUN_TEST(test_bb_system_reboot_route_ts_5e1_returns_400);
+    RUN_TEST(test_bb_system_reboot_route_ts_decimal_exponent_returns_400);
+    RUN_TEST(test_bb_system_reboot_route_ts_bare_fraction_returns_400);
+    RUN_TEST(test_bb_system_reboot_route_ts_sentinel_prefix_with_exponent_clamps_to_zero);
+    RUN_TEST(test_bb_system_reboot_route_ts_sentinel_prefix_shrunk_into_range_returns_400);
+    RUN_TEST(test_bb_system_reboot_route_ts_over_uint32_max_clamps_to_zero);
+    RUN_TEST(test_bb_system_reboot_route_malformed_body_returns_400);
+    RUN_TEST(test_bb_system_reboot_route_truncated_body_returns_400);
     RUN_TEST(test_bb_system_reboot_route_oversized_body_returns_200);
     RUN_TEST(test_bb_system_reboot_route_recv_fail_treated_as_no_body);
     RUN_TEST(test_bb_system_reboot_route_json_obj_begin_fail_propagates);
     RUN_TEST(test_bb_system_reboot_route_json_obj_end_fail_propagates);
+    RUN_TEST(test_bb_system_reboot_route_gather_stub_reachable_via_patch_mode);
 
     // bb_meminfo heap-state tests (relocated from bb_board, B1-977 dissolution)
     RUN_TEST(test_bb_meminfo_classify_heap_ok);
@@ -9905,6 +9899,8 @@ int main(void) {
     RUN_TEST(test_bb_serialize_json_populate_get_str_exact_cap_no_overrun);
     RUN_TEST(test_bb_serialize_json_populate_get_str_over_cap_truncates);
     RUN_TEST(test_bb_serialize_json_populate_scalar_wrong_type_present_leaves_untouched);
+    RUN_TEST(test_bb_serialize_json_populate_duplicate_key_resolves_independently);
+    RUN_TEST(test_bb_serialize_json_populate_duplicate_key_order_irrelevant);
 
     RUN_TEST(test_bb_serialize_json_parse_bytes_null_args_return_invalid_arg);
     RUN_TEST(test_bb_serialize_json_parse_bytes_flat_and_nested_roundtrip);
