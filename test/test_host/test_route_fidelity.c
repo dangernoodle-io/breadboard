@@ -1,8 +1,8 @@
 // Fidelity audit: verify that each JSON handler's emitted body validates
 // against the response schema declared alongside it.
 //
-// Pattern mirrors test_route_schemas.c (registry-seeding + declared fixtures)
-// and test_bb_http_json_arr_stream.c (fake req cookie).
+// Pattern mirrors test_route_schemas.c (registry-seeding + declared fixtures),
+// using the host backend's fake req cookie.
 //
 // SKIPPED ROUTES (with rationale):
 //   /api/events            - SSE stream (text/event-stream); not JSON

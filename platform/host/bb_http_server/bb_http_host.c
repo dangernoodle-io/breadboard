@@ -12,7 +12,6 @@
 /* dispatch API decls now live in bb_http_server.h (included above) */
 #include "bb_http_status.h"
 #include "bb_http_query.h"
-#include "bb_json.h"
 #include "bb_mem.h"
 #include "bb_str.h"
 #include <stdlib.h>
@@ -336,21 +335,6 @@ bb_err_t bb_http_resp_no_content(bb_http_request_t *req)
     return BB_OK;
 }
 
-static bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc)
-{
-    bb_err_t err = bb_http_resp_set_type(req, "application/json");
-    if (err != BB_OK) return err;
-    char *serialized = bb_json_serialize(doc);
-    if (serialized) {
-        err = bb_http_resp_send_chunk(req, serialized, -1);
-        bb_json_free_str(serialized);
-    } else {
-        err = bb_http_resp_send_chunk(req, "null", 4);
-    }
-    if (err != BB_OK) return err;
-    return bb_http_resp_send_chunk(req, NULL, 0);
-}
-
 int bb_http_req_sockfd(bb_http_request_t *req)
 {
     (void)req;
@@ -554,115 +538,3 @@ void bb_http_host_capture_free(bb_http_host_capture_t *cap)
     cap->body_len = 0;
 }
 
-// ============================================================================
-// STREAMING JSON ARRAY API — Host backend (buffered)
-// ============================================================================
-
-// Simple side-table for mapping request pointers to buffered arrays.
-#define STREAM_TABLE_SIZE 8
-static struct {
-    bb_http_request_t *req;
-    bb_json_t arr;
-} s_stream_table[STREAM_TABLE_SIZE];
-
-static bb_json_t stream_get_arr(bb_http_request_t *req) {
-    for (int i = 0; i < STREAM_TABLE_SIZE; i++) {
-        if (s_stream_table[i].req == req) return s_stream_table[i].arr;
-    }
-    return NULL;
-}
-
-static void stream_set_arr(bb_http_request_t *req, bb_json_t arr) {
-    for (int i = 0; i < STREAM_TABLE_SIZE; i++) {
-        if (s_stream_table[i].req == NULL) {
-            s_stream_table[i].req = req;
-            s_stream_table[i].arr = arr;
-            return;
-        }
-    }
-}
-
-static void stream_clear_arr(bb_http_request_t *req) {
-    for (int i = 0; i < STREAM_TABLE_SIZE; i++) {
-        if (s_stream_table[i].req == req) {
-            s_stream_table[i].req = NULL;
-            s_stream_table[i].arr = NULL;
-            return;
-        }
-    }
-}
-
-bb_err_t bb_http_resp_json_arr_begin(bb_http_request_t *req,
-                                     bb_http_json_stream_t *out) {
-    if (!req || !out) return BB_ERR_INVALID_ARG;
-
-    bb_json_t arr = bb_json_arr_new();
-    if (!arr) return BB_ERR_NO_SPACE;
-
-    stream_set_arr(req, arr);
-
-    out->_req = req;
-    out->_err = BB_OK;
-    out->_first = 1;
-    out->_open = 1;
-
-    return BB_OK;
-}
-
-bb_err_t bb_http_resp_json_arr_emit(bb_http_json_stream_t *stream,
-                                    bb_json_t item) {
-    if (!stream) return BB_ERR_INVALID_ARG;
-    if (!stream->_open) return BB_ERR_INVALID_STATE;
-    if (stream->_err != BB_OK) return stream->_err;
-
-    bb_http_request_t *req = (bb_http_request_t *)stream->_req;
-    bb_json_t arr = stream_get_arr(req);
-    if (!arr) return BB_ERR_INVALID_STATE;
-
-    // Mark as no longer first
-    stream->_first = 0;
-
-    // Clone via serialize/parse (same pattern as Arduino backend)
-    char *json_str = bb_json_item_serialize(item);
-    if (!json_str) {
-        // Serialize failed; append null
-        bb_json_arr_append_string(arr, "null");
-        return BB_OK;
-    }
-
-    bb_json_t cloned = bb_json_parse(json_str, 0);
-    bb_json_free_str(json_str);
-    // LCOV_EXCL_START — json_str is host cJSON's own PrintUnformatted output
-    // of a valid tree, which cJSON_Parse always round-trips successfully; no
-    // host fault-injection hook exists for bb_json_parse (unlike
-    // bb_json_serialize's bb_json_host_force_serialize_fail_after), so this
-    // fallback is unreachable from the host harness.
-    if (!cloned) {
-        // Parse failed; append null
-        bb_json_arr_append_string(arr, "null");
-        return BB_OK;
-    }
-    // LCOV_EXCL_STOP
-
-    bb_json_arr_append_obj(arr, cloned);
-    return BB_OK;
-}
-
-bb_err_t bb_http_resp_json_arr_end(bb_http_json_stream_t *stream) {
-    if (!stream) return BB_ERR_INVALID_ARG;
-
-    stream->_open = 0;
-    bb_http_request_t *req = (bb_http_request_t *)stream->_req;
-    bb_json_t arr = stream_get_arr(req);
-
-    if (!arr) return BB_ERR_INVALID_STATE;
-
-    // Send the buffered array
-    bb_err_t err = bb_http_resp_send_json(req, arr);
-
-    // Clean up
-    bb_json_free(arr);
-    stream_clear_arr(req);
-
-    return stream->_err != BB_OK ? stream->_err : err;
-}

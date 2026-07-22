@@ -1076,22 +1076,6 @@ void test_bb_json_get_kind_scalar(void);
 void test_bb_json_walk_children_object(void);
 void test_bb_json_walk_children_array(void);
 
-// Forward declarations from test_bb_http_json_arr_stream.c
-void test_json_arr_begin_null_req(void);
-void test_json_arr_begin_null_stream(void);
-void test_json_arr_begin_init(void);
-void test_json_arr_emit_unopened(void);
-void test_json_arr_emit_after_end(void);
-void test_json_arr_sticky_error(void);
-void test_json_arr_empty(void);
-void test_json_arr_single_item(void);
-void test_json_arr_multiple_items(void);
-void test_json_arr_emit_null_item(void);
-void test_json_arr_emit_null_stream(void);
-void test_json_arr_end_null_stream(void);
-void test_json_arr_emit_unregistered_req_returns_invalid_state(void);
-void test_json_arr_end_serialize_failure_falls_back_to_null(void);
-
 // Forward declarations from test_bb_http_json_obj_stream.c
 void test_resp_no_content_sets_204_empty_body(void);
 void test_json_obj_begin_null_req(void);
@@ -5905,22 +5889,6 @@ int main(void) {
     RUN_TEST(test_bb_json_get_kind_scalar);
     RUN_TEST(test_bb_json_walk_children_object);
     RUN_TEST(test_bb_json_walk_children_array);
-
-    // bb_http JSON array streaming tests
-    RUN_TEST(test_json_arr_begin_null_req);
-    RUN_TEST(test_json_arr_begin_null_stream);
-    RUN_TEST(test_json_arr_begin_init);
-    RUN_TEST(test_json_arr_emit_unopened);
-    RUN_TEST(test_json_arr_emit_after_end);
-    RUN_TEST(test_json_arr_sticky_error);
-    RUN_TEST(test_json_arr_empty);
-    RUN_TEST(test_json_arr_single_item);
-    RUN_TEST(test_json_arr_multiple_items);
-    RUN_TEST(test_json_arr_emit_null_item);
-    RUN_TEST(test_json_arr_emit_null_stream);
-    RUN_TEST(test_json_arr_end_null_stream);
-    RUN_TEST(test_json_arr_emit_unregistered_req_returns_invalid_state);
-    RUN_TEST(test_json_arr_end_serialize_failure_falls_back_to_null);
 
     // Streaming JSON object tests
     RUN_TEST(test_resp_no_content_sets_204_empty_body);
