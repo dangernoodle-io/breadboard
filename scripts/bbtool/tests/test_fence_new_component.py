@@ -2,23 +2,20 @@
 fire), family auto-discovery, the shrink-only baseline invariant, and the
 grow-by-approval `--approve` CLI flow that is this family's one deliberate
 departure from every other family's shrink-only semantics."""
-import argparse
-import contextlib
-import io
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
 import fence as fence_pkg  # noqa: E402
 from fence import Marker  # noqa: E402
 from fence.new_component import scan_all, counts_by_bucket, rename_pairs  # noqa: E402
-from commands import fence_cmd  # noqa: E402
-from discovery import build_index  # noqa: E402
+from fence_test_support import run_fence_cli  # noqa: E402
 
 
 def _write(root: Path, rel: str, content: str = "") -> Path:
@@ -130,25 +127,6 @@ class TestCountsByBucket(unittest.TestCase):
         self.assertEqual(counts, {"new component": 1})
 
 
-def _run_fence_cli(root: str, family=None, update_baseline: bool = False, seed=None, approve=None) -> tuple:
-    # discovery.build_index() is memoized per (canonicalized-roots, platforms)
-    # tuple for the lifetime of the process (safe in production — one real
-    # CLI invocation is one process, so the on-disk tree is genuinely static
-    # for its duration). These CLI tests instead mutate the SAME tmp root
-    # across several `_run_fence_cli` calls within one test process, so a
-    # stale cached index would silently hide a just-added/removed component
-    # on the next call — clear it before every invocation to force a fresh
-    # scan, mirroring `discovery.py`'s own documented test convention.
-    build_index.cache_clear()
-    args = argparse.Namespace(
-        root=root, family=family, update_baseline=update_baseline, seed=seed, approve=approve
-    )
-    stdout, stderr = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-        rc = fence_cmd.run(args)
-    return rc, stdout.getvalue(), stderr.getvalue()
-
-
 class TestFenceCliNewComponent(unittest.TestCase):
     """Exercises the generic `fence` CLI's semantics against the real
     new_component family scanner, plus the --approve grow-by-approval
@@ -160,11 +138,11 @@ class TestFenceCliNewComponent(unittest.TestCase):
             _mkcomponent(root, "bb_example_a")
             _mkcomponent(root, "bb_example_b")
 
-            rc, out, _ = _run_fence_cli(str(root), seed="new_component")
+            rc, out, _ = run_fence_cli(str(root), seed="new_component")
             self.assertEqual(rc, 0)
             self.assertIn("baseline seeded (2", out)
 
-            rc2, out2, _ = _run_fence_cli(str(root), family=["new_component"])
+            rc2, out2, _ = run_fence_cli(str(root), family=["new_component"])
             self.assertEqual(rc2, 0)
             self.assertIn("PASS", out2)
 
@@ -172,11 +150,11 @@ class TestFenceCliNewComponent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _mkcomponent(root, "bb_example_a")
-            _run_fence_cli(str(root), seed="new_component")
+            run_fence_cli(str(root), seed="new_component")
 
             _mkcomponent(root, "bb_speculative")
 
-            rc, out, err = _run_fence_cli(str(root), family=["new_component"])
+            rc, out, err = run_fence_cli(str(root), family=["new_component"])
             self.assertEqual(rc, 1)
             self.assertIn("new marker added", err)
             self.assertIn("bb_speculative", err)
@@ -185,12 +163,12 @@ class TestFenceCliNewComponent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _mkcomponent(root, "bb_example_a")
-            _run_fence_cli(str(root), seed="new_component")
+            run_fence_cli(str(root), seed="new_component")
 
             _mkcomponent(root, "bb_approved")
             _mkcomponent(root, "bb_still_unapproved")
 
-            rc, out, _ = _run_fence_cli(str(root), approve="bb_approved")
+            rc, out, _ = run_fence_cli(str(root), approve="bb_approved")
             self.assertEqual(rc, 0)
             self.assertIn("approved components/bb_approved", out)
 
@@ -200,14 +178,14 @@ class TestFenceCliNewComponent(unittest.TestCase):
             self.assertNotIn("bb_still_unapproved", baseline_ids)
 
             # The still-unapproved sibling continues to fail the fence.
-            rc2, out2, err2 = _run_fence_cli(str(root), family=["new_component"])
+            rc2, out2, err2 = run_fence_cli(str(root), family=["new_component"])
             self.assertEqual(rc2, 1)
             self.assertNotIn("bb_approved", err2)
             self.assertIn("bb_still_unapproved", err2)
 
             # Approving the last one clears the fence entirely.
-            _run_fence_cli(str(root), approve="bb_still_unapproved")
-            rc3, out3, _ = _run_fence_cli(str(root), family=["new_component"])
+            run_fence_cli(str(root), approve="bb_still_unapproved")
+            rc3, out3, _ = run_fence_cli(str(root), family=["new_component"])
             self.assertEqual(rc3, 0)
             self.assertIn("PASS", out3)
 
@@ -216,13 +194,13 @@ class TestFenceCliNewComponent(unittest.TestCase):
             root = Path(td)
             _mkcomponent(root, "bb_example_a")
             _write(root, "components/bb_scalar/src/bb_scalar.c", "bool bb_scalar_parse_bool(void) { return false; }\n")
-            _run_fence_cli(str(root), seed="new_component")
-            _run_fence_cli(str(root), seed="scalar_parse")
+            run_fence_cli(str(root), seed="new_component")
+            run_fence_cli(str(root), seed="scalar_parse")
 
             scalar_baseline_before = fence_pkg.load_baseline(str(root), "scalar_parse")
 
             _mkcomponent(root, "bb_approved")
-            rc, _, _ = _run_fence_cli(str(root), approve="bb_approved")
+            rc, _, _ = run_fence_cli(str(root), approve="bb_approved")
             self.assertEqual(rc, 0)
 
             scalar_baseline_after = fence_pkg.load_baseline(str(root), "scalar_parse")
@@ -232,9 +210,9 @@ class TestFenceCliNewComponent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _mkcomponent(root, "bb_example_a")
-            _run_fence_cli(str(root), seed="new_component")
+            run_fence_cli(str(root), seed="new_component")
 
-            rc, out, err = _run_fence_cli(str(root), approve="bb_does_not_exist")
+            rc, out, err = run_fence_cli(str(root), approve="bb_does_not_exist")
             self.assertEqual(rc, 1)
             self.assertIn("does not exist", err)
 
@@ -246,9 +224,9 @@ class TestFenceCliNewComponent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _mkcomponent(root, "bb_example_a")
-            _run_fence_cli(str(root), seed="new_component")
+            run_fence_cli(str(root), seed="new_component")
 
-            rc, out, _ = _run_fence_cli(str(root), approve="bb_example_a")
+            rc, out, _ = run_fence_cli(str(root), approve="bb_example_a")
             self.assertEqual(rc, 0)
             self.assertIn("already approved", out)
 
@@ -257,17 +235,17 @@ class TestFenceCliNewComponent(unittest.TestCase):
             root = Path(td)
             _mkcomponent(root, "bb_example_a")
             _mkcomponent(root, "bb_example_b")
-            _run_fence_cli(str(root), seed="new_component")
+            run_fence_cli(str(root), seed="new_component")
 
             # bb_example_b is deleted from disk (e.g. the bb_pub_wifi case).
             import shutil
             shutil.rmtree(root / "components" / "bb_example_b")
 
-            rc, out, _ = _run_fence_cli(str(root), family=["new_component"])
+            rc, out, _ = run_fence_cli(str(root), family=["new_component"])
             self.assertEqual(rc, 0, "a removed component must never fail the fence")
             self.assertIn("candidate to prune from baseline", out)
 
-            rc2, out2, _ = _run_fence_cli(str(root), family=["new_component"], update_baseline=True)
+            rc2, out2, _ = run_fence_cli(str(root), family=["new_component"], update_baseline=True)
             self.assertEqual(rc2, 0)
             baseline = fence_pkg.load_baseline(str(root), "new_component")
             baseline_ids = {m.id for m in baseline}
@@ -278,7 +256,7 @@ class TestFenceCliNewComponent(unittest.TestCase):
             root = Path(td)
             _mkcomponent(root, "bb_example_a")
             _mkcomponent(root, "bb_example_b")
-            _run_fence_cli(str(root), seed="new_component")
+            run_fence_cli(str(root), seed="new_component")
 
             # Simultaneously: remove ONE seeded component AND add TWO new,
             # unapproved ones — a 2-new-for-1-removed shape is NOT the
@@ -290,7 +268,7 @@ class TestFenceCliNewComponent(unittest.TestCase):
             _mkcomponent(root, "bb_speculative_1")
             _mkcomponent(root, "bb_speculative_2")
 
-            rc, out, _ = _run_fence_cli(str(root), family=["new_component"], update_baseline=True)
+            rc, out, _ = run_fence_cli(str(root), family=["new_component"], update_baseline=True)
             self.assertEqual(rc, 0)
             self.assertIn("baseline pruned", out)
             self.assertIn("NOT added to the", out)
@@ -300,7 +278,7 @@ class TestFenceCliNewComponent(unittest.TestCase):
             self.assertNotIn("bb_speculative_1", baseline_ids, "net-new component must never be blessed by --update-baseline")
             self.assertNotIn("bb_speculative_2", baseline_ids, "net-new component must never be blessed by --update-baseline")
 
-            rc2, _, err2 = _run_fence_cli(str(root), family=["new_component"])
+            rc2, _, err2 = run_fence_cli(str(root), family=["new_component"])
             self.assertEqual(rc2, 1)
             self.assertIn("bb_speculative_1", err2)
             self.assertIn("bb_speculative_2", err2)
@@ -314,13 +292,13 @@ class TestFenceCliNewComponent(unittest.TestCase):
             root = Path(td)
             _mkcomponent(root, "bb_example_a")
             _mkcomponent(root, "bb_prov")
-            _run_fence_cli(str(root), seed="new_component")
+            run_fence_cli(str(root), seed="new_component")
 
             import shutil
             shutil.rmtree(root / "components" / "bb_prov")
             _mkcomponent(root, "bb_wifi_prov")
 
-            rc, out, _ = _run_fence_cli(str(root), family=["new_component"])
+            rc, out, _ = run_fence_cli(str(root), family=["new_component"])
             self.assertEqual(rc, 0, "a paired 1:1 rename must pass without --approve")
             self.assertIn("PASS", out)
             # The heuristic firing is not a silent PASS — an INFO breadcrumb
@@ -339,7 +317,7 @@ class TestFenceCliNewComponent(unittest.TestCase):
             self.assertIn("bb_prov", baseline_ids)
             self.assertNotIn("bb_wifi_prov", baseline_ids)
 
-            rc2, out2, _ = _run_fence_cli(str(root), family=["new_component"])
+            rc2, out2, _ = run_fence_cli(str(root), family=["new_component"])
             self.assertEqual(rc2, 0, "the rename keeps passing on repeat runs with no baseline edit")
             self.assertIn("PASS", out2)
 
@@ -350,13 +328,13 @@ class TestFenceCliNewComponent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _mkcomponent(root, "bb_prov")
-            _run_fence_cli(str(root), seed="new_component")
+            run_fence_cli(str(root), seed="new_component")
 
             import shutil
             shutil.rmtree(root / "components" / "bb_prov")
             _mkcomponent(root, "bb_wifi_prov")
 
-            rc, out, _ = _run_fence_cli(str(root), family=["new_component"], update_baseline=True)
+            rc, out, _ = run_fence_cli(str(root), family=["new_component"], update_baseline=True)
             self.assertEqual(rc, 0)
             self.assertIn("baseline pruned (0 removed", out)
             self.assertNotIn("NOT added to the", out, "the paired rename is not reported as an unblessed new marker")
@@ -374,10 +352,10 @@ class TestFenceCliNewComponent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _mkcomponent(root, "bb_example_a")
-            _run_fence_cli(str(root), seed="new_component")
+            run_fence_cli(str(root), seed="new_component")
             _mkcomponent(root, "bb_new")
 
-            rc, _, err = _run_fence_cli(str(root), approve="bb_new", family=["new_component"])
+            rc, _, err = run_fence_cli(str(root), approve="bb_new", family=["new_component"])
             self.assertEqual(rc, 1)
             self.assertIn("mutually exclusive", err)
 
@@ -385,11 +363,11 @@ class TestFenceCliNewComponent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _mkcomponent(root, "bb_example_a")
-            _run_fence_cli(str(root), seed="new_component")
+            run_fence_cli(str(root), seed="new_component")
             _mkcomponent(root, "bb_new")
             baseline_before = fence_pkg.load_baseline(str(root), "new_component")
 
-            rc, _, err = _run_fence_cli(str(root), approve="bb_new", seed="new_component")
+            rc, _, err = run_fence_cli(str(root), approve="bb_new", seed="new_component")
             self.assertEqual(rc, 1)
             self.assertIn("mutually exclusive", err)
 
@@ -400,11 +378,11 @@ class TestFenceCliNewComponent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _mkcomponent(root, "bb_example_a")
-            _run_fence_cli(str(root), seed="new_component")
+            run_fence_cli(str(root), seed="new_component")
             _mkcomponent(root, "bb_new")
             baseline_before = fence_pkg.load_baseline(str(root), "new_component")
 
-            rc, _, err = _run_fence_cli(str(root), approve="bb_new", update_baseline=True)
+            rc, _, err = run_fence_cli(str(root), approve="bb_new", update_baseline=True)
             self.assertEqual(rc, 1)
             self.assertIn("mutually exclusive", err)
 
@@ -415,10 +393,10 @@ class TestFenceCliNewComponent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _mkcomponent(root, "bb_example_a")
-            _run_fence_cli(str(root), seed="new_component")
+            run_fence_cli(str(root), seed="new_component")
             baseline_before = fence_pkg.load_baseline(str(root), "new_component")
 
-            rc, _, err = _run_fence_cli(str(root), approve="")
+            rc, _, err = run_fence_cli(str(root), approve="")
             self.assertNotEqual(rc, 0, "--approve '' must error, not silently no-op into a default run")
 
             baseline_after = fence_pkg.load_baseline(str(root), "new_component")

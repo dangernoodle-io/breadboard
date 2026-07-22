@@ -11,12 +11,14 @@ import types
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
 import fence as fence_pkg  # noqa: E402
 from fence import Marker  # noqa: E402
 from commands import fence_cmd  # noqa: E402
+from fence_test_support import run_fence_cli  # noqa: E402
 
 
 def _write(root: Path, rel: str, content: str) -> Path:
@@ -244,13 +246,6 @@ class TestDiff(unittest.TestCase):
         self.assertEqual(removed, [Marker("t", "b.c", "x")])
 
 
-def _run_fence_cli(root: str, family=None, update_baseline: bool = False, seed=None) -> tuple:
-    args = argparse.Namespace(root=root, family=family, update_baseline=update_baseline, seed=seed)
-    stdout, stderr = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-        rc = fence_cmd.run(args)
-    return rc, stdout.getvalue(), stderr.getvalue()
-
 
 class TestFenceCliDiLegacy(unittest.TestCase):
     """Exercises the `fence` command end-to-end against the real di_legacy
@@ -263,12 +258,12 @@ class TestFenceCliDiLegacy(unittest.TestCase):
             root = Path(td)
             _write(root, "components/bb_fake/src/bb_fake.c", "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n")
 
-            rc, out, _ = _run_fence_cli(str(root), seed="di_legacy")
+            rc, out, _ = run_fence_cli(str(root), seed="di_legacy")
             self.assertEqual(rc, 0)
             self.assertIn("baseline seeded", out)
             self.assertTrue(fence_pkg.baseline_path(str(root), "di_legacy").is_file())
 
-            rc2, out2, _ = _run_fence_cli(str(root), family=["di_legacy"])
+            rc2, out2, _ = run_fence_cli(str(root), family=["di_legacy"])
             self.assertEqual(rc2, 0)
             self.assertIn("PASS", out2)
 
@@ -276,9 +271,9 @@ class TestFenceCliDiLegacy(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _write(root, "components/bb_fake/src/bb_fake.c", "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n")
-            _run_fence_cli(str(root), seed="di_legacy")
+            run_fence_cli(str(root), seed="di_legacy")
 
-            rc, out, err = _run_fence_cli(str(root), seed="di_legacy")
+            rc, out, err = run_fence_cli(str(root), seed="di_legacy")
             self.assertEqual(rc, 1)
             self.assertIn("already exists", err)
 
@@ -286,14 +281,14 @@ class TestFenceCliDiLegacy(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _write(root, "components/bb_fake/src/bb_fake.c", "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n")
-            _run_fence_cli(str(root), seed="di_legacy")
+            run_fence_cli(str(root), seed="di_legacy")
 
             _write(root, "components/bb_fake/src/bb_fake.c", (
                 "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n"
                 "BB_INIT_REGISTER(bb_fake_new, bb_fake_new_init);\n"
             ))
 
-            rc, out, err = _run_fence_cli(str(root), family=["di_legacy"])
+            rc, out, err = run_fence_cli(str(root), family=["di_legacy"])
             self.assertEqual(rc, 1)
             self.assertIn("new marker added", err)
             self.assertIn("bb_fake_new", err)
@@ -304,14 +299,14 @@ class TestFenceCliDiLegacy(unittest.TestCase):
             old_path = _write(root, "components/bb_fake/src/bb_fake_old.c", (
                 "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n"
             ))
-            _run_fence_cli(str(root), seed="di_legacy")
+            run_fence_cli(str(root), seed="di_legacy")
 
             old_path.unlink()
             _write(root, "components/bb_fake/src/bb_fake_renamed.c", (
                 "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n"
             ))
 
-            rc, out, _ = _run_fence_cli(str(root), family=["di_legacy"])
+            rc, out, _ = run_fence_cli(str(root), family=["di_legacy"])
             self.assertEqual(rc, 0, "a pure file rename must never fail the fence")
             self.assertIn("PASS", out)
             self.assertNotIn("candidate to prune", out)
@@ -323,11 +318,11 @@ class TestFenceCliDiLegacy(unittest.TestCase):
                 "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n"
                 "BB_INIT_REGISTER(bb_fake_gone, bb_fake_gone_init);\n"
             ))
-            _run_fence_cli(str(root), seed="di_legacy")
+            run_fence_cli(str(root), seed="di_legacy")
 
             src.write_text("BB_INIT_REGISTER(bb_fake, bb_fake_init);\n", encoding="utf-8")
 
-            rc, out, _ = _run_fence_cli(str(root), family=["di_legacy"])
+            rc, out, _ = run_fence_cli(str(root), family=["di_legacy"])
             self.assertEqual(rc, 0, "removals must never fail the fence")
             self.assertIn("PASS", out)
             self.assertIn("candidate to prune from baseline", out)
@@ -340,7 +335,7 @@ class TestFenceCliDiLegacy(unittest.TestCase):
                 "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n"
                 "BB_INIT_REGISTER(bb_fake_gone, bb_fake_gone_init);\n"
             ))
-            _run_fence_cli(str(root), seed="di_legacy")
+            run_fence_cli(str(root), seed="di_legacy")
 
             # Simultaneously: remove one marker (legitimate shrink) AND add
             # a brand-new one (must never be silently blessed).
@@ -349,7 +344,7 @@ class TestFenceCliDiLegacy(unittest.TestCase):
                 "BB_INIT_REGISTER(bb_fake_new_dup, bb_fake_new_dup_init);\n"
             ), encoding="utf-8")
 
-            rc, out, _ = _run_fence_cli(str(root), family=["di_legacy"], update_baseline=True)
+            rc, out, _ = run_fence_cli(str(root), family=["di_legacy"], update_baseline=True)
             self.assertEqual(rc, 0)
             self.assertIn("baseline pruned", out)
             self.assertIn("NOT added to the", out)
@@ -361,7 +356,7 @@ class TestFenceCliDiLegacy(unittest.TestCase):
             self.assertNotIn("bb_fake_new_dup", baseline_ids, "net-new marker must never be blessed")
 
             # The net-new marker is still unfenced -> a normal run still fails.
-            rc2, _, err2 = _run_fence_cli(str(root), family=["di_legacy"])
+            rc2, _, err2 = run_fence_cli(str(root), family=["di_legacy"])
             self.assertEqual(rc2, 1)
             self.assertIn("bb_fake_new_dup", err2)
 
@@ -377,14 +372,14 @@ class TestFenceCliDiLegacy(unittest.TestCase):
             root = Path(td)
             _write(root, "components/bb_fake/src/bb_fake_a.c", "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n")
             _write(root, "components/bb_fake/src/bb_fake_b.c", "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n")
-            _run_fence_cli(str(root), seed="di_legacy")
+            run_fence_cli(str(root), seed="di_legacy")
 
             baseline_before = fence_pkg.load_baseline(str(root), "di_legacy")
             self.assertEqual(len(baseline_before), 2, "sanity: both occurrences seeded")
 
             os.remove(root / "components/bb_fake/src/bb_fake_b.c")
 
-            rc, out, _ = _run_fence_cli(str(root), family=["di_legacy"], update_baseline=True)
+            rc, out, _ = run_fence_cli(str(root), family=["di_legacy"], update_baseline=True)
             self.assertEqual(rc, 0)
             self.assertIn("baseline pruned", out)
 
@@ -396,7 +391,7 @@ class TestFenceCliDiLegacy(unittest.TestCase):
             )
 
             # And the fence must still pass cleanly against the pruned baseline.
-            rc2, out2, _ = _run_fence_cli(str(root), family=["di_legacy"])
+            rc2, out2, _ = run_fence_cli(str(root), family=["di_legacy"])
             self.assertEqual(rc2, 0)
             self.assertIn("PASS", out2)
 
@@ -405,26 +400,26 @@ class TestFenceCliDiLegacy(unittest.TestCase):
             root = Path(td)
             _write(root, "components/bb_fake/src/bb_fake.c", "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n")
 
-            rc, out, err = _run_fence_cli(str(root), family=["di_legacy"], update_baseline=True)
+            rc, out, err = run_fence_cli(str(root), family=["di_legacy"], update_baseline=True)
             self.assertEqual(rc, 1)
             self.assertIn("--seed", err)
 
     def test_seed_and_update_baseline_mutually_exclusive(self):
         with tempfile.TemporaryDirectory() as td:
-            rc, out, err = _run_fence_cli(td, seed="di_legacy", update_baseline=True)
+            rc, out, err = run_fence_cli(td, seed="di_legacy", update_baseline=True)
             self.assertEqual(rc, 1)
             self.assertIn("mutually exclusive", err)
 
     def test_seed_and_family_mutually_exclusive(self):
         with tempfile.TemporaryDirectory() as td:
-            rc, out, err = _run_fence_cli(td, seed="di_legacy", family=["di_legacy"])
+            rc, out, err = run_fence_cli(td, seed="di_legacy", family=["di_legacy"])
             self.assertEqual(rc, 1)
             self.assertIn("mutually exclusive", err)
             self.assertFalse(fence_pkg.baseline_path(td, "di_legacy").is_file())
 
     def test_unknown_family_errors(self):
         with tempfile.TemporaryDirectory() as td:
-            rc, out, err = _run_fence_cli(td, family=["nonexistent_family"])
+            rc, out, err = run_fence_cli(td, family=["nonexistent_family"])
             self.assertEqual(rc, 1)
             self.assertIn("unknown family", err)
 
@@ -438,9 +433,9 @@ class TestFenceCliDiLegacy(unittest.TestCase):
             # run below; e.g. new_component sees components/bb_fake as a
             # net-new component unless it too is seeded first.
             for name in sorted(fence_pkg.FAMILIES):
-                _run_fence_cli(str(root), seed=name)
+                run_fence_cli(str(root), seed=name)
 
-            rc, out, _ = _run_fence_cli(str(root))
+            rc, out, _ = run_fence_cli(str(root))
             self.assertEqual(rc, 0)
             self.assertIn("di_legacy", out)
 
@@ -454,6 +449,79 @@ class TestAddArguments(unittest.TestCase):
         self.assertEqual(ns.family, ["di_legacy", "other"])
         ns2 = parser.parse_args(["--seed", "di_legacy"])
         self.assertEqual(ns2.seed, "di_legacy")
+
+
+class TestIsComponentLikeGap(unittest.TestCase):
+    """B1-1128: the distinguishing test between a genuine loose file (a
+    safe stand-in for the first-path-segment fallback) and a real
+    component/platform directory that discovery couldn't resolve (a
+    tree-integrity defect worth hard-failing on)."""
+
+    def test_loose_file_directly_under_components_not_component_like(self):
+        self.assertFalse(fence_pkg.is_component_like_gap("components/bb_fake.c"))
+
+    def test_nested_under_components_is_component_like(self):
+        self.assertTrue(fence_pkg.is_component_like_gap("components/bb_fake/bb_fake.c"))
+
+    def test_deeply_nested_under_components_is_component_like(self):
+        self.assertTrue(
+            fence_pkg.is_component_like_gap("components/bb_fake/src/bb_fake_internal.h")
+        )
+
+    def test_loose_file_directly_under_platform_variant_not_component_like(self):
+        self.assertFalse(fence_pkg.is_component_like_gap("platform/other/bb_fake.c"))
+
+    def test_nested_under_platform_variant_is_component_like(self):
+        self.assertTrue(fence_pkg.is_component_like_gap("platform/other/bb_fake/bb_fake.c"))
+
+    def test_path_outside_components_or_platform_not_component_like(self):
+        self.assertFalse(fence_pkg.is_component_like_gap("examples/floor/main.c"))
+
+    def test_bare_platform_segment_alone_not_component_like(self):
+        self.assertFalse(fence_pkg.is_component_like_gap("platform"))
+
+    def test_empty_path_not_component_like(self):
+        self.assertFalse(fence_pkg.is_component_like_gap(""))
+
+
+class TestResolveOwnerFallback(unittest.TestCase):
+    """B1-1128: `resolve_owner_fallback` is the single place a family's
+    `_component_of` delegates its None-branch decision to — hard-fail for
+    a component-like gap, fall back (WARN + counter, unchanged behavior)
+    for a genuine loose file or an out-of-convention path."""
+
+    def test_component_like_gap_hard_fails(self):
+        with self.assertRaises(fence_pkg.UnresolvedComponentOwnerError) as ctx:
+            fence_pkg.resolve_owner_fallback("test_family", "components/bb_fake/bb_fake.c")
+        self.assertIn("components/bb_fake/bb_fake.c", str(ctx.exception))
+        self.assertIn("test_family", str(ctx.exception))
+
+    def test_component_like_gap_hard_fail_never_bumps_fallback_counter(self):
+        fence_pkg.reset_owner_fallback_count("test_family")
+        with self.assertRaises(fence_pkg.UnresolvedComponentOwnerError):
+            fence_pkg.resolve_owner_fallback("test_family", "components/bb_fake/bb_fake.c")
+        self.assertEqual(
+            fence_pkg.owner_fallback_count("test_family"), 0,
+            "a hard-failed component-like gap must never be counted as a"
+            " (silently accepted) fallback",
+        )
+
+    def test_loose_file_falls_back_unchanged(self):
+        fence_pkg.reset_owner_fallback_count("test_family")
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            result = fence_pkg.resolve_owner_fallback("test_family", "components/bb_fake.c")
+        self.assertEqual(result, "components")
+        self.assertEqual(fence_pkg.owner_fallback_count("test_family"), 1)
+        self.assertIn("WARN [fence:test_family]", stderr.getvalue())
+
+    def test_out_of_convention_path_falls_back_unchanged(self):
+        fence_pkg.reset_owner_fallback_count("test_family")
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            result = fence_pkg.resolve_owner_fallback("test_family", "examples/floor/main.c")
+        self.assertEqual(result, "examples")
+        self.assertEqual(fence_pkg.owner_fallback_count("test_family"), 1)
 
 
 if __name__ == "__main__":

@@ -275,6 +275,19 @@ def _check(root: str, family: str) -> bool:
 
 
 def run(args: argparse.Namespace) -> int:
+    # B1-1128: `discovery.build_index()` is memoized per (roots, platforms)
+    # for the lifetime of the process. `bbtool` dispatches exactly one
+    # subcommand per process (see `cli.py`, `Makefile`, `di_fence.py`'s
+    # single `fence_cmd.run()` call), so in every real invocation the cache
+    # is already empty on entry — a clear here would be a permanent
+    # production no-op. The staleness this used to guard against (a
+    # pre-mutation index surfacing as a spurious `UnresolvedComponentOwnerError`)
+    # only happens when `run()` is invoked repeatedly in-process against the
+    # SAME mutated root, which is a test-only shape: the tests defensively
+    # clear the cache themselves (see `tests/fence_test_support.py`), per
+    # `discovery.py`'s own documented test convention. Do not reintroduce
+    # the clear here — it would silently discard a warm cache a future
+    # composed (multi-call-per-process) caller might legitimately hold.
     root = _resolve_root(args)
 
     if getattr(args, "seed", None) and getattr(args, "update_baseline", False):

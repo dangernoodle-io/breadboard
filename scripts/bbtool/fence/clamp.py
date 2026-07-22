@@ -76,28 +76,23 @@ def _component_of(index: ComponentIndex, rel_path: str) -> str:
     """Owning component name for a marker path — delegates to the
     canonical `discovery.owner_of_path` SSOT (B1-1089; consolidated off
     this family's own hand-rolled `components/<name>/...` /
-    `platform/<variant>/<name>/...` path-position match). Falls back to
-    the pre-consolidation first-path-segment heuristic if `owner_of_path`
-    can't resolve a name — NOT REACHABLE given the current tree layout,
-    but not structurally guaranteed unreachable by this family's glob
-    patterns: (1) `Path.glob("**/*.c")` also matches zero-nesting-depth
-    files under either scan root, so a file directly at
-    `components/<file>.c` or `platform/<file>.c` (2 path parts, failing
-    `owner_of_path`'s `len(parts) >= 3` guard) would return None; (2) this
-    family's own `_SCAN_ROOTS` walks all of
-    `platform/` recursively, but `build_index()`'s default only indexes
-    `discovery.PLATFORMS` (`host`/`espidf`/`arduino`), so a file under
-    `platform/<other-platform>/...` would also return None. If the
-    fallback ever fires it means the SSOT and this family's scan-root
-    convention have drifted — `_base.record_owner_fallback` makes that
-    observable (WARN + a count folded into the fence summary) rather than
-    letting it pass silently."""
+    `platform/<variant>/<name>/...` path-position match). On the `None`
+    branch, delegates the fallback-vs-hard-fail decision to
+    `_base.resolve_owner_fallback` (B1-1128; never a second hand-rolled
+    component-like/loose-file distinction per family): it HARD-FAILS for a
+    `components/<name>/...` (or `platform/<variant>/<name>/...`)
+    directory discovery couldn't resolve — e.g. one missing a
+    `CMakeLists.txt` anywhere on its branch, a real tree-integrity defect
+    — and only falls back to the pre-consolidation first-path-segment
+    heuristic (WARN + counter) for the two shapes that heuristic remains a
+    safe stand-in for: (1) a genuine loose file directly at
+    `components/<file>.c` or `platform/<plat>/<file>.c` (2-3 path parts,
+    no intervening component-name directory); (2) a path outside the
+    components/platform convention entirely (e.g. `examples/...`)."""
     name = index.owner_of_path(rel_path)
     if name is not None:
         return name
-    _base.record_owner_fallback(_FAMILY, rel_path)
-    parts = Path(rel_path).parts
-    return parts[0] if parts else rel_path
+    return _base.resolve_owner_fallback(_FAMILY, rel_path)
 
 
 _CONTROL_KEYWORDS = {"if", "for", "while", "switch", "return", "sizeof", "do", "else"}

@@ -1,7 +1,6 @@
 """fence.clamp family tests: two-sided clamp idiom scanning (fires + does
 not fire), family auto-discovery, and the shrink-only baseline semantics
 (via the generic `fence` CLI) applied to this concrete family."""
-import argparse
 import contextlib
 import io
 import os
@@ -10,14 +9,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
 import fence as fence_pkg  # noqa: E402
 from fence import Marker  # noqa: E402
 from fence.clamp import scan_all, counts_by_bucket, _enclosing_symbol, _component_of  # noqa: E402
-from commands import fence_cmd  # noqa: E402
 from discovery import build_index  # noqa: E402
+from fence_test_support import run_fence_cli  # noqa: E402
 
 
 def _write(root: Path, rel: str, content: str) -> Path:
@@ -414,13 +414,6 @@ class TestCountsByBucket(unittest.TestCase):
         self.assertEqual(counts, {"hand-rolled clamp": 1})
 
 
-def _run_fence_cli(root: str, family=None, update_baseline: bool = False, seed=None) -> tuple:
-    args = argparse.Namespace(root=root, family=family, update_baseline=update_baseline, seed=seed)
-    stdout, stderr = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-        rc = fence_cmd.run(args)
-    return rc, stdout.getvalue(), stderr.getvalue()
-
 
 class TestFenceCliClamp(unittest.TestCase):
     """Exercises the generic `fence` CLI's shrink-only / net-new semantics
@@ -440,11 +433,11 @@ class TestFenceCliClamp(unittest.TestCase):
             root = Path(td)
             _write(root, "platform/host/bb_fake/bb_fake.c", self._clamp_src())
 
-            rc, out, _ = _run_fence_cli(str(root), seed="clamp")
+            rc, out, _ = run_fence_cli(str(root), seed="clamp")
             self.assertEqual(rc, 0)
             self.assertIn("baseline seeded", out)
 
-            rc2, out2, _ = _run_fence_cli(str(root), family=["clamp"])
+            rc2, out2, _ = run_fence_cli(str(root), family=["clamp"])
             self.assertEqual(rc2, 0)
             self.assertIn("PASS", out2)
 
@@ -459,7 +452,7 @@ class TestFenceCliClamp(unittest.TestCase):
             root = Path(os.path.realpath(td))
             _write(root, "components/bb_fake.c", self._clamp_src())
 
-            rc, out, err = _run_fence_cli(str(root), seed="clamp")
+            rc, out, err = run_fence_cli(str(root), seed="clamp")
             self.assertEqual(rc, 0)
             self.assertIn("INFO [fence:clamp]: owner_of_path fallback fired 1 time(s)", out)
             self.assertIn("WARN [fence:clamp]: owner_of_path fallback fired for components/bb_fake.c", err)
@@ -468,7 +461,7 @@ class TestFenceCliClamp(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _write(root, "platform/host/bb_fake/bb_fake.c", self._clamp_src())
-            _run_fence_cli(str(root), seed="clamp")
+            run_fence_cli(str(root), seed="clamp")
 
             _write(root, "platform/host/bb_fake/bb_fake_new.c", (
                 "static void set_ms(int ms)\n"
@@ -478,7 +471,7 @@ class TestFenceCliClamp(unittest.TestCase):
                 "}\n"
             ))
 
-            rc, out, err = _run_fence_cli(str(root), family=["clamp"])
+            rc, out, err = run_fence_cli(str(root), family=["clamp"])
             self.assertEqual(rc, 1)
             self.assertIn("new marker added", err)
             self.assertIn("set_ms", err)
@@ -487,7 +480,7 @@ class TestFenceCliClamp(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             src = _write(root, "platform/host/bb_fake/bb_fake.c", self._clamp_src())
-            _run_fence_cli(str(root), seed="clamp")
+            run_fence_cli(str(root), seed="clamp")
 
             # Simultaneously: remove the seeded clamp AND add a new one.
             src.write_text(
@@ -499,7 +492,7 @@ class TestFenceCliClamp(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            rc, out, _ = _run_fence_cli(str(root), family=["clamp"], update_baseline=True)
+            rc, out, _ = run_fence_cli(str(root), family=["clamp"], update_baseline=True)
             self.assertEqual(rc, 0)
             self.assertIn("baseline pruned", out)
             self.assertIn("NOT added to the", out)
@@ -508,7 +501,7 @@ class TestFenceCliClamp(unittest.TestCase):
             baseline_ids = {m.id for m in baseline}
             self.assertNotIn("bb_fake:set_ms:ms", baseline_ids, "net-new clamp must never be blessed")
 
-            rc2, _, err2 = _run_fence_cli(str(root), family=["clamp"])
+            rc2, _, err2 = run_fence_cli(str(root), family=["clamp"])
             self.assertEqual(rc2, 1)
             self.assertIn("set_ms", err2)
 
@@ -522,11 +515,11 @@ class TestFenceCliClamp(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _write(root, "platform/host/bb_fake/bb_fake.c", self._clamp_src())
-            _run_fence_cli(str(root), seed="clamp")
+            run_fence_cli(str(root), seed="clamp")
 
             _write(root, "platform/host/bb_fake/bb_fake_other.c", self._clamp_src())
 
-            rc, out, err = _run_fence_cli(str(root), family=["clamp"])
+            rc, out, err = run_fence_cli(str(root), family=["clamp"])
             self.assertEqual(rc, 1, "a second occurrence reusing a baselined identity must fail")
             self.assertIn("new marker added", err)
             self.assertIn("bb_fake_other.c", err)
@@ -535,7 +528,7 @@ class TestFenceCliClamp(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             src = _write(root, "platform/host/bb_fake/bb_fake.c", self._clamp_src())
-            _run_fence_cli(str(root), seed="clamp")
+            run_fence_cli(str(root), seed="clamp")
 
             # Migrate onto bb_num: the hand-rolled if-pair is gone.
             src.write_text(
@@ -546,12 +539,12 @@ class TestFenceCliClamp(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            rc, out, _ = _run_fence_cli(str(root), family=["clamp"])
+            rc, out, _ = run_fence_cli(str(root), family=["clamp"])
             self.assertEqual(rc, 0, "removing a hand-rolled clamp must never fail the fence")
             self.assertIn("PASS", out)
             self.assertIn("candidate to prune from baseline", out)
 
-            rc2, out2, _ = _run_fence_cli(str(root), family=["clamp"], update_baseline=True)
+            rc2, out2, _ = run_fence_cli(str(root), family=["clamp"], update_baseline=True)
             self.assertEqual(rc2, 0)
             baseline = fence_pkg.load_baseline(str(root), "clamp")
             self.assertEqual(baseline, set())
@@ -612,6 +605,22 @@ class TestComponentOfDelegatesToOwnerOfPath(unittest.TestCase):
             self.assertEqual(
                 _component_of(index, "components/bb_fake/bb_fake.c"), "bb_fake"
             )
+
+    def test_component_dir_missing_cmakelists_hard_fails(self):
+        """B1-1128: a components/<name>/ directory with NO CMakeLists.txt
+        anywhere on its branch (the fixture builder's auto-CMakeLists.txt
+        deliberately bypassed here, unlike every other test in this class)
+        must HARD-FAIL, never silently misattribute to the phantom
+        "components" owner name."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            path = root / "components" / "bb_fake" / "bb_fake.c"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("// x\n", encoding="utf-8")
+            index = build_index([str(root)])
+            with self.assertRaises(fence_pkg.UnresolvedComponentOwnerError) as ctx:
+                _component_of(index, "components/bb_fake/bb_fake.c")
+            self.assertIn("components/bb_fake/bb_fake.c", str(ctx.exception))
 
     # NOTE (review finding 4): a prior `test_symlinked_absolute_spelling_
     # resolves` here called `_component_of` with an ABSOLUTE path, a shape

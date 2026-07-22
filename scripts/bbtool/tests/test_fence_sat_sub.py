@@ -2,7 +2,6 @@
 scanning (fires + does not fire), family auto-discovery, and the
 shrink-only baseline semantics (via the generic `fence` CLI) applied to
 this concrete family."""
-import argparse
 import contextlib
 import io
 import os
@@ -11,14 +10,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
 import fence as fence_pkg  # noqa: E402
 from fence import Marker  # noqa: E402
 from fence.sat_sub import scan_all, counts_by_bucket, _component_of  # noqa: E402
-from commands import fence_cmd  # noqa: E402
 from discovery import build_index  # noqa: E402
+from fence_test_support import run_fence_cli  # noqa: E402
 
 
 def _write(root: Path, rel: str, content: str) -> Path:
@@ -426,13 +426,6 @@ class TestCountsByBucket(unittest.TestCase):
         self.assertEqual(counts, {"hand-rolled saturating-subtract": 1})
 
 
-def _run_fence_cli(root: str, family=None, update_baseline: bool = False, seed=None) -> tuple:
-    args = argparse.Namespace(root=root, family=family, update_baseline=update_baseline, seed=seed)
-    stdout, stderr = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-        rc = fence_cmd.run(args)
-    return rc, stdout.getvalue(), stderr.getvalue()
-
 
 class TestFenceCliSatSub(unittest.TestCase):
     """Exercises the generic `fence` CLI's shrink-only / net-new semantics
@@ -451,11 +444,11 @@ class TestFenceCliSatSub(unittest.TestCase):
             root = Path(td)
             _write(root, "platform/host/bb_fake/bb_fake.c", self._sat_sub_src())
 
-            rc, out, _ = _run_fence_cli(str(root), seed="sat_sub")
+            rc, out, _ = run_fence_cli(str(root), seed="sat_sub")
             self.assertEqual(rc, 0)
             self.assertIn("baseline seeded", out)
 
-            rc2, out2, _ = _run_fence_cli(str(root), family=["sat_sub"])
+            rc2, out2, _ = run_fence_cli(str(root), family=["sat_sub"])
             self.assertEqual(rc2, 0)
             self.assertIn("PASS", out2)
 
@@ -463,7 +456,7 @@ class TestFenceCliSatSub(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _write(root, "platform/host/bb_fake/bb_fake.c", self._sat_sub_src())
-            _run_fence_cli(str(root), seed="sat_sub")
+            run_fence_cli(str(root), seed="sat_sub")
 
             _write(root, "platform/host/bb_fake/bb_fake_new.c", (
                 "static size_t remaining_of(size_t got, size_t want)\n"
@@ -472,7 +465,7 @@ class TestFenceCliSatSub(unittest.TestCase):
                 "}\n"
             ))
 
-            rc, out, err = _run_fence_cli(str(root), family=["sat_sub"])
+            rc, out, err = run_fence_cli(str(root), family=["sat_sub"])
             self.assertEqual(rc, 1)
             self.assertIn("new marker added", err)
             self.assertIn("remaining_of", err)
@@ -481,7 +474,7 @@ class TestFenceCliSatSub(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             src = _write(root, "platform/host/bb_fake/bb_fake.c", self._sat_sub_src())
-            _run_fence_cli(str(root), seed="sat_sub")
+            run_fence_cli(str(root), seed="sat_sub")
 
             # Simultaneously: remove the seeded site AND add a new one.
             src.write_text(
@@ -492,7 +485,7 @@ class TestFenceCliSatSub(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            rc, out, _ = _run_fence_cli(str(root), family=["sat_sub"], update_baseline=True)
+            rc, out, _ = run_fence_cli(str(root), family=["sat_sub"], update_baseline=True)
             self.assertEqual(rc, 0)
             self.assertIn("baseline pruned", out)
             self.assertIn("NOT added to the", out)
@@ -504,7 +497,7 @@ class TestFenceCliSatSub(unittest.TestCase):
                 "net-new sat_sub site must never be blessed",
             )
 
-            rc2, _, err2 = _run_fence_cli(str(root), family=["sat_sub"])
+            rc2, _, err2 = run_fence_cli(str(root), family=["sat_sub"])
             self.assertEqual(rc2, 1)
             self.assertIn("remaining_of", err2)
 
@@ -516,11 +509,11 @@ class TestFenceCliSatSub(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _write(root, "platform/host/bb_fake/bb_fake.c", self._sat_sub_src())
-            _run_fence_cli(str(root), seed="sat_sub")
+            run_fence_cli(str(root), seed="sat_sub")
 
             _write(root, "platform/host/bb_fake/bb_fake_other.c", self._sat_sub_src())
 
-            rc, out, err = _run_fence_cli(str(root), family=["sat_sub"])
+            rc, out, err = run_fence_cli(str(root), family=["sat_sub"])
             self.assertEqual(rc, 1, "a second occurrence reusing a baselined identity must fail")
             self.assertIn("new marker added", err)
             self.assertIn("bb_fake_other.c", err)
@@ -529,7 +522,7 @@ class TestFenceCliSatSub(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             src = _write(root, "platform/host/bb_fake/bb_fake.c", self._sat_sub_src())
-            _run_fence_cli(str(root), seed="sat_sub")
+            run_fence_cli(str(root), seed="sat_sub")
 
             # Migrate onto a (hypothetical, future) shared helper: the
             # hand-rolled ternary is gone.
@@ -541,12 +534,12 @@ class TestFenceCliSatSub(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            rc, out, _ = _run_fence_cli(str(root), family=["sat_sub"])
+            rc, out, _ = run_fence_cli(str(root), family=["sat_sub"])
             self.assertEqual(rc, 0, "removing a hand-rolled sat_sub site must never fail the fence")
             self.assertIn("PASS", out)
             self.assertIn("candidate to prune from baseline", out)
 
-            rc2, out2, _ = _run_fence_cli(str(root), family=["sat_sub"], update_baseline=True)
+            rc2, out2, _ = run_fence_cli(str(root), family=["sat_sub"], update_baseline=True)
             self.assertEqual(rc2, 0)
             baseline = fence_pkg.load_baseline(str(root), "sat_sub")
             self.assertEqual(baseline, set())
@@ -599,6 +592,19 @@ class TestComponentOfDelegatesToOwnerOfPath(unittest.TestCase):
             self.assertEqual(
                 _component_of(index, "components/bb_fake/bb_fake.c"), "bb_fake"
             )
+
+    def test_component_dir_missing_cmakelists_hard_fails(self):
+        """B1-1128: see test_fence_clamp.py's twin test for the full
+        rationale, identical here."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(os.path.realpath(td))
+            path = root / "components" / "bb_fake" / "bb_fake.c"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("// x\n", encoding="utf-8")
+            index = build_index([str(root)])
+            with self.assertRaises(fence_pkg.UnresolvedComponentOwnerError) as ctx:
+                _component_of(index, "components/bb_fake/bb_fake.c")
+            self.assertIn("components/bb_fake/bb_fake.c", str(ctx.exception))
 
     # NOTE (review finding 4): see test_fence_clamp.py's identical NOTE —
     # the absolute-path symlink variant here was dropped as redundant with

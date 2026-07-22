@@ -293,8 +293,9 @@ def owner_fallback_count(family: str) -> int:
 
 def record_owner_fallback(family: str, rel_path: str) -> None:
     """Bump `family`'s fallback counter and emit a WARN to stderr naming the
-    path `discovery.owner_of_path` couldn't resolve. Called from a family's
-    `_component_of` on the None branch; never fatal."""
+    path `discovery.owner_of_path` couldn't resolve. Called from
+    `resolve_owner_fallback` below on the shapes it decides are safe to
+    fall back for; never fatal."""
     _FALLBACK_COUNTS[family] = _FALLBACK_COUNTS.get(family, 0) + 1
     print(
         f"WARN [fence:{family}]: owner_of_path fallback fired for {rel_path}"
@@ -302,3 +303,71 @@ def record_owner_fallback(family: str, rel_path: str) -> None:
         " disagree; falling back to the first path segment as owner",
         file=sys.stderr,
     )
+
+
+class UnresolvedComponentOwnerError(RuntimeError):
+    """Raised by `resolve_owner_fallback` when a marker's path lies inside
+    what looks like a real component/platform directory (B1-1128) that
+    `discovery.owner_of_path` couldn't attribute to any component —
+    typically a `components/<name>/` (or `platform/<variant>/<name>/`)
+    directory that has lost, or never had, a `CMakeLists.txt` anywhere on
+    its branch. Baking the generic first-path-segment fallback's phantom
+    `"components"`/`"platform"` owner name into a family's baseline via
+    `--update-baseline` would silently misattribute every marker under
+    that directory to a component that doesn't exist — a tree-integrity
+    defect this hard-fails on, rather than passing through a plausible-
+    looking-but-wrong name the way the loose-file fallback safely can."""
+
+
+def is_component_like_gap(rel_path: str) -> bool:
+    """True when `rel_path` (POSIX-style, relative to repo root) is nested
+    INSIDE a `components/<name>/...` or `platform/<variant>/<name>/...`
+    subdirectory — i.e. there's a directory segment standing in for a
+    component name between the `components/`/`platform/<variant>/`
+    container and the file itself — as opposed to a genuine LOOSE file
+    sitting directly in that container (`components/foo.c`,
+    `platform/host/foo.c`), or a path outside either convention entirely
+    (e.g. `examples/floor/main.c`). This is the B1-1128 distinguishing
+    test: a component-like gap here means a real component directory is
+    missing its `CMakeLists.txt` (a tree-integrity defect worth hard-
+    failing on), while a loose file or an out-of-convention path was never
+    claiming to name an actual component — the pre-existing
+    first-path-segment fallback remains a safe, if approximate, stand-in
+    for those two shapes only."""
+    parts = Path(rel_path).parts
+    if not parts:
+        return False
+    if parts[0] == "components":
+        container_len = 1
+    elif parts[0] == "platform" and len(parts) >= 2:
+        container_len = 2
+    else:
+        return False
+    return len(parts) - container_len >= 2
+
+
+def resolve_owner_fallback(family: str, rel_path: str) -> str:
+    """Called from a family's `_component_of` on `owner_of_path`'s `None`
+    branch — the single place this decision is made (never a second
+    hand-rolled component-like/loose-file distinction per family). HARD-
+    FAILS (`UnresolvedComponentOwnerError`) when `is_component_like_gap`
+    says `rel_path` names a real component/platform subdirectory that
+    discovery couldn't resolve (B1-1128); otherwise falls back to the
+    pre-consolidation first-path-segment heuristic via
+    `record_owner_fallback` (WARN + counter) for a genuine loose file or a
+    path outside the components/platform convention entirely."""
+    if is_component_like_gap(rel_path):
+        raise UnresolvedComponentOwnerError(
+            f"fence:{family}: '{rel_path}' looks like a real component or"
+            " platform directory (nested beyond the bare components/ or"
+            " platform/<variant>/ container) but discovery.owner_of_path"
+            " could not resolve an owner for it — likely a"
+            " components/<name>/ directory missing a CMakeLists.txt"
+            " anywhere on its branch. Refusing to silently misattribute"
+            " markers under it to a phantom owner name; fix the tree (add"
+            " the missing CMakeLists.txt, or remove the orphaned"
+            " directory) rather than suppressing this error."
+        )
+    record_owner_fallback(family, rel_path)
+    parts = Path(rel_path).parts
+    return parts[0] if parts else rel_path
