@@ -206,11 +206,9 @@ static void diag_boot_render_eq(const bb_diag_boot_snap_t *raw, const char *gold
         .key       = BB_DIAG_BOOT_TOPIC,
         .snapshot  = NULL,
         .snap_size = sizeof(bb_diag_boot_snap_t),
-        // .serialize left NULL -- this key has no legacy bb_json serializer
-        // anymore (B1-1053 PR1); bb_cache_register() accepts that now (see
-        // bb_cache.h's field doc). Only bb_cache_get_raw() (via
-        // bb_diag_boot_gather()) reads this entry, never
-        // bb_cache_serialize_into()/bb_cache_get_serialized().
+        // bb_cache no longer ships a serialize slot at all (B1-1119, after
+        // B1-1053 PR1 first made it optional for this key). Only
+        // bb_cache_get_raw() (via bb_diag_boot_gather()) reads this entry.
     };
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
     TEST_ASSERT_EQUAL_INT(BB_OK,
@@ -556,11 +554,9 @@ static void ota_check_render_eq(const bb_ota_check_snap_t *raw, const char *gold
         .key       = BB_OTA_CHECK_TOPIC,
         .snapshot  = NULL,
         .snap_size = sizeof(bb_ota_check_snap_t),
-        // .serialize left NULL -- this key has no legacy bb_json serializer
-        // anymore (B1-1053 PR3); bb_cache_register() accepts that now (see
-        // bb_cache.h's field doc). Only bb_cache_get_raw() (via
-        // bb_ota_check_gather()) reads this entry, never
-        // bb_cache_serialize_into()/bb_cache_get_serialized().
+        // bb_cache no longer ships a serialize slot at all (B1-1119, after
+        // B1-1053 PR3 first made it optional for this key). Only
+        // bb_cache_get_raw() (via bb_ota_check_gather()) reads this entry.
     };
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
     TEST_ASSERT_EQUAL_INT(BB_OK,

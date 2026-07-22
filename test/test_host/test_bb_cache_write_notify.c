@@ -5,7 +5,6 @@
 #include "unity.h"
 #include "bb_cache.h"
 #include "bb_cache_internal.h"
-#include "bb_json.h"
 
 #include <string.h>
 
@@ -16,19 +15,12 @@ typedef struct {
     int value;
 } wn_snap_t;
 
-static void wn_serialize(bb_json_t obj, const void *snap)
-{
-    const wn_snap_t *s = (const wn_snap_t *)snap;
-    bb_json_obj_set_int(obj, "value", s->value);
-}
-
 static bb_err_t wn_reg_owned(const char *key)
 {
     bb_cache_config_t cfg = {
         .key       = key,
         .snapshot  = NULL,
         .snap_size = sizeof(wn_snap_t),
-        .serialize = wn_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     return bb_cache_register(&cfg);
@@ -112,7 +104,6 @@ void test_bb_cache_write_notify_does_not_fire_on_getter_mode_noop_update(void)
         .key       = "wn.getter",
         .snapshot  = wn_getter,
         .snap_size = 0,
-        .serialize = wn_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     TEST_ASSERT_EQUAL(BB_OK, bb_cache_register(&cfg));

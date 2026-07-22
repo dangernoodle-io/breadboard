@@ -47,23 +47,7 @@ config BB_DIAG_ROUTES
         When enabled, bb_diag registers the legacy exact-route HTTP
         handlers: GET/DELETE /api/diag/boot, GET/DELETE /api/diag/panic,
         GET /api/diag/coredump, GET /api/diag/heap, GET /api/diag/tasks,
-        GET /api/diag/sockets, and GET /api/diag/cache (folded in from
-        the deleted bb_cache_routes component, B1-1121). Adds bb_http to
-        bb_diag's PRIV_REQUIRES.
-
-config BB_DIAG_CACHE_BUF_BYTES
-    int "Stack buffer size for the GET /api/diag/cache serialized snapshot (bytes)"
-    default 768
-    range 128 2048
-    depends on BB_DIAG_ROUTES
-    help
-        Buffer used by the GET /api/diag/cache handler to hold the
-        bb_cache_get_serialized() envelope for one key. Must be large enough
-        to hold the largest registered key's {"ts_ms":N,"data":{...}}
-        envelope, or the handler returns 500 (BB_ERR_NO_SPACE).
-
-        This buffer is stack-allocated on the httpd worker task and must
-        stay well under CONFIG_BB_HTTP_TASK_STACK_SIZE (default 6144).
+        and GET /api/diag/sockets. Adds bb_http to bb_diag's PRIV_REQUIRES.
 
 config BB_DIAG_PANIC_TRIGGER
     bool "Expose POST /api/diag/panic/trigger to force a panic (debug only)"

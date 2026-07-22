@@ -3,8 +3,8 @@
 // bb_mdns_cache — presence adapter bridging bb_mdns browse/hello/bye events
 // (and a periodic mdns_query_ptr re-query worker) into bb_cache AGE_OUT-policy
 // entries, so a "who's on the LAN right now" view is available via the normal
-// bb_cache REST/SSE read paths (bb_cache_get_serialized / bb_cache_foreach)
-// without a consumer having to track mDNS peer lifecycle itself.
+// bb_cache read paths (bb_cache_get_raw / bb_cache_foreach) without a
+// consumer having to track mDNS peer lifecycle itself.
 //
 // Keying: entries are keyed "<key_prefix><instance_name>" (prefix default
 // "miner."). instance_name is bb_mdns's stable browse identity, but the

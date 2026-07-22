@@ -1,10 +1,8 @@
 // Tests for bb_cache state_version + bb_cache_snapshot (B1-767 PR-3):
-// per-key monotonic write counter + walk-safe copy-under-lock snapshot,
-// additive to the existing cached_json/dirty machinery.
+// per-key monotonic write counter + walk-safe copy-under-lock snapshot.
 
 #include "unity.h"
 #include "bb_cache.h"
-#include "bb_json.h"
 
 #include <string.h>
 #include <stdint.h>
@@ -23,19 +21,12 @@ typedef struct {
     int value;
 } sv_snap_t;
 
-static void sv_serialize(bb_json_t obj, const void *snap)
-{
-    const sv_snap_t *s = (const sv_snap_t *)snap;
-    bb_json_obj_set_int(obj, "value", s->value);
-}
-
 static bb_err_t sv_reg_owned(const char *key)
 {
     bb_cache_config_t cfg = {
         .key       = key,
         .snapshot  = NULL,
         .snap_size = sizeof(sv_snap_t),
-        .serialize = sv_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     return bb_cache_register(&cfg);
@@ -168,7 +159,6 @@ void test_bb_cache_state_version_getter_mode_key_stays_zero(void)
         .key       = "sv.getter",
         .snapshot  = sv_getter,
         .snap_size = 0,
-        .serialize = sv_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     TEST_ASSERT_EQUAL(BB_OK, bb_cache_register(&cfg));
@@ -248,7 +238,6 @@ void test_bb_cache_snapshot_getter_mode_returns_invalid_state(void)
         .key       = "sv.snap.getter",
         .snapshot  = sv_getter,
         .snap_size = 0,
-        .serialize = sv_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     TEST_ASSERT_EQUAL(BB_OK, bb_cache_register(&cfg));
@@ -307,7 +296,6 @@ void test_bb_cache_snapshot_owned_fallback_seeds_on_first_call_version_stays_zer
         .key       = "sv.fallback",
         .snapshot  = sv_fallback_getter,
         .snap_size = sizeof(sv_snap_t),
-        .serialize = sv_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     TEST_ASSERT_EQUAL(BB_OK, bb_cache_register(&cfg));
@@ -395,7 +383,6 @@ void test_bb_cache_snapshot_evicts_past_evict_age(void)
         .key       = "sv.evict",
         .snapshot  = NULL,
         .snap_size = sizeof(sv_snap_t),
-        .serialize = sv_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
         .eviction  = {
             .policy       = BB_CACHE_EVICT_AGE_OUT,

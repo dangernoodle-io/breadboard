@@ -1,5 +1,4 @@
 #include "bb_wifi_http.h"
-#include "bb_cache.h"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -34,32 +33,14 @@
 #include <stddef.h>
 #endif
 
-// Local buffer for the memoized /api/wifi payload copy-out.  The wifi section
-// has ~10 short fields plus ts_ms; 512 bytes is generous headroom.
-#define WIFI_INFO_BUF_BYTES 512
-
-// Serve the memoized telemetry snapshot from bb_cache (SSOT: no re-gather, no
-// re-serialize — these are the exact bytes SSE and sinks delivered).  The bytes
-// are COPIED out under the cache entry lock into a local buffer (UAF-safe vs a
-// concurrent sampler re-serialize).  Falls back to a live read on cache miss.
+// GET /api/wifi: always a live read (B1-1119 -- bb_cache's legacy
+// bb_json .serialize slot, and bb_cache_get_serialized() with it, is gone;
+// this handler's cache-hit branch had been dormant since the wifi producer's
+// removal anyway, since no producer ever populated the "wifi" bb_cache topic
+// -- see B1-723, which will restore a producer via bb_data, not this legacy
+// serializer path).
 static bb_err_t wifi_info_handler(bb_http_request_t *req)
 {
-    char   json[WIFI_INFO_BUF_BYTES];
-    size_t len = 0;
-    bb_err_t rc = bb_cache_get_serialized(BB_TOPIC_WIFI, json, sizeof(json), &len);
-    // NOTE: this cache-hit branch is intentionally dormant since the wifi
-    // producer's removal — no producer currently populates the "wifi" bb_cache topic, so
-    // every request falls through to the live-read path below. Kept in place
-    // for B1-723, which will restore a producer (a bb_meminfo-style wifi
-    // snapshot) rather than re-adding pub-captive-sink DI glue.
-    if (rc == BB_OK) {
-        bb_err_t err = bb_http_resp_set_type(req, "application/json");
-        if (err == BB_OK) err = bb_http_resp_send_chunk(req, json, (int)len);
-        if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
-        return err;
-    }
-
-    // Cache miss (pre-first-tick or not registered): fall back to live read.
     bb_wifi_info_t info;
     bb_wifi_get_info(&info);
 
@@ -146,7 +127,7 @@ static const bb_route_t s_scan_route = {
 // ---------------------------------------------------------------------------
 // "wifi" bb_data ingress binding (B1-1022) -- backs PATCH /api/wifi via
 // bb_data_apply(). Not render-bound to anything: GET /api/wifi above stays
-// on its own bb_cache/bb_wifi_get_info() path unchanged; this binding exists
+// on its own live bb_wifi_get_info() read unchanged; this binding exists
 // solely for the apply (ingress) half.
 // ---------------------------------------------------------------------------
 

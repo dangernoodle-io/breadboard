@@ -1,10 +1,10 @@
 #pragma once
 
-// bb_cache — canonical state-key cache + shared serializer.
+// bb_cache — canonical state-key cache.
 //
-// ONE registered serializer per key guarantees that SSE event payloads and
-// REST handler payloads are identical by construction: both call the same
-// bb_cache_serialize_fn against the same canonical struct.
+// ONE registered entry per key is the single source of truth for its value;
+// every reader (bb_data gather hooks, SSE producers, REST handlers) reads
+// the same canonical struct via bb_cache_get_raw()/bb_cache_snapshot().
 //
 // Ownership model (tri-state, keyed off snapshot/snap_size):
 //   snapshot == NULL, snap_size >  0  — OWNED. bb_cache owns the struct;
@@ -14,9 +14,9 @@
 //                       ignored; bb_cache_update is a no-op.
 //   snapshot != NULL, snap_size >  0  — OWNED+FALLBACK (cold-start seed,
 //                       PR-4a-0). Behaves exactly like OWNED (bb_cache_update
-//                       writes it, memoized/dirty-gated reads) EXCEPT: while
+//                       writes it, memoized reads) EXCEPT: while
 //                       the entry is unpopulated (no bb_cache_update() call
-//                       has landed yet), a read/serialize invokes snapshot()
+//                       has landed yet), a read invokes snapshot()
 //                       ONCE to seed the owned buffer so the endpoint is never
 //                       empty at cold start. Strict boot-race bridge: no
 //                       expiry, and it never re-runs once a real write lands
@@ -30,20 +30,16 @@
 //                       behavior; that is simply GETTER mode with a wasted
 //                       allocation.
 //
-// Envelope contract (B1-570 PR-3, BREAKING wire change).
-// bb_cache_get_serialized() wraps the serializer's output as
-// {"ts_ms": <sample-time-ms>, "data": {...}} -- "data" is exactly what
-// cfg->serialize wrote (producers do NOT emit their own ts_ms field anymore).
-// bb_cache owns the timestamp: owned-mode keys are stamped at
-// bb_cache_update() (right after the copy-in, or overridden via
-// bb_cache_update_t.ts_ms); getter-mode keys are stamped each time the
-// snapshot() getter is invoked (the read IS the sample).
-// bb_cache_serialize_into() does NOT apply the envelope -- it is the
-// embed-a-key-as-a-section primitive (see its own doc comment) and emits raw
-// "data" fields only.
+// Envelope sample-time (B1-570 PR-3): bb_cache owns the timestamp.
+// Owned-mode keys are stamped at bb_cache_update() (right after the
+// copy-in, or overridden via bb_cache_update_t.ts_ms); getter-mode keys are
+// stamped each time the snapshot() getter is invoked (the read IS the
+// sample). Rendering (JSON or otherwise) is a bb_data concern -- bb_cache no
+// longer ships a legacy bb_json serializer slot (B1-1119 removed
+// bb_cache_serialize_fn / bb_cache_get_serialized / bb_cache_serialize_into;
+// the last producer's .serialize registration was deleted in B1-1146b, #998).
 
 #include "bb_core.h"
-#include "bb_json.h"
 
 // ---------------------------------------------------------------------------
 // Capacity constants (Kconfig bridge — pattern from bb_clock.h)
@@ -146,14 +142,6 @@ typedef struct {
 } bb_cache_eviction_t;
 
 // ---------------------------------------------------------------------------
-// Serializer type
-// ---------------------------------------------------------------------------
-
-// Serializer fn: writes fields from *snap into obj.
-// Called under the per-entry lock with a valid snap pointer.
-typedef void (*bb_cache_serialize_fn)(bb_json_t obj, const void *snap);
-
-// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
@@ -173,16 +161,6 @@ typedef void (*bb_cache_serialize_fn)(bb_json_t obj, const void *snap);
 //                should own a buffer for this key -- i.e. snapshot == NULL
 //                (plain OWNED, mandatory) or snapshot != NULL (OWNED+FALLBACK,
 //                optional). Ignored (may be 0) for plain GETTER mode.
-//   serialize  — serializer fn invoked by serialize_into (and the memoized
-//                bb_cache_get_serialized() path). OPTIONAL (B1-1053 PR1):
-//                pass NULL when this key has no legacy bb_json serializer --
-//                i.e. it is rendered exclusively via bb_data (bb_data_render()
-//                against a gather hook reading this key via bb_cache_get_raw()/
-//                bb_cache_snapshot()). bb_cache_serialize_into() and
-//                bb_cache_get_serialized() both return BB_ERR_UNSUPPORTED for
-//                a NULL-serialize key instead of invoking a non-existent fn.
-//                bb_cache still owns the snapshot store/gather role for such
-//                a key regardless of this field.
 //   flags      — BB_CACHE_FLAG_* bitmask. BB_CACHE_FLAG_NONE (0) is the only
 //                value today; SSE/broadcast delivery is a bb_data/
 //                bb_data_http composition-root concern (B1-1045), not
@@ -207,7 +185,6 @@ typedef struct {
     const char             *key;
     const void            *(*snapshot)(void);
     size_t                  snap_size;
-    bb_cache_serialize_fn   serialize;
     bb_cache_flags_t        flags;
     bb_cache_eviction_t     eviction;
     bool                   *out_first_time;
@@ -217,8 +194,7 @@ typedef struct {
 //
 // Returns BB_ERR_INVALID_ARG if cfg or cfg->key is NULL, or if
 // strlen(cfg->key) >= BB_CACHE_KEY_MAX (over-length keys are rejected
-// loudly at register time, never silently truncated). cfg->serialize may be
-// NULL -- see its field doc above.
+// loudly at register time, never silently truncated).
 // Returns BB_ERR_NO_SPACE if the registry is full, or (owned mode) the
 // snapshot buffer could not be allocated.
 // Idempotent: registering an already-registered key returns BB_OK without
@@ -268,15 +244,14 @@ typedef struct {
 // (snapshot != NULL, no owned buffer) -- out_changed is set false in that
 // case. Works for both plain OWNED and OWNED+FALLBACK (any key with an
 // owned buffer) -- a real write always takes precedence over the cold-start
-// seed. The copy, ts_ms stamp, and dirty-invalidation happen atomically
-// under the entry lock.
+// seed. The copy and ts_ms stamp happen atomically under the entry lock.
 // Returns BB_ERR_INVALID_ARG if req, req->key, or req->snap is NULL.
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
 bb_err_t bb_cache_update(const bb_cache_update_t *req);
 
-// Delete a registered key, freeing its owned buffer and memoized serialized
-// bytes and marking the slot reusable by a future bb_cache_register() call
-// (a deleted slot is indistinguishable from a never-used slot).
+// Delete a registered key, freeing its owned buffer and marking the slot
+// reusable by a future bb_cache_register() call (a deleted slot is
+// indistinguishable from a never-used slot).
 //
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
 // Returns BB_ERR_INVALID_ARG if key is NULL.
@@ -285,55 +260,6 @@ bb_err_t bb_cache_delete(const char *key);
 // Returns true if key is currently registered, false otherwise (including
 // when bb_cache has not yet been initialized).
 bool bb_cache_exists(const char *key);
-
-// Serialize the cached struct's raw fields into a caller-supplied bb_json
-// obj — NOT enveloped (no ts_ms/data wrapper). Use this to embed a key as a
-// section of a larger composed document (e.g. /api/health aggregating
-// multiple keys); use bb_cache_get_serialized for the standalone wire
-// contract.
-// Returns BB_ERR_NOT_FOUND if the key is not registered.
-// Returns BB_ERR_UNSUPPORTED if the key was registered with cfg->serialize
-// == NULL (render it via bb_data instead).
-bb_err_t bb_cache_serialize_into(const char *key, bb_json_t obj);
-
-// Memoized serialization — the core of serialize-once, COPY-OUT under the lock.
-//
-// Copies the key's last serialized JSON, WRAPPED in the envelope
-// ({"ts_ms":N,"data":{...}} — see the header-level comment above), into the
-// caller's buffer. The serializer runs AT MOST ONCE per bb_cache_update()
-// generation and its output ("data") is memoized; the envelope's ts_ms is
-// applied around the memoized bytes on every call, so owned-mode reads stay
-// byte-identical between updates (ts_ms frozen) while getter-mode reads pick
-// up a fresh ts_ms each call. Subsequent readers (SSE post, every sink, REST
-// polls) get a COPY of the same wrapped bytes without re-serializing "data".
-//
-// UAF-safe by construction: the copy happens under the entry lock, and the
-// caller only ever touches its own buffer. A concurrent bb_cache_update() +
-// re-serialize (which frees the entry's internal buffer) can never corrupt an
-// in-flight reader, because no caller holds the cache-owned pointer past the
-// lock. Size the buffer to the cache's max payload; REST handlers use a
-// comparable stack/heap buffer.
-//
-// For getter-mode entries (registered with a non-NULL snapshot getter), the
-// cache has no dirty signal, so the serializer runs on every call (the data
-// may change underneath without an update). Owned-mode entries (snapshot==NULL)
-// get true memoization via the dirty flag.
-//
-// Use bb_cache_serialize_into instead when EMBEDDING a key as a section in a
-// larger composed document (e.g. /api/health aggregating multiple keys).
-//
-//   key      — registered key.
-//   buf      — caller-owned destination buffer (must be non-NULL).
-//   cap      — capacity of buf in bytes (must include room for the NUL).
-//   out_len  — optional; receives strlen of the copied JSON (excludes NUL).
-//
-// Returns BB_ERR_NOT_FOUND if the key is not registered.
-// Returns BB_ERR_UNSUPPORTED if the key was registered with cfg->serialize
-// == NULL (render it via bb_data instead).
-// Returns BB_ERR_INVALID_STATE if no snapshot is available yet.
-// Returns BB_ERR_NO_SPACE on serialize allocation failure OR if cap is too
-// small to hold the serialized JSON plus its NUL terminator (buf untouched).
-bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t *out_len);
 
 // ---------------------------------------------------------------------------
 // state_version (B1-767 PR-3) vs generation -- do not conflate
@@ -358,11 +284,10 @@ bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t 
 // at it?". Neither can be derived from the other.
 //
 // Wrap-safe comparison: state_version is a uint32_t that wraps at 2^32.
-// Consumers diffing two captured versions (e.g. bb_cache_serialize's
-// "has this changed since I last read it?" check) must compare with
-// wrap-safe arithmetic (e.g. `(int32_t)(a - b) > 0`) or plain equality --
-// never a naive `>` -- so a wrap does not misreport a newer version as
-// older.
+// Consumers diffing two captured versions ("has this changed since I last
+// read it?") must compare with wrap-safe arithmetic (e.g.
+// `(int32_t)(a - b) > 0`) or plain equality -- never a naive `>` -- so a
+// wrap does not misreport a newer version as older.
 
 // Immutable, walk-safe snapshot of a key's owned value + its state_version.
 // `state` points into the CALLER's buffer (copy-under-lock), so the caller
@@ -429,11 +354,10 @@ bb_err_t bb_cache_foreach(void (*cb)(const char *key, void *ctx), void *ctx);
 // Compact read of an owned-mode key's raw struct bytes.
 //   buf — caller-owned destination buffer (must be non-NULL).
 //   cap — capacity of buf in bytes (must be non-zero).
-// Copies the full owned struct into buf; refuses and does NOT copy if
-// cap < key's registered size. Parity with bb_cache_get_serialized:
-// refuses rather than truncates on undersized buffer. Owned+fallback keys
+// Copies the full owned struct into buf; refuses and does NOT copy (rather
+// than truncating) if cap < key's registered size. Owned+fallback keys
 // (snapshot != NULL, snap_size > 0) succeed and trigger the cold-start
-// snapshot() seed on first call, same as the JSON read paths.
+// snapshot() seed on first call, same as bb_cache_snapshot.
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
 // Returns BB_ERR_INVALID_STATE for getter-mode keys (no owned struct).
 // Returns BB_ERR_INVALID_ARG on null args or cap == 0.

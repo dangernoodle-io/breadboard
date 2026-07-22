@@ -12,5 +12,5 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES bb_core bb_wifi bb_json bb_diag bb_serialize
-    PRIV_REQUIRES bb_cache bb_http bb_http_server bb_openapi esp_wifi bb_str bb_data bb_settings
+    PRIV_REQUIRES bb_http bb_http_server bb_openapi esp_wifi bb_str bb_data bb_settings
 )
