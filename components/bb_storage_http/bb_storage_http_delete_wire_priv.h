@@ -17,8 +17,10 @@
 // had (it was only called inside `if (has_key)`), reproduced here via a
 // present-predicate rather than a distinct field type.
 //
-// Request PARSING stays on bb_json (unchanged) -- this descriptor is
-// emit-side (response) only. Portable: no ESP-IDF/FreeRTOS types, compiles
+// Request PARSING (B1-1147) is now ALSO on bb_serialize -- see the
+// "storage_delete" bb_data binding in bb_storage_http_routes.c -- this
+// descriptor itself stays emit-side (response) only; the two are unrelated
+// bb_serialize descriptors. Portable: no ESP-IDF/FreeRTOS types, compiles
 // on host + ESP-IDF.
 //
 // Included by:

@@ -94,6 +94,10 @@ static inline bb_err_t bb_storage_http_factory_reset_routes_init(bb_http_handle_
 #ifdef BB_STORAGE_HTTP_TESTING
 // Expose the handlers for host unit tests.
 bb_err_t bb_storage_http_delete_handler_for_test(bb_http_request_t *req);
+// Binds the "storage_delete" bb_data key (production gather/apply hooks)
+// without requiring a real bb_http_handle_t server -- see the .c file's own
+// doc comment.
+bb_err_t bb_storage_http_delete_bind_for_test(void);
 #if defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET
 bb_err_t bb_storage_http_factory_reset_handler_for_test(bb_http_request_t *req);
 // Binds the "factory_reset" bb_data key (production gather/apply hooks)

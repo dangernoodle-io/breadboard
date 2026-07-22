@@ -24,10 +24,25 @@
 //   - backend without erase_namespace → 501 (vtable erase_namespace == NULL -> BB_ERR_UNSUPPORTED)
 //   - explicit "backend" field        → selects the right backend, leaves others untouched
 //   - erasing a key that never existed → still 200 (bb_storage_erase is idempotent)
+//   - namespace array over cap        → 400 before erase (B1-1147)
+//   - namespace wrong wire type        → 400 (B1-1147, e.g. a number)
+//   - oversized namespace string/array element → 400, never truncated (B1-1147)
+//
+// B1-1147: request ingress migrated off bb_json onto bb_data_apply (the
+// dual-key "namespace" binding -- see bb_storage_http_routes.c's file header
+// comment). storage_delete_handler() itself is portable (no ESP-IDF-specific
+// includes), so run_handler_body() below drives the REAL production
+// descriptor/gather/apply hooks via bb_storage_http_delete_handler_for_test()
+// + bb_storage_http_delete_bind_for_test() -- not a mirror/local copy (see
+// test_bb_storage_http_factory_reset.c's identical posture for its sibling
+// "factory_reset" binding).
 
 #include "unity.h"
 #include "bb_storage_http.h"
 #include "../../components/bb_storage_http/bb_storage_http_delete_wire_priv.h"
+#include "bb_data.h"
+#include "bb_serialize_format.h"
+#include "bb_serialize_json.h"
 #include "bb_storage.h"
 #include "bb_settings.h"
 #include "bb_http.h"
@@ -153,6 +168,27 @@ static const bb_storage_vtable_t s_partial_vtable = {
     .exists = fake_exists,
 };
 
+// B1-1147: the migrated handler drives bb_data_apply(), which requires (a)
+// the "storage_delete" key bound (production gather/apply hooks, via
+// bb_storage_http_delete_bind_for_test() -- see that fn's own doc for why
+// this route can't reuse bb_storage_http_routes_init() directly on host)
+// and (b) a registered BB_FORMAT_JSON parse fn (the format registry is
+// empty until a consumer registers one -- same posture as
+// test_bb_storage_http_factory_reset.c's bind_bb_data()).
+static void bind_bb_data(void)
+{
+    bb_data_test_reset();
+
+    static const bb_serialize_format_entry_t entry = {
+        .render = bb_serialize_json_render,
+        .parse  = bb_serialize_json_parse_bytes,
+    };
+    bb_serialize_format_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_register(BB_FORMAT_JSON, &entry));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_http_delete_bind_for_test());
+}
+
 static void reset_all(void)
 {
     bb_storage_test_reset();
@@ -160,6 +196,7 @@ static void reset_all(void)
     bb_storage_register_backend("nvs", &s_full_vtable, (void *)(intptr_t)TBL_NVS);
     bb_storage_register_backend("alt", &s_full_vtable, (void *)(intptr_t)TBL_ALT);
     bb_storage_register_backend("noerasens", &s_partial_vtable, (void *)(intptr_t)TBL_NOERASENS);
+    bind_bb_data();
 }
 
 static bool fake_exists_pub(const char *backend, const char *ns, const char *key)
@@ -234,6 +271,59 @@ void test_storage_delete_missing_namespace_returns_400(void)
     reset_all();
     bb_http_host_capture_t cap = run_handler_body("{\"confirm\":true}");
     TEST_ASSERT_EQUAL_INT(400, cap.status);
+    bb_http_host_capture_free(&cap);
+}
+
+// Explicit empty-string "namespace" -- review finding (B1-1147): distinct
+// from "missing" wire-wise (the key IS present), but ns_str[0]=='\0' is
+// identical to the zero seed, so storage_delete_apply()'s presence check
+// (see its own doc comment) rejects it the same way, BEFORE reaching
+// bb_storage_erase_namespace(). Documents/pins the behavior-change finding:
+// pre-migration this reached the backend and (on the real bb_storage_nvs
+// backend) surfaced as a misclassified 500, never a destructive wipe --
+// see the file header comment's own note.
+void test_storage_delete_empty_string_namespace_returns_400(void)
+{
+    reset_all();
+    bb_http_host_capture_t cap = run_handler_body("{\"namespace\":\"\",\"confirm\":true}");
+    TEST_ASSERT_EQUAL_INT(400, cap.status);
+    bb_http_host_capture_free(&cap);
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/diag/storage — literal duplicate "namespace" wire key (review
+// finding, B1-1147): both the BB_TYPE_STR and BB_TYPE_ARR getters resolve
+// "namespace" via the SAME first-match-by-key lookup
+// (bb_serialize_json_tok_obj_get()), so whichever occurrence appears FIRST
+// in the wire document is the one both getters see -- the string getter
+// succeeds against it, the array getter's own type check then fails against
+// that same (non-array) token and leaves ns_arr untouched. Net effect: the
+// FIRST occurrence wins, in whatever type it is; a well-defined outcome, not
+// UB. Pinned end-to-end here (not just "no crash") by asserting the FIRST
+// namespace's key is the one actually erased.
+// ---------------------------------------------------------------------------
+
+void test_storage_delete_duplicate_namespace_key_first_occurrence_wins(void)
+{
+    reset_all();
+    fake_set_pub("nvs", "bb_first", "k", "v1");
+    fake_set_pub("nvs", "bb_second", "k", "v2");
+
+    bb_http_host_capture_t cap = run_handler_body(
+        "{\"namespace\":\"bb_first\",\"namespace\":[\"bb_second\"],\"confirm\":true}");
+    TEST_ASSERT_EQUAL_INT(200, cap.status);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    cJSON *j = cJSON_Parse(cap.body);
+    TEST_ASSERT_NOT_NULL(j);
+    cJSON *del = cJSON_GetObjectItemCaseSensitive(j, "deleted");
+    TEST_ASSERT_NOT_NULL(del);
+    TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(del));
+    TEST_ASSERT_EQUAL_STRING("bb_first", cJSON_GetArrayItem(del, 0)->valuestring);
+    cJSON_Delete(j);
+
+    TEST_ASSERT_FALSE(fake_exists_pub("nvs", "bb_first", "k"));
+    TEST_ASSERT_TRUE(fake_exists_pub("nvs", "bb_second", "k"));
     bb_http_host_capture_free(&cap);
 }
 
@@ -448,6 +538,55 @@ void test_storage_delete_ns_array_over_cap_returns_400_before_erase(void)
     off += (size_t)snprintf(body + off, sizeof(body) - off, "],\"confirm\":true}");
 
     bb_http_host_capture_t cap = run_handler_body(body);
+    TEST_ASSERT_EQUAL_INT(400, cap.status);
+    bb_http_host_capture_free(&cap);
+
+    TEST_ASSERT_TRUE(fake_exists_pub("nvs", "bb_survivor", "k"));
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/diag/storage — "namespace" present but the wrong wire type
+// (B1-1147): the dual-key binding's string getter and array getter both
+// type-check their own token and fail closed on a number, so neither ns_str
+// nor ns_arr is ever populated -- indistinguishable from "absent", same 400.
+// ---------------------------------------------------------------------------
+
+void test_storage_delete_ns_wrong_type_returns_400(void)
+{
+    reset_all();
+    bb_http_host_capture_t cap = run_handler_body(
+        "{\"namespace\":42,\"confirm\":true}");
+    TEST_ASSERT_EQUAL_INT(400, cap.status);
+    bb_http_host_capture_free(&cap);
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/diag/storage — oversized "namespace" (string form, and each
+// array-namespace element) is REJECTED (400), never silently truncated to a
+// prefix that could collide with a different, real namespace (B1-1147 --
+// see storage_delete_too_long()/BB_STORAGE_HTTP_DELETE_NAME_BUF in the route
+// handler). Checked BEFORE any erase, same fail-closed posture as the
+// over-cap test above.
+// ---------------------------------------------------------------------------
+
+void test_storage_delete_oversized_ns_string_returns_400(void)
+{
+    reset_all();
+    // BB_STORAGE_HTTP_DELETE_NS_LEN is 16 (15 usable chars); this value is
+    // 20 chars.
+    bb_http_host_capture_t cap = run_handler_body(
+        "{\"namespace\":\"aaaaaaaaaaaaaaaaaaaa\",\"confirm\":true}");
+    TEST_ASSERT_EQUAL_INT(400, cap.status);
+    bb_http_host_capture_free(&cap);
+}
+
+void test_storage_delete_oversized_ns_array_element_returns_400_before_erase(void)
+{
+    reset_all();
+    fake_set_pub("nvs", "bb_survivor", "k", "v");
+
+    bb_http_host_capture_t cap = run_handler_body(
+        "{\"namespace\":[\"bb_mqtt\",\"aaaaaaaaaaaaaaaaaaaa\"],\"confirm\":true}");
     TEST_ASSERT_EQUAL_INT(400, cap.status);
     bb_http_host_capture_free(&cap);
 
