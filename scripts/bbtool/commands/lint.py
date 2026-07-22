@@ -1910,7 +1910,49 @@ def _check_component_path_unresolved(ctx: Context) -> list:
       validated instead (must exist, relative to the component's own
       directory, mirroring `bb_embed_assets`'s own documented resolution
       contract). Net effect: more coverage than before (a renamed/deleted
-      asset input is now caught), never an exemption."""
+      asset input is now caught), never an exemption.
+
+    ## C/C++ `#include "..."` relative paths (B1-1140)
+
+    The two checks above catch a stale CMakeLists.txt/platformio.ini path,
+    but a source file's own `#include "../../components/..."` relative
+    path was invisible to this rule — five such stale includes had to be
+    found by exhaustive grep during the B1-980 family-group move (test/
+    fixtures and platform/ backends referencing a component's internal
+    header across the move). Scans EVERY `.c`/`.cpp`/`.h` file in the tree
+    (not just `components/**`, since the whole point is that `examples/`,
+    `platform/`, and `test/` sources reach INTO `components/`), resolves
+    each quoted `#include` token relative to the INCLUDING FILE's own
+    directory (the real preprocessor's resolution rule — distinct from the
+    CMakeLists.txt checks above, which resolve relative to the component's
+    own directory), and only checks tokens that LITERALLY contain the
+    substring `components/` (the B1-1140 motivating shape: a relative
+    `../../components/<name>/...` navigation that escapes the including
+    file's own tree to reach another component). This deliberately
+    excludes two other quoted-include shapes that also contain `/` but are
+    search-path-resolved, not relative-path-resolved, and this rule can't
+    simulate without the full component dependency graph (out of scope for
+    a per-file text scan): (1) a dependency's header referenced by bare
+    filename or its own internal subpath (`#include "bb_core.h"`),
+    resolved via the component's `INCLUDE_DIRS`/`REQUIRES` search path;
+    (2) an ESP-IDF SDK header written with quotes (ESP-IDF's own
+    convention), e.g. `#include "freertos/FreeRTOS.h"` or `"driver/
+    i2c_master.h"` — its naive same-directory join happens to land under
+    `components/` purely because the including file already lives there,
+    not because the token itself navigates there. Fails loud like every
+    other check here: a token that DOES literally spell `components/` and
+    doesn't resolve to an existing file is a violation, never a skip.
+
+    Residual gap: this check is scoped to tokens that literally spell
+    `components/`, so it does NOT cover the same failure shape (a relative
+    include silently breaking on a directory move) when the navigation
+    stays within `platform/` or crosses from `test/` into `platform/` —
+    e.g. `test/test_host/test_main.c`'s `../../platform/host/bb_wdt/
+    bb_wdt_test.h`, or `platform/espidf/bb_log_event/bb_log_event.c`'s
+    `../../host/bb_log_event/bb_log_event_parse.h`. Extending coverage to
+    that class is deliberately deferred to its own change (it would
+    surface pre-existing paths needing their own separate fixes) — see
+    B1-1143."""
     violations = []
     root = Path(ctx.root)
 
@@ -2036,6 +2078,56 @@ def _check_component_path_unresolved(ctx: Context) -> list:
                             ini_path, line_no,
                             f"[{section}] build_src_filter +<{pattern}> "
                             f"(base {src_base}) — matches zero files"))
+
+    # -- 3. C/C++ `#include "..."` relative paths reaching into components/
+    #    (B1-1140) -- see the "C/C++ #include" section of this function's
+    #    docstring. Tree-wide scan: the whole point is catching a stale
+    #    include in examples/, platform/, or test/, not just components/
+    #    itself.
+    components_root = root / "components"
+    include_re = re.compile(r'^\s*#\s*include\s*"([^"]+)"')
+    for src_path in ctx.files(
+        ["**/*.c", "**/*.cpp", "**/*.h"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        content = ctx.read(src_path)
+        for i, line in enumerate(content.splitlines(), 1):
+            m = include_re.match(line)
+            if not m:
+                continue
+            token = m.group(1)
+            if "components/" not in token:
+                # Two distinct search-path-resolved shapes this rule must
+                # NOT guess at, both of which have '/' in the token so a
+                # bare-filename check alone wouldn't exclude them: (1) a
+                # dependency's own header by bare filename or its own
+                # internal subpath (e.g. #include "bb_core.h") -- resolved
+                # via the component's INCLUDE_DIRS/REQUIRES search path,
+                # not relative to the including file's directory; (2) an
+                # ESP-IDF SDK header written with quotes (ESP-IDF's own
+                # convention) whose first segment names an SDK component,
+                # e.g. #include "freertos/FreeRTOS.h" or "driver/
+                # i2c_master.h" -- also search-path-resolved, and its
+                # naive same-directory join happens to land under
+                # components/ purely because the including file already
+                # lives there, not because the token itself navigates
+                # there. This rule only models a token that LITERALLY
+                # spells out a path reaching into components/ (the B1-1140
+                # motivating shape: "../../components/<name>/...") --
+                # simulating the full component dependency graph is out of
+                # scope for a per-file text scan.
+                continue
+            resolved = Path(os.path.normpath(str(src_path.parent / token)))
+            try:
+                resolved.relative_to(components_root)
+            except ValueError:
+                # Doesn't reach into components/ -- out of this rule's scope.
+                continue
+            if resolved.is_file():
+                continue
+            violations.append(ctx.violation(
+                src_path, i,
+                f'#include "{token}" -> {resolved} — file does not exist'))
 
     return violations
 
@@ -2220,11 +2312,14 @@ def _register_lint_rules() -> None:
             default_severity="error",
             profiles={"library"},
             check=_check_component_path_unresolved,
-            hint="a component CMakeLists.txt or example platformio.ini"
-                 " references a filesystem path that doesn't resolve on"
-                 " disk -- PlatformIO's build_src_filter +<...> silently"
+            hint="a component CMakeLists.txt, example platformio.ini, or a"
+                 " source file's own #include \"...\" references a"
+                 " filesystem path into components/ that doesn't resolve"
+                 " on disk -- PlatformIO's build_src_filter +<...> silently"
                  " drops zero-match entries instead of erroring, surfacing"
-                 " only as a link-time undefined reference",
+                 " only as a link-time undefined reference, and a stale"
+                 " relative #include fails loud only at compile time, far"
+                 " from the component move that broke it",
         ),
     ]
     for rule in rules:

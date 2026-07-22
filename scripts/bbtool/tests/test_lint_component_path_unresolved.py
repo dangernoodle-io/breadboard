@@ -594,5 +594,157 @@ class TestPlatformioIniPositive(unittest.TestCase):
             self.assertFalse(violations)
 
 
+class TestCIncludeIntoComponents(unittest.TestCase):
+    """B1-1140: a `#include "..."` relative path that resolves into
+    components/ must be checked the same way a CMakeLists.txt path is --
+    resolved relative to the INCLUDING FILE's own directory, not the
+    component's directory."""
+
+    def test_fires_on_stale_test_fixture_include(self):
+        """Real-tree shape (B1-980): test/test_host/test_main.c reaching
+        into a component's internal test header via a relative path that
+        breaks after the component moves."""
+        with tempfile.TemporaryDirectory() as td:
+            _write(
+                os.path.join(td, "test/test_host/test_main.c"),
+                '#include "../../components/bb_display/bb_display_test.h"\n',
+            )
+            # note: components/bb_display/bb_display_test.h is never created
+            violations = _check_component_path_unresolved(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "a stale #include reaching into components/ must fire",
+            )
+            self.assertIn("bb_display_test.h", violations[0]["detail"])
+            self.assertIn("does not exist", violations[0]["detail"])
+
+    def test_fires_on_stale_platform_backend_include(self):
+        """Real-tree shape (B1-980): platform/espidf/bb_led_gpio/
+        bb_led_gpio.c reaching into its own component's internal header via
+        a depth-dependent relative path that breaks after a group-move."""
+        with tempfile.TemporaryDirectory() as td:
+            _write(
+                os.path.join(td, "platform/espidf/bb_led_gpio/bb_led_gpio.c"),
+                '#include "../../../components/bb_led_gpio/'
+                'bb_led_gpio_internal.h"\n',
+            )
+            # note: the grouped component now lives one level deeper
+            _write(
+                os.path.join(
+                    td,
+                    "components/display/bb_led_gpio/bb_led_gpio_internal.h",
+                ),
+                "",
+            )
+            violations = _check_component_path_unresolved(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "a #include whose relative depth is stale after a"
+                " group-move must fire",
+            )
+            self.assertIn("bb_led_gpio_internal.h", violations[0]["detail"])
+
+    def test_clean_include_into_components_passes(self):
+        with tempfile.TemporaryDirectory() as td:
+            _write(
+                os.path.join(
+                    td, "components/bb_led_gpio/bb_led_gpio_internal.h",
+                ),
+                "",
+            )
+            _write(
+                os.path.join(td, "platform/espidf/bb_led_gpio/bb_led_gpio.c"),
+                '#include "../../../components/bb_led_gpio/'
+                'bb_led_gpio_internal.h"\n',
+            )
+            violations = _check_component_path_unresolved(make_ctx(td))
+            self.assertEqual(
+                violations, [],
+                "a #include into components/ whose target exists must not"
+                " fire",
+            )
+
+    def test_include_not_reaching_into_components_out_of_scope(self):
+        """A same-directory or platform-local #include that never resolves
+        into components/ is out of this check's scope, even though the
+        target file doesn't exist -- that's a compiler-time concern, not
+        this rule's."""
+        with tempfile.TemporaryDirectory() as td:
+            _write(
+                os.path.join(td, "platform/espidf/bb_led_gpio/bb_led_gpio.c"),
+                '#include "bb_led_gpio_local.h"\n',
+            )
+            # note: bb_led_gpio_local.h is never created, and never resolves
+            # into components/ -- must not fire under this rule
+            violations = _check_component_path_unresolved(make_ctx(td))
+            self.assertEqual(violations, [])
+
+    def test_bare_filename_include_search_path_not_flagged(self):
+        """Real-tree shape: a public header includes a dependency's header
+        by bare filename (e.g. #include "bb_core.h"), resolved via the
+        component's INCLUDE_DIRS/REQUIRES search path -- NOT a literal
+        relative-path navigation. This rule must not guess at that
+        resolution (it would need the full dependency graph) and must not
+        flag it, even though the naive same-dir join doesn't exist."""
+        with tempfile.TemporaryDirectory() as td:
+            _write(
+                os.path.join(td, "components/bb_task/include/bb_task.h"),
+                '#include "bb_core.h"\n',
+            )
+            # note: components/bb_task/include/bb_core.h never exists --
+            # bb_core.h actually lives in a different component's include/
+            violations = _check_component_path_unresolved(make_ctx(td))
+            self.assertEqual(
+                violations, [],
+                "a bare-filename #include (no '/') must never be flagged"
+                " -- it's resolved via the compiler's include search path,"
+                " not a relative-path join",
+            )
+
+    def test_quoted_esp_idf_sdk_header_not_flagged(self):
+        """Real-tree shape (bb_lifecycle, bb_log, bb_core): ESP-IDF's own
+        convention is to quote its SDK headers too (#include
+        "freertos/FreeRTOS.h", #include "driver/i2c_master.h"). These are
+        search-path-resolved (the ESP-IDF build injects freertos/ and
+        driver/ into the include search path), NOT relative to the
+        including file's own directory -- a naive same-directory join
+        would land under components/ purely because the including file
+        already lives there, which must NOT be flagged."""
+        with tempfile.TemporaryDirectory() as td:
+            _write(
+                os.path.join(td, "components/bb_core/include/bb_once.h"),
+                '#include "freertos/FreeRTOS.h"\n'
+                '#include "driver/i2c_master.h"\n',
+            )
+            violations = _check_component_path_unresolved(make_ctx(td))
+            self.assertEqual(
+                violations, [],
+                "a quoted ESP-IDF SDK header (no literal 'components/' in"
+                " the token) must never be flagged",
+            )
+
+    def test_angle_bracket_include_never_checked(self):
+        with tempfile.TemporaryDirectory() as td:
+            _write(
+                os.path.join(td, "components/bb_fake/src/bb_fake.c"),
+                '#include <stdio.h>\n',
+            )
+            violations = _check_component_path_unresolved(make_ctx(td))
+            self.assertEqual(violations, [])
+
+    def test_include_of_own_component_header_exists_passes(self):
+        """The common, everyday case: a component's own .c including its
+        own public header by a short relative path -- must never fire when
+        the header exists."""
+        with tempfile.TemporaryDirectory() as td:
+            _write(os.path.join(td, "components/bb_fake/include/bb_fake.h"), "")
+            _write(
+                os.path.join(td, "components/bb_fake/src/bb_fake.c"),
+                '#include "../include/bb_fake.h"\n',
+            )
+            violations = _check_component_path_unresolved(make_ctx(td))
+            self.assertEqual(violations, [])
+
+
 if __name__ == "__main__":
     unittest.main()
