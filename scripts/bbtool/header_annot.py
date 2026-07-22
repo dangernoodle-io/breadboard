@@ -128,6 +128,18 @@ def first_sentence(text: str) -> str:
     return m.group(1) if m else text
 
 
+def escape_table_cell(text: str) -> str:
+    """Escape a bare `|` in `text` so it can't be mistaken for a markdown
+    table column delimiter when interpolated into a `| ... |` row — a
+    literal `|` in source prose (e.g. a component brief describing a
+    pub/sub topic union) otherwise splits the cell and corrupts every
+    column to its right. The single home for this idiom (consolidation
+    rule: CLAUDE.md "the SECOND hand-rolled instance... triggers
+    extraction") — shared by `commands/docs.py`'s deps-table Role cell and
+    `gen_components_readme.py`'s Purpose/description cells."""
+    return text.replace("|", "\\|")
+
+
 def primary_header(root: Path, name: str) -> Optional[Path]:
     """Return the conventional primary public header for component `name`:
     <owning-dir>/include/<name>.h, resolved via the discovery SSOT

@@ -111,6 +111,7 @@ from header_annot import (
     extract_brief as _extract_brief,
     primary_header as _primary_header,
     first_sentence as _first_sentence,
+    escape_table_cell as _escape_table_cell,
 )
 from discovery import build_index, normalize_roots
 
@@ -230,7 +231,7 @@ def _render_deps(root: Path, name: str, requires: List[str], priv_requires: List
     for dep in deps:
         kind = "public" if dep in requires_set else "private"
         role, link = _dep_role_and_link(root, dep)
-        role = role.replace("|", "\\|")
+        role = _escape_table_cell(role)
         docs_cell = f"[{dep}]({link})" if link else dep
         lines.append(f"| `{dep}` | {kind} | {role} | {docs_cell} |")
     return "\n".join(lines)

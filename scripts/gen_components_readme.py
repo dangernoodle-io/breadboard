@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "bbtool"))
-from header_annot import extract_brief, primary_header, first_sentence  # noqa: E402
+from header_annot import extract_brief, primary_header, first_sentence, escape_table_cell  # noqa: E402
 from discovery import build_index  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -271,9 +271,11 @@ def build_content() -> str:
 
     entries = []
     for name, purpose in ungrouped:
-        entries.append((name, f"| [{name}](./{name}/) | {purpose} |"))
+        cell = escape_table_cell(purpose)
+        entries.append((name, f"| [{name}](./{name}/) | {cell} |"))
     for group_name, desc, _group_dir, _members in groups:
-        entries.append((group_name, f"| [{group_name}/](./{group_name}/) | {desc} |"))
+        cell = escape_table_cell(desc)
+        entries.append((group_name, f"| [{group_name}/](./{group_name}/) | {cell} |"))
     entries.sort(key=lambda e: e[0])
 
     lines = [HEADER.rstrip("\n"), ""]
@@ -292,7 +294,7 @@ def _group_index_table(group_dir: Path, members) -> str:
     lines = ["| Component | Purpose |", "|-----------|---------|"]
     for name, comp_dir, purpose in members:
         rel = comp_dir.relative_to(group_dir).as_posix()
-        lines.append(f"| [{name}](./{rel}/) | {purpose} |")
+        lines.append(f"| [{name}](./{rel}/) | {escape_table_cell(purpose)} |")
     return "\n".join(lines)
 
 

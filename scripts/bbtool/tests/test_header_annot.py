@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from header_annot import extract_brief, primary_header
+from header_annot import extract_brief, primary_header, escape_table_cell
 
 
 def _write(td: str, content: str) -> Path:
@@ -123,6 +123,17 @@ class TestExtractBriefAbsentOrMissing(unittest.TestCase):
             )
             path = _write(td, content)
             self.assertEqual(extract_brief(path), "First one.")
+
+
+class TestEscapeTableCell(unittest.TestCase):
+    def test_escapes_bare_pipe(self):
+        self.assertEqual(escape_table_cell("foo|bar"), "foo\\|bar")
+
+    def test_no_pipe_is_unchanged(self):
+        self.assertEqual(escape_table_cell("foo bar"), "foo bar")
+
+    def test_multiple_pipes_all_escaped(self):
+        self.assertEqual(escape_table_cell("a|b|c"), "a\\|b\\|c")
 
 
 class TestPrimaryHeader(unittest.TestCase):
