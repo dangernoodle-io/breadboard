@@ -13,7 +13,7 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES bb_core bb_http bb_serialize_json
-    PRIV_REQUIRES bb_log bb_json esp_http_server esp_event bb_str
+    PRIV_REQUIRES bb_log esp_http_server esp_event bb_str
 )
 
 # bb_nv dropped from PRIV_REQUIRES (B1-963): bb_http.c's #include "bb_nv.h"

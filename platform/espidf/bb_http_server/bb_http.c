@@ -2,7 +2,6 @@
 #include "bb_http_server.h"
 #include "bb_http_status.h"
 #include "bb_http_query.h"
-#include "bb_json.h"
 #include "bb_mem.h"
 #include "esp_http_server.h"
 #include "esp_event.h"
@@ -687,10 +686,10 @@ bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int le
     /* Short-circuit if the peer is already gone. Doesn't fully close the
      * race (RST can land between probe and lwip_send) but stops the long
      * tail of writing N more chunks into a dead socket — particularly
-     * relevant for SSE streamers (bb_event_routes) and the
-     * chunked fallback path in bb_http_resp_send_json. The zero-length
-     * terminator (len==0) is allowed through so callers can finalize the
-     * chunked response in their cleanup path without an extra branch. */
+     * relevant for SSE streamers (bb_event_routes) and other chunked
+     * response paths. The zero-length terminator (len==0) is allowed
+     * through so callers can finalize the chunked response in their
+     * cleanup path without an extra branch. */
     if (len != 0 && sock_peer_closed(http_req)) {
         return BB_ERR_INVALID_STATE;
     }
@@ -874,173 +873,3 @@ size_t bb_http_route_handler_cap(void)
     return (size_t)s_max_uri_handlers;
 }
 
-// ---------------------------------------------------------------------------
-// JSON streaming
-// ---------------------------------------------------------------------------
-
-// Context for walking JSON children
-struct json_walk_ctx {
-    bb_http_request_t *req;
-    bb_json_kind_t kind;
-    bool is_first;
-    bb_err_t err;
-};
-
-// Forward decl: streams an arbitrary node, recursing into containers so a
-// single large subtree never has to be materialized as one cJSON_Print buffer.
-static bb_err_t json_stream_node(bb_http_request_t *req, bb_json_t node);
-
-static void json_child_emit(const char *key, bb_json_t child, void *ctx)
-{
-    struct json_walk_ctx *walk_ctx = (struct json_walk_ctx *)ctx;
-    if (walk_ctx->err != BB_OK) return;
-
-    // Emit comma before all but the first child
-    if (!walk_ctx->is_first) {
-        bb_err_t err = bb_http_resp_send_chunk(walk_ctx->req, ",", -1);
-        if (err != BB_OK) {
-            walk_ctx->err = err;
-            return;
-        }
-    }
-    walk_ctx->is_first = false;
-
-    // For objects, emit "key":
-    if (walk_ctx->kind == BB_JSON_KIND_OBJECT && key) {
-        bb_err_t err = bb_http_resp_send_chunk(walk_ctx->req, "\"", -1);
-        if (err != BB_OK) {
-            walk_ctx->err = err;
-            return;
-        }
-        err = bb_http_resp_send_chunk(walk_ctx->req, key, -1);
-        if (err != BB_OK) {
-            walk_ctx->err = err;
-            return;
-        }
-        err = bb_http_resp_send_chunk(walk_ctx->req, "\":", -1);
-        if (err != BB_OK) {
-            walk_ctx->err = err;
-            return;
-        }
-    }
-
-    walk_ctx->err = json_stream_node(walk_ctx->req, child);
-}
-
-// Stream any JSON node. Recurses for objects/arrays so deep subtrees don't
-// require a single contiguous serialization buffer (cJSON_PrintUnformatted
-// can return NULL on large nested docs even with plenty of free heap, which
-// previously produced malformed output like `"paths":}`). For scalars,
-// fall back to literal "null" if serialize fails so the stream stays valid.
-static bb_err_t json_stream_node(bb_http_request_t *req, bb_json_t node)
-{
-    bb_json_kind_t kind = bb_json_get_kind(node);
-
-    if (kind == BB_JSON_KIND_OBJECT || kind == BB_JSON_KIND_ARRAY) {
-        const char *open_b  = (kind == BB_JSON_KIND_OBJECT) ? "{" : "[";
-        const char *close_b = (kind == BB_JSON_KIND_OBJECT) ? "}" : "]";
-
-        bb_err_t err = bb_http_resp_send_chunk(req, open_b, -1);
-        if (err != BB_OK) return err;
-
-        struct json_walk_ctx inner = {
-            .req      = req,
-            .kind     = kind,
-            .is_first = true,
-            .err      = BB_OK,
-        };
-        bb_json_walk_children(node, json_child_emit, &inner);
-        if (inner.err != BB_OK) return inner.err;
-
-        return bb_http_resp_send_chunk(req, close_b, -1);
-    }
-
-    // Scalar / null — these are small; one-shot serialize is fine.
-    char *s = bb_json_item_serialize(node);
-    if (!s) {
-        return bb_http_resp_send_chunk(req, "null", -1);
-    }
-    bb_err_t err = bb_http_resp_send_chunk(req, s, -1);
-    bb_json_free_str(s);
-    return err;
-}
-
-// ============================================================================
-// STREAMING JSON ARRAY API — ESP-IDF backend
-// ============================================================================
-
-bb_err_t bb_http_resp_json_arr_begin(bb_http_request_t *req,
-                                     bb_http_json_stream_t *out)
-{
-    if (!req || !out) return BB_ERR_INVALID_ARG;
-
-    bb_err_t err = bb_http_resp_set_type(req, "application/json");
-    if (err != BB_OK) return err;
-
-    err = bb_http_resp_send_chunk(req, "[", -1);
-    if (err != BB_OK) return err;
-
-    out->_req = req;
-    out->_err = BB_OK;
-    out->_first = 1;
-    out->_open = 1;
-    return BB_OK;
-}
-
-bb_err_t bb_http_resp_json_arr_emit(bb_http_json_stream_t *stream,
-                                    bb_json_t item)
-{
-    if (!stream) return BB_ERR_INVALID_ARG;
-    if (!stream->_open) return BB_ERR_INVALID_STATE;
-    if (stream->_err != BB_OK) return stream->_err;  // sticky error is a no-op
-
-    bb_http_request_t *req = (bb_http_request_t *)stream->_req;
-
-    // Emit comma before all but the first element
-    if (!stream->_first) {
-        bb_err_t err = bb_http_resp_send_chunk(req, ",", -1);
-        if (err != BB_OK) {
-            stream->_err = err;
-            return err;
-        }
-    }
-    stream->_first = 0;
-
-    // Serialize and emit the item
-    char *json_str = bb_json_item_serialize(item);
-    bb_err_t err;
-    if (json_str) {
-        err = bb_http_resp_send_chunk(req, json_str, -1);
-        bb_json_free_str(json_str);
-    } else {
-        // If serialize fails, emit literal null to keep stream valid
-        err = bb_http_resp_send_chunk(req, "null", -1);
-    }
-
-    if (err != BB_OK) {
-        stream->_err = err;
-    }
-    return err;
-}
-
-bb_err_t bb_http_resp_json_arr_end(bb_http_json_stream_t *stream)
-{
-    if (!stream) return BB_ERR_INVALID_ARG;
-
-    stream->_open = 0;
-    bb_http_request_t *req = (bb_http_request_t *)stream->_req;
-
-    // Emit closing bracket
-    bb_err_t err = bb_http_resp_send_chunk(req, "]", -1);
-    if (err != BB_OK && stream->_err == BB_OK) {
-        stream->_err = err;
-    }
-
-    // Terminate the chunked response
-    bb_err_t fin = bb_http_resp_send_chunk(req, NULL, 0);
-    if (fin != BB_OK && stream->_err == BB_OK) {
-        stream->_err = fin;
-    }
-
-    return stream->_err;
-}
