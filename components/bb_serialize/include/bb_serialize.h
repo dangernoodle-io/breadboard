@@ -403,6 +403,27 @@ const bb_serialize_field_t *bb_serialize_desc_find(const bb_serialize_desc_t *de
 // would race the fields it's meant to gate. Presence is instead driven
 // entirely by each callback's own bool return.
 //
+// Duplicate `.key` on the populate/ingress path IS SUPPORTED: two (or more)
+// fields in the same table MAY share a `.key`, each with a different
+// `.type`/`.offset` -- e.g. one field reading a wire number as BB_TYPE_U64
+// and a second reading the SAME wire number as BB_TYPE_F64, to compare two
+// independent conversions of the identical source value. This works
+// because every scalar/string getter above does a STATELESS, independent
+// first-match lookup of its own `.key` against the source on each call --
+// no shared cursor state carries between fields, so field order within the
+// table is irrelevant to which occurrence of a duplicated key each field
+// resolves (there is only ever one occurrence to find on the wire; the
+// duplication is in the DESCRIPTOR, not the source document). This is a
+// property of every current populate backend (see e.g.
+// bb_serialize_json_populate.c's per-callback bb_serialize_json_tok_obj_
+// get() calls), not something bb_serialize_populate() itself special-
+// cases -- populate_check_fields() neither allows nor rejects a duplicate
+// key by name, it simply never inspects `.key` for uniqueness. A future
+// change to a single forward-only cursor pass, or duplicate-key rejection
+// added to populate_check_fields(), would silently break this pattern --
+// see platform/espidf/bb_system/bb_system_routes.c's s_reboot_fields[] for
+// a real consumer relying on it.
+//
 // get_str contract: `cap` is the field's `max_len`; the getter owns
 // bounds-checking a value into that capacity (the same bounded-write
 // convention as an embedded char[N] snapshot field) -- populate trusts a

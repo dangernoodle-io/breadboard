@@ -686,3 +686,66 @@ void test_bb_serialize_json_populate_scalar_wrong_type_present_leaves_untouched(
     TEST_ASSERT_EQUAL_DOUBLE(-1.0, dst.temp);
     TEST_ASSERT_TRUE(dst.armed);
 }
+
+// ---------------------------------------------------------------------------
+// 13. Duplicate `.key` -- TWO fields in the SAME table bound to the SAME
+// wire key ("n"), one as BB_TYPE_I64 and one as BB_TYPE_F64, pinning
+// bb_serialize.h's documented "populate/ingress duplicate-key" contract
+// (see its field-table doc comment, and platform/espidf/bb_system/
+// bb_system_routes.c's s_reboot_fields[] for the real consumer that relies
+// on it, B1-1148 finding 3). Each getter does its own independent
+// first-match lookup of "n" -- both fields resolve the SAME source value,
+// and table order must not matter, so this is run TWICE with the two
+// duplicate fields declared in opposite order.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    int64_t n_i64;
+    double  n_f64;
+} dup_key_snap_t;
+
+static const bb_serialize_field_t s_dup_key_fields_i64_first[] = {
+    { .key = "n", .type = BB_TYPE_I64, .offset = offsetof(dup_key_snap_t, n_i64) },
+    { .key = "n", .type = BB_TYPE_F64, .offset = offsetof(dup_key_snap_t, n_f64) },
+};
+static const bb_serialize_desc_t s_dup_key_desc_i64_first = {
+    .type_name = "dup_key_snap_t", .fields = s_dup_key_fields_i64_first, .n_fields = 2,
+    .snap_size = sizeof(dup_key_snap_t),
+};
+
+static const bb_serialize_field_t s_dup_key_fields_f64_first[] = {
+    { .key = "n", .type = BB_TYPE_F64, .offset = offsetof(dup_key_snap_t, n_f64) },
+    { .key = "n", .type = BB_TYPE_I64, .offset = offsetof(dup_key_snap_t, n_i64) },
+};
+static const bb_serialize_desc_t s_dup_key_desc_f64_first = {
+    .type_name = "dup_key_snap_t", .fields = s_dup_key_fields_f64_first, .n_fields = 2,
+    .snap_size = sizeof(dup_key_snap_t),
+};
+
+void test_bb_serialize_json_populate_duplicate_key_resolves_independently(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    TEST_ASSERT_EQUAL(BB_OK, scan_default(&rec, "{\"n\":42}"));
+
+    bb_serialize_json_populate_ctx_t ctx;
+    bb_serialize_populate_t src = bb_serialize_json_populate_from_tok(&ctx, &rec);
+
+    dup_key_snap_t dst = { 0 };
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_populate(&s_dup_key_desc_i64_first, &dst, &src));
+    TEST_ASSERT_EQUAL_INT64(42, dst.n_i64);
+    TEST_ASSERT_EQUAL_DOUBLE(42.0, dst.n_f64);
+}
+
+void test_bb_serialize_json_populate_duplicate_key_order_irrelevant(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    TEST_ASSERT_EQUAL(BB_OK, scan_default(&rec, "{\"n\":42}"));
+
+    bb_serialize_json_populate_ctx_t ctx;
+    bb_serialize_populate_t src = bb_serialize_json_populate_from_tok(&ctx, &rec);
+
+    dup_key_snap_t dst = { 0 };
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_populate(&s_dup_key_desc_f64_first, &dst, &src));
+    TEST_ASSERT_EQUAL_INT64(42, dst.n_i64);
+    TEST_ASSERT_EQUAL_DOUBLE(42.0, dst.n_f64);
+}
