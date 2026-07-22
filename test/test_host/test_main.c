@@ -3334,7 +3334,6 @@ void test_bb_vcore_wd_is_held_reflects_state(void);
 
 // Forward declarations from test_bb_display_info_event.c
 void test_bb_display_register_info_registers_cache_key(void);
-void test_bb_display_register_info_serialize_into_returns_unsupported(void);
 void test_bb_display_register_info_binds_bb_data(void);
 void test_bb_display_register_info_cache_register_failure_is_non_fatal(void);
 void test_bb_display_register_info_bind_failure_is_non_fatal_and_leaves_key_unbound(void);
@@ -4781,15 +4780,6 @@ void test_pool_slots_on_destroy_fires_once_per_slot_including_never_acquired(voi
 void test_pool_slots_on_destroy_null_is_safe_noop(void);
 void test_pool_slots_on_destroy_not_called_for_non_slots_mode(void);
 
-// Forward declarations from test_bb_diag_cache_route_status.c (B1-1121,
-// originally B1-583 -- folded in from the deleted bb_cache_routes component)
-void test_bb_diag_cache_route_map_status_ok_is_200(void);
-void test_bb_diag_cache_route_map_status_not_found_is_404(void);
-void test_bb_diag_cache_route_map_status_invalid_state_is_404(void);
-void test_bb_diag_cache_route_map_status_unsupported_is_501(void);
-void test_bb_diag_cache_route_map_status_no_space_is_500(void);
-void test_bb_diag_cache_route_map_status_other_is_500(void);
-
 // bb_thermal_reset_for_test: defined in platform/host/bb_thermal/bb_thermal_host.c
 // (BB_THERMAL_TESTING); resets fan+power+temp HAL state for test isolation.
 void bb_thermal_reset_for_test(void);
@@ -4835,10 +4825,8 @@ void setUp(void) {
 void tearDown(void) {}
 
 // Forward declarations from test_bb_cache_fidelity.c
-void test_bb_cache_fidelity_all_topics(void);
 void test_bb_cache_register_idempotent(void);
-void test_bb_cache_update_reflected_in_serialize(void);
-void test_bb_cache_serialize_into_unknown_topic(void);
+void test_bb_cache_update_reflected_in_get_raw(void);
 void test_bb_cache_update_unknown_topic(void);
 void test_bb_cache_registry_full(void);
 void test_bb_ota_check_topic_value_is_update_available(void);
@@ -4860,12 +4848,12 @@ void test_bb_cache_register_key_at_max_length_boundary_succeeds(void);
 void test_bb_cache_register_out_first_time_true_on_first_registration(void);
 void test_bb_cache_register_out_first_time_false_on_reregister(void);
 void test_bb_cache_register_out_first_time_null_is_optional(void);
-void test_bb_cache_envelope_get_serialized_owned_mode_shape(void);
-void test_bb_cache_envelope_owned_mode_ts_frozen_between_reads(void);
-void test_bb_cache_envelope_owned_mode_ts_advances_on_update(void);
-void test_bb_cache_envelope_getter_mode_ts_advances_each_read(void);
-void test_bb_cache_envelope_serialize_into_not_enveloped(void);
-void test_bb_cache_envelope_get_serialized_undersized_buffer_untouched(void);
+void test_bb_cache_owned_fallback_seeds_on_first_read(void);
+void test_bb_cache_owned_fallback_seed_invoked_once_across_reads(void);
+void test_bb_cache_owned_fallback_real_write_wins_and_stops_seeding(void);
+void test_bb_cache_owned_fallback_first_real_write_reports_changed_even_matching_seed(void);
+void test_bb_cache_owned_fallback_snapshot_returns_null_leaves_zero_value(void);
+void test_bb_cache_register_owned_mode_requires_snap_size(void);
 void test_bb_cache_update_out_changed_first_write_all_zero_reports_changed(void);
 void test_bb_cache_update_out_changed_identical_rewrite_reports_unchanged(void);
 void test_bb_cache_update_out_changed_different_value_reports_changed(void);
@@ -4874,21 +4862,10 @@ void test_bb_cache_update_getter_mode_out_changed_reports_unchanged(void);
 void test_bb_cache_update_getter_mode_null_out_changed_does_not_crash(void);
 void test_bb_cache_update_null_args_returns_invalid_arg(void);
 void test_bb_cache_update_null_req_returns_invalid_arg(void);
-void test_bb_cache_update_ts_ms_zero_stamps_now(void);
 void test_bb_cache_update_ts_ms_nonzero_overrides_stamp(void);
+void test_bb_cache_exists_null_key_returns_false(void);
 void test_bb_cache_update_basic_behavior(void);
 void test_bb_cache_exists_registered_and_unregistered(void);
-void test_bb_cache_exists_null_key_returns_false(void);
-void test_bb_cache_owned_fallback_seeds_on_first_read(void);
-void test_bb_cache_owned_fallback_seed_invoked_once_across_reads(void);
-void test_bb_cache_owned_fallback_serialize_into_seed_not_reinvoked_without_dirty_gate(void);
-void test_bb_cache_getter_mode_serialize_into_pull_through(void);
-void test_bb_cache_owned_fallback_real_write_wins_and_stops_seeding(void);
-void test_bb_cache_owned_fallback_first_real_write_reports_changed_even_matching_seed(void);
-void test_bb_cache_owned_fallback_snapshot_returns_null_leaves_zero_value(void);
-void test_bb_cache_owned_fallback_get_raw_seeds_when_unpopulated(void);
-void test_bb_cache_owned_fallback_serialize_into_seeds(void);
-void test_bb_cache_register_owned_mode_requires_snap_size(void);
 void test_bb_cache_delete_existing_removes_entry(void);
 void test_bb_cache_delete_missing_returns_not_found(void);
 void test_bb_cache_delete_null_key_returns_invalid_arg(void);
@@ -4897,17 +4874,10 @@ void test_bb_cache_foreach_copy_by_value_survives_delete_during_callback(void);
 void test_bb_cache_delete_table_full_guard_still_returns_no_space(void);
 void test_bb_cache_delete_getter_mode_entry_no_crash(void);
 void test_bb_cache_register_owned_alloc_failure_returns_no_space(void);
-void test_bb_cache_serialize_into_null_args_return_invalid_arg(void);
-void test_bb_cache_get_serialized_null_args_return_invalid_arg(void);
-void test_bb_cache_get_serialized_obj_alloc_failure_returns_no_space(void);
-void test_bb_cache_get_serialized_serialize_failure_returns_no_space(void);
-void test_bb_cache_get_serialized_null_out_len_on_success(void);
 void test_bb_cache_delete_reader_race_never_poisons_or_crashes(void);
-void test_bb_cache_serialize_into_delete_race_returns_not_found(void);
 void test_bb_cache_update_delete_race_returns_not_found(void);
-void test_bb_cache_get_serialized_delete_race_returns_not_found(void);
 void test_bb_cache_get_raw_delete_race_returns_not_found(void);
-void test_bb_cache_serialize_into_delete_only_race_returns_not_found(void);
+void test_bb_cache_get_raw_delete_only_race_returns_not_found(void);
 
 // Forward declarations from test_bb_cache_state_version.c
 void test_bb_cache_state_version_monotonic_across_writes(void);
@@ -4949,8 +4919,6 @@ void test_bb_cache_evict_lazy_read_before_evict_age_still_served(void);
 void test_bb_cache_evict_lazy_read_at_evict_age_misses_and_frees(void);
 void test_bb_cache_evict_lazy_fires_on_remove_via_evict_notify_hook(void);
 void test_bb_cache_evict_lazy_get_raw_evicts(void);
-void test_bb_cache_evict_lazy_serialize_into_evicts(void);
-void test_bb_cache_evict_lazy_get_serialized_evicts(void);
 void test_bb_cache_evict_pinned_policy_never_evicts(void);
 void test_bb_cache_evict_sweep_evicts_unread_key(void);
 void test_bb_cache_evict_sweep_skips_still_fresh_key(void);
@@ -4971,10 +4939,6 @@ void test_bb_cache_evict_sweep_generation_mismatch_race_skips_key(void);
 void test_bb_cache_evict_sweep_reentrant_delete_key_already_gone(void);
 void test_bb_cache_evict_lazy_generation_mismatch_race_preserves_reregistered_incarnation(void);
 void test_bb_cache_evict_lazy_key_deleted_during_race_is_silent_noop(void);
-void test_bb_cache_register_null_serialize_accepted(void);
-void test_bb_cache_serialize_into_null_serialize_returns_unsupported(void);
-void test_bb_cache_get_serialized_null_serialize_returns_unsupported(void);
-void test_bb_cache_get_raw_null_serialize_still_works(void);
 
 // Forward declarations from test_bb_mqtt_on_message.c
 void test_bb_mqtt_on_message_receives_injected_message(void);
@@ -7350,7 +7314,6 @@ int main(void) {
 
     // bb_display_info_event tests (health.display cache/bb_data registration)
     RUN_TEST(test_bb_display_register_info_registers_cache_key);
-    RUN_TEST(test_bb_display_register_info_serialize_into_returns_unsupported);
     RUN_TEST(test_bb_display_register_info_binds_bb_data);
     RUN_TEST(test_bb_display_register_info_cache_register_failure_is_non_fatal);
     RUN_TEST(test_bb_display_register_info_bind_failure_is_non_fatal_and_leaves_key_unbound);
@@ -9042,14 +9005,6 @@ int main(void) {
     RUN_TEST(test_pool_slots_on_destroy_null_is_safe_noop);
     RUN_TEST(test_pool_slots_on_destroy_not_called_for_non_slots_mode);
 
-    // bb_diag_cache_route_status tests (B1-1121, originally B1-583)
-    RUN_TEST(test_bb_diag_cache_route_map_status_ok_is_200);
-    RUN_TEST(test_bb_diag_cache_route_map_status_not_found_is_404);
-    RUN_TEST(test_bb_diag_cache_route_map_status_invalid_state_is_404);
-    RUN_TEST(test_bb_diag_cache_route_map_status_unsupported_is_501);
-    RUN_TEST(test_bb_diag_cache_route_map_status_no_space_is_500);
-    RUN_TEST(test_bb_diag_cache_route_map_status_other_is_500);
-
     // bb_http: async-handler / peer-liveness host stub contracts (B1-517)
     RUN_TEST(test_bb_http_req_peer_alive_host_stub_always_true);
     RUN_TEST(test_bb_http_req_async_abort_host_stub_returns_invalid_state);
@@ -9163,10 +9118,8 @@ int main(void) {
     RUN_TEST(test_bb_registry_foreach_ptr_empty_registry);
 
     // bb_cache
-    RUN_TEST(test_bb_cache_fidelity_all_topics);
     RUN_TEST(test_bb_cache_register_idempotent);
-    RUN_TEST(test_bb_cache_update_reflected_in_serialize);
-    RUN_TEST(test_bb_cache_serialize_into_unknown_topic);
+    RUN_TEST(test_bb_cache_update_reflected_in_get_raw);
     RUN_TEST(test_bb_cache_update_unknown_topic);
     RUN_TEST(test_bb_cache_registry_full);
     RUN_TEST(test_bb_cache_count_and_foreach_visit_all_registered_topics);
@@ -9187,12 +9140,12 @@ int main(void) {
     RUN_TEST(test_bb_cache_register_out_first_time_true_on_first_registration);
     RUN_TEST(test_bb_cache_register_out_first_time_false_on_reregister);
     RUN_TEST(test_bb_cache_register_out_first_time_null_is_optional);
-    RUN_TEST(test_bb_cache_envelope_get_serialized_owned_mode_shape);
-    RUN_TEST(test_bb_cache_envelope_owned_mode_ts_frozen_between_reads);
-    RUN_TEST(test_bb_cache_envelope_owned_mode_ts_advances_on_update);
-    RUN_TEST(test_bb_cache_envelope_getter_mode_ts_advances_each_read);
-    RUN_TEST(test_bb_cache_envelope_serialize_into_not_enveloped);
-    RUN_TEST(test_bb_cache_envelope_get_serialized_undersized_buffer_untouched);
+    RUN_TEST(test_bb_cache_owned_fallback_seeds_on_first_read);
+    RUN_TEST(test_bb_cache_owned_fallback_seed_invoked_once_across_reads);
+    RUN_TEST(test_bb_cache_owned_fallback_real_write_wins_and_stops_seeding);
+    RUN_TEST(test_bb_cache_owned_fallback_first_real_write_reports_changed_even_matching_seed);
+    RUN_TEST(test_bb_cache_owned_fallback_snapshot_returns_null_leaves_zero_value);
+    RUN_TEST(test_bb_cache_register_owned_mode_requires_snap_size);
     RUN_TEST(test_bb_cache_update_out_changed_first_write_all_zero_reports_changed);
     RUN_TEST(test_bb_cache_update_out_changed_identical_rewrite_reports_unchanged);
     RUN_TEST(test_bb_cache_update_out_changed_different_value_reports_changed);
@@ -9201,21 +9154,10 @@ int main(void) {
     RUN_TEST(test_bb_cache_update_getter_mode_null_out_changed_does_not_crash);
     RUN_TEST(test_bb_cache_update_null_args_returns_invalid_arg);
     RUN_TEST(test_bb_cache_update_null_req_returns_invalid_arg);
-    RUN_TEST(test_bb_cache_update_ts_ms_zero_stamps_now);
     RUN_TEST(test_bb_cache_update_ts_ms_nonzero_overrides_stamp);
+    RUN_TEST(test_bb_cache_exists_null_key_returns_false);
     RUN_TEST(test_bb_cache_update_basic_behavior);
     RUN_TEST(test_bb_cache_exists_registered_and_unregistered);
-    RUN_TEST(test_bb_cache_exists_null_key_returns_false);
-    RUN_TEST(test_bb_cache_owned_fallback_seeds_on_first_read);
-    RUN_TEST(test_bb_cache_owned_fallback_seed_invoked_once_across_reads);
-    RUN_TEST(test_bb_cache_owned_fallback_serialize_into_seed_not_reinvoked_without_dirty_gate);
-    RUN_TEST(test_bb_cache_getter_mode_serialize_into_pull_through);
-    RUN_TEST(test_bb_cache_owned_fallback_real_write_wins_and_stops_seeding);
-    RUN_TEST(test_bb_cache_owned_fallback_first_real_write_reports_changed_even_matching_seed);
-    RUN_TEST(test_bb_cache_owned_fallback_snapshot_returns_null_leaves_zero_value);
-    RUN_TEST(test_bb_cache_owned_fallback_get_raw_seeds_when_unpopulated);
-    RUN_TEST(test_bb_cache_owned_fallback_serialize_into_seeds);
-    RUN_TEST(test_bb_cache_register_owned_mode_requires_snap_size);
     RUN_TEST(test_bb_cache_delete_existing_removes_entry);
     RUN_TEST(test_bb_cache_delete_missing_returns_not_found);
     RUN_TEST(test_bb_cache_delete_null_key_returns_invalid_arg);
@@ -9224,17 +9166,10 @@ int main(void) {
     RUN_TEST(test_bb_cache_delete_table_full_guard_still_returns_no_space);
     RUN_TEST(test_bb_cache_delete_getter_mode_entry_no_crash);
     RUN_TEST(test_bb_cache_register_owned_alloc_failure_returns_no_space);
-    RUN_TEST(test_bb_cache_serialize_into_null_args_return_invalid_arg);
-    RUN_TEST(test_bb_cache_get_serialized_null_args_return_invalid_arg);
-    RUN_TEST(test_bb_cache_get_serialized_obj_alloc_failure_returns_no_space);
-    RUN_TEST(test_bb_cache_get_serialized_serialize_failure_returns_no_space);
-    RUN_TEST(test_bb_cache_get_serialized_null_out_len_on_success);
     RUN_TEST(test_bb_cache_delete_reader_race_never_poisons_or_crashes);
-    RUN_TEST(test_bb_cache_serialize_into_delete_race_returns_not_found);
     RUN_TEST(test_bb_cache_update_delete_race_returns_not_found);
-    RUN_TEST(test_bb_cache_get_serialized_delete_race_returns_not_found);
     RUN_TEST(test_bb_cache_get_raw_delete_race_returns_not_found);
-    RUN_TEST(test_bb_cache_serialize_into_delete_only_race_returns_not_found);
+    RUN_TEST(test_bb_cache_get_raw_delete_only_race_returns_not_found);
 
     // bb_cache state_version + snapshot (B1-767 PR-3)
     RUN_TEST(test_bb_cache_state_version_monotonic_across_writes);
@@ -9280,8 +9215,6 @@ int main(void) {
     RUN_TEST(test_bb_cache_evict_lazy_read_at_evict_age_misses_and_frees);
     RUN_TEST(test_bb_cache_evict_lazy_fires_on_remove_via_evict_notify_hook);
     RUN_TEST(test_bb_cache_evict_lazy_get_raw_evicts);
-    RUN_TEST(test_bb_cache_evict_lazy_serialize_into_evicts);
-    RUN_TEST(test_bb_cache_evict_lazy_get_serialized_evicts);
     RUN_TEST(test_bb_cache_evict_pinned_policy_never_evicts);
     RUN_TEST(test_bb_cache_evict_sweep_evicts_unread_key);
     RUN_TEST(test_bb_cache_evict_sweep_skips_still_fresh_key);
@@ -9302,10 +9235,6 @@ int main(void) {
     RUN_TEST(test_bb_cache_evict_sweep_reentrant_delete_key_already_gone);
     RUN_TEST(test_bb_cache_evict_lazy_generation_mismatch_race_preserves_reregistered_incarnation);
     RUN_TEST(test_bb_cache_evict_lazy_key_deleted_during_race_is_silent_noop);
-    RUN_TEST(test_bb_cache_register_null_serialize_accepted);
-    RUN_TEST(test_bb_cache_serialize_into_null_serialize_returns_unsupported);
-    RUN_TEST(test_bb_cache_get_serialized_null_serialize_returns_unsupported);
-    RUN_TEST(test_bb_cache_get_raw_null_serialize_still_works);
 
     RUN_TEST(test_bb_ota_check_topic_value_is_update_available);
 

@@ -228,8 +228,7 @@ bb_err_t bb_diag_panic_init(void);
 
 /**
  * Registry hook — registers GET/DELETE /api/diag/panic, GET /api/diag/boot,
- * GET /api/diag/cache (folded in from the deleted bb_cache_routes
- * component, B1-1121), plus heap/tasks/sockets diagnostics.
+ * plus heap/tasks/sockets diagnostics.
  */
 // bbtool:init tier=regular fn=bb_diag_routes_init server=true
 bb_err_t bb_diag_routes_init(bb_http_handle_t server);

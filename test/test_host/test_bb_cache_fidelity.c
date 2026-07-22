@@ -1,36 +1,24 @@
-// Host equality harness for bb_cache.
+// Host test suite for bb_cache's registration/update/delete/enumeration
+// mechanism.
 //
-// Proves the same-serializer guarantee: event-side serialization (via
-// bb_cache_serialize_into on a fresh obj) byte-equals REST-side serialization
-// (bb_cache_serialize_into on another fresh obj) for every registered topic.
-//
-// Synthetic topic registered here; no real topics currently wire into the
-// TOPIC TABLE below. (net.health was removed with the bb_net_health
-// dissolution, B1-969; diag.boot was removed with its bb_data cutover,
-// B1-1053 PR1; update.available with its own cutover, B1-1053 PR3; and
-// health.display with its own cutover, B1-1146a -- all three now register
-// with cfg->serialize == NULL, so this file's serialize-based fidelity
-// check no longer applies to any of them.)
-//
-// EXTENSION POINT: To add a real topic, add a row to the `s_topics[]` table
-// below following the bb_cache_fidelity_topic_t shape -- ONLY if it still
-// registers a non-NULL cfg->serialize (see above).
+// B1-1119: bb_cache no longer ships a legacy bb_json serializer slot
+// (bb_cache_serialize_fn / bb_cache_get_serialized() / bb_cache_serialize_into()
+// are gone -- the same-serializer "fidelity" guarantee this file used to
+// prove no longer applies; every read path is bb_cache_get_raw()/
+// bb_cache_snapshot() now). This file's name is kept for history/git-blame
+// continuity; its content is the general bb_cache mechanism suite.
 
 #include "unity.h"
 #include "bb_cache.h"
 #include "bb_clock.h"
-#include "bb_json.h"
-#include "bb_log.h"
 #include "bb_ota_check_wire.h"
 #include "bb_mem_test.h"
-#include "bb_json_test_hooks.h"
 
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <pthread.h>
-#include <unistd.h>
 
 // ---------------------------------------------------------------------------
 // Test reset hook — declared in bb_cache_espidf.c (BB_CACHE_TESTING)
@@ -41,14 +29,12 @@ void bb_cache_reset_for_test(void);
 // tests that don't care about flags (B1-1045: BB_CACHE_FLAG_SSE is gone --
 // SSE/broadcast delivery is a bb_data/bb_data_http composition-root concern
 // now, not bb_cache's).
-static bb_err_t reg(const char *key, const void *(*snapshot)(void),
-                     size_t snap_size, bb_cache_serialize_fn serialize)
+static bb_err_t reg(const char *key, const void *(*snapshot)(void), size_t snap_size)
 {
     bb_cache_config_t cfg = {
         .key       = key,
         .snapshot  = snapshot,
         .snap_size = snap_size,
-        .serialize = serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     return bb_cache_register(&cfg);
@@ -64,55 +50,6 @@ typedef struct {
     float ratio;
 } synth_snap_t;
 
-static void synth_serialize(bb_json_t obj, const void *snap)
-{
-    const synth_snap_t *s = (const synth_snap_t *)snap;
-    bb_json_obj_set_int   (obj, "value", s->value);
-    bb_json_obj_set_bool  (obj, "flag",  s->flag);
-    bb_json_obj_set_number(obj, "ratio", s->ratio);
-}
-
-// ---------------------------------------------------------------------------
-// Generic fidelity topic descriptor
-// ---------------------------------------------------------------------------
-
-typedef struct {
-    const char           *name;
-    const void          *(*snapshot)(void);   // NULL = owned mode
-    size_t                snap_size;
-    bb_cache_serialize_fn serialize;
-    const void           *initial_snap;       // data to seed via bb_cache_update (owned mode)
-} bb_cache_fidelity_topic_t;
-
-// ---------------------------------------------------------------------------
-// TOPIC TABLE
-// Synthetic entry here; migrate real topics below this line in later steps.
-// ---------------------------------------------------------------------------
-
-static const synth_snap_t s_synth_initial = {
-    .value = 42,
-    .flag  = true,
-    .ratio = 0.75,
-};
-
-static const bb_cache_fidelity_topic_t s_topics[] = {
-    {
-        .name         = "test.synth",
-        .snapshot     = NULL,                   // owned mode
-        .snap_size    = sizeof(synth_snap_t),
-        .serialize    = synth_serialize,
-        .initial_snap = &s_synth_initial,
-    },
-    // diag.boot REMOVED (B1-1053 PR1), update.available REMOVED (B1-1053
-    // PR3), and health.display REMOVED (B1-1146a) -- all three register
-    // with cfg->serialize == NULL now (rendered via bb_data instead), so
-    // they're structurally out of scope for this file's "event == REST via
-    // bb_cache_serialize_into" fidelity check. The synthetic topic above
-    // still exercises the mechanism.
-};
-
-#define N_TOPICS ((int)(sizeof(s_topics) / sizeof(s_topics[0])))
-
 // ---------------------------------------------------------------------------
 // setUp / tearDown
 // ---------------------------------------------------------------------------
@@ -123,123 +60,43 @@ static void reset_all(void)
 }
 
 // ---------------------------------------------------------------------------
-// Generic equality assertion
-// ---------------------------------------------------------------------------
-
-// Registers a topic, seeds its initial snapshot, then asserts that two
-// independent calls to bb_cache_serialize_into produce byte-identical JSON.
-static void assert_fidelity(const bb_cache_fidelity_topic_t *t)
-{
-    bb_err_t err;
-
-    bb_cache_config_t cfg = {
-        .key       = t->name,
-        .snapshot  = t->snapshot,
-        .snap_size = t->snap_size,
-        .serialize = t->serialize,
-        .flags     = BB_CACHE_FLAG_NONE,
-    };
-    err = bb_cache_register(&cfg);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, err, t->name);
-
-    // Seed owned-mode entries; getter-mode entries provide their own data.
-    if (!t->snapshot && t->initial_snap) {
-        err = bb_cache_update(&(bb_cache_update_t){ .key = t->name, .snap = t->initial_snap });
-        TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, err, t->name);
-    }
-
-    // Serialize twice, independently
-    bb_json_t obj_a = bb_json_obj_new();
-    bb_json_t obj_b = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj_a);
-    TEST_ASSERT_NOT_NULL(obj_b);
-
-    err = bb_cache_serialize_into(t->name, obj_a);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, err, t->name);
-
-    err = bb_cache_serialize_into(t->name, obj_b);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, err, t->name);
-
-    char *json_a = bb_json_serialize(obj_a);
-    char *json_b = bb_json_serialize(obj_b);
-    TEST_ASSERT_NOT_NULL(json_a);
-    TEST_ASSERT_NOT_NULL(json_b);
-
-    TEST_ASSERT_EQUAL_STRING_MESSAGE(json_a, json_b, t->name);
-
-    bb_json_free_str(json_a);
-    bb_json_free_str(json_b);
-    bb_json_free(obj_a);
-    bb_json_free(obj_b);
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-
-// Iterates every topic in the table and checks event == REST output.
-void test_bb_cache_fidelity_all_topics(void)
-{
-    reset_all();
-    for (int i = 0; i < N_TOPICS; i++) {
-        assert_fidelity(&s_topics[i]);
-    }
-}
 
 // Verify register is idempotent (second call is a no-op, no duplicate entries).
 void test_bb_cache_register_idempotent(void)
 {
     reset_all();
     bb_err_t err;
-    err = reg("test.synth", NULL, sizeof(synth_snap_t), synth_serialize);
+    err = reg("test.synth", NULL, sizeof(synth_snap_t));
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    err = reg("test.synth", NULL, sizeof(synth_snap_t), synth_serialize);
+    err = reg("test.synth", NULL, sizeof(synth_snap_t));
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 }
 
-// Verify update mutates the owned struct and is reflected in serialize_into.
-void test_bb_cache_update_reflected_in_serialize(void)
+// Verify update mutates the owned struct and is reflected in a subsequent
+// bb_cache_get_raw().
+void test_bb_cache_update_reflected_in_get_raw(void)
 {
     reset_all();
-    reg("test.synth", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.synth", NULL, sizeof(synth_snap_t));
 
-    synth_snap_t s1 = {.value = 1, .flag = false, .ratio = 0.1};
+    synth_snap_t s1 = {.value = 1, .flag = false, .ratio = 0.1f};
     bb_cache_update(&(bb_cache_update_t){ .key = "test.synth", .snap = &s1 });
-    bb_json_t obj1 = bb_json_obj_new();
-    bb_cache_serialize_into("test.synth", obj1);
-    char *j1 = bb_json_serialize(obj1);
+    synth_snap_t out1 = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.synth", &out1, sizeof(out1)));
+    TEST_ASSERT_EQUAL_INT(1, out1.value);
 
-    synth_snap_t s2 = {.value = 99, .flag = true, .ratio = 3.14};
+    synth_snap_t s2 = {.value = 99, .flag = true, .ratio = 3.14f};
     bb_cache_update(&(bb_cache_update_t){ .key = "test.synth", .snap = &s2 });
-    bb_json_t obj2 = bb_json_obj_new();
-    bb_cache_serialize_into("test.synth", obj2);
-    char *j2 = bb_json_serialize(obj2);
+    synth_snap_t out2 = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.synth", &out2, sizeof(out2)));
+    TEST_ASSERT_EQUAL_INT(99, out2.value);
 
-    // Different values must produce different JSON.
-    TEST_ASSERT_NOT_EQUAL(0, strcmp(j1, j2));
-
-    // Re-serialize after second update must still match.
-    bb_json_t obj3 = bb_json_obj_new();
-    bb_cache_serialize_into("test.synth", obj3);
-    char *j3 = bb_json_serialize(obj3);
-    TEST_ASSERT_EQUAL_STRING(j2, j3);
-
-    bb_json_free_str(j1);
-    bb_json_free_str(j2);
-    bb_json_free_str(j3);
-    bb_json_free(obj1);
-    bb_json_free(obj2);
-    bb_json_free(obj3);
-}
-
-// Verify serialize_into on an unknown topic returns BB_ERR_NOT_FOUND.
-void test_bb_cache_serialize_into_unknown_topic(void)
-{
-    reset_all();
-    bb_json_t obj = bb_json_obj_new();
-    bb_err_t err = bb_cache_serialize_into("no.such.topic", obj);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
-    bb_json_free(obj);
+    // Re-read after the second update must still match.
+    synth_snap_t out3 = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.synth", &out3, sizeof(out3)));
+    TEST_ASSERT_EQUAL_INT(out2.value, out3.value);
 }
 
 // Verify update on an unknown topic returns BB_ERR_NOT_FOUND.
@@ -260,12 +117,11 @@ void test_bb_cache_registry_full(void)
 
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
         snprintf(key_buf, sizeof(key_buf), "test.fill.%d", i);
-        bb_err_t err = reg(key_buf, NULL, sizeof(synth_snap_t), synth_serialize);
+        bb_err_t err = reg(key_buf, NULL, sizeof(synth_snap_t));
         TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, err, "fill should succeed");
     }
     // One more must fail
-    bb_err_t err = reg("test.fill.overflow", NULL,
-                       sizeof(synth_snap_t), synth_serialize);
+    bb_err_t err = reg("test.fill.overflow", NULL, sizeof(synth_snap_t));
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
 }
 
@@ -301,12 +157,12 @@ void test_bb_cache_count_and_foreach_visit_all_registered_topics(void)
     reset_all();
     TEST_ASSERT_EQUAL_UINT(0, bb_cache_count());
 
-    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
-    reg("test.enum.a", NULL, sizeof(synth_snap_t), synth_serialize);
+    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0f};
+    reg("test.enum.a", NULL, sizeof(synth_snap_t));
     bb_cache_update(&(bb_cache_update_t){ .key = "test.enum.a", .snap = &s });
-    reg("test.enum.b", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.enum.b", NULL, sizeof(synth_snap_t));
     bb_cache_update(&(bb_cache_update_t){ .key = "test.enum.b", .snap = &s });
-    reg("test.enum.c", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.enum.c", NULL, sizeof(synth_snap_t));
     bb_cache_update(&(bb_cache_update_t){ .key = "test.enum.c", .snap = &s });
 
     TEST_ASSERT_EQUAL_UINT(3, bb_cache_count());
@@ -325,7 +181,7 @@ void test_bb_cache_count_and_foreach_visit_all_registered_topics(void)
 void test_bb_cache_key_at_free_and_oob_slots(void)
 {
     reset_all();
-    reg("test.enum.only", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.enum.only", NULL, sizeof(synth_snap_t));
 
     bool found_registered = false;
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
@@ -360,7 +216,7 @@ void test_bb_cache_key_at_null_out_returns_invalid_arg(void)
 void test_bb_cache_key_at_undersized_buf_returns_no_space(void)
 {
     reset_all();
-    reg("test.enum.longkey", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.enum.longkey", NULL, sizeof(synth_snap_t));
 
     bool saw_no_space = false;
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
@@ -391,9 +247,9 @@ void test_bb_cache_foreach_null_cb_returns_invalid_arg(void)
 void test_bb_cache_get_raw_round_trip_and_refuses_undersized(void)
 {
     reset_all();
-    reg("test.raw", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.raw", NULL, sizeof(synth_snap_t));
 
-    synth_snap_t in = {.value = 7, .flag = true, .ratio = 2.5};
+    synth_snap_t in = {.value = 7, .flag = true, .ratio = 2.5f};
     bb_err_t err = bb_cache_update(&(bb_cache_update_t){ .key = "test.raw", .snap = &in });
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 
@@ -428,14 +284,14 @@ void test_bb_cache_get_raw_round_trip_and_refuses_undersized(void)
     TEST_ASSERT_EQUAL_UINT8(0xBB, oversized[sizeof(synth_snap_t)]);
 }
 
-static synth_snap_t s_getter_backing = {.value = 5, .flag = true, .ratio = 1.0};
+static synth_snap_t s_getter_backing = {.value = 5, .flag = true, .ratio = 1.0f};
 static const void *get_raw_test_getter(void) { return &s_getter_backing; }
 
 // Verify bb_cache_get_raw on a getter-mode topic returns BB_ERR_INVALID_STATE.
 void test_bb_cache_get_raw_getter_mode_returns_invalid_state(void)
 {
     reset_all();
-    reg("test.raw.getter", get_raw_test_getter, 0, synth_serialize);
+    reg("test.raw.getter", get_raw_test_getter, 0);
 
     unsigned char buf[sizeof(synth_snap_t)];
     bb_err_t err = bb_cache_get_raw("test.raw.getter", buf, sizeof(buf));
@@ -455,7 +311,7 @@ void test_bb_cache_get_raw_absent_topic_returns_not_found(void)
 void test_bb_cache_get_raw_null_args_return_invalid_arg(void)
 {
     reset_all();
-    reg("test.raw.args", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.raw.args", NULL, sizeof(synth_snap_t));
     synth_snap_t s = {0};
     bb_cache_update(&(bb_cache_update_t){ .key = "test.raw.args", .snap = &s });
 
@@ -469,13 +325,12 @@ void test_bb_cache_get_raw_null_args_return_invalid_arg(void)
 // B1-568: find_entry() lock safety under concurrent registration
 // ---------------------------------------------------------------------------
 //
-// Regression test for a torn-read race: bb_cache_update/post/serialize_into/
-// post_serialized/get_serialized used to scan s_entries[] via a raw,
-// unlocked find_entry() while bb_cache_register() concurrently wrote new
-// slot fields under s_reg_lock. This test hammers a stable, already-
-// registered topic with lookups (bb_cache_get_serialized) from one thread
-// while a second thread concurrently registers a burst of new topics --
-// exercising exactly the interleaving the fix (find_entry_locked) guards
+// Regression test for a torn-read race: bb_cache_update/get_raw used to scan
+// s_entries[] via a raw, unlocked find_entry() while bb_cache_register()
+// concurrently wrote new slot fields under s_reg_lock. This test hammers a
+// stable, already-registered topic with lookups (bb_cache_get_raw) from one
+// thread while a second thread concurrently registers a burst of new topics
+// -- exercising exactly the interleaving the fix (find_entry_locked) guards
 // against.
 //
 // NOT A HARD REGRESSION GUARD without a race detector: this test asserts
@@ -511,7 +366,7 @@ static void *b1_568_writer_fn(void *arg)
 {
     b1_568_result_t *res = (b1_568_result_t *)arg;
     for (int i = 0; i < B1_568_BURST_TOPICS; i++) {
-        bb_err_t err = reg(s_b1_568_names[i], NULL, sizeof(synth_snap_t), synth_serialize);
+        bb_err_t err = reg(s_b1_568_names[i], NULL, sizeof(synth_snap_t));
         if (err != BB_OK) {
             res->register_fail_count++;
             continue;
@@ -525,15 +380,14 @@ static void *b1_568_writer_fn(void *arg)
 static void *b1_568_reader_fn(void *arg)
 {
     b1_568_result_t *res = (b1_568_result_t *)arg;
-    char buf[256];
+    synth_snap_t out;
     for (int i = 0; i < B1_568_BURST_TOPICS; i++) {
-        size_t out_len = 0;
-        bb_err_t err = bb_cache_get_serialized("test.b1568.stable", buf, sizeof(buf), &out_len);
+        bb_err_t err = bb_cache_get_raw("test.b1568.stable", &out, sizeof(out));
         if (err != BB_OK) {
             res->lookup_fail_count++;
             continue;
         }
-        if (out_len == 0 || strstr(buf, "\"value\":42") == NULL) {
+        if (out.value != 42) {
             res->lookup_bad_content_count++;
         }
     }
@@ -546,9 +400,9 @@ void test_bb_cache_find_entry_locked_survives_concurrent_registration(void)
 
     // Pre-existing stable entry, looked up by the reader thread throughout
     // the writer thread's registration burst.
-    bb_err_t err = reg("test.b1568.stable", NULL, sizeof(synth_snap_t), synth_serialize);
+    bb_err_t err = reg("test.b1568.stable", NULL, sizeof(synth_snap_t));
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    synth_snap_t stable = {.value = 42, .flag = true, .ratio = 1.0};
+    synth_snap_t stable = {.value = 42, .flag = true, .ratio = 1.0f};
     err = bb_cache_update(&(bb_cache_update_t){ .key = "test.b1568.stable", .snap = &stable });
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 
@@ -587,31 +441,21 @@ void test_bb_cache_register_config_struct_basic(void)
         .key       = "test.cfg.basic",
         .snapshot  = NULL,
         .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     bb_err_t err = bb_cache_register(&cfg);
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 
-    synth_snap_t s = {.value = 5, .flag = true, .ratio = 1.5};
+    synth_snap_t s = {.value = 5, .flag = true, .ratio = 1.5f};
     err = bb_cache_update(&(bb_cache_update_t){ .key = "test.cfg.basic", .snap = &s });
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 
-    bb_json_t obj = bb_json_obj_new();
-    err = bb_cache_serialize_into("test.cfg.basic", obj);
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    char *json = bb_json_serialize(obj);
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"value\":5"));
-    bb_json_free_str(json);
-    bb_json_free(obj);
+    synth_snap_t out = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.cfg.basic", &out, sizeof(out)));
+    TEST_ASSERT_EQUAL_INT(5, out.value);
 }
 
-// Verify bb_cache_register rejects a NULL cfg and NULL cfg->key. cfg->serialize
-// is OPTIONAL (B1-1053 PR1 relaxation, see test_bb_cache_evict.c's own
-// register_null_serialize_accepted/serialize_into_null_serialize_returns_unsupported/
-// get_serialized_null_serialize_returns_unsupported/get_raw_null_serialize_still_works
-// for the full NULL-serialize contract) -- registering with it NULL is
-// accepted here too, not rejected.
+// Verify bb_cache_register rejects a NULL cfg and NULL cfg->key.
 void test_bb_cache_register_config_struct_null_args(void)
 {
     reset_all();
@@ -619,15 +463,9 @@ void test_bb_cache_register_config_struct_null_args(void)
 
     bb_cache_config_t no_key = {
         .key = NULL, .snapshot = NULL, .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize, .flags = BB_CACHE_FLAG_NONE,
+        .flags = BB_CACHE_FLAG_NONE,
     };
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_register(&no_key));
-
-    bb_cache_config_t no_serialize = {
-        .key = "test.cfg.nokey", .snapshot = NULL, .snap_size = sizeof(synth_snap_t),
-        .serialize = NULL, .flags = BB_CACHE_FLAG_NONE,
-    };
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&no_serialize));
 }
 
 // Key-copy UAF test: the caller's key buffer is freed/overwritten immediately
@@ -646,7 +484,6 @@ void test_bb_cache_register_key_is_copied_no_uaf(void)
         .key       = key,
         .snapshot  = NULL,
         .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     bb_err_t err = bb_cache_register(&cfg);
@@ -657,17 +494,13 @@ void test_bb_cache_register_key_is_copied_no_uaf(void)
     free(key);
     key = NULL;
 
-    synth_snap_t s = {.value = 9, .flag = false, .ratio = 0.0};
+    synth_snap_t s = {.value = 9, .flag = false, .ratio = 0.0f};
     err = bb_cache_update(&(bb_cache_update_t){ .key = "test.uaf.key", .snap = &s });
     TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, err, "lookup by original key value must survive freeing the caller's buffer");
 
-    bb_json_t obj = bb_json_obj_new();
-    err = bb_cache_serialize_into("test.uaf.key", obj);
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    char *json = bb_json_serialize(obj);
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"value\":9"));
-    bb_json_free_str(json);
-    bb_json_free(obj);
+    synth_snap_t out = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.uaf.key", &out, sizeof(out)));
+    TEST_ASSERT_EQUAL_INT(9, out.value);
 }
 
 // Over-length key rejected with BB_ERR_INVALID_ARG, never silently truncated.
@@ -685,7 +518,6 @@ void test_bb_cache_register_overlength_key_rejected(void)
         .key       = long_key,
         .snapshot  = NULL,
         .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     bb_err_t err = bb_cache_register(&cfg);
@@ -709,7 +541,6 @@ void test_bb_cache_register_key_at_max_length_boundary_succeeds(void)
         .key       = max_key,
         .snapshot  = NULL,
         .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     bb_err_t err = bb_cache_register(&cfg);
@@ -731,7 +562,6 @@ void test_bb_cache_register_out_first_time_true_on_first_registration(void)
         .key            = "test.first_time",
         .snapshot       = NULL,
         .snap_size      = sizeof(synth_snap_t),
-        .serialize      = synth_serialize,
         .flags          = BB_CACHE_FLAG_NONE,
         .out_first_time = &first_time,
     };
@@ -748,7 +578,6 @@ void test_bb_cache_register_out_first_time_false_on_reregister(void)
         .key            = "test.reregister",
         .snapshot       = NULL,
         .snap_size      = sizeof(synth_snap_t),
-        .serialize      = synth_serialize,
         .flags          = BB_CACHE_FLAG_NONE,
         .out_first_time = &first_time,
     };
@@ -773,7 +602,6 @@ void test_bb_cache_register_out_first_time_null_is_optional(void)
         .key       = "test.no_out_param",
         .snapshot  = NULL,
         .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
         // .out_first_time left NULL (zero-init).
     };
@@ -783,397 +611,17 @@ void test_bb_cache_register_out_first_time_null_is_optional(void)
 }
 
 // ---------------------------------------------------------------------------
-// Envelope contract (B1-570 PR-3): bb_cache_get_serialized wraps the
-// serializer's output as {"ts_ms":<n>,"data":{...}}. bb_cache_serialize_into
-// stays raw (embed-a-section primitive, no envelope).
-// ---------------------------------------------------------------------------
-
-void test_bb_cache_envelope_get_serialized_owned_mode_shape(void)
-{
-    reset_all();
-
-    synth_snap_t s = {.value = 7, .flag = true, .ratio = 1.5};
-    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.env.owned", NULL, sizeof(s), synth_serialize));
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.env.owned", .snap = &s }));
-
-    char buf[256];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.owned", buf, sizeof(buf), &len));
-
-    bb_json_t root = bb_json_parse(buf, len);
-    TEST_ASSERT_NOT_NULL(root);
-
-    double ts = -1;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(root, "ts_ms", &ts));
-    TEST_ASSERT_TRUE(ts > 0);
-
-    bb_json_t data = bb_json_obj_get_item(root, "data");
-    TEST_ASSERT_NOT_NULL(data);
-    double value = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "value", &value));
-    TEST_ASSERT_EQUAL_INT(7, (int)value);
-
-    // "value" must NOT also be at the envelope root (no flat/nested dup).
-    double flat = 0;
-    TEST_ASSERT_FALSE(bb_json_obj_get_number(root, "value", &flat));
-
-    bb_json_free(root);
-}
-
-void test_bb_cache_envelope_owned_mode_ts_frozen_between_reads(void)
-{
-    reset_all();
-
-    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
-    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.env.frozen", NULL, sizeof(s), synth_serialize));
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.env.frozen", .snap = &s }));
-
-    char buf1[256], buf2[256];
-    size_t len1 = 0, len2 = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.frozen", buf1, sizeof(buf1), &len1));
-    usleep(2000);  // clear any clock-resolution ambiguity
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.frozen", buf2, sizeof(buf2), &len2));
-
-    // Owned mode: ts_ms is stamped at bb_cache_update(), not at read time —
-    // two reads with no update in between must be byte-identical.
-    TEST_ASSERT_EQUAL_UINT(len1, len2);
-    TEST_ASSERT_EQUAL_STRING(buf1, buf2);
-}
-
-void test_bb_cache_envelope_owned_mode_ts_advances_on_update(void)
-{
-    reset_all();
-
-    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
-    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.env.advance", NULL, sizeof(s), synth_serialize));
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.env.advance", .snap = &s }));
-
-    char buf1[256];
-    size_t len1 = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.advance", buf1, sizeof(buf1), &len1));
-    bb_json_t root1 = bb_json_parse(buf1, len1);
-    double ts1 = -1;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(root1, "ts_ms", &ts1));
-    bb_json_free(root1);
-
-    usleep(2000);
-    s.value = 2;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.env.advance", .snap = &s }));
-
-    char buf2[256];
-    size_t len2 = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.advance", buf2, sizeof(buf2), &len2));
-    bb_json_t root2 = bb_json_parse(buf2, len2);
-    double ts2 = -1;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(root2, "ts_ms", &ts2));
-    bb_json_free(root2);
-
-    TEST_ASSERT_TRUE(ts2 >= ts1);
-}
-
-static synth_snap_t s_env_getter_val = {.value = 3, .flag = true, .ratio = 2.0};
-
-static const void *env_getter_snapshot(void)
-{
-    return &s_env_getter_val;
-}
-
-void test_bb_cache_envelope_getter_mode_ts_advances_each_read(void)
-{
-    reset_all();
-
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        reg("test.env.getter", env_getter_snapshot, 0, synth_serialize));
-
-    char buf1[256];
-    size_t len1 = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.getter", buf1, sizeof(buf1), &len1));
-    bb_json_t root1 = bb_json_parse(buf1, len1);
-    double ts1 = -1;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(root1, "ts_ms", &ts1));
-    bb_json_free(root1);
-
-    usleep(2000);
-
-    char buf2[256];
-    size_t len2 = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.getter", buf2, sizeof(buf2), &len2));
-    bb_json_t root2 = bb_json_parse(buf2, len2);
-    double ts2 = -1;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(root2, "ts_ms", &ts2));
-    bb_json_free(root2);
-
-    // Getter mode: every call re-samples snapshot() AND re-stamps ts_ms
-    // (the read IS the sample) — the second read must be no earlier.
-    TEST_ASSERT_TRUE(ts2 >= ts1);
-}
-
-void test_bb_cache_envelope_serialize_into_not_enveloped(void)
-{
-    // bb_cache_serialize_into is the embed-a-section primitive — it must
-    // NEVER apply the {"ts_ms","data"} wrapper (that would double-nest a
-    // composed document, e.g. /api/health aggregating multiple keys).
-    reset_all();
-
-    synth_snap_t s = {.value = 5, .flag = true, .ratio = 1.0};
-    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.env.raw", NULL, sizeof(s), synth_serialize));
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.env.raw", .snap = &s }));
-
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.env.raw", obj));
-
-    double value = 0, flat_ts = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "value", &value));
-    TEST_ASSERT_EQUAL_INT(5, (int)value);
-    TEST_ASSERT_FALSE(bb_json_obj_get_number(obj, "ts_ms", &flat_ts));
-    TEST_ASSERT_NULL(bb_json_obj_get_item(obj, "data"));
-
-    bb_json_free(obj);
-}
-
-// ---------------------------------------------------------------------------
-// B1-... PR-4a: bb_cache_update's out_changed change-detection + bb_cache_exists
-// ---------------------------------------------------------------------------
-
-// First write since register must report changed=true, even against a
-// zero-initialized owned buffer (has_value guard, no false negative).
-void test_bb_cache_update_out_changed_first_write_all_zero_reports_changed(void)
-{
-    reset_all();
-    reg("test.ex.firstzero", NULL, sizeof(synth_snap_t), synth_serialize);
-
-    synth_snap_t zero = {0};
-    bool changed = false;
-    bb_err_t err = bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.firstzero", .snap = &zero, .out_changed = &changed });
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    TEST_ASSERT_TRUE(changed);
-}
-
-// Identical rewrite (same bytes) must report changed=false.
-void test_bb_cache_update_out_changed_identical_rewrite_reports_unchanged(void)
-{
-    reset_all();
-    reg("test.ex.identical", NULL, sizeof(synth_snap_t), synth_serialize);
-
-    synth_snap_t s = {.value = 1, .flag = true, .ratio = 0.5};
-    bool changed = true;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.identical", .snap = &s, .out_changed = &changed }));
-    TEST_ASSERT_TRUE(changed);  // first write
-
-    changed = true;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.identical", .snap = &s, .out_changed = &changed }));
-    TEST_ASSERT_FALSE(changed);  // same bytes rewritten
-}
-
-// A different value on a subsequent write must report changed=true.
-void test_bb_cache_update_out_changed_different_value_reports_changed(void)
-{
-    reset_all();
-    reg("test.ex.diff", NULL, sizeof(synth_snap_t), synth_serialize);
-
-    synth_snap_t s1 = {.value = 1, .flag = false, .ratio = 0.0};
-    bool changed = false;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.diff", .snap = &s1, .out_changed = &changed }));
-    TEST_ASSERT_TRUE(changed);
-
-    synth_snap_t s2 = {.value = 2, .flag = false, .ratio = 0.0};
-    changed = false;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.diff", .snap = &s2, .out_changed = &changed }));
-    TEST_ASSERT_TRUE(changed);
-}
-
-// out_changed == NULL must not crash and must still copy in the value.
-void test_bb_cache_update_null_out_changed_does_not_crash(void)
-{
-    reset_all();
-    reg("test.ex.nullout", NULL, sizeof(synth_snap_t), synth_serialize);
-
-    synth_snap_t s = {.value = 3, .flag = true, .ratio = 1.0};
-    bb_err_t err = bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.nullout", .snap = &s });
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.ex.nullout", obj));
-    double value = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "value", &value));
-    TEST_ASSERT_EQUAL_INT(3, (int)value);
-    bb_json_free(obj);
-}
-
-// Getter-mode keys report changed=false always (no owned bytes to diff).
-void test_bb_cache_update_getter_mode_out_changed_reports_unchanged(void)
-{
-    reset_all();
-    reg("test.ex.getter", env_getter_snapshot, 0, synth_serialize);
-
-    synth_snap_t s = {.value = 4, .flag = false, .ratio = 0.0};
-    bool changed = true;
-    bb_err_t err = bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.getter", .snap = &s, .out_changed = &changed });
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    TEST_ASSERT_FALSE(changed);
-}
-
-// Getter-mode with out_changed == NULL must not crash (the getter-mode branch
-// also guards the out_changed pointer independently of owned mode).
-void test_bb_cache_update_getter_mode_null_out_changed_does_not_crash(void)
-{
-    reset_all();
-    reg("test.ex.getter.nullout", env_getter_snapshot, 0, synth_serialize);
-
-    synth_snap_t s = {.value = 4, .flag = false, .ratio = 0.0};
-    bb_err_t err = bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.getter.nullout", .snap = &s });
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-}
-
-// NULL key and NULL snap both independently return BB_ERR_INVALID_ARG.
-void test_bb_cache_update_null_args_returns_invalid_arg(void)
-{
-    reset_all();
-    synth_snap_t s = {0};
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_update(&(bb_cache_update_t){ .key = NULL, .snap = &s }));
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.nullargs", .snap = NULL }));
-}
-
-// A NULL req pointer itself (as opposed to a NULL field inside a non-NULL
-// req) must also return BB_ERR_INVALID_ARG.
-void test_bb_cache_update_null_req_returns_invalid_arg(void)
-{
-    reset_all();
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_update(NULL));
-}
-
-// ts_ms == 0 (the default, zero-init struct field) stamps the envelope
-// sample-time as "now" -- unchanged default behavior for every existing
-// caller that never sets .ts_ms.
-void test_bb_cache_update_ts_ms_zero_stamps_now(void)
-{
-    reset_all();
-    reg("test.tsms.zero", NULL, sizeof(synth_snap_t), synth_serialize);
-
-    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
-    int64_t before = (int64_t)bb_clock_now_ms64();
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_update(&(bb_cache_update_t){ .key = "test.tsms.zero", .snap = &s }));
-    int64_t after = (int64_t)bb_clock_now_ms64();
-
-    char buf[256];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_get_serialized("test.tsms.zero", buf, sizeof(buf), &len));
-    bb_json_t root = bb_json_parse(buf, len);
-    double ts = -1;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(root, "ts_ms", &ts));
-    bb_json_free(root);
-
-    TEST_ASSERT_TRUE((int64_t)ts >= before);
-    TEST_ASSERT_TRUE((int64_t)ts <= after);
-}
-
-// A nonzero .ts_ms overrides the "now" stamp with the caller-supplied sample
-// time (e.g. an ingress source's own timestamp).
-void test_bb_cache_update_ts_ms_nonzero_overrides_stamp(void)
-{
-    reset_all();
-    reg("test.tsms.override", NULL, sizeof(synth_snap_t), synth_serialize);
-
-    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
-    const int64_t custom_ts = 123456789;
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_update(&(bb_cache_update_t){
-            .key = "test.tsms.override", .snap = &s, .ts_ms = custom_ts }));
-
-    char buf[256];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_get_serialized("test.tsms.override", buf, sizeof(buf), &len));
-    bb_json_t root = bb_json_parse(buf, len);
-    double ts = -1;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(root, "ts_ms", &ts));
-    bb_json_free(root);
-
-    TEST_ASSERT_EQUAL_INT64(custom_ts, (int64_t)ts);
-}
-
-// bb_cache_exists rejects a NULL key.
-void test_bb_cache_exists_null_key_returns_false(void)
-{
-    reset_all();
-    TEST_ASSERT_FALSE(bb_cache_exists(NULL));
-}
-
-// bb_cache_update's basic (no out_changed) behavior: succeeds, copies in
-// the value, unknown key -> BB_ERR_NOT_FOUND.
-void test_bb_cache_update_basic_behavior(void)
-{
-    reset_all();
-    reg("test.ex.wrapper", NULL, sizeof(synth_snap_t), synth_serialize);
-
-    synth_snap_t s = {.value = 6, .flag = true, .ratio = 2.0};
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.wrapper", .snap = &s }));
-
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.ex.wrapper", obj));
-    double value = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "value", &value));
-    TEST_ASSERT_EQUAL_INT(6, (int)value);
-    bb_json_free(obj);
-
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, bb_cache_update(&(bb_cache_update_t){ .key = "no.such.ex.topic", .snap = &s }));
-}
-
-// bb_cache_exists: true for a registered key, false for an unregistered key.
-void test_bb_cache_exists_registered_and_unregistered(void)
-{
-    reset_all();
-    TEST_ASSERT_FALSE(bb_cache_exists("test.ex.exists"));
-
-    reg("test.ex.exists", NULL, sizeof(synth_snap_t), synth_serialize);
-    TEST_ASSERT_TRUE(bb_cache_exists("test.ex.exists"));
-
-    TEST_ASSERT_FALSE(bb_cache_exists("no.such.ex.exists.topic"));
-}
-
-void test_bb_cache_envelope_get_serialized_undersized_buffer_untouched(void)
-{
-    // Buffer sizing: the envelope adds fixed overhead on top of the memoized
-    // "data" bytes. A cap that fits "data" alone but not the full envelope
-    // must be refused (BB_ERR_NO_SPACE) WITHOUT a partial write.
-    reset_all();
-
-    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
-    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.env.undersized", NULL, sizeof(s), synth_serialize));
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.env.undersized", .snap = &s }));
-
-    // First, learn the raw "data" length via a big-enough buffer.
-    char big[256];
-    size_t big_len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_get_serialized("test.env.undersized", big, sizeof(big), &big_len));
-
-    // A cap 1 byte short of the full envelope must fail cleanly.
-    char small[256];
-    memset(small, 'Z', sizeof(small));
-    size_t small_cap = big_len;  // < needed (needed == big_len + 1 for the NUL)
-    bb_err_t err = bb_cache_get_serialized("test.env.undersized", small, small_cap, NULL);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
-    TEST_ASSERT_EQUAL_CHAR('Z', small[0]);  // buffer untouched
-}
-
-// ---------------------------------------------------------------------------
 // PR-4a-0: owned+fallback cold-start seed (bb_cache.h tri-state, third combo:
 // snapshot != NULL AND snap_size > 0). Covers: seed-on-first-read, seed
 // invoked at most once, a real write always wins and never re-triggers the
 // seed, the seed does NOT count toward bb_cache_update's out_changed/has_value
-// guard, a fallback getter returning NULL leaves the owned buffer untouched
-// (zero-initialized) without retrying, and every read/serialize entry point
-// (bb_cache_get_serialized, bb_cache_serialize_into, bb_cache_get_raw) seeds
-// consistently. Note: bb_cache core (PR-4a) has no observer/notify machinery
-// yet (that lands in PR-4b) -- "the seed does not fire observers" is
-// trivially true today; there is nothing to subscribe to.
+// guard, and a fallback getter returning NULL leaves the owned buffer
+// untouched (zero-initialized) without retrying. Note: bb_cache core has no
+// observer/notify machinery for this seed -- "the seed does not fire
+// observers" is trivially true; there is nothing to subscribe to.
 // ---------------------------------------------------------------------------
 
-static synth_snap_t s_cs_fallback_val = {.value = 77, .flag = true, .ratio = 4.25};
+static synth_snap_t s_cs_fallback_val = {.value = 77, .flag = true, .ratio = 4.25f};
 static int  s_cs_snapshot_calls;
 static bool s_cs_snapshot_return_null;
 
@@ -1198,100 +646,32 @@ void test_bb_cache_owned_fallback_seeds_on_first_read(void)
     cs_reset();
 
     TEST_ASSERT_EQUAL_INT(BB_OK,
-        reg("test.cs.seed", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize));
+        reg("test.cs.seed", cs_fallback_snapshot, sizeof(synth_snap_t)));
 
-    char buf[256];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_get_serialized("test.cs.seed", buf, sizeof(buf), &len));
-
-    bb_json_t root = bb_json_parse(buf, len);
-    TEST_ASSERT_NOT_NULL(root);
-    bb_json_t data = bb_json_obj_get_item(root, "data");
-    TEST_ASSERT_NOT_NULL(data);
-    double value = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "value", &value));
-    TEST_ASSERT_EQUAL_INT(77, (int)value);
-    bb_json_free(root);
-
+    synth_snap_t out = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.cs.seed", &out, sizeof(out)));
+    TEST_ASSERT_EQUAL_INT(77, out.value);
     TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
 }
 
 // The seed fires at most ONCE while unpopulated -- repeated reads before any
-// real write must not re-invoke the fallback getter. Uses
-// bb_cache_get_serialized, which additionally memoizes via the dirty flag
-// (a second, independent reason the getter isn't re-invoked on reads 2/3).
+// real write must not re-invoke the fallback getter, whether or not the read
+// path memoizes (bb_cache_get_raw has no memoization at all -- it calls
+// maybe_seed_fallback() on every call -- so this specifically proves
+// maybe_seed_fallback()'s OWN idempotency guard, not a caller-side cache).
 void test_bb_cache_owned_fallback_seed_invoked_once_across_reads(void)
 {
     reset_all();
     cs_reset();
 
-    reg("test.cs.once", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
+    reg("test.cs.once", cs_fallback_snapshot, sizeof(synth_snap_t));
 
-    char buf[256];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.cs.once", buf, sizeof(buf), &len));
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.cs.once", buf, sizeof(buf), &len));
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.cs.once", buf, sizeof(buf), &len));
-
-    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
-}
-
-// maybe_seed_fallback's OWN idempotency guard (fallback_seeded), isolated
-// from bb_cache_get_serialized's separate dirty-flag memoization:
-// bb_cache_serialize_into has no dirty gate at all -- it calls
-// serialize_locked (and therefore maybe_seed_fallback) on EVERY call. Two
-// back-to-back calls on an unpopulated owned+fallback entry must still only
-// invoke the fallback getter once -- the second call observes
-// fallback_seeded==true (while has_value is still false, no real write yet)
-// and skips re-invoking it.
-void test_bb_cache_owned_fallback_serialize_into_seed_not_reinvoked_without_dirty_gate(void)
-{
-    reset_all();
-    cs_reset();
-
-    reg("test.cs.reinvoke", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
-
-    bb_json_t obj1 = bb_json_obj_new();
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.cs.reinvoke", obj1));
-    bb_json_free(obj1);
-    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
-
-    bb_json_t obj2 = bb_json_obj_new();
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.cs.reinvoke", obj2));
-    double value = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj2, "value", &value));
-    TEST_ASSERT_EQUAL_INT(77, (int)value);  // still the seeded value
-    bb_json_free(obj2);
+    synth_snap_t out = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.cs.once", &out, sizeof(out)));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.cs.once", &out, sizeof(out)));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.cs.once", &out, sizeof(out)));
 
     TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
-}
-
-// Plain GETTER mode (owned == NULL) reached via bb_cache_serialize_into, the
-// entry point that shares serialize_locked with the owned+fallback path
-// above. Exercises the "e->snapshot && !e->owned" TRUE branch (pure
-// pull-through, no owned buffer, no seeding) in serialize_locked
-// specifically, as distinct from bb_cache_get_serialized's own copy of that
-// same branch (covered elsewhere in this file).
-void test_bb_cache_getter_mode_serialize_into_pull_through(void)
-{
-    reset_all();
-
-    bb_cache_config_t cfg = {
-        .key       = "test.cs.getterpost",
-        .snapshot  = env_getter_snapshot,
-        .snap_size = 0,
-        .serialize = synth_serialize,
-        .flags     = BB_CACHE_FLAG_NONE,
-    };
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
-
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.cs.getterpost", obj));
-    double value = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "value", &value));
-    TEST_ASSERT_EQUAL_INT(3, (int)value);  // s_env_getter_val.value
-    bb_json_free(obj);
 }
 
 // A real bb_cache_update always wins and permanently stops the seed path
@@ -1301,24 +681,18 @@ void test_bb_cache_owned_fallback_real_write_wins_and_stops_seeding(void)
     reset_all();
     cs_reset();
 
-    reg("test.cs.write", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
+    reg("test.cs.write", cs_fallback_snapshot, sizeof(synth_snap_t));
 
     // Trigger the seed via a read before any real write.
-    char buf[256];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.cs.write", buf, sizeof(buf), &len));
+    synth_snap_t out = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.cs.write", &out, sizeof(out)));
     TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
 
-    synth_snap_t written = {.value = 123, .flag = false, .ratio = 9.5};
+    synth_snap_t written = {.value = 123, .flag = false, .ratio = 9.5f};
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.cs.write", .snap = &written }));
 
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.cs.write", buf, sizeof(buf), &len));
-    bb_json_t root = bb_json_parse(buf, len);
-    bb_json_t data = bb_json_obj_get_item(root, "data");
-    double value = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "value", &value));
-    TEST_ASSERT_EQUAL_INT(123, (int)value);
-    bb_json_free(root);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.cs.write", &out, sizeof(out)));
+    TEST_ASSERT_EQUAL_INT(123, out.value);
 
     // The real write (and the read that followed it) must never re-invoke
     // the fallback getter.
@@ -1334,12 +708,10 @@ void test_bb_cache_owned_fallback_first_real_write_reports_changed_even_matching
     reset_all();
     cs_reset();
 
-    reg("test.cs.changed", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
+    reg("test.cs.changed", cs_fallback_snapshot, sizeof(synth_snap_t));
 
-    char buf[256];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_get_serialized("test.cs.changed", buf, sizeof(buf), &len));  // seeds
+    synth_snap_t out = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.cs.changed", &out, sizeof(out)));  // seeds
 
     bool changed = false;
     TEST_ASSERT_EQUAL_INT(BB_OK,
@@ -1356,56 +728,15 @@ void test_bb_cache_owned_fallback_snapshot_returns_null_leaves_zero_value(void)
     cs_reset();
     s_cs_snapshot_return_null = true;
 
-    reg("test.cs.nullsnap", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
+    reg("test.cs.nullsnap", cs_fallback_snapshot, sizeof(synth_snap_t));
 
-    char buf[256];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_get_serialized("test.cs.nullsnap", buf, sizeof(buf), &len));
-    bb_json_t root = bb_json_parse(buf, len);
-    bb_json_t data = bb_json_obj_get_item(root, "data");
-    double value = -1;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "value", &value));
-    TEST_ASSERT_EQUAL_INT(0, (int)value);  // owned buffer stayed zero-initialized
-    bb_json_free(root);
+    synth_snap_t out = {.value = -1};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.cs.nullsnap", &out, sizeof(out)));
+    TEST_ASSERT_EQUAL_INT(0, out.value);  // owned buffer stayed zero-initialized
     TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
 
     // Second read must not retry the failed seed.
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_get_serialized("test.cs.nullsnap", buf, sizeof(buf), &len));
-    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
-}
-
-// bb_cache_get_raw (the compact struct-read path) also seeds when
-// unpopulated -- consistent with the JSON read paths above.
-void test_bb_cache_owned_fallback_get_raw_seeds_when_unpopulated(void)
-{
-    reset_all();
-    cs_reset();
-
-    reg("test.cs.raw", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
-
-    synth_snap_t out = {0};
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.cs.raw", &out, sizeof(out)));
-    TEST_ASSERT_EQUAL_INT(77, out.value);
-    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
-}
-
-// bb_cache_serialize_into (the embed-a-section path) also seeds when
-// unpopulated -- consistent with the enveloped read paths above.
-void test_bb_cache_owned_fallback_serialize_into_seeds(void)
-{
-    reset_all();
-    cs_reset();
-
-    reg("test.cs.serinto", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
-
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.cs.serinto", obj));
-    double value = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "value", &value));
-    TEST_ASSERT_EQUAL_INT(77, (int)value);
-    bb_json_free(obj);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.cs.nullsnap", &out, sizeof(out)));
     TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
 }
 
@@ -1419,7 +750,6 @@ void test_bb_cache_register_owned_mode_requires_snap_size(void)
         .key       = "test.cs.needsize",
         .snapshot  = NULL,
         .snap_size = 0,
-        .serialize = synth_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_register(&cfg));
@@ -1427,26 +757,209 @@ void test_bb_cache_register_owned_mode_requires_snap_size(void)
 }
 
 // ---------------------------------------------------------------------------
+// B1-... PR-4a: bb_cache_update's out_changed change-detection + bb_cache_exists
+// ---------------------------------------------------------------------------
+
+// First write since register must report changed=true, even against a
+// zero-initialized owned buffer (has_value guard, no false negative).
+void test_bb_cache_update_out_changed_first_write_all_zero_reports_changed(void)
+{
+    reset_all();
+    reg("test.ex.firstzero", NULL, sizeof(synth_snap_t));
+
+    synth_snap_t zero = {0};
+    bool changed = false;
+    bb_err_t err = bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.firstzero", .snap = &zero, .out_changed = &changed });
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_TRUE(changed);
+}
+
+// Identical rewrite (same bytes) must report changed=false.
+void test_bb_cache_update_out_changed_identical_rewrite_reports_unchanged(void)
+{
+    reset_all();
+    reg("test.ex.identical", NULL, sizeof(synth_snap_t));
+
+    synth_snap_t s = {.value = 1, .flag = true, .ratio = 0.5f};
+    bool changed = true;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.identical", .snap = &s, .out_changed = &changed }));
+    TEST_ASSERT_TRUE(changed);  // first write
+
+    changed = true;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.identical", .snap = &s, .out_changed = &changed }));
+    TEST_ASSERT_FALSE(changed);  // same bytes rewritten
+}
+
+// A different value on a subsequent write must report changed=true.
+void test_bb_cache_update_out_changed_different_value_reports_changed(void)
+{
+    reset_all();
+    reg("test.ex.diff", NULL, sizeof(synth_snap_t));
+
+    synth_snap_t s1 = {.value = 1, .flag = false, .ratio = 0.0f};
+    bool changed = false;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.diff", .snap = &s1, .out_changed = &changed }));
+    TEST_ASSERT_TRUE(changed);
+
+    synth_snap_t s2 = {.value = 2, .flag = false, .ratio = 0.0f};
+    changed = false;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.diff", .snap = &s2, .out_changed = &changed }));
+    TEST_ASSERT_TRUE(changed);
+}
+
+// out_changed == NULL must not crash and must still copy in the value.
+void test_bb_cache_update_null_out_changed_does_not_crash(void)
+{
+    reset_all();
+    reg("test.ex.nullout", NULL, sizeof(synth_snap_t));
+
+    synth_snap_t s = {.value = 3, .flag = true, .ratio = 1.0f};
+    bb_err_t err = bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.nullout", .snap = &s });
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+
+    synth_snap_t out = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.ex.nullout", &out, sizeof(out)));
+    TEST_ASSERT_EQUAL_INT(3, out.value);
+}
+
+static synth_snap_t s_env_getter_val = {.value = 3, .flag = true, .ratio = 2.0f};
+
+static const void *env_getter_snapshot(void)
+{
+    return &s_env_getter_val;
+}
+
+// Getter-mode keys report changed=false always (no owned bytes to diff).
+void test_bb_cache_update_getter_mode_out_changed_reports_unchanged(void)
+{
+    reset_all();
+    reg("test.ex.getter", env_getter_snapshot, 0);
+
+    synth_snap_t s = {.value = 4, .flag = false, .ratio = 0.0f};
+    bool changed = true;
+    bb_err_t err = bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.getter", .snap = &s, .out_changed = &changed });
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_FALSE(changed);
+}
+
+// Getter-mode with out_changed == NULL must not crash (the getter-mode branch
+// also guards the out_changed pointer independently of owned mode).
+void test_bb_cache_update_getter_mode_null_out_changed_does_not_crash(void)
+{
+    reset_all();
+    reg("test.ex.getter.nullout", env_getter_snapshot, 0);
+
+    synth_snap_t s = {.value = 4, .flag = false, .ratio = 0.0f};
+    bb_err_t err = bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.getter.nullout", .snap = &s });
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+}
+
+// NULL key and NULL snap both independently return BB_ERR_INVALID_ARG.
+void test_bb_cache_update_null_args_returns_invalid_arg(void)
+{
+    reset_all();
+    synth_snap_t s = {0};
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_update(&(bb_cache_update_t){ .key = NULL, .snap = &s }));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.nullargs", .snap = NULL }));
+}
+
+// A NULL req pointer itself (as opposed to a NULL field inside a non-NULL
+// req) must also return BB_ERR_INVALID_ARG.
+void test_bb_cache_update_null_req_returns_invalid_arg(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_update(NULL));
+}
+
+// A nonzero .ts_ms overrides the "now" stamp with the caller-supplied sample
+// time (e.g. an ingress source's own timestamp). ts_ms has no direct public
+// accessor (B1-1119 removed the JSON envelope that used to expose it), so
+// the override is observed indirectly via bb_cache_is_stale(): an AGE_OUT key
+// stamped with an ancient ts_ms must immediately report stale against a
+// millisecond-scale stale window -- if the override were silently ignored
+// (falling back to "now"), the key would still report fresh.
+void test_bb_cache_update_ts_ms_nonzero_overrides_stamp(void)
+{
+    reset_all();
+    bb_cache_config_t cfg = {
+        .key       = "test.tsms.override",
+        .snapshot  = NULL,
+        .snap_size = sizeof(synth_snap_t),
+        .flags     = BB_CACHE_FLAG_NONE,
+        .eviction  = {
+            .policy       = BB_CACHE_EVICT_AGE_OUT,
+            .stale_age_ms = 1,
+            .evict_age_ms = 1000000000,  // effectively never evicts in this test
+        },
+    };
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+
+    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0f};
+    const int64_t ancient_ts = 1;  // epoch ms == 1: decades in the past
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_update(&(bb_cache_update_t){
+            .key = "test.tsms.override", .snap = &s, .ts_ms = ancient_ts }));
+
+    bool stale = false;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_is_stale("test.tsms.override", &stale));
+    TEST_ASSERT_TRUE_MESSAGE(stale, "ts_ms override must have taken effect, not fallen back to \"now\"");
+}
+
+// bb_cache_exists rejects a NULL key.
+void test_bb_cache_exists_null_key_returns_false(void)
+{
+    reset_all();
+    TEST_ASSERT_FALSE(bb_cache_exists(NULL));
+}
+
+// bb_cache_update's basic (no out_changed) behavior: succeeds, copies in
+// the value, unknown key -> BB_ERR_NOT_FOUND.
+void test_bb_cache_update_basic_behavior(void)
+{
+    reset_all();
+    reg("test.ex.wrapper", NULL, sizeof(synth_snap_t));
+
+    synth_snap_t s = {.value = 6, .flag = true, .ratio = 2.0f};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.ex.wrapper", .snap = &s }));
+
+    synth_snap_t out = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.ex.wrapper", &out, sizeof(out)));
+    TEST_ASSERT_EQUAL_INT(6, out.value);
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, bb_cache_update(&(bb_cache_update_t){ .key = "no.such.ex.topic", .snap = &s }));
+}
+
+// bb_cache_exists: true for a registered key, false for an unregistered key.
+void test_bb_cache_exists_registered_and_unregistered(void)
+{
+    reset_all();
+    TEST_ASSERT_FALSE(bb_cache_exists("test.ex.exists"));
+
+    reg("test.ex.exists", NULL, sizeof(synth_snap_t));
+    TEST_ASSERT_TRUE(bb_cache_exists("test.ex.exists"));
+
+    TEST_ASSERT_FALSE(bb_cache_exists("no.such.ex.exists.topic"));
+}
+
+// ---------------------------------------------------------------------------
 // B1-592 PR-A1: bb_cache_delete (runtime eviction primitive)
 // ---------------------------------------------------------------------------
 
 // Deleting an existing key removes it from the registry: exists() flips to
-// false and get_serialized returns BB_ERR_NOT_FOUND.
+// false and get_raw returns BB_ERR_NOT_FOUND.
 void test_bb_cache_delete_existing_removes_entry(void)
 {
     reset_all();
-    reg("test.del.basic", NULL, sizeof(synth_snap_t), synth_serialize);
-    synth_snap_t s = {.value = 1, .flag = true, .ratio = 0.5};
+    reg("test.del.basic", NULL, sizeof(synth_snap_t));
+    synth_snap_t s = {.value = 1, .flag = true, .ratio = 0.5f};
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.del.basic", .snap = &s }));
     TEST_ASSERT_TRUE(bb_cache_exists("test.del.basic"));
 
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_delete("test.del.basic"));
 
     TEST_ASSERT_FALSE(bb_cache_exists("test.del.basic"));
-    char buf[64];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND,
-        bb_cache_get_serialized("test.del.basic", buf, sizeof(buf), &len));
+    synth_snap_t out = {0};
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, bb_cache_get_raw("test.del.basic", &out, sizeof(out)));
 }
 
 // Deleting a key that was never registered returns BB_ERR_NOT_FOUND.
@@ -1464,32 +977,24 @@ void test_bb_cache_delete_null_key_returns_invalid_arg(void)
 }
 
 // Deleting a key and re-registering it under the SAME name must produce a
-// fresh, never-used slot: has_value=false (no stale change-detect memory) and
-// no leftover cached_json from the deleted incarnation. Compared bytewise
-// against a topic that was registered fresh and never touched.
+// fresh, never-used slot: has_value=false (no stale change-detect memory).
+// Compared against a topic that was registered fresh and never touched.
 void test_bb_cache_delete_then_reregister_same_key_is_fresh(void)
 {
     reset_all();
 
-    // Register, write, and force a memoized serialize on the FIRST incarnation.
-    reg("test.del.reuse", NULL, sizeof(synth_snap_t), synth_serialize);
-    synth_snap_t s1 = {.value = 111, .flag = true, .ratio = 9.5};
+    // Register and write the FIRST incarnation.
+    reg("test.del.reuse", NULL, sizeof(synth_snap_t));
+    synth_snap_t s1 = {.value = 111, .flag = true, .ratio = 9.5f};
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.del.reuse", .snap = &s1 }));
-    char scratch[256];
-    size_t scratch_len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_get_serialized("test.del.reuse", scratch, sizeof(scratch), &scratch_len));
 
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_delete("test.del.reuse"));
 
     // Re-register the SAME key -- second incarnation.
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        reg("test.del.reuse", NULL, sizeof(synth_snap_t), synth_serialize));
+    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.del.reuse", NULL, sizeof(synth_snap_t)));
 
-    // A control topic, registered fresh and never touched, for the bytewise
-    // comparison below.
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        reg("test.del.control", NULL, sizeof(synth_snap_t), synth_serialize));
+    // A control topic, registered fresh and never touched, for comparison.
+    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.del.control", NULL, sizeof(synth_snap_t)));
 
     // Both the reused and control keys must report the same out_changed
     // first-write semantics (has_value reset to false by the delete).
@@ -1503,29 +1008,14 @@ void test_bb_cache_delete_then_reregister_same_key_is_fresh(void)
     TEST_ASSERT_TRUE(control_changed);
     TEST_ASSERT_EQUAL(control_changed, reused_changed);
 
-    // Serialized output must match the control topic bytewise -- no stale
-    // cached_json bleeding through from the deleted first incarnation.
-    char reused_buf[256], control_buf[256];
-    size_t reused_len = 0, control_len = 0;
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_get_serialized("test.del.reuse", reused_buf, sizeof(reused_buf), &reused_len));
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_cache_get_serialized("test.del.control", control_buf, sizeof(control_buf), &control_len));
-
-    // Strip the ts_ms envelope field (timestamps may legitimately differ by a
-    // tick) and compare only the "data" payload bytes.
-    bb_json_t reused_root = bb_json_parse(reused_buf, reused_len);
-    bb_json_t control_root = bb_json_parse(control_buf, control_len);
-    TEST_ASSERT_NOT_NULL(reused_root);
-    TEST_ASSERT_NOT_NULL(control_root);
-    char *reused_data = bb_json_serialize(bb_json_obj_get_item(reused_root, "data"));
-    char *control_data = bb_json_serialize(bb_json_obj_get_item(control_root, "data"));
-    TEST_ASSERT_EQUAL_STRING(control_data, reused_data);
-
-    bb_json_free_str(reused_data);
-    bb_json_free_str(control_data);
-    bb_json_free(reused_root);
-    bb_json_free(control_root);
+    // Stored bytes must match the control topic -- no stale bytes bleeding
+    // through from the deleted first incarnation.
+    synth_snap_t reused_out = {0}, control_out = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.del.reuse", &reused_out, sizeof(reused_out)));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.del.control", &control_out, sizeof(control_out)));
+    TEST_ASSERT_EQUAL_INT(control_out.value, reused_out.value);
+    TEST_ASSERT_EQUAL(control_out.flag, reused_out.flag);
+    TEST_ASSERT_EQUAL_FLOAT(control_out.ratio, reused_out.ratio);
 }
 
 // bb_cache_foreach snapshots keys BY VALUE -- a delete that races the
@@ -1558,7 +1048,7 @@ void test_bb_cache_foreach_copy_by_value_survives_delete_during_callback(void)
     s_foreach_del_seen_key[0] = '\0';
     s_foreach_del_deleted_ok = false;
 
-    reg("test.del.foreach.victim", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.del.foreach.victim", NULL, sizeof(synth_snap_t));
 
     bb_err_t err = bb_cache_foreach(foreach_delete_cb, NULL);
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
@@ -1582,14 +1072,14 @@ void test_bb_cache_delete_table_full_guard_still_returns_no_space(void)
 
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
         snprintf(key_buf, sizeof(key_buf), "test.del.fill.%d", i);
-        TEST_ASSERT_EQUAL_INT(BB_OK, reg(key_buf, NULL, sizeof(synth_snap_t), synth_serialize));
+        TEST_ASSERT_EQUAL_INT(BB_OK, reg(key_buf, NULL, sizeof(synth_snap_t)));
     }
 
     // Delete one slot, then refill it -- table is full again.
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_delete("test.del.fill.0"));
-    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.del.fill.0", NULL, sizeof(synth_snap_t), synth_serialize));
+    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.del.fill.0", NULL, sizeof(synth_snap_t)));
 
-    bb_err_t err = reg("test.del.fill.overflow", NULL, sizeof(synth_snap_t), synth_serialize);
+    bb_err_t err = reg("test.del.fill.overflow", NULL, sizeof(synth_snap_t));
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
 }
 
@@ -1600,7 +1090,7 @@ void test_bb_cache_delete_table_full_guard_still_returns_no_space(void)
 void test_bb_cache_delete_getter_mode_entry_no_crash(void)
 {
     reset_all();
-    reg("test.del.getter", get_raw_test_getter, 0, synth_serialize);
+    reg("test.del.getter", get_raw_test_getter, 0);
     TEST_ASSERT_TRUE(bb_cache_exists("test.del.getter"));
 
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_delete("test.del.getter"));
@@ -1626,7 +1116,6 @@ void test_bb_cache_register_owned_alloc_failure_returns_no_space(void)
         .key       = "test.cs.allocfail",
         .snapshot  = NULL,
         .snap_size = sizeof(synth_snap_t),
-        .serialize = synth_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     bb_err_t err = bb_cache_register(&cfg);
@@ -1635,85 +1124,18 @@ void test_bb_cache_register_owned_alloc_failure_returns_no_space(void)
     TEST_ASSERT_FALSE(bb_cache_exists("test.cs.allocfail"));
 }
 
-void test_bb_cache_serialize_into_null_args_return_invalid_arg(void)
-{
-    reset_all();
-    reg("test.si.args", NULL, sizeof(synth_snap_t), synth_serialize);
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_serialize_into(NULL, obj));
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_serialize_into("test.si.args", NULL));
-    bb_json_free(obj);
-}
-
-void test_bb_cache_get_serialized_null_args_return_invalid_arg(void)
-{
-    reset_all();
-    reg("test.gs.args", NULL, sizeof(synth_snap_t), synth_serialize);
-    char buf[64];
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_get_serialized(NULL, buf, sizeof(buf), NULL));
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_get_serialized("test.gs.args", NULL, sizeof(buf), NULL));
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_get_serialized("test.gs.args", buf, 0, NULL));
-}
-
-// bb_cache_get_serialized's fresh-serialize bb_json_obj_new() failure.
-void test_bb_cache_get_serialized_obj_alloc_failure_returns_no_space(void)
-{
-    reset_all();
-    reg("test.gs.objoom", NULL, sizeof(synth_snap_t), synth_serialize);
-    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.gs.objoom", .snap = &s }));
-
-    char buf[128];
-    bb_json_host_force_alloc_fail_after(0);
-    bb_err_t err = bb_cache_get_serialized("test.gs.objoom", buf, sizeof(buf), NULL);
-    bb_json_host_force_alloc_fail_after(-1);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
-}
-
-// bb_cache_get_serialized's fresh-serialize bb_json_serialize() failure.
-void test_bb_cache_get_serialized_serialize_failure_returns_no_space(void)
-{
-    reset_all();
-    reg("test.gs.serfail", NULL, sizeof(synth_snap_t), synth_serialize);
-    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.gs.serfail", .snap = &s }));
-
-    char buf[128];
-    bb_json_host_force_serialize_fail_after(0);
-    bb_err_t err = bb_cache_get_serialized("test.gs.serfail", buf, sizeof(buf), NULL);
-    bb_json_host_force_serialize_fail_after(-1);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
-}
-
-// bb_cache_get_serialized's out_len==NULL on the SUCCESS path (distinct from
-// the undersized-buffer failure path, which also passes NULL but returns
-// before reaching the out_len write).
-void test_bb_cache_get_serialized_null_out_len_on_success(void)
-{
-    reset_all();
-    reg("test.gs.nooutlen", NULL, sizeof(synth_snap_t), synth_serialize);
-    synth_snap_t s = {.value = 3, .flag = true, .ratio = 0.5};
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.gs.nooutlen", .snap = &s }));
-
-    char buf[128];
-    bb_err_t err = bb_cache_get_serialized("test.gs.nooutlen", buf, sizeof(buf), NULL);
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"value\":3"));
-}
-
 // ---------------------------------------------------------------------------
 // B1-592 firmware-review fix: reader-vs-delete TOCTOU/UAF closed by the
 // tombstone + generation-guard invariant (see find_entry_locked_ref()'s doc
-// comment in bb_cache_espidf.c). Every reader (bb_cache_update/post/
-// serialize_into/post_serialized/get_serialized/get_raw) captures an
-// (entry, generation) pair under s_reg_lock, then re-validates BOTH key and
-// generation immediately after acquiring the entry's own lock -- so a
-// concurrent bb_cache_delete() (which never destroys the mutex, only bumps
-// generation and frees the slot) can never be observed as a destroyed-mutex
-// UB or as another key's bytes under this key's name.
+// comment in bb_cache_espidf.c). Every reader (bb_cache_update/get_raw)
+// captures an (entry, generation) pair under s_reg_lock, then re-validates
+// BOTH key and generation immediately after acquiring the entry's own lock
+// -- so a concurrent bb_cache_delete() (which never destroys the mutex, only
+// bumps generation and frees the slot) can never be observed as a
+// destroyed-mutex UB or as another key's bytes under this key's name.
 //
-// This test hammers bb_cache_get_serialized + bb_cache_get_raw on a single
-// churning slot from one thread while a second thread repeatedly deletes and
+// This test hammers bb_cache_get_raw + bb_cache_update on a single churning
+// slot from one thread while a second thread repeatedly deletes and
 // re-registers it -- alternating between the SAME key (same-incarnation
 // reuse) and a DIFFERENT key (cross-key slot reuse, the more dangerous case:
 // a reader must never observe the other key's bytes under its own key name).
@@ -1729,26 +1151,19 @@ void test_bb_cache_get_serialized_null_out_len_on_success(void)
 
 typedef struct { int value; } mt_churn_snap_t;
 
-static void mt_churn_serialize(bb_json_t obj, const void *snap)
-{
-    const mt_churn_snap_t *s = (const mt_churn_snap_t *)snap;
-    bb_json_obj_set_int(obj, "value", s->value);
-}
-
 typedef struct {
     int unexpected_err_count; // any error other than BB_OK/BB_ERR_NOT_FOUND
     int poisoned_count;       // observed a value that belongs to the OTHER key
 } mt_churn_result_t;
 
-// Registers key so every reader entry point can be exercised against the
-// churning slot.
+// Registers key so every surviving reader entry point can be exercised
+// against the churning slot.
 static bb_err_t mt_churn_register(const char *key)
 {
     bb_cache_config_t cfg = {
         .key       = key,
         .snapshot  = NULL,
         .snap_size = sizeof(mt_churn_snap_t),
-        .serialize = mt_churn_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     return bb_cache_register(&cfg);
@@ -1788,34 +1203,13 @@ static void *b1_592_deleter_fn(void *arg)
     return NULL;
 }
 
-// Exercises every reader entry point that captures (entry, generation) via
-// find_entry_locked_ref() and re-validates under e->lock: get_serialized,
-// get_raw, update, serialize_into. Any return other than
-// BB_OK/BB_ERR_NOT_FOUND is unexpected; observing the OTHER key's value
-// under this key's name is poisoning.
+// Exercises every surviving reader entry point that captures (entry,
+// generation) via find_entry_locked_ref() and re-validates under e->lock:
+// get_raw, update. Any return other than BB_OK/BB_ERR_NOT_FOUND is
+// unexpected; observing the OTHER key's value under this key's name is
+// poisoning.
 static void mt_churn_check_one(const char *key, int expected, mt_churn_result_t *res)
 {
-    char buf[128];
-    size_t len = 0;
-    bb_err_t err = bb_cache_get_serialized(key, buf, sizeof(buf), &len);
-    if (err == BB_OK) {
-        bb_json_t root = bb_json_parse(buf, len);
-        if (root) {
-            bb_json_t data = bb_json_obj_get_item(root, "data");
-            double v = -1;
-            // 0 is a legitimate transient (register succeeded, update
-            // hasn't landed under this key's incarnation yet) -- only a
-            // non-zero value that belongs to the OTHER key is poisoning.
-            if (data && bb_json_obj_get_number(data, "value", &v) &&
-                (int)v != 0 && (int)v != expected) {
-                res->poisoned_count++;
-            }
-            bb_json_free(root);
-        }
-    } else if (err != BB_ERR_NOT_FOUND) {
-        res->unexpected_err_count++;
-    }
-
     mt_churn_snap_t raw = {0};
     bb_err_t rerr = bb_cache_get_raw(key, &raw, sizeof(raw));
     if (rerr == BB_OK) {
@@ -1829,21 +1223,6 @@ static void mt_churn_check_one(const char *key, int expected, mt_churn_result_t 
     bb_err_t uerr = bb_cache_update(&(bb_cache_update_t){
         .key = key, .snap = &upd, .out_changed = &changed });
     if (uerr != BB_OK && uerr != BB_ERR_NOT_FOUND) res->unexpected_err_count++;
-
-    bb_json_t obj = bb_json_obj_new();
-    if (obj) {
-        bb_err_t serr = bb_cache_serialize_into(key, obj);
-        if (serr == BB_OK) {
-            double v = -1;
-            if (bb_json_obj_get_number(obj, "value", &v) &&
-                (int)v != 0 && (int)v != expected) {
-                res->poisoned_count++;
-            }
-        } else if (serr != BB_ERR_NOT_FOUND) {
-            res->unexpected_err_count++;
-        }
-        bb_json_free(obj);
-    }
 }
 
 static void *b1_592_reader_fn(void *arg)
@@ -1890,9 +1269,9 @@ void test_bb_cache_delete_reader_race_never_poisons_or_crashes(void)
 // test above is schedule-dependent -- it reliably hits these mismatch
 // branches on some hosts but not others within a bounded iteration count
 // (observed: hit on macOS, missed on the Linux CI runner, which is what
-// tripped Coveralls' patch-line gate on the four call sites below despite
-// 100% branch coverage). bb_cache_test_set_race_hook() (BB_CACHE_TESTING)
-// lets these tests deterministically, single-threadedly reproduce the exact
+// tripped Coveralls' patch-line gate on the call sites below despite 100%
+// branch coverage). bb_cache_test_set_race_hook() (BB_CACHE_TESTING) lets
+// these tests deterministically, single-threadedly reproduce the exact
 // interleaving the guard exists to close: delete-and-re-register the SAME
 // key between find_entry_locked_ref()'s capture and the entry's own lock
 // acquisition, guaranteeing a generation mismatch on the very next check.
@@ -1901,19 +1280,12 @@ void bb_cache_test_set_race_hook(void (*hook)(const char *key));
 
 typedef struct { int value; } race_snap_t;
 
-static void race_serialize(bb_json_t obj, const void *snap)
-{
-    const race_snap_t *s = (const race_snap_t *)snap;
-    bb_json_obj_set_int(obj, "value", s->value);
-}
-
 static bb_err_t race_register(const char *key)
 {
     bb_cache_config_t cfg = {
         .key       = key,
         .snapshot  = NULL,
         .snap_size = sizeof(race_snap_t),
-        .serialize = race_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     return bb_cache_register(&cfg);
@@ -1942,26 +1314,6 @@ static void race_delete_only(const char *key)
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_delete(key));
 }
 
-// Covers serialize_locked's tombstone-mismatch branch via the
-// serialize_into caller.
-void test_bb_cache_serialize_into_delete_race_returns_not_found(void)
-{
-    reset_all();
-    TEST_ASSERT_EQUAL_INT(BB_OK, race_register("test.race.serialize"));
-
-    bb_cache_test_set_race_hook(race_delete_and_reregister);
-
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-    bb_err_t err = bb_cache_serialize_into("test.race.serialize", obj);
-    bb_json_free(obj);
-
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
-    // Hook re-registered the key under a new generation -- confirm the slot
-    // is alive again post-race, not left tombstoned.
-    TEST_ASSERT_TRUE(bb_cache_exists("test.race.serialize"));
-}
-
 // Covers bb_cache_update's own inline tombstone-mismatch branch.
 void test_bb_cache_update_delete_race_returns_not_found(void)
 {
@@ -1978,22 +1330,8 @@ void test_bb_cache_update_delete_race_returns_not_found(void)
     TEST_ASSERT_TRUE(bb_cache_exists("test.race.update"));
 }
 
-// Covers bb_cache_get_serialized's own inline tombstone-mismatch branch.
-void test_bb_cache_get_serialized_delete_race_returns_not_found(void)
-{
-    reset_all();
-    TEST_ASSERT_EQUAL_INT(BB_OK, race_register("test.race.getser"));
-
-    bb_cache_test_set_race_hook(race_delete_and_reregister);
-
-    char buf[128];
-    bb_err_t err = bb_cache_get_serialized("test.race.getser", buf, sizeof(buf), NULL);
-
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
-    TEST_ASSERT_TRUE(bb_cache_exists("test.race.getser"));
-}
-
-// Covers bb_cache_get_raw's own inline tombstone-mismatch branch.
+// Covers bb_cache_get_raw's own inline tombstone-mismatch (generation)
+// branch.
 void test_bb_cache_get_raw_delete_race_returns_not_found(void)
 {
     reset_all();
@@ -2009,21 +1347,19 @@ void test_bb_cache_get_raw_delete_race_returns_not_found(void)
 }
 
 // Covers entry_matches_locked's key-empty (tombstoned, not re-registered)
-// short-circuit branch -- distinct from every race test above, which all
-// delete-AND-reregister (hitting the generation-mismatch branch instead).
-// A bare delete with no re-register leaves key[0] == '\0', so this exercises
-// the FIRST condition's false path rather than the second.
-void test_bb_cache_serialize_into_delete_only_race_returns_not_found(void)
+// short-circuit branch via bb_cache_get_raw -- distinct from every
+// generation-mismatch race test above. A bare delete with no re-register
+// leaves key[0] == '\0', so this exercises the FIRST condition's false path
+// rather than the second.
+void test_bb_cache_get_raw_delete_only_race_returns_not_found(void)
 {
     reset_all();
     TEST_ASSERT_EQUAL_INT(BB_OK, race_register("test.race.delonly"));
 
     bb_cache_test_set_race_hook(race_delete_only);
 
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-    bb_err_t err = bb_cache_serialize_into("test.race.delonly", obj);
-    bb_json_free(obj);
+    race_snap_t out = {0};
+    bb_err_t err = bb_cache_get_raw("test.race.delonly", &out, sizeof(out));
 
     TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
     // Hook did NOT re-register -- the slot stays tombstoned.

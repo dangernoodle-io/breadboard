@@ -16,7 +16,6 @@
 #include "bb_display_info.h"
 #include "bb_display_info_event_priv.h"
 #include "bb_display_info_wire.h"
-#include "bb_json.h"
 #include "bb_serialize.h"
 
 #include <stddef.h>
@@ -58,26 +57,6 @@ void test_bb_display_register_info_registers_cache_key(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_cache_get_raw(BB_DISPLAY_INFO_TOPIC, &out, sizeof(out)));
     TEST_ASSERT_TRUE(out.present);
     TEST_ASSERT_EQUAL_STRING("mock", out.panel);
-}
-
-// ---------------------------------------------------------------------------
-// cfg->serialize is intentionally omitted at registration (B1-1146a) -- the
-// legacy bb_json-embed path (bb_cache_serialize_into) is now BB_ERR_UNSUPPORTED
-// for this key, matching diag.boot's and update.available's own post-cutover
-// contract (see test_bb_cache_fidelity.c's register_null_serialize_accepted
-// family). health.display's REST exposure is being rehomed to
-// system.display under bb_system's diag endpoint (B1-1150), not this
-// component -- this key now renders via bb_data for whoever binds it there.
-// ---------------------------------------------------------------------------
-
-void test_bb_display_register_info_serialize_into_returns_unsupported(void)
-{
-    reset();
-    bb_display_register_info();
-
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_cache_serialize_into(BB_DISPLAY_INFO_TOPIC, obj));
-    bb_json_free(obj);
 }
 
 // ---------------------------------------------------------------------------

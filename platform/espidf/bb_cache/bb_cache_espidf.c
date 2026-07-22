@@ -9,7 +9,6 @@
 #include "bb_timer.h"
 #endif
 #include "bb_cache_internal.h"
-#include "bb_json.h"
 #include "bb_log.h"
 #include "bb_core.h"
 #include "bb_mem.h"
@@ -44,20 +43,15 @@ typedef struct {
                                            // across a seed so the first REAL write still
                                            // reports changed=true unconditionally (see
                                            // maybe_seed_fallback()).
-    bb_cache_serialize_fn fn;
     pthread_mutex_t      lock;            // process-lifetime — see the tombstone/generation
                                            // invariant documented above find_entry_locked_ref().
                                            // NEVER pthread_mutex_destroy'd or re-pthread_mutex_init'd
                                            // once ensure_init() has created it.
     bb_cache_flags_t     flags;           // BB_CACHE_FLAG_* bitmask
-    char                *cached_json;     // memoized serialized "data" bytes (NULL = none yet)
-    size_t               cached_len;      // strlen of cached_json
-    bool                 dirty;           // true = cached_json stale, re-serialize on next get
     // Envelope sample-time (B1-570 PR-3): owned mode is stamped in
     // bb_cache_update() right after the memcpy; getter mode is stamped each
-    // time snapshot() is invoked (serialize_locked / bb_cache_get_serialized).
-    // Producers no longer emit their own ts_ms — bb_cache owns it and wraps
-    // every serialize point ({"ts_ms":N,"data":{...}}).
+    // time snapshot() is invoked (bb_cache_get_raw / bb_cache_snapshot seed
+    // path). Producers no longer emit their own ts_ms — bb_cache owns it.
     int64_t              ts_ms;
     // Age-out eviction (B1-592 A3). policy defaults to BB_CACHE_EVICT_PINNED
     // (0) whenever cfg->eviction is zero-initialized -- preserves the
@@ -130,8 +124,6 @@ void bb_cache_set_write_notify_fn(bb_cache_write_notify_fn fn)
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-static inline bool is_plain_getter(const bb_cache_entry_t *e) { return e->snapshot && !e->owned; }
 
 // Per-slot mutexes are created exactly once, here, and are NEVER destroyed or
 // re-initialized for the life of the process -- see the tombstone/generation
@@ -274,10 +266,6 @@ static void free_entry_locked(bb_cache_entry_t *e)
 {
     bb_mem_free(e->owned);
     e->owned = NULL;
-    if (e->cached_json) bb_json_free_str(e->cached_json);
-    e->cached_json = NULL;
-    e->cached_len = 0;
-    e->dirty = true;
     e->has_value = false;
     e->fallback_seeded = false;
     e->state_version = 0;  // B1-767 PR-3: resets on free, matches register's reset
@@ -383,8 +371,8 @@ static void maybe_seed_fallback(bb_cache_entry_t *e)
 
 // LAZY age-out eviction floor (B1-592 A3). Called under e->lock immediately
 // after entry_matches_locked() succeeds, from every read call site
-// (serialize_locked, bb_cache_get_serialized, bb_cache_get_raw) and from the
-// SWEEP backstop's sweep_cb() below.
+// (bb_cache_get_raw, bb_cache_snapshot) and from the SWEEP backstop's
+// sweep_cb() below.
 //
 // Returns true if the entry was evicted -- e->lock has ALREADY been released
 // by this function and the caller must not touch e any further; the caller's
@@ -478,62 +466,6 @@ static bb_err_t copy_owned_and_capture_locked(bb_cache_entry_t *e, const char *o
     return BB_OK;
 }
 
-// Serialize entry contents into obj under the entry's lock.
-// Entry must not be NULL. Caller holds no lock before calling.
-// key/generation are the identity captured by find_entry_locked_ref(); this
-// function re-validates them immediately after taking e->lock (tombstone/
-// generation guard, see find_entry_locked_ref()'s doc comment) and returns
-// BB_ERR_NOT_FOUND on a mismatch WITHOUT reading or writing any other field.
-// out_ts_ms, when non-NULL, receives the entry's envelope sample-time: for
-// getter-mode entries this call stamps ts_ms = now (the read IS the sample);
-// for owned-mode entries ts_ms was already stamped by the last bb_cache_update.
-static bb_err_t serialize_locked(bb_cache_entry_t *e, const char *key, uint32_t generation,
-                                  bb_json_t obj, int64_t *out_ts_ms)
-{
-    BB_CACHE_TEST_RACE_POINT(key);
-    pthread_mutex_lock(&e->lock);
-
-    if (!entry_matches_locked(e, key, generation)) {
-        pthread_mutex_unlock(&e->lock);
-        return BB_ERR_NOT_FOUND;
-    }
-
-    if (evict_if_aged_out_locked(e)) {
-        return BB_ERR_NOT_FOUND;
-    }
-
-    // No legacy bb_json serializer bound (bb_cache.h: NULL means "render
-    // this key via bb_data instead") -- loud, explicit reject rather than a
-    // NULL-deref on e->fn(...) below. Covers bb_cache_serialize_into() too
-    // (it's a thin wrapper over this function).
-    if (!e->fn) {
-        pthread_mutex_unlock(&e->lock);
-        return BB_ERR_UNSUPPORTED;
-    }
-
-    const void *snap;
-    if (is_plain_getter(e)) {
-        // Plain getter mode: no owned buffer, always pull through.
-        snap = e->snapshot();
-        e->ts_ms = (int64_t)cache_now_ms64();
-    } else {
-        // Plain owned mode, or owned+fallback (seed if still unpopulated).
-        maybe_seed_fallback(e);
-        snap = e->owned;
-    }
-
-    if (!snap) {
-        pthread_mutex_unlock(&e->lock);
-        bb_log_w(TAG, "key '%s': no snapshot available", e->key);
-        return BB_ERR_INVALID_STATE;
-    }
-
-    e->fn(obj, snap);
-    if (out_ts_ms) *out_ts_ms = e->ts_ms;
-    pthread_mutex_unlock(&e->lock);
-    return BB_OK;
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -542,12 +474,6 @@ bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
 {
     if (cfg && cfg->out_first_time) *cfg->out_first_time = false;
 
-    // cfg->serialize is OPTIONAL (B1-1053 PR1 relaxation): NULL means this
-    // key has no legacy bb_json serializer -- bb_cache_serialize_into()/
-    // bb_cache_get_serialized() return BB_ERR_UNSUPPORTED for it instead of
-    // a NULL-deref crash or a silently-empty result. bb_cache still owns the
-    // snapshot store/gather role for such a key (e.g. bb_data's gather hook
-    // reads it via bb_cache_get_raw(), unaffected by this field).
     if (!cfg || !cfg->key) return BB_ERR_INVALID_ARG;
     if (strlen(cfg->key) >= BB_CACHE_KEY_MAX) {
         bb_log_e(TAG, "key '%s' too long (max %d chars)", cfg->key, BB_CACHE_KEY_MAX - 1);
@@ -643,11 +569,7 @@ bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
     slot->size        = cfg->snap_size;
     slot->has_value   = false;
     slot->fallback_seeded = false;
-    slot->fn          = cfg->serialize;
     slot->flags       = cfg->flags;
-    slot->cached_json = NULL;
-    slot->cached_len  = 0;
-    slot->dirty       = true;   // no bytes cached yet
     slot->ts_ms       = 0;      // stamped on first update()/snapshot() read
     slot->policy       = cfg->eviction.policy;
     slot->stale_age_ms = cfg->eviction.stale_age_ms;
@@ -696,7 +618,6 @@ bb_err_t bb_cache_update(const bb_cache_update_t *req)
     // when the caller supplies its own sample time (e.g. ingress/self-emit
     // source timestamp).
     e->ts_ms = req->ts_ms != 0 ? req->ts_ms : (int64_t)cache_now_ms64();
-    e->dirty = true;   // invalidate memoized bytes; do NOT serialize here
     // state_version (B1-767 PR-3): bumps on EVERY successful owned write,
     // unconditionally -- even when `changed` is false (an identical
     // rewrite still counts as a write). Captured under the same lock as
@@ -723,7 +644,7 @@ bb_err_t bb_cache_update(const bb_cache_update_t *req)
 // bb_cache_delete_if_generation() hold it across their entire find+teardown,
 // for the same "no concurrent register/delete can observe a half-torn-down
 // slot" reason documented on bb_cache_delete() below). Frees the entry's
-// owned/cached_json buffers, bumps generation (tombstone -- see
+// owned buffer, bumps generation (tombstone -- see
 // find_entry_locked_ref()'s doc comment), and marks the slot free for reuse.
 // Does NOT release s_reg_lock or fire the evict-notify hook -- both callers
 // do that themselves immediately after this returns.
@@ -835,129 +756,6 @@ bool bb_cache_exists(const char *key)
     ensure_init();
 
     return find_entry_locked(key) != NULL;
-}
-
-bb_err_t bb_cache_serialize_into(const char *key, bb_json_t obj)
-{
-    if (!key || !obj) return BB_ERR_INVALID_ARG;
-
-    ensure_init();
-
-    entry_ref_t ref = find_entry_locked_ref(key);
-    if (!ref.entry) return BB_ERR_NOT_FOUND;
-
-    // No envelope here by design — this call embeds the key's fields directly
-    // as a section of a larger composed document (see header comment).
-    return serialize_locked(ref.entry, key, ref.generation, obj, NULL);
-}
-
-bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t *out_len)
-{
-    if (!key || !buf || cap == 0) return BB_ERR_INVALID_ARG;
-
-    ensure_init();
-
-    entry_ref_t ref = find_entry_locked_ref(key);
-    if (!ref.entry) return BB_ERR_NOT_FOUND;
-    bb_cache_entry_t *e = ref.entry;
-
-    BB_CACHE_TEST_RACE_POINT(key);
-    pthread_mutex_lock(&e->lock);
-    if (!entry_matches_locked(e, key, ref.generation)) {
-        pthread_mutex_unlock(&e->lock);
-        return BB_ERR_NOT_FOUND;
-    }
-    if (evict_if_aged_out_locked(e)) {
-        return BB_ERR_NOT_FOUND;
-    }
-
-    // No legacy bb_json serializer bound -- see the matching guard in
-    // serialize_locked() for the rationale (bb_cache.h: NULL means "render
-    // this key via bb_data instead").
-    if (!e->fn) {
-        pthread_mutex_unlock(&e->lock);
-        return BB_ERR_UNSUPPORTED;
-    }
-
-    // Plain getter-mode entries (no owned buffer) have no dirty signal (data
-    // can change without an update), so always re-serialize. Owned-mode and
-    // owned+fallback entries (both have an owned buffer) memoize via dirty.
-    //
-    // e->cached_json == NULL is provably unreachable whenever e->dirty is
-    // false: the ONLY site that sets dirty = false is immediately after
-    // cached_json = s (a non-NULL successful bb_json_serialize result) a few
-    // lines below; every other write to dirty sets it true, and every write
-    // to cached_json = NULL (free_entry_locked, bb_cache_register) is always
-    // paired with dirty = true in the same scope. So "dirty false, cached_json
-    // NULL" can never coexist -- LCOV_EXCL_BR_LINE on the middle term below.
-    bool need = e->dirty || e->cached_json == NULL || is_plain_getter(e);  // LCOV_EXCL_BR_LINE
-    if (need) {
-        const void *snap;
-        if (is_plain_getter(e)) {
-            snap = e->snapshot();
-            e->ts_ms = (int64_t)cache_now_ms64();  // getter mode: read IS the sample
-        } else {
-            maybe_seed_fallback(e);  // owned+fallback: seed if still unpopulated
-            snap = e->owned;
-        }
-        if (!snap) {
-            pthread_mutex_unlock(&e->lock);
-            bb_log_w(TAG, "key '%s': no snapshot available", e->key);
-            return BB_ERR_INVALID_STATE;
-        }
-
-        bb_json_t obj = bb_json_obj_new();
-        if (!obj) {
-            pthread_mutex_unlock(&e->lock);
-            return BB_ERR_NO_SPACE;
-        }
-
-        // The serializer runs exactly once per generation here. cached_json
-        // holds only the inner "data" bytes -- the envelope ({"ts_ms":N,
-        // "data":...}) is applied below, around the memoized string, on every
-        // read (owned mode: ts_ms is frozen between updates, so the envelope
-        // bytes stay byte-identical across reads within an interval).
-        e->fn(obj, snap);
-        char *s = bb_json_serialize(obj);
-        bb_json_free(obj);
-        if (!s) {
-            pthread_mutex_unlock(&e->lock);
-            return BB_ERR_NO_SPACE;
-        }
-
-        if (e->cached_json) bb_json_free_str(e->cached_json);
-        e->cached_json = s;
-        e->cached_len  = strlen(s);
-        e->dirty       = false;
-    }
-
-    // Wrap the memoized "data" bytes in the envelope and copy out under the
-    // lock. Compute the required length first (snprintf(NULL,0,...)) so an
-    // undersized buffer is refused WITHOUT a partial write, matching the
-    // pre-envelope contract ("buf untouched" on BB_ERR_NO_SPACE).
-    int need_len = snprintf(NULL, 0, "{\"ts_ms\":%" PRId64 ",\"data\":%s}",
-                             e->ts_ms, e->cached_json);
-    if (need_len < 0) {  // LCOV_EXCL_BR_LINE -- snprintf only returns negative
-                          // on an encoding error; unreachable with the fixed,
-                          // well-formed format string above, and there is no
-                          // host fault-injection seam for libc's snprintf.
-        // LCOV_EXCL_START -- body of the unreachable branch above; see the
-        // LCOV_EXCL_BR_LINE justification on the `if` immediately above.
-        pthread_mutex_unlock(&e->lock);
-        return BB_ERR_NO_SPACE;
-        // LCOV_EXCL_STOP
-    }
-    if ((size_t)need_len + 1 > cap) {
-        pthread_mutex_unlock(&e->lock);
-        bb_log_w(TAG, "key '%s': buffer too small (need %d, cap %zu)",
-                 key, need_len + 1, cap);
-        return BB_ERR_NO_SPACE;
-    }
-    snprintf(buf, cap, "{\"ts_ms\":%" PRId64 ",\"data\":%s}", e->ts_ms, e->cached_json);
-    if (out_len) *out_len = (size_t)need_len;
-
-    pthread_mutex_unlock(&e->lock);
-    return BB_OK;
 }
 
 // ---------------------------------------------------------------------------
@@ -1304,8 +1102,8 @@ void bb_cache_reset_for_test(void)
     pthread_mutex_lock(&s_reg_lock);
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
         if (s_entries[i].key[0] != '\0') {
-            // Reuse free_entry_locked for the owned/cached_json/dirty/
-            // has_value/fallback_seeded teardown (dedup -- was hand-rolled
+            // Reuse free_entry_locked for the owned/has_value/
+            // fallback_seeded teardown (dedup -- was hand-rolled
             // here, duplicating bb_cache_delete()'s logic). Deliberately does
             // NOT call pthread_mutex_destroy: the mutex is process-lifetime
             // (see ensure_init()'s comment) and is NEVER destroyed, including
@@ -1319,7 +1117,6 @@ void bb_cache_reset_for_test(void)
 
             s_entries[i].key[0]      = '\0';
             s_entries[i].snapshot    = NULL;
-            s_entries[i].fn          = NULL;
             s_entries[i].flags       = BB_CACHE_FLAG_NONE;
             s_entries[i].ts_ms       = 0;
             s_entries[i].generation  = 0;

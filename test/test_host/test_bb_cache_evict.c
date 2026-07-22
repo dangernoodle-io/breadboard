@@ -12,7 +12,6 @@
 #include "unity.h"
 #include "bb_cache.h"
 #include "bb_cache_internal.h"
-#include "bb_json.h"
 
 #include <string.h>
 #include <stdint.h>
@@ -43,19 +42,12 @@ typedef struct {
     int value;
 } evict_snap_t;
 
-static void evict_serialize(bb_json_t obj, const void *snap)
-{
-    const evict_snap_t *s = (const evict_snap_t *)snap;
-    bb_json_obj_set_int(obj, "value", s->value);
-}
-
 static bb_err_t reg_owned_age_out(const char *key, uint32_t stale_age_ms, uint32_t evict_age_ms)
 {
     bb_cache_config_t cfg = {
         .key       = key,
         .snapshot  = NULL,
         .snap_size = sizeof(evict_snap_t),
-        .serialize = evict_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
         .eviction  = {
             .policy       = BB_CACHE_EVICT_AGE_OUT,
@@ -72,7 +64,6 @@ static bb_err_t reg_owned_pinned(const char *key)
         .key       = key,
         .snapshot  = NULL,
         .snap_size = sizeof(evict_snap_t),
-        .serialize = evict_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
         // .eviction left zero-initialized -- BB_CACHE_EVICT_PINNED.
     };
@@ -139,9 +130,9 @@ void test_bb_cache_evict_lazy_read_before_evict_age_still_served(void)
 
     s_fake_now_ms += 999;  // just under evict_age_ms
 
-    char buf[128];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_cache_get_serialized("evict.a", buf, sizeof(buf), &len));
+    evict_snap_t          out = { 0 };
+    bb_cache_snapshot_t    snap = { 0 };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_snapshot("evict.a", &out, sizeof(out), &snap));
     TEST_ASSERT_TRUE(bb_cache_exists("evict.a"));
     evict_teardown();
 }
@@ -154,9 +145,9 @@ void test_bb_cache_evict_lazy_read_at_evict_age_misses_and_frees(void)
 
     s_fake_now_ms += 1000;  // exactly evict_age_ms
 
-    char buf[128];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_cache_get_serialized("evict.a", buf, sizeof(buf), &len));
+    evict_snap_t          out = { 0 };
+    bb_cache_snapshot_t    snap = { 0 };
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_cache_snapshot("evict.a", &out, sizeof(out), &snap));
     TEST_ASSERT_FALSE(bb_cache_exists("evict.a"));
     evict_teardown();
 }
@@ -171,9 +162,9 @@ void test_bb_cache_evict_lazy_fires_on_remove_via_evict_notify_hook(void)
 
     s_fake_now_ms += 1000;
 
-    char buf[128];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_cache_get_serialized("evict.a", buf, sizeof(buf), &len));
+    evict_snap_t          out = { 0 };
+    bb_cache_snapshot_t    snap = { 0 };
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_cache_snapshot("evict.a", &out, sizeof(out), &snap));
 
     TEST_ASSERT_EQUAL(1, s_on_remove_calls);
     TEST_ASSERT_EQUAL_STRING("evict.a", s_last_remove_key);
@@ -193,38 +184,6 @@ void test_bb_cache_evict_lazy_get_raw_evicts(void)
     evict_teardown();
 }
 
-void test_bb_cache_evict_lazy_serialize_into_evicts(void)
-{
-    evict_setup();
-    TEST_ASSERT_EQUAL(BB_OK, reg_owned_age_out("evict.a", 500, 1000));
-    TEST_ASSERT_EQUAL(BB_OK, update_value("evict.a", 42));
-
-    s_fake_now_ms += 1000;
-
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_cache_serialize_into("evict.a", obj));
-    bb_json_free(obj);
-    evict_teardown();
-}
-
-// B1-1045: bb_cache_post_serialized (bb_event-backed SSE post) is gone --
-// bb_cache_get_serialized (the remaining memoized-read entry point sharing
-// the LAZY eviction floor) covers this call site instead.
-void test_bb_cache_evict_lazy_get_serialized_evicts(void)
-{
-    evict_setup();
-    TEST_ASSERT_EQUAL(BB_OK, reg_owned_age_out("evict.a", 500, 1000));
-    TEST_ASSERT_EQUAL(BB_OK, update_value("evict.a", 42));
-
-    s_fake_now_ms += 1000;
-
-    char buf[128];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND,
-                       bb_cache_get_serialized("evict.a", buf, sizeof(buf), &len));
-    evict_teardown();
-}
-
 void test_bb_cache_evict_pinned_policy_never_evicts(void)
 {
     evict_setup();
@@ -233,9 +192,9 @@ void test_bb_cache_evict_pinned_policy_never_evicts(void)
 
     s_fake_now_ms += 1000ULL * 1000 * 1000;  // absurdly large advance
 
-    char buf[128];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_cache_get_serialized("evict.pinned", buf, sizeof(buf), &len));
+    evict_snap_t          out = { 0 };
+    bb_cache_snapshot_t    snap = { 0 };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_snapshot("evict.pinned", &out, sizeof(out), &snap));
     TEST_ASSERT_TRUE(bb_cache_exists("evict.pinned"));
     evict_teardown();
 }
@@ -406,7 +365,6 @@ void test_bb_cache_register_age_out_getter_mode_rejected(void)
         .key       = "evict.getter",
         .snapshot  = evict_getter,
         .snap_size = 0,
-        .serialize = evict_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
         .eviction  = {
             .policy       = BB_CACHE_EVICT_AGE_OUT,
@@ -428,7 +386,6 @@ void test_bb_cache_register_age_out_pinned_policy_ignores_stale_and_evict(void)
         .key       = "evict.pinned_junk",
         .snapshot  = NULL,
         .snap_size = sizeof(evict_snap_t),
-        .serialize = evict_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
         .eviction  = {
             .policy       = BB_CACHE_EVICT_PINNED,
@@ -534,8 +491,8 @@ void test_bb_cache_evict_sweep_reentrant_delete_key_already_gone(void)
 // the string-keyed public bb_cache_delete(). Its own BB_CACHE_TEST_RACE_POINT
 // -- fired AFTER capturing (key, generation) and releasing e->lock, but
 // BEFORE the generation-checked delete runs -- is the SECOND race point
-// reached inside a single bb_cache_get_serialized() call: the FIRST fires
-// earlier, inside bb_cache_get_serialized() itself (before its own e->lock is
+// reached inside a single bb_cache_get_raw() call: the FIRST fires
+// earlier, inside bb_cache_get_raw() itself (before its own e->lock is
 // even taken the first time). The race hook is one-shot, so a hook installed
 // directly via bb_cache_test_set_race_hook() would be consumed by that
 // EARLIER point and never reach evict_if_aged_out_locked()'s own window at
@@ -575,15 +532,14 @@ void test_bb_cache_evict_lazy_generation_mismatch_race_preserves_reregistered_in
 
     bb_cache_test_set_race_hook(race_stage1_arm_stage2_reregister);
 
-    char buf[128];
-    size_t len = 0;
+    evict_snap_t race_out;
     // This particular read attempt still reports a miss -- the LAZY floor
     // already decided this incarnation is aged-out before the race fires, so
     // the "read misses" contract holds for the ATTEMPT -- but the generation
     // guard must have skipped the actual free/notify of the incarnation that
     // landed underneath it during the race window.
     TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND,
-                       bb_cache_get_serialized("evict.race_gen", buf, sizeof(buf), &len));
+                       bb_cache_get_raw("evict.race_gen", &race_out, sizeof(race_out)));
 
     TEST_ASSERT_TRUE(bb_cache_exists("evict.race_gen"));
     // on_remove fired exactly ONCE so far -- for the race hook's own explicit
@@ -608,7 +564,7 @@ void test_bb_cache_evict_lazy_generation_mismatch_race_preserves_reregistered_in
     TEST_ASSERT_EQUAL(BB_OK, update_value("evict.race_gen_control", 7));
     s_fake_now_ms += 1000;
     TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND,
-                       bb_cache_get_serialized("evict.race_gen_control", buf, sizeof(buf), &len));
+                       bb_cache_get_raw("evict.race_gen_control", &race_out, sizeof(race_out)));
     TEST_ASSERT_EQUAL(2, s_on_remove_calls);
     TEST_ASSERT_EQUAL_STRING("evict.race_gen_control", s_last_remove_key);
 
@@ -642,10 +598,9 @@ void test_bb_cache_evict_lazy_key_deleted_during_race_is_silent_noop(void)
 
     bb_cache_test_set_race_hook(race_stage1_arm_stage2_delete_only);
 
-    char buf[128];
-    size_t len = 0;
+    evict_snap_t race_out;
     TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND,
-                       bb_cache_get_serialized("evict.race_gone", buf, sizeof(buf), &len));
+                       bb_cache_get_raw("evict.race_gone", &race_out, sizeof(race_out)));
 
     TEST_ASSERT_FALSE(bb_cache_exists("evict.race_gone"));
     // on_remove fired exactly ONCE -- for the race hook's own explicit
@@ -654,82 +609,6 @@ void test_bb_cache_evict_lazy_key_deleted_during_race_is_silent_noop(void)
     // notify.
     TEST_ASSERT_EQUAL(1, s_on_remove_calls);
     TEST_ASSERT_EQUAL_STRING("evict.race_gone", s_last_remove_key);
-
-    evict_teardown();
-}
-
-// ---------------------------------------------------------------------------
-// NULL cfg->serialize (B1-1053 PR1 relaxation) -- a key rendered exclusively
-// via bb_data has no legacy bb_json serializer; bb_cache_register() now
-// accepts serialize == NULL, and the two read paths that would otherwise
-// invoke a non-existent fn (bb_cache_serialize_into(), bb_cache_get_serialized())
-// return BB_ERR_UNSUPPORTED instead of crashing or silently returning
-// nothing.
-// ---------------------------------------------------------------------------
-
-static bb_err_t reg_owned_no_serialize(const char *key)
-{
-    bb_cache_config_t cfg = {
-        .key       = key,
-        .snapshot  = NULL,
-        .snap_size = sizeof(evict_snap_t),
-        .serialize = NULL,
-        .flags     = BB_CACHE_FLAG_NONE,
-        // .eviction left zero-initialized -- BB_CACHE_EVICT_PINNED.
-    };
-    return bb_cache_register(&cfg);
-}
-
-void test_bb_cache_register_null_serialize_accepted(void)
-{
-    evict_setup();
-
-    TEST_ASSERT_EQUAL(BB_OK, reg_owned_no_serialize("evict.no_serialize"));
-    TEST_ASSERT_TRUE(bb_cache_exists("evict.no_serialize"));
-
-    evict_teardown();
-}
-
-void test_bb_cache_serialize_into_null_serialize_returns_unsupported(void)
-{
-    evict_setup();
-    TEST_ASSERT_EQUAL(BB_OK, reg_owned_no_serialize("evict.no_serialize"));
-    TEST_ASSERT_EQUAL(BB_OK, update_value("evict.no_serialize", 1));
-
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_cache_serialize_into("evict.no_serialize", obj));
-    bb_json_free(obj);
-
-    evict_teardown();
-}
-
-void test_bb_cache_get_serialized_null_serialize_returns_unsupported(void)
-{
-    evict_setup();
-    TEST_ASSERT_EQUAL(BB_OK, reg_owned_no_serialize("evict.no_serialize"));
-    TEST_ASSERT_EQUAL(BB_OK, update_value("evict.no_serialize", 1));
-
-    char   buf[64];
-    size_t len = 0;
-    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED,
-                       bb_cache_get_serialized("evict.no_serialize", buf, sizeof(buf), &len));
-
-    evict_teardown();
-}
-
-// A NULL-serialize key is still a fully functional bb_data-backed snapshot
-// store -- bb_cache_get_raw()/bb_cache_snapshot() (the paths a bb_data
-// gather hook actually uses) never touch cfg->serialize at all, so they must
-// keep working unaffected by this relaxation.
-void test_bb_cache_get_raw_null_serialize_still_works(void)
-{
-    evict_setup();
-    TEST_ASSERT_EQUAL(BB_OK, reg_owned_no_serialize("evict.no_serialize"));
-    TEST_ASSERT_EQUAL(BB_OK, update_value("evict.no_serialize", 7));
-
-    evict_snap_t out = { 0 };
-    TEST_ASSERT_EQUAL(BB_OK, bb_cache_get_raw("evict.no_serialize", &out, sizeof(out)));
-    TEST_ASSERT_EQUAL(7, out.value);
 
     evict_teardown();
 }

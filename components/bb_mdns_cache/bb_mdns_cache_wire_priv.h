@@ -45,24 +45,22 @@
 // (bb_data_binding_t.key is a single const char*), whereas bb_mdns_cache
 // entries live at an open, RUNTIME-determined set of keys ("<key_prefix>
 // <instance_name>" per peer, bb_mdns_cache_build_key()) -- there is no
-// single "the mdns_cache key" to bind. A future per-key REST/SSE reader
-// (B1-1119) will need a different mechanism -- most likely driving this
-// same descriptor/fill pair directly against bb_cache_foreach()/
-// bb_cache_get_raw() for a caller-supplied key, not bb_data_bind() -- this
-// header only ships the descriptor + fill half of that; the read-path
-// wiring is out of scope here.
+// single "the mdns_cache key" to bind. A future per-key REST/SSE reader will
+// need a different mechanism -- most likely driving this same descriptor/
+// fill pair directly against bb_cache_foreach()/bb_cache_get_raw() for a
+// caller-supplied key, not bb_data_bind() -- this header only ships the
+// descriptor + fill half of that; the read-path wiring is out of scope here.
 //
 // entry_serialize() and its bb_cache .serialize registration (platform/
 // espidf/bb_mdns_cache/bb_mdns_cache.c) are DELETED (B1-1146b, the last
 // producer .serialize callback in the tree) -- this descriptor is the sole
-// remaining serialization path for a peer entry. The generic bb_cache debug
-// dump (GET /api/diag/cache?key=<mdns key>, bb_diag_routes.c) now 501s for
-// any mdns_cache key instead of returning the real payload, identical to
-// what already happened to diag.boot/update.available/health.display after
-// their own B1-1053/B1-1146a cutovers -- there was no dedicated REST route
-// for an mdns_cache key before this PR either, so this is not a regression.
+// remaining serialization path for a peer entry. bb_cache's whole legacy
+// .serialize slot (bb_cache_serialize_fn / bb_cache_get_serialized() /
+// bb_cache_serialize_into()) was subsequently removed entirely (B1-1119) --
+// the debug dump this file used to describe (GET /api/diag/cache) was
+// deleted along with it rather than 501ing for every key.
 //
-// REFRESH FINDING FOR ANY FUTURE READER (B1-1119) -- VERIFIED against the
+// REFRESH FINDING FOR ANY FUTURE READER -- VERIFIED against the
 // actual bodies of platform/espidf/bb_mdns_cache/bb_mdns_cache.c's on_hello()
 // and requery_work_fn(), not assumed: unlike health.display (written
 // EXACTLY ONCE, at registration, per B1-1146a's own finding), a given
