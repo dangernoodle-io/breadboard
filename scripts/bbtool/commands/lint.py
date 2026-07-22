@@ -1,6 +1,7 @@
 """lint command — rules-based source linter."""
 from __future__ import annotations
 import argparse
+import configparser
 import os
 import re
 import sys
@@ -9,7 +10,16 @@ from typing import List, Optional
 
 from core import Context
 from registry import Rule, RULES
-from cmake_parse import parse_requires, ConditionalSetError
+from cmake_parse import (
+    parse_requires,
+    parse_paths,
+    parse_embed_assets,
+    parse_target_include_directories,
+    parse_include_calls,
+    single_opaque_property_vars,
+    strip_cmake_comments,
+    ConditionalSetError,
+)
 from boards import discover_components, ManifestError
 from composition import resolve_composition
 from discovery import build_index, normalize_roots
@@ -1681,6 +1691,355 @@ def _check_emit_seam_unwired_subscriber(ctx: Context) -> list:
     return violations
 
 
+def _find_token_line(content: str, token: str) -> int:
+    """Best-effort line number (1-based) of the first line in `content`
+    containing `token` verbatim; falls back to line 1 when not found (e.g. a
+    token synthesized via ${VAR} indirection that never appears literally in
+    this file's own text)."""
+    for i, line in enumerate(content.splitlines(), 1):
+        if token in line:
+            return i
+    return 1
+
+
+def _embed_assets_out_var(raw_token: str, embed_assets: dict) -> Optional[str]:
+    """Return the `bb_embed_assets(OUT_SRCS <var> ...)` var name if
+    `raw_token` is an exact `${<var>}` reference to a var `parse_embed_assets`
+    modeled for this file, else `None`. A SRCS token matching this is
+    generated at CMake configure time (not a literal on-disk path to check
+    itself) — its ASSETS inputs are validated separately."""
+    if raw_token.startswith("${") and raw_token.endswith("}"):
+        var_name = raw_token[2:-1]
+        if var_name in embed_assets:
+            return var_name
+    return None
+
+
+def _opaque_var_exemption(raw_token: str, stripped_content: str,
+                           single_opaque_vars: dict) -> bool:
+    """True if `raw_token` is exempted from the on-disk existence check
+    because it references (as a `${VAR}` substring, e.g. `${var}/suffix`,
+    not just a bare-token match) a var in `single_opaque_vars`
+    (`cmake_parse.single_opaque_property_vars` — a var whose ENTIRE
+    assignment history in this file is exactly one
+    `idf_component_get_property`/`idf_build_get_property` call) AND that
+    property-get call precedes `raw_token`'s own occurrence in
+    `stripped_content` (both measured in the SAME comment-stripped
+    coordinate space `single_opaque_property_vars` uses).
+
+    Provenance- and order-aware by construction (B1-1134 review HIGH fix):
+    a var name reused for an unrelated `set()`/`list(APPEND)`/second
+    property-get elsewhere in the file is never in `single_opaque_vars` at
+    all (excluded upstream), and a reference that textually PRECEDES its
+    property-get call is never exempted even if the var otherwise
+    qualifies — a name-only, position-blind match (the original,
+    vulnerable form of this check) would have silently exempted both.
+
+    `raw_token`'s own position is approximated as the LEFTMOST occurrence
+    of that exact token text in `stripped_content` (`str.find`) — the most
+    CONSERVATIVE choice when the same literal token string appears more
+    than once in a file (rare in practice): if even the earliest such
+    occurrence doesn't textually follow the property-get, this correctly
+    refuses to exempt, at worst producing an extra, loud, fixable
+    violation rather than ever risking a false-negative exemption. If the
+    token can't be located at all (`str.find` returns -1 — shouldn't
+    happen, since every `raw_token` this is called with was extracted
+    from `stripped_content` itself), this fails closed: never exempt
+    without confirming ordering."""
+    for var_name, prop_pos in single_opaque_vars.items():
+        if ("${" + var_name + "}") not in raw_token:
+            continue
+        ref_pos = stripped_content.find(raw_token)
+        if ref_pos != -1 and ref_pos > prop_pos:
+            return True
+    return False
+
+
+# "file" -> must resolve to an existing file (SRCS, include()'s argument).
+# "dir" -> must resolve to an existing directory (SRC_DIRS, INCLUDE_DIRS,
+# PRIV_INCLUDE_DIRS, target_include_directories()'s arguments).
+_PATH_KEYWORD_KIND = {
+    "SRCS": "file",
+    "SRC_DIRS": "dir",
+    "INCLUDE_DIRS": "dir",
+    "PRIV_INCLUDE_DIRS": "dir",
+}
+
+
+def _resolve_cmake_path_token(comp_dir: Path, label: str, raw_token: str,
+                               kind: str) -> Optional[str]:
+    """Resolve one path-bearing CMake token to an on-disk path and check it
+    exists (`kind="file"` or `kind="dir"`). Returns `None` if it resolves
+    and exists, else a detail string describing the failure — NEVER
+    silently passes a token it couldn't fully resolve; an unrecognized
+    `${VAR}` still left in the token after `${CMAKE_CURRENT_LIST_DIR}`
+    substitution is itself a failure, not a skip. The opaque-var exemption
+    (`_opaque_var_exemption`) is checked by the CALLER, before this
+    function runs — it needs the whole file's comment-stripped text and
+    var-assignment-position map, which this single-token function
+    deliberately doesn't carry."""
+    substituted = raw_token.replace("${CMAKE_CURRENT_LIST_DIR}", str(comp_dir))
+    if "${" in substituted:
+        return f"{label} token '{raw_token}' — unresolved CMake variable"
+
+    p = Path(substituted)
+    if not p.is_absolute():
+        p = comp_dir / substituted
+
+    exists = p.is_file() if kind == "file" else p.is_dir()
+    if exists:
+        return None
+    kind_name = "file" if kind == "file" else "directory"
+    return f"{label} token '{raw_token}' -> {p} — {kind_name} does not exist"
+
+
+# label -> (parser_fn, kind) for every path-bearing CMake command this rule
+# covers in a component's own CMakeLists.txt, beyond idf_component_register
+# itself (handled separately via parse_paths, since it has 4 keyword-scoped
+# sub-lists rather than one flat list). Each parser_fn(content) -> [token,
+# ...]. Adding a newly-covered command is a matter of adding an entry here
+# (data, not a new code path) -- see _check_component_path_unresolved's
+# docstring for the full command inventory, including deliberately
+# excluded commands and why.
+_EXTRA_PATH_COMMANDS = (
+    ("target_include_directories", parse_target_include_directories, "dir"),
+    ("include", parse_include_calls, "file"),
+)
+
+
+def _check_component_path_unresolved(ctx: Context) -> list:
+    """Rule: component-path-unresolved — every filesystem path token a
+    component's own CMakeLists.txt or an example's platformio.ini references
+    must actually resolve on disk.
+
+    Components move between flat and grouped `components/<group>/<name>/`
+    layouts (B1-1134); moving one silently breaks any
+    `${CMAKE_CURRENT_LIST_DIR}/../../...` path that assumed the OLD nesting
+    depth — nothing catches that until a build fails, far from the
+    CMakeLists.txt that actually moved. This includes `include(...)`'s own
+    argument (`components/bb_prov_default_form/CMakeLists.txt:1` includes
+    `cmake/bbtool.cmake` via a depth-dependent relative path — it breaks the
+    same way a stale SRCS path does).
+
+    `examples/*/platformio.ini` gets the same treatment for a second,
+    sneakier failure mode: PlatformIO's `build_src_filter` `+<...>` glob
+    entries do NOT error when a pattern matches zero files — the source
+    silently drops out of the build and only surfaces later as an
+    undefined-reference at LINK time, arbitrarily far from the actual stale
+    path. `-I<dir>` `build_flags` entries get the same existence check.
+
+    ## Command inventory (components/**/CMakeLists.txt)
+
+    Covered, via `cmake_parse.parse_paths` (SRCS/SRC_DIRS/INCLUDE_DIRS/
+    PRIV_INCLUDE_DIRS inside `idf_component_register(...)`),
+    `parse_target_include_directories` (`target_include_directories(...)`'s
+    directory arguments), and `parse_include_calls` (`include(...)`'s
+    file argument, when path-shaped — see that function's docstring for
+    the bare-CMake-module-name carve-out, which is a different resolution
+    mechanism, not a violation or a guess). `_EXTRA_PATH_COMMANDS` is the
+    single place a future command's parser gets registered — the block-
+    finder underneath (`cmake_parse._iter_call_blocks`) already takes a SET
+    of command names, so adding one is data, not a new code path.
+
+    Deliberately excluded, documented here per B1-1134 review (an implicit
+    gap is exactly what produced that finding):
+
+    - `target_link_libraries(...)` — every use in this tree passes a
+      linker FLAG (`"-u <symbol>"`, force-keeping a constructor across
+      `--gc-sections`), never a filesystem path. A real library-path
+      argument would need CMake target-name/generator-expression
+      resolution (`$<TARGET_FILE:...>` etc.), which is out of scope for a
+      text-only parser; if one ever appears, it needs a deliberate,
+      reviewed extension here, not a silent pass.
+    - `idf_build_set_property(...)` — a property SETTER, not a path-bearing
+      call; the one use in this tree (`bb_http_server`) sets
+      `COMPILE_OPTIONS` to a compiler flag string.
+    - `idf_component_get_property`/`idf_build_get_property` — these ARE
+      covered, but NOT as commands with their own path argument to check:
+      they assign a var from ESP-IDF's own build-graph state (e.g.
+      `espcoredump`'s `COMPONENT_DIR`) at CMake configure time, which this
+      text-only parser cannot simulate. `cmake_parse.single_opaque_property_vars`
+      collects every var whose ENTIRE assignment history in the file is
+      EXACTLY ONE such call; any path token ELSEWHERE (e.g. `bb_diag`'s
+      `target_include_directories(... ${espcoredump_dir}/include)`) that
+      references one of those vars, AND whose own occurrence textually
+      FOLLOWS that property-get call, is a MODELED, documented exclusion
+      from the existence check (`_opaque_var_exemption`) — not a violation
+      (not claiming it's broken) and not a guess (never fabricates the
+      var's value). Deliberately provenance- AND order-aware (B1-1134
+      review HIGH): a var name reused for an unrelated `set()`/
+      `list(APPEND)`/second property-get elsewhere in the file, or
+      referenced BEFORE its property-get call, is NEVER exempted, even if
+      SOME occurrence of that name is legitimately a property lookup — a
+      flat "was this name ever assigned via a property call anywhere in
+      the file" check would silently exempt a fabricated, unrelated path
+      that merely happens to reuse a short var name like `dir`.
+    - `target_sources`, `add_subdirectory`, `set_source_files_properties`,
+      `file(...)` (GLOB/COPY/etc.) — NOT present anywhere in
+      `components/**/CMakeLists.txt` today (confirmed by inventory sweep,
+      B1-1134 review), so there is nothing to cover yet. If one of these
+      is ever introduced, extend `_EXTRA_PATH_COMMANDS` (and
+      `cmake_parse.py` with a matching `parse_*` function) the same way
+      `target_include_directories`/`include` were added here — never add a
+      component using one of these without also covering it.
+
+    Reuses `cmake_parse`'s parsers (never a second hand-rolled CMake path
+    parser) and `discovery.build_index` via `_component_cmake_files` (never
+    a hand-rolled `iterdir()` walk — discovery's leaf rule is depth-agnostic,
+    so this rule doesn't care whether a component is flat or grouped).
+
+    Fails loud, never skips: every token is either resolved, MODELED (a
+    known-semantics construct — see above and below), or a violation.
+    There is no fourth category, and never a silent pass:
+
+    - A path keyword `${VAR}` fed by a genuinely conditional `set()` inside
+      an `if()/elseif()/else()` block does NOT need to guess which branch
+      is build-time-live (unlike `parse_requires`'s REQUIRES/PRIV_REQUIRES,
+      where the branches mean different, mutually-exclusive things) —
+      every path-bearing parser above branch-enumerates instead (via
+      `cmake_parse._expand_path_token`), and EVERY branch's path gets
+      checked. This is strictly more coverage than a skip, never less: a
+      component whose relative-path depth breaks after a group-move is
+      still caught even if the broken branch isn't the "obvious" one.
+    - A `${VAR}` populated by `bb_embed_assets(OUT_SRCS <var> ASSETS
+      <file>:<symbol> ...)` (`cmake/bbtool.cmake`'s configure-time asset
+      embed macro) is MODELED via `cmake_parse.parse_embed_assets`: the
+      generated `.c` byte-array source genuinely doesn't exist on disk
+      until CMake runs, so the OUT_SRCS token itself is exempt from the
+      on-disk SRCS check — but every one of its `ASSETS` INPUT files is
+      validated instead (must exist, relative to the component's own
+      directory, mirroring `bb_embed_assets`'s own documented resolution
+      contract). Net effect: more coverage than before (a renamed/deleted
+      asset input is now caught), never an exemption."""
+    violations = []
+    root = Path(ctx.root)
+
+    # -- 1. Component CMakeLists.txt.
+    for cmake_file in _component_cmake_files(ctx):
+        comp_dir = cmake_file.parent
+        comp_name = comp_dir.name
+        content = ctx.read(cmake_file)
+        stripped_content = strip_cmake_comments(content)
+        embed_assets = parse_embed_assets(content)
+        single_opaque_vars = single_opaque_property_vars(content)
+        paths = parse_paths(content, component=comp_name)
+
+        # SRCS / SRC_DIRS / INCLUDE_DIRS / PRIV_INCLUDE_DIRS (idf_component_
+        # register(...)). A SRCS token that's exactly
+        # `${<bb_embed_assets OUT_SRCS var>}` is modeled (its ASSETS inputs
+        # are validated separately below) rather than checked as a literal
+        # on-disk path.
+        for keyword, tokens in paths.items():
+            kind = _PATH_KEYWORD_KIND[keyword]
+            for raw_token in tokens:
+                embed_var = _embed_assets_out_var(raw_token, embed_assets)
+                if embed_var is not None:
+                    continue
+                if _opaque_var_exemption(raw_token, stripped_content, single_opaque_vars):
+                    continue
+                detail = _resolve_cmake_path_token(comp_dir, keyword, raw_token, kind)
+                if detail is None:
+                    continue
+                line_no = _find_token_line(content, raw_token)
+                violations.append(ctx.violation(
+                    cmake_file, line_no, f"component={comp_name} {detail}"))
+
+        # Every other covered path-bearing command (target_include_directories,
+        # include(...), ... -- see _EXTRA_PATH_COMMANDS).
+        for label, parser_fn, kind in _EXTRA_PATH_COMMANDS:
+            for raw_token in parser_fn(content):
+                if _opaque_var_exemption(raw_token, stripped_content, single_opaque_vars):
+                    continue
+                detail = _resolve_cmake_path_token(comp_dir, label, raw_token, kind)
+                if detail is None:
+                    continue
+                line_no = _find_token_line(content, raw_token)
+                violations.append(ctx.violation(
+                    cmake_file, line_no, f"component={comp_name} {detail}"))
+
+        # bb_embed_assets(...)'s ASSETS input files.
+        for out_var, asset_files in embed_assets.items():
+            for asset_file in asset_files:
+                asset_path = Path(asset_file)
+                if not asset_path.is_absolute():
+                    asset_path = comp_dir / asset_file
+                if asset_path.is_file():
+                    continue
+                line_no = _find_token_line(content, asset_file)
+                violations.append(ctx.violation(
+                    cmake_file, line_no,
+                    f"component={comp_name} bb_embed_assets(OUT_SRCS "
+                    f"{out_var} ...) ASSETS token '{asset_file}' -> "
+                    f"{asset_path} — file does not exist"))
+
+    # -- 2. examples/*/platformio.ini: -I<dir> build_flags entries (must
+    #    resolve to an existing directory, relative to the ini file's own
+    #    directory -- PlatformIO resolves compiler -I flags relative to the
+    #    project dir) and +<...> build_src_filter entries (must match at
+    #    least one existing file, relative to PlatformIO's own `src_dir`
+    #    setting -- PlatformIO resolves src_filter patterns relative to
+    #    src_dir, not the ini's own directory; default src_dir is "src" when
+    #    the [platformio] section omits it).
+    for ini_path in sorted(root.glob("examples/*/platformio.ini")):
+        ini_dir = ini_path.parent
+        parser = configparser.ConfigParser(interpolation=None)
+        try:
+            parser.read(ini_path, encoding="utf-8")
+        except configparser.Error as e:
+            violations.append(ctx.violation(
+                ini_path, 1, f"unparseable platformio.ini: {e}"))
+            continue
+
+        src_dir = "src"
+        if parser.has_option("platformio", "src_dir"):
+            src_dir = parser.get("platformio", "src_dir")
+        src_base = ini_dir / src_dir
+
+        for section in parser.sections():
+            if parser.has_option(section, "build_flags"):
+                value = parser.get(section, "build_flags")
+                line_no = _find_token_line(ctx.read(ini_path), "build_flags")
+                for tok in value.split():
+                    if not tok.startswith("-I"):
+                        continue
+                    inc = tok[2:]
+                    inc_path = Path(inc)
+                    if not inc_path.is_absolute():
+                        inc_path = ini_dir / inc
+                    if not inc_path.is_dir():
+                        violations.append(ctx.violation(
+                            ini_path, line_no,
+                            f"[{section}] build_flags -I{inc} -> "
+                            f"{inc_path} — directory does not exist"))
+
+            if parser.has_option(section, "build_src_filter"):
+                value = parser.get(section, "build_src_filter")
+                line_no = _find_token_line(ctx.read(ini_path), "build_src_filter")
+                for tok in value.split():
+                    if not tok.startswith("+<"):
+                        continue
+                    if not tok.endswith(">"):
+                        violations.append(ctx.violation(
+                            ini_path, line_no,
+                            f"[{section}] build_src_filter malformed entry "
+                            f"'{tok}' — missing closing '>'"))
+                        continue
+                    pattern = tok[2:-1]
+                    if not pattern:
+                        violations.append(ctx.violation(
+                            ini_path, line_no,
+                            f"[{section}] build_src_filter empty +<> entry"))
+                        continue
+                    matches = list(src_base.glob(pattern))
+                    if not any(m.is_file() for m in matches):
+                        violations.append(ctx.violation(
+                            ini_path, line_no,
+                            f"[{section}] build_src_filter +<{pattern}> "
+                            f"(base {src_base}) — matches zero files"))
+
+    return violations
+
+
 # ---------------------------------------------------------------------------
 # Rule registry
 # ---------------------------------------------------------------------------
@@ -1855,6 +2214,17 @@ def _register_lint_rules() -> None:
                  " handwire, a `// bbtool:init tier=... consumes=<key>`"
                  " marker paired with a provider's `// bbtool:provides"
                  " key=<key> symbol=<sym>` marker, or allowlist the app",
+        ),
+        Rule(
+            id="component-path-unresolved",
+            default_severity="error",
+            profiles={"library"},
+            check=_check_component_path_unresolved,
+            hint="a component CMakeLists.txt or example platformio.ini"
+                 " references a filesystem path that doesn't resolve on"
+                 " disk -- PlatformIO's build_src_filter +<...> silently"
+                 " drops zero-match entries instead of erroring, surfacing"
+                 " only as a link-time undefined reference",
         ),
     ]
     for rule in rules:
