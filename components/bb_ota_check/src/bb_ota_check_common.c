@@ -2,11 +2,11 @@
 #include "bb_ota_check_internal.h"
 #include "bb_release_manifest.h"
 #include "bb_cache.h"
+#include "bb_clock.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_http_client.h"
 #include "bb_data.h"
-#include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mdns.h"
 #include "bb_settings.h"
@@ -116,26 +116,6 @@ static int semver_compare(const char *a, const char *b)
 static const char *outcome_str(bb_ota_check_outcome_t o);
 
 // ---------------------------------------------------------------------------
-// bb_cache serializer — canonical union shape for update.available
-// ---------------------------------------------------------------------------
-
-void bb_ota_check_serialize(bb_json_t obj, const void *snap)
-{
-    const bb_ota_check_snap_t *s = (const bb_ota_check_snap_t *)snap;
-    bb_json_obj_set_string(obj, "current",       s->current);
-    bb_json_obj_set_string(obj, "latest",        s->latest);
-    bb_json_obj_set_string(obj, "download_url",  s->download_url);
-    bb_json_obj_set_bool  (obj, "available",     s->available);
-    bb_json_obj_set_int   (obj, "ts",            s->ts);
-    bb_json_obj_set_bool  (obj, "last_check_ok", s->last_check_ok);
-    bb_json_obj_set_bool  (obj, "enabled",       s->enabled);
-    bb_json_obj_set_string(obj, "outcome",       s->outcome);
-    if (s->last_check_ts != 0) {
-        bb_json_obj_set_int(obj, "last_check_ts", s->last_check_ts);
-    }
-}
-
-// ---------------------------------------------------------------------------
 // mDNS publish + bb_cache update + SSE post
 // ---------------------------------------------------------------------------
 
@@ -191,12 +171,13 @@ bb_err_t bb_ota_check_init(const bb_ota_check_cfg_t *cfg)
     s_parser = bb_release_manifest_parse_github;
 
     // SSE/broadcast delivery is a bb_data/bb_data_http composition-root
-    // concern now (B1-1045), not bb_cache's -- BB_CACHE_FLAG_NONE.
+    // concern (B1-1045); the REST GET path is now bb_data too (B1-1053 PR3)
+    // -- bb_cache here is purely the snapshot store bb_ota_check_gather()
+    // reads via bb_cache_get_raw(), no .serialize slot, BB_CACHE_FLAG_NONE.
     bb_cache_config_t cache_cfg = {
         .key       = BB_OTA_CHECK_TOPIC,
         .snapshot  = NULL,
         .snap_size = sizeof(bb_ota_check_snap_t),
-        .serialize = bb_ota_check_serialize,
         .flags     = BB_CACHE_FLAG_NONE,
     };
     bb_err_t err = bb_cache_register(&cache_cfg);
@@ -205,6 +186,23 @@ bb_err_t bb_ota_check_init(const bb_ota_check_cfg_t *cfg)
         return err;
     }
     // LCOV_EXCL_STOP
+
+    // Bind "update.available" to bb_data so bb_ota_check_emit_status_json's
+    // bb_data_render() call can resolve it. Called here (not at either
+    // route-registration call site) because bb_ota_check_init() is the one
+    // function both bb_ota_check_register_init() (persistent composition
+    // path) and bb_ota_boot's status_check_ensure_init() (boot-mode path,
+    // platform/espidf/bb_ota_boot/bb_ota_boot.c) already call -- binding here
+    // covers GET /api/update/status on both without a second call site.
+    // Non-fatal like bb_diag_boot_bind()'s call site: a bind failure (e.g.
+    // BB_DATA_MAX_BINDINGS already full) means REST reads BB_ERR_NOT_FOUND
+    // until re-bound, but does not block bb_ota_check itself from working.
+    {
+        bb_err_t derr = bb_ota_check_bind();
+        if (derr != BB_OK) {
+            bb_log_w(TAG, "bb_ota_check_bind failed: %d", (int)derr);
+        }
+    }
 
     bb_mdns_set_txt("update", "unknown");
 
@@ -902,6 +900,50 @@ bb_err_t bb_ota_check_mark_check_on_apply(void)
     return BB_OK;
 }
 
+// Derivation (per-field worst-case JSON bytes, "key":value + trailing
+// comma, all 9 bb_ota_check_wire_desc fields present -- last_check_ts is
+// rendered whenever its .present hook sees last_check_us != 0):
+//   current       -- char[24], bb_strlcpy always NUL-terminates -> 23-char
+//                    max content, no escaping assumed (build-version
+//                    string, not adversarial)            = 10 + 25 = 35
+//   latest        -- char[24], same reasoning             = 9  + 25 = 34
+//   download_url  -- char[256] -> 255-char max content, EXTERNALLY SOURCED
+//                    (fetched from the GitHub release manifest via
+//                    bb_ota_check_set_releases_url(); bb_release_manifest_
+//                    json_sink.c dequotes JSON escapes on ingest, so a
+//                    malicious/misconfigured feed can genuinely land
+//                    '"'/'\\' bytes here) -- worst case every byte escapes
+//                    (bb_json_escape_write() doubles each)
+//                                                          = 15 + 512 = 527
+//   available     -- bool, "false" widest               = 12 + 5  = 17
+//   ts            -- int64_t, assigned directly (wall-clock seconds, no
+//                    derivation constraint) -> full type width,
+//                    INT64_MIN = "-9223372036854775808" (20 chars)
+//                                                          = 5  + 20 = 25
+//   last_check_ok -- bool, "false" widest                = 16 + 5  = 21
+//   enabled       -- bool, "false" widest (today's only caller renders
+//                    "true"=4, 1 byte narrower)           = 10 + 5  = 15
+//   outcome       -- char[24], but only ever populated via outcome_str()'s
+//                    fixed literal set -- longest is "check_on_apply" (14
+//                    chars), NOT the 24-byte buffer size  = 10 + 16 = 26
+//   last_check_ts -- int64_t; in practice derived as
+//                    last_check_us/1000000 (truncating division), which
+//                    bounds it tighter than ts's full width, but the field
+//                    is declared int64_t with no compile-time bound on how
+//                    a future producer might populate it -> sized off the
+//                    TYPE, same as ts                     = 16 + 20 = 36
+// Structural overhead: 8 commas (9 fields) + 2 braces         = 10
+// Total: 35+34+527+17+25+21+15+26+36+10 = 746 bytes -- margin 278 against
+// this 1024-byte buffer (1023 usable, 1 byte reserved for the NUL
+// terminator -- see bb_json_render_impl()). Proven by
+// test_emit_status_json_render_buf_headroom (test_bb_ota_check_emit.c),
+// which drives this exact path (bb_ota_check_now() -> mark_check_on_apply()
+// -> emit_status_json()) with a max-length fixture; the measured render
+// there is 739 bytes (a few bytes under the 746 derived above, since that
+// fixture's last_check_ts hits the tighter truncated-division width rather
+// than the full int64 type bound, and enabled renders "true" by default).
+#define BB_OTA_CHECK_RENDER_BUF_BYTES 1024
+
 bb_err_t bb_ota_check_emit_status_json(bb_http_request_t *req)
 {
     bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
@@ -916,9 +958,17 @@ bb_err_t bb_ota_check_emit_status_json(bb_http_request_t *req)
         return BB_OK;
     }
 
-    // Refresh the cache from live s_status so REST reflects the latest state
-    // (including mark_check_on_apply and runtime nv changes not yet published
-    // via publish_state). Preserves ts from the last SSE publish.
+    // DO NOT DELETE this refresh as "redundant with bb_data_render()'s
+    // per-render gather" -- it is NOT redundant for this key. VERIFIED
+    // against bb_ota_check_gather()'s actual body (bb_ota_check_wire.c)
+    // before this cutover: that gather hook is a PURE PASS-THROUGH over
+    // bb_cache_get_raw() -- it does not itself read live s_status/the
+    // bb_settings opt-out flag. Without this refresh, a GET would freeze at
+    // whatever was last published via publish_state() (periodic check /
+    // publish_initial), missing a since-mark_check_on_apply() transition or
+    // a runtime bb_settings_update_check_enabled_set() toggle with no check
+    // having run since. Preserves ts from the last SSE publish (this
+    // handler has no independent notion of a publish time).
     {
         bb_ota_check_status_t st;
         bb_ota_check_get_status(&st);
@@ -937,31 +987,40 @@ bb_err_t bb_ota_check_emit_status_json(bb_http_request_t *req)
         bb_cache_update(&(bb_cache_update_t){ .key = BB_OTA_CHECK_TOPIC, .snap = &snap });
     }
 
-    bb_json_t obj = bb_json_obj_new();
-    if (!obj) {  // LCOV_EXCL_START — OOM defensive
+    char   scratch[sizeof(bb_ota_check_snap_t)];
+    char   data_buf[BB_OTA_CHECK_RENDER_BUF_BYTES];
+    size_t data_len = 0;
+    bb_data_render_req_t render_req = {
+        .fmt         = BB_FORMAT_JSON,
+        .key         = BB_OTA_CHECK_TOPIC,
+        .query       = NULL,
+        .scratch     = scratch,
+        .scratch_cap = sizeof(scratch),
+        .buf         = data_buf,
+        .buf_cap     = sizeof(data_buf),
+        .out_len     = &data_len,
+    };
+    bb_err_t err = bb_data_render(&render_req);
+    if (err != BB_OK) {
+        // Unbound (BB_ERR_NOT_FOUND, e.g. bb_ota_check_bind() failed at init
+        // due to a full bb_data table) or an over-length render -- either
+        // way this is a producer-side condition, not a client error.
         bb_http_resp_set_status(req, 500);
         bb_http_json_obj_stream_t err_obj;
         bb_http_resp_json_obj_begin(req, &err_obj);
-        bb_http_resp_json_obj_set_str(&err_obj, "error", "alloc failed");
+        bb_http_resp_json_obj_set_str(&err_obj, "error", "render failed");
         bb_http_resp_json_obj_end(&err_obj);
-        return BB_ERR_NO_SPACE;
-    }  // LCOV_EXCL_STOP
-    bb_cache_serialize_into(BB_OTA_CHECK_TOPIC, obj);
-    char *str = bb_json_serialize(obj);
-    bb_json_free(obj);
-    if (!str) {  // LCOV_EXCL_START — OOM defensive
-        bb_http_resp_set_status(req, 500);
-        bb_http_json_obj_stream_t err_obj;
-        bb_http_resp_json_obj_begin(req, &err_obj);
-        bb_http_resp_json_obj_set_str(&err_obj, "error", "serialize failed");
-        bb_http_resp_json_obj_end(&err_obj);
-        return BB_ERR_NO_SPACE;
-    }  // LCOV_EXCL_STOP
-    bb_err_t err = bb_http_resp_set_type(req, "application/json");
-    if (err == BB_OK) err = bb_http_resp_send_chunk(req, str, -1);
-    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
-    bb_json_free_str(str);
-    return err;
+        return err;
+    }
+
+    bb_http_json_obj_stream_t obj;
+    err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+
+    bb_http_resp_json_obj_set_int(&obj, "ts_ms", (int64_t)bb_clock_now_ms64());
+    bb_http_resp_json_obj_set_raw(&obj, "data", data_buf, data_len);
+
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 // ---------------------------------------------------------------------------
@@ -990,6 +1049,23 @@ void bb_ota_check_reset_for_test(void)
     // Reset the in-flight guard so each test starts clean.
     atomic_store(&s_in_flight, false);
 #endif
+}
+
+// See bb_ota_check_internal.h doc comment.
+void bb_ota_check_set_current_for_test(const char *version)
+{
+    pthread_mutex_lock(&s_lock);
+    bb_strlcpy(s_status.current, version, sizeof(s_status.current));
+    pthread_mutex_unlock(&s_lock);
+}
+
+// See bb_ota_check_internal.h doc comment.
+void bb_ota_check_set_ts_for_test(int64_t publish_ts_s, int64_t last_check_us)
+{
+    pthread_mutex_lock(&s_lock);
+    s_last_publish_ts = publish_ts_s;
+    s_status.last_check_us = last_check_us;
+    pthread_mutex_unlock(&s_lock);
 }
 
 #ifndef ESP_PLATFORM

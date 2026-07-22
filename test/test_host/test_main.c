@@ -1051,6 +1051,10 @@ void test_emit_status_json_enabled_reflects_nv_flag(void);
 void test_emit_status_json_obj_begin_fail_returns_err(void);
 void test_emit_status_check_on_apply(void);
 void test_update_outcome_enum_json_matches_outcome_str_values(void);
+void test_emit_status_json_envelope_shape(void);
+void test_emit_status_json_render_unbound_key_propagates_not_found_as_500(void);
+void test_emit_status_json_render_buf_headroom(void);
+void test_ota_check_init_bind_failure_is_non_fatal_and_leaves_key_unbound(void);
 
 // Forward declarations from test_http_utils.c
 void test_url_decode_basic(void);
@@ -3239,6 +3243,7 @@ void test_wire_desc_display_info_gather_rejects_null(void);
 void test_wire_desc_ota_check_render_last_check_ts_zero_omitted(void);
 void test_wire_desc_ota_check_render_last_check_ts_nonzero_present(void);
 void test_wire_desc_ota_check_gather_rejects_null(void);
+void test_wire_desc_ota_check_gather_returns_err_when_not_published(void);
 
 // Forward declarations from test_bb_health.c
 void test_bb_health_register_section_after_freeze_returns_invalid_state(void);
@@ -5734,6 +5739,10 @@ int main(void) {
     RUN_TEST(test_emit_status_json_obj_begin_fail_returns_err);
     RUN_TEST(test_emit_status_check_on_apply);
     RUN_TEST(test_update_outcome_enum_json_matches_outcome_str_values);
+    RUN_TEST(test_emit_status_json_envelope_shape);
+    RUN_TEST(test_emit_status_json_render_unbound_key_propagates_not_found_as_500);
+    RUN_TEST(test_emit_status_json_render_buf_headroom);
+    RUN_TEST(test_ota_check_init_bind_failure_is_non_fatal_and_leaves_key_unbound);
 
     // OTA hooks tests
     RUN_TEST(test_ota_hooks_json_push_start);
@@ -7252,6 +7261,7 @@ int main(void) {
     RUN_TEST(test_wire_desc_ota_check_render_last_check_ts_zero_omitted);
     RUN_TEST(test_wire_desc_ota_check_render_last_check_ts_nonzero_present);
     RUN_TEST(test_wire_desc_ota_check_gather_rejects_null);
+    RUN_TEST(test_wire_desc_ota_check_gather_returns_err_when_not_published);
 
     // bb_health tests
     RUN_TEST(test_bb_health_register_section_after_freeze_returns_invalid_state);

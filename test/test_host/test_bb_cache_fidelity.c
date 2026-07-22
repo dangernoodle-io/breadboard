@@ -4,12 +4,12 @@
 // bb_cache_serialize_into on a fresh obj) byte-equals REST-side serialization
 // (bb_cache_serialize_into on another fresh obj) for every registered topic.
 //
-// Synthetic topic registered here; real topics (update.available,
-// health.display) wire in below in the TOPIC TABLE comment with one entry
-// each. (net.health was removed with the bb_net_health dissolution, B1-969;
-// diag.boot was removed with its bb_data cutover, B1-1053 PR1 -- it
-// registers with cfg->serialize == NULL now, so this file's serialize-based
-// fidelity check no longer applies to it.)
+// Synthetic topic registered here; real topics (health.display) wire in
+// below in the TOPIC TABLE comment with one entry each. (net.health was
+// removed with the bb_net_health dissolution, B1-969; diag.boot was removed
+// with its bb_data cutover, B1-1053 PR1, and update.available with its own
+// cutover, B1-1053 PR3 -- both register with cfg->serialize == NULL now, so
+// this file's serialize-based fidelity check no longer applies to either.)
 //
 // EXTENSION POINT: To add a real topic, add a row to the `s_topics[]` table
 // below following the bb_cache_fidelity_topic_t shape -- ONLY if it still
@@ -21,7 +21,7 @@
 #include "bb_display_info_event_priv.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_ota_check_internal.h"
+#include "bb_ota_check_wire.h"
 #include "bb_mem_test.h"
 #include "bb_json_test_hooks.h"
 
@@ -103,18 +103,6 @@ static const bb_display_snap_t s_display_initial = {
     .enabled = true,
 };
 
-static const bb_ota_check_snap_t s_update_initial = {
-    .current       = "",
-    .latest        = "",
-    .download_url  = "",
-    .available     = false,
-    .ts            = 0,
-    .last_check_ok = false,
-    .enabled       = false,
-    .outcome       = "unknown",
-    .last_check_ts = 0,
-};
-
 static const bb_cache_fidelity_topic_t s_topics[] = {
     {
         .name         = "test.synth",
@@ -123,17 +111,11 @@ static const bb_cache_fidelity_topic_t s_topics[] = {
         .serialize    = synth_serialize,
         .initial_snap = &s_synth_initial,
     },
-    // diag.boot REMOVED (B1-1053 PR1) -- it registers with cfg->serialize ==
-    // NULL now (rendered via bb_data instead), so it's structurally out of
-    // scope for this file's "event == REST via bb_cache_serialize_into"
-    // fidelity check. The other 3 topics below still exercise the mechanism.
-    {
-        .name         = BB_OTA_CHECK_TOPIC,
-        .snapshot     = NULL,
-        .snap_size    = sizeof(bb_ota_check_snap_t),
-        .serialize    = bb_ota_check_serialize,
-        .initial_snap = &s_update_initial,
-    },
+    // diag.boot REMOVED (B1-1053 PR1) and update.available REMOVED (B1-1053
+    // PR3) -- both register with cfg->serialize == NULL now (rendered via
+    // bb_data instead), so they're structurally out of scope for this
+    // file's "event == REST via bb_cache_serialize_into" fidelity check.
+    // The remaining topic below still exercises the mechanism.
     {
         .name         = BB_DISPLAY_INFO_TOPIC,
         .snapshot     = NULL,

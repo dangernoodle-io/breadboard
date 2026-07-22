@@ -4,21 +4,20 @@
 
 #include "bb_cache.h"
 #include "bb_core.h"
-#include "bb_json.h"
 #include "bb_ota_check.h"
 // BB_OTA_CHECK_TOPIC + bb_ota_check_snap_t + bb_ota_check_wire_desc
 // (B1-1045 PR-2 wire primitive) now live in the public bb_ota_check_wire.h
 // -- moved there so the wire descriptor can reuse the snapshot struct
 // directly rather than a widened parallel one (see bb_ota_check_wire.h
-// banner).
+// banner). bb_ota_check_serialize() (the legacy bb_json bb_cache
+// serializer this header used to declare) was deleted in B1-1053 PR3 --
+// GET /api/update/status now renders via bb_data_render() against
+// bb_ota_check_wire_desc instead (see bb_ota_check_emit_status_json(),
+// bb_ota_check_common.c).
 #include "bb_ota_check_wire.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-
-// Serializer — signature matches bb_cache_serialize_fn.
-// Emits the canonical union shape for both SSE and REST.
-void bb_ota_check_serialize(bb_json_t obj, const void *snap);
 
 #ifdef __cplusplus
 extern "C" {
@@ -78,6 +77,20 @@ bool bb_ota_check_get_in_flight_for_test(void);
 // Used by tests that verify claim acquire/release around the apply path.
 const char *bb_ota_check_ota_claim_holder_for_test(void);
 #endif
+
+// Headroom worst-case fixture support (BB_OTA_CHECK_RENDER_BUF_BYTES proof,
+// test_emit_status_json_render_buf_headroom). `current` has no public
+// setter -- it is meant to reflect the running firmware's own version,
+// fixed at bb_ota_check_init() time from bb_system_get_version() -- so a
+// genuine max-length fixture needs to inject it directly.
+void bb_ota_check_set_current_for_test(const char *version);
+
+// Headroom worst-case fixture support: directly overrides s_last_publish_ts
+// (the "ts" wire field) and s_status.last_check_us (the microsecond source
+// of the "last_check_ts" wire field) so a fixture can drive both int64
+// fields toward their full-width extremes without waiting on wall-clock
+// time.
+void bb_ota_check_set_ts_for_test(int64_t publish_ts_s, int64_t last_check_us);
 #endif
 
 #ifdef __cplusplus

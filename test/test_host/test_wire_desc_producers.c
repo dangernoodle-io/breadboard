@@ -533,31 +533,35 @@ void test_wire_desc_display_info_gather_rejects_null(void)
 
 // ---------------------------------------------------------------------------
 // 4c. bb_ota_check (update.available) -- last_check_ts==0 (omitted) /
-// !=0, byte-equal to bb_ota_check_serialize(). Directly reuses
-// bb_ota_check_snap_t -- no widened parallel struct.
+// !=0.
+//
+// B1-1053 PR3 CUTOVER NOTE: like diag.boot's 4a section above,
+// update.available's REST GET path has now moved onto bb_data_render() and
+// its bb_json bb_cache serializer (bb_ota_check_serialize(),
+// components/bb_ota_check/src/bb_ota_check_common.c) is DELETED -- there is
+// no more "old" implementation to diff against. These tests now pin the
+// rendered JSON against hand-written literal golden strings instead,
+// derived from bb_ota_check_wire_desc's known field order/presence-gating
+// (bb_ota_check_wire.c) -- byte-identical to what the retired serializer
+// used to produce for the same fixture (that parity was proven by this
+// exact test group before the cutover).
 // ---------------------------------------------------------------------------
 
-static char *ota_check_serialize_to_str(const bb_ota_check_snap_t *snap)
+static void ota_check_render_eq(const bb_ota_check_snap_t *raw, const char *golden)
 {
-    bb_json_t obj = bb_json_obj_new();
-    if (!obj) return NULL;
-    bb_ota_check_serialize(obj, snap);
-    char *str = bb_json_serialize(obj);
-    bb_json_free(obj);
-    return str;
-}
-
-static void ota_check_render_eq_current_serializer(const bb_ota_check_snap_t *raw)
-{
-    char *golden = ota_check_serialize_to_str(raw);
-    TEST_ASSERT_NOT_NULL(golden);
-
+    // Register + populate the update.available bb_cache entry so
+    // bb_ota_check_gather() can read it back via bb_cache_get_raw(). Reset
+    // first for test isolation (mirrors diag_boot_render_eq() above).
     bb_cache_reset_for_test();
     bb_cache_config_t cfg = {
         .key       = BB_OTA_CHECK_TOPIC,
         .snapshot  = NULL,
         .snap_size = sizeof(bb_ota_check_snap_t),
-        .serialize = bb_ota_check_serialize,
+        // .serialize left NULL -- this key has no legacy bb_json serializer
+        // anymore (B1-1053 PR3); bb_cache_register() accepts that now (see
+        // bb_cache.h's field doc). Only bb_cache_get_raw() (via
+        // bb_ota_check_gather()) reads this entry, never
+        // bb_cache_serialize_into()/bb_cache_get_serialized().
     };
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
     TEST_ASSERT_EQUAL_INT(BB_OK,
@@ -567,7 +571,6 @@ static void ota_check_render_eq_current_serializer(const bb_ota_check_snap_t *ra
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_ota_check_gather(&wire));
 
     render_eq(&bb_ota_check_wire_desc, &wire, golden);
-    bb_json_free_str(golden);
 }
 
 void test_wire_desc_ota_check_render_last_check_ts_zero_omitted(void)
@@ -579,7 +582,10 @@ void test_wire_desc_ota_check_render_last_check_ts_zero_omitted(void)
     snap.last_check_ok = true;
     snap.enabled        = true;
     snap.last_check_ts  = 0;
-    ota_check_render_eq_current_serializer(&snap);
+    ota_check_render_eq(&snap,
+        "{\"current\":\"1.0.0\",\"latest\":\"1.0.0\",\"download_url\":\"\","
+        "\"available\":false,\"ts\":0,\"last_check_ok\":true,\"enabled\":true,"
+        "\"outcome\":\"up_to_date\"}");
 }
 
 void test_wire_desc_ota_check_render_last_check_ts_nonzero_present(void)
@@ -594,10 +600,26 @@ void test_wire_desc_ota_check_render_last_check_ts_nonzero_present(void)
     snap.last_check_ok  = true;
     snap.enabled        = true;
     snap.last_check_ts  = 1735689600;
-    ota_check_render_eq_current_serializer(&snap);
+    ota_check_render_eq(&snap,
+        "{\"current\":\"1.0.0\",\"latest\":\"1.1.0\","
+        "\"download_url\":\"https://example.com/fw.bin\","
+        "\"available\":true,\"ts\":1735689600,\"last_check_ok\":true,\"enabled\":true,"
+        "\"outcome\":\"available\",\"last_check_ts\":1735689600}");
 }
 
 void test_wire_desc_ota_check_gather_rejects_null(void)
 {
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_ota_check_gather(NULL));
+}
+
+// bb_cache_get_raw() propagation path -- BB_OTA_CHECK_TOPIC never
+// registered, so the read-miss BB_ERR_NOT_FOUND must flow straight back out
+// of bb_ota_check_gather() unmodified (the `if (err != BB_OK) return err;`
+// early-return branch).
+void test_wire_desc_ota_check_gather_returns_err_when_not_published(void)
+{
+    bb_cache_reset_for_test();
+
+    bb_ota_check_snap_t wire;
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, bb_ota_check_gather(&wire));
 }

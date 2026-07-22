@@ -176,15 +176,26 @@ bb_err_t bb_ota_check_get_status(bb_ota_check_status_t *out);
 // Returns BB_ERR_INVALID_STATE if init hasn't run.
 bb_err_t bb_ota_check_mark_check_on_apply(void);
 
-// Serialize the current bb_ota_check status to JSON and send it as an HTTP
-// response body. Emits the same JSON shape as GET /api/update/status (fields:
-// current, latest, download_url, available, last_check_ok, enabled, outcome,
-// last_check_ts). Sets CORS headers. Returns 503 with {"error":"not initialized"}
-// if bb_ota_check_init has not been called. This is the shared emitter used
-// by both the persistent bb_ota_check route and the boot-mode on-demand route
-// (bb_ota_boot with CONFIG_BB_OTA_BOOT_STATUS_HTTP); the JSON shape is the
-// public contract for taipan-cli and the webui — do not change without a
-// coordinated consumer update.
+// Render the current bb_ota_check status via bb_data_render() (against the
+// "update.available" bb_data binding, bb_ota_check_wire.c) and send it as an
+// HTTP response body. Sets CORS headers. Returns 503 with
+// {"error":"not initialized"} if bb_ota_check_init has not been called. This
+// is the shared emitter used by both the persistent bb_ota_check route and
+// the boot-mode on-demand route (bb_ota_boot with
+// CONFIG_BB_OTA_BOOT_STATUS_HTTP).
+//
+// BREAKING (B1-1053 PR3): the response root changed from a bare object to
+// the {"ts_ms":N,"data":{...}} envelope -- "data" carries exactly the fields
+// this route used to emit at the root (current, latest, download_url,
+// available, last_check_ok, enabled, outcome, last_check_ts). ts_ms is
+// bb_clock_now_ms64() read at RENDER time ("when this response was
+// generated"), not the underlying snapshot's sample time -- bb_data_render()
+// has no notion of one (mirrors GET /api/diag/boot's B1-1053 PR1 cutover,
+// components/bb_diag/bb_diag_boot_wire.c). data's field shape is still the
+// public contract for taipan-cli and the webui — do not change it without a
+// coordinated consumer update; the envelope wrapper itself is new but wire
+// compat for the shape change is waived per KB 1384 (same waiver diag.boot
+// used).
 bb_err_t bb_ota_check_emit_status_json(bb_http_request_t *req);
 
 /* Reserve route-table slots for bb_ota_check before the HTTP server starts. */

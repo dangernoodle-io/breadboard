@@ -62,3 +62,16 @@ extern const bb_serialize_desc_t bb_ota_check_wire_desc;
 // own return (BB_ERR_NOT_FOUND if the update.available key isn't registered
 // yet).
 bb_err_t bb_ota_check_gather(bb_ota_check_snap_t *dst);
+
+// Binds the "update.available" bb_data key against bb_ota_check_gather()
+// above (B1-1053 PR3, mirrors bb_diag_boot_bind()'s composition-time
+// self-bind pattern, components/bb_diag/bb_diag_boot_wire.c). Portable (no
+// bb_http_handle_t/ESP-IDF dependency) -- called by bb_ota_check_init() so
+// GET /api/update/status's bb_data_render() call can resolve the key
+// (bb_ota_check_init() runs from both the persistent
+// bb_ota_check_register_init() composition path and the boot-mode
+// status_check_ensure_init() path, platform/espidf/bb_ota_boot/bb_ota_boot.c
+// -- binding here covers both without a second call site). Also callable
+// directly by host tests after bb_data_test_reset(). Idempotent: rebinding
+// an already-bound key overrides it in place.
+bb_err_t bb_ota_check_bind(void);
