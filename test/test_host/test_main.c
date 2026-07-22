@@ -3333,12 +3333,11 @@ void test_bb_vcore_wd_no_oc_fault_collapse_still_recovers(void);
 void test_bb_vcore_wd_is_held_reflects_state(void);
 
 // Forward declarations from test_bb_display_info_event.c
-void test_bb_display_serialize_present_true_all_fields(void);
-void test_bb_display_serialize_present_false_only(void);
-void test_bb_display_serialize_panel_ssd1306(void);
-void test_bb_display_serialize_width_height(void);
-void test_bb_display_serialize_enabled_false(void);
 void test_bb_display_register_info_registers_cache_key(void);
+void test_bb_display_register_info_serialize_into_returns_unsupported(void);
+void test_bb_display_register_info_binds_bb_data(void);
+void test_bb_display_register_info_cache_register_failure_is_non_fatal(void);
+void test_bb_display_register_info_bind_failure_is_non_fatal_and_leaves_key_unbound(void);
 
 // Forward declarations from test_wifi_reconn_policy.c
 void wifi_reconn_policy_test_reset(void);
@@ -7349,13 +7348,12 @@ int main(void) {
     RUN_TEST(test_bb_vcore_wd_no_oc_fault_collapse_still_recovers);
     RUN_TEST(test_bb_vcore_wd_is_held_reflects_state);
 
-    // bb_display_info_event tests (health.display serializer)
-    RUN_TEST(test_bb_display_serialize_present_true_all_fields);
-    RUN_TEST(test_bb_display_serialize_present_false_only);
-    RUN_TEST(test_bb_display_serialize_panel_ssd1306);
-    RUN_TEST(test_bb_display_serialize_width_height);
-    RUN_TEST(test_bb_display_serialize_enabled_false);
+    // bb_display_info_event tests (health.display cache/bb_data registration)
     RUN_TEST(test_bb_display_register_info_registers_cache_key);
+    RUN_TEST(test_bb_display_register_info_serialize_into_returns_unsupported);
+    RUN_TEST(test_bb_display_register_info_binds_bb_data);
+    RUN_TEST(test_bb_display_register_info_cache_register_failure_is_non_fatal);
+    RUN_TEST(test_bb_display_register_info_bind_failure_is_non_fatal_and_leaves_key_unbound);
 
     // wifi_reconn_policy tests
     RUN_TEST(test_wifi_reconn_tier1_handshake_fast_retry);
