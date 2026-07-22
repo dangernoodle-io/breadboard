@@ -6,6 +6,7 @@ set(_diag_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_meminfo.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_storage_nvs.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_storage_partitions.c"
+    "${CMAKE_CURRENT_LIST_DIR}/bb_diag_cache_route_status.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag/bb_diag_panic.c"
 )
 
@@ -54,6 +55,13 @@ endif()
 # bb_diag_meminfo.c calls bb_meminfo_heap_snap_fill() directly; the "meminfo"
 # section is a thin bb_diag_fill_fn adapter over bb_meminfo's own SSOT
 # snapshot, never exposed by bb_diag_meminfo.h itself.
+# bb_diag_cache_route_status.c (B1-1121): folded in from the deleted
+# bb_cache_routes component -- pure bb_err_t -> HTTP status mapper backing
+# GET /api/diag/cache (bb_diag_routes.c, gated CONFIG_BB_DIAG_ROUTES). Always
+# built unconditionally (mirrors bb_diag_reset_decision.c/bb_diag_scrub.c
+# above) so the host test suite can exercise it regardless of that gate;
+# bb_cache was already a PRIV_REQUIRES here (bb_diag_boot_wire.c/
+# bb_diag_routes.c), so no new dependency.
 idf_component_register(
     SRCS ${_diag_srcs}
     INCLUDE_DIRS "include" "."

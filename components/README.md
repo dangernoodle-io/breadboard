@@ -17,7 +17,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_attrs](./bb_attrs/) | Intrusive header carrying filter/collection metadata (`priority`, `kind`, `tag_mask`, `delivery_class`) that any element embeds as a member. |
 | [bb_bqueue](./bb_bqueue/) | Blocking mailbox/MPSC queue — capacity==1 selects mailbox mode (overwrite/reset), capacity>1 selects bounded-MPSC mode (send/dropped); peek/receive/count/capacity work in both. Zero heap: a Kconfig-sized static instance pool. |
 | [bb_cache](./bb_cache/) | — |
-| [bb_cache_routes](./bb_cache_routes/) | — |
 | [bb_collection](./bb_collection/) | A humble, fixed-capacity, thread-safe ordered collection of caller-owned opaque items. |
 | [bb_config](./bb_config/) | Typed configuration layer over `bb_storage` — gives its blob-only vtable scalar-typed meaning (bool/u8/u16/u32/i32/str/blob) via a caller-owned field descriptor table. |
 | [bb_core](./bb_core/) | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. |
