@@ -34,7 +34,6 @@
 #include "bb_display_info_wire.h"
 #include "bb_ota_check_internal.h"
 #include "bb_ota_check_wire.h"
-#include "bb_json.h"
 
 #include <string.h>
 
@@ -459,31 +458,30 @@ void test_wire_desc_diag_boot_render_large_wdt_resets(void)
 }
 
 // ---------------------------------------------------------------------------
-// 4b. bb_display (health.display) -- present=false/true, byte-equal to
-// bb_display_serialize().
+// 4b. bb_display (health.display) -- present=false/true.
+//
+// B1-1146a CUTOVER NOTE: like diag.boot's (B1-1053 PR1) and update.available's
+// (B1-1053 PR3) own conversions above, health.display's bb_json bb_cache
+// serializer (bb_display_serialize(), components/display/bb_display/src/
+// bb_display_info_event_common.c) is DELETED -- there is no more "old"
+// implementation to diff against. These tests now pin the rendered JSON
+// against hand-written literal golden strings instead, derived from
+// bb_display_info_wire_desc's known field order/presence-gating
+// (bb_display_info_wire.c) -- byte-identical to what the retired serializer
+// used to produce for the same fixture (that parity was proven by this exact
+// test group before the cutover). No REST GET route exists for this key yet
+// -- health.display's REST exposure is being rehomed to system.display under
+// bb_system's diag endpoint (B1-1150), a separate ticket; this cutover only
+// proves the descriptor itself, via bb_display_info_gather().
 // ---------------------------------------------------------------------------
 
-static char *display_info_serialize_to_str(const bb_display_snap_t *snap)
+static void display_info_render_eq(const bb_display_snap_t *raw, const char *golden)
 {
-    bb_json_t obj = bb_json_obj_new();
-    if (!obj) return NULL;
-    bb_display_serialize(obj, snap);
-    char *str = bb_json_serialize(obj);
-    bb_json_free(obj);
-    return str;
-}
-
-static void display_info_render_eq_current_serializer(const bb_display_snap_t *raw)
-{
-    char *golden = display_info_serialize_to_str(raw);
-    TEST_ASSERT_NOT_NULL(golden);
-
     bb_cache_reset_for_test();
     bb_cache_config_t cfg = {
         .key       = BB_DISPLAY_INFO_TOPIC,
         .snapshot  = NULL,
         .snap_size = sizeof(bb_display_snap_t),
-        .serialize = bb_display_serialize,
     };
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
     TEST_ASSERT_EQUAL_INT(BB_OK,
@@ -493,13 +491,12 @@ static void display_info_render_eq_current_serializer(const bb_display_snap_t *r
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_display_info_gather(&wire));
 
     render_eq(&bb_display_info_wire_desc, &wire, golden);
-    bb_json_free_str(golden);
 }
 
 void test_wire_desc_display_info_render_present_false(void)
 {
     bb_display_snap_t snap = { .present = false };
-    display_info_render_eq_current_serializer(&snap);
+    display_info_render_eq(&snap, "{\"present\":false}");
 }
 
 void test_wire_desc_display_info_render_present_true(void)
@@ -511,7 +508,9 @@ void test_wire_desc_display_info_render_present_true(void)
         .enabled = true,
     };
     strncpy(snap.panel, "ili9341", sizeof(snap.panel) - 1);
-    display_info_render_eq_current_serializer(&snap);
+    display_info_render_eq(&snap,
+        "{\"present\":true,\"panel\":\"ili9341\",\"width\":240,"
+        "\"height\":320,\"enabled\":true}");
 }
 
 // bb_cache_get_raw() propagation path -- BB_DISPLAY_INFO_TOPIC never

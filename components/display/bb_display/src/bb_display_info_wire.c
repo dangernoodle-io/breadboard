@@ -7,6 +7,7 @@
 
 #include "bb_display_info_event_priv.h"
 #include "bb_cache.h"
+#include "bb_data.h"
 #include "bb_str.h"
 
 #include <stddef.h>
@@ -60,4 +61,30 @@ bb_err_t bb_display_info_gather(bb_display_info_wire_t *dst)
     dst->enabled = raw.enabled;
 
     return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
+// bb_data bind (B1-1146a) -- see bb_display_info_wire.h's file header for why
+// this self-bind lives here rather than at a single composition-root call
+// site. No REST/SSE render seam here: health.display's REST exposure is
+// being rehomed to system.display under bb_system's diag endpoint (B1-1150).
+// ---------------------------------------------------------------------------
+
+// Adapter: bb_data_gather_fn wraps bb_display_info_gather()'s typed
+// signature. "health.display" has no request-scoped filter, so `args` is
+// unused.
+static bb_err_t display_info_data_gather(void *dst, const bb_data_gather_args_t *args)
+{
+    (void)args;
+    return bb_display_info_gather((bb_display_info_wire_t *)dst);
+}
+
+bb_err_t bb_display_info_bind(void)
+{
+    bb_data_binding_t binding = {
+        .key    = BB_DISPLAY_INFO_TOPIC,
+        .desc   = &bb_display_info_wire_desc,
+        .gather = display_info_data_gather,
+    };
+    return bb_data_bind(&binding);
 }
