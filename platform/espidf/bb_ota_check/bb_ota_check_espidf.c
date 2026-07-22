@@ -245,18 +245,27 @@ static const bb_route_response_t s_status_responses[] = {
     { 200, "application/json",
       "{\"type\":\"object\","
        "\"properties\":{"
-         "\"current\":{\"type\":\"string\"},"
-         "\"latest\":{\"type\":\"string\"},"
-         "\"download_url\":{\"type\":\"string\"},"
-         "\"available\":{\"type\":\"boolean\"},"
-         "\"last_check_ok\":{\"type\":\"boolean\"},"
-         "\"enabled\":{\"type\":\"boolean\"},"
-         "\"outcome\":{\"type\":\"string\","
-           "\"enum\":[" BB_OTA_CHECK_OUTCOME_ENUM_JSON "]},"
-         "\"last_check_ts\":{\"type\":\"integer\"}},"
-       "\"required\":[\"current\",\"latest\",\"download_url\","
-                     "\"available\",\"last_check_ok\",\"enabled\",\"outcome\"]}",
-      "current status of the update poller" },
+         "\"ts_ms\":{\"type\":\"integer\"},"
+         "\"data\":{\"type\":\"object\","
+           "\"properties\":{"
+             "\"current\":{\"type\":\"string\"},"
+             "\"latest\":{\"type\":\"string\"},"
+             "\"download_url\":{\"type\":\"string\"},"
+             "\"available\":{\"type\":\"boolean\"},"
+             "\"last_check_ok\":{\"type\":\"boolean\"},"
+             "\"enabled\":{\"type\":\"boolean\"},"
+             "\"outcome\":{\"type\":\"string\","
+               "\"enum\":[" BB_OTA_CHECK_OUTCOME_ENUM_JSON "]},"
+             "\"last_check_ts\":{\"type\":\"integer\"}},"
+           "\"required\":[\"current\",\"latest\",\"download_url\","
+                         "\"available\",\"last_check_ok\",\"enabled\",\"outcome\"]}},"
+       "\"required\":[\"ts_ms\",\"data\"]}",
+      "BREAKING (B1-1053 PR3): response root changed from a bare object to "
+      "the {ts_ms,data} envelope -- \\\"data\\\" carries exactly the fields "
+      "this route used to emit at the root. ts_ms is the wall-clock time "
+      "(ms) this response was rendered, NOT a sample time (bb_data has no "
+      "notion of one for this key). data is the current status of the "
+      "update poller." },
     { 503, "application/json", NULL, "bb_ota_check not initialized" },
     { 0 },
 };

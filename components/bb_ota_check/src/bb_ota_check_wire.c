@@ -6,6 +6,7 @@
 #include "bb_ota_check_wire.h"
 
 #include "bb_cache.h"
+#include "bb_data.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -54,4 +55,27 @@ bb_err_t bb_ota_check_gather(bb_ota_check_snap_t *dst)
     if (!dst) return BB_ERR_INVALID_ARG;
     memset(dst, 0, sizeof(*dst));
     return bb_cache_get_raw(BB_OTA_CHECK_TOPIC, dst, sizeof(*dst));
+}
+
+// ---------------------------------------------------------------------------
+// bb_data bind (B1-1053 PR3) -- see bb_ota_check_wire.h's doc for why this
+// self-bind lives here rather than at a single composition-root call site.
+// ---------------------------------------------------------------------------
+
+// Adapter: bb_data_gather_fn wraps bb_ota_check_gather()'s typed signature.
+// "update.available" has no request-scoped filter, so `args` is unused.
+static bb_err_t ota_check_data_gather(void *dst, const bb_data_gather_args_t *args)
+{
+    (void)args;
+    return bb_ota_check_gather((bb_ota_check_snap_t *)dst);
+}
+
+bb_err_t bb_ota_check_bind(void)
+{
+    bb_data_binding_t binding = {
+        .key    = BB_OTA_CHECK_TOPIC,
+        .desc   = &bb_ota_check_wire_desc,
+        .gather = ota_check_data_gather,
+    };
+    return bb_data_bind(&binding);
 }
