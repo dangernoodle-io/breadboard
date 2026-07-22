@@ -749,3 +749,111 @@ void test_bb_serialize_json_populate_duplicate_key_order_irrelevant(void)
     TEST_ASSERT_EQUAL_INT64(42, dst.n_i64);
     TEST_ASSERT_EQUAL_DOUBLE(42.0, dst.n_f64);
 }
+
+// ---------------------------------------------------------------------------
+// 14. B1-1167 -- populate_get_str()'s NUL-termination contract, pinned
+// directly against a confirm[32]-shaped destination. populate's get_str()
+// itself NEVER terminates (see bb_serialize_json_populate.c's
+// populate_get_str doc comment): it copies min(value_len, max_len) bytes
+// and relies entirely on the destination's own slack byte for termination.
+// That makes the CORRECT max_len for a BB_TYPE_STR field direction-
+// dependent, not a single universal value:
+//   - INGRESS (populate) consumers that read the destination via an
+//     unbounded C-string function (strcmp/strlen/etc, never a
+//     strnlen()-bounded read) MUST declare max_len == sizeof(dest) - 1, so
+//     a memset0-seeded destination (the BB_DATA_APPLY_POST/PATCH contract
+//     every production apply route relies on) keeps its last byte '\0' no
+//     matter how long the incoming value is.
+//   - EGRESS (bb_serialize_walk) fields, and any ingress field the
+//     consumer is careful to read only via a strnlen()-bounded scan, may
+//     correctly declare the FULL sizeof(dest) instead -- strnlen(p,
+//     max_len) never runs past its own bound regardless of termination.
+// This suite pins two distinct paths through that same shape: n = len
+// (input shorter than max_len, no truncation) and n = cap (input at/over
+// max_len, truncated). Both additionally pin populate_get_str()'s
+// "touches ONLY its bounded prefix" property directly: dst is pre-filled
+// with a non-zero sentinel (NOT the caller-zeroed production contract --
+// a deliberate white-box probe) so any write strictly after the written
+// prefix, including a hypothetical defensive terminator write at dst[n],
+// is observable as a change away from the sentinel. That's what actually
+// distinguishes "never touches beyond n" from "writes its own NUL at
+// position n" -- a plain post-populate NUL-search can't tell those apart
+// when dst started pre-zeroed, since both leave the same zero byte there.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    char confirm[32];
+} confirm_snap_t;
+
+static const bb_serialize_field_t s_confirm_fields[] = {
+    { .key = "confirm", .type = BB_TYPE_STR, .offset = offsetof(confirm_snap_t, confirm),
+      .max_len = sizeof(((confirm_snap_t *)0)->confirm) - 1 },
+};
+
+static const bb_serialize_desc_t s_confirm_desc = {
+    .type_name = "confirm_snap_t", .fields = s_confirm_fields, .n_fields = 1,
+    .snap_size = sizeof(confirm_snap_t),
+};
+
+#define CONFIRM_SENTINEL 0xABu
+
+// A value shorter than max_len (31) -- n = len, no truncation. Pins that
+// populate_get_str() writes ONLY those n bytes: every byte strictly after
+// the written prefix, all the way to the end of the destination, is left
+// completely untouched.
+void test_bb_serialize_json_populate_confirm_under_cap_value_leaves_tail_untouched(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    TEST_ASSERT_EQUAL(BB_OK, scan_default(&rec, "{\"confirm\":\"short-value\"}"));  // 11 bytes, < 31
+
+    bb_serialize_json_populate_ctx_t ctx;
+    bb_serialize_populate_t src = bb_serialize_json_populate_from_tok(&ctx, &rec);
+
+    confirm_snap_t dst;
+    memset(&dst, CONFIRM_SENTINEL, sizeof(dst));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_populate(&s_confirm_desc, &dst, &src));
+
+    TEST_ASSERT_EQUAL_MEMORY("short-value", dst.confirm, 11);
+    for (size_t i = 11; i < sizeof(dst.confirm); i++) {
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(CONFIRM_SENTINEL, (uint8_t)dst.confirm[i],
+            "byte strictly after the written prefix was touched -- populate_get_str() must write "
+            "ONLY its bounded prefix, never a trailing terminator of its own");
+    }
+}
+
+// A value at/over max_len (31) -- n = cap, the truncating path (content
+// already covered by case 11 above). Its distinct value here is narrower
+// than the under-cap case above: under the "defensive terminator only
+// when room remains" mutant, n == cap so that guard never fires and this
+// test passes regardless -- it does NOT pin "never touches beyond n" the
+// way the under-cap case does. What it DOES pin is real: the ONE
+// remaining byte beyond the written cap is dst.confirm's designed slack
+// byte for THIS ingress shape (max_len == sizeof(dst) - 1), so this is
+// the only test proving no write lands on that same-buffer slack byte
+// under truncation -- distinct from the pre-existing
+// test_bb_serialize_json_populate_get_str_over_cap_truncates (case 11),
+// whose egress-style zero-slack buffer (max_len == full sizeof) can only
+// prove no overrun into an ADJACENT field's canary, never a same-buffer
+// slack byte, since that shape has none. NUL termination after truncation
+// still comes entirely from the caller's own pre-zeroing (BB_DATA_APPLY_POST's
+// memset0 seed in production), never from populate_get_str() itself.
+void test_bb_serialize_json_populate_confirm_over_cap_value_truncates_and_leaves_tail_untouched(void)
+{
+    bb_serialize_json_tok_recorder_t rec;
+    TEST_ASSERT_EQUAL(BB_OK, scan_default(&rec,
+        "{\"confirm\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}"));  // 40 'x', > cap (31)
+
+    bb_serialize_json_populate_ctx_t ctx;
+    bb_serialize_populate_t src = bb_serialize_json_populate_from_tok(&ctx, &rec);
+
+    confirm_snap_t dst;
+    memset(&dst, CONFIRM_SENTINEL, sizeof(dst));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_populate(&s_confirm_desc, &dst, &src));
+
+    TEST_ASSERT_EQUAL_MEMORY("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", dst.confirm, 31);  // 31 'x' == cap
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(CONFIRM_SENTINEL, (uint8_t)dst.confirm[31],
+        "byte strictly after the written prefix was touched -- populate_get_str() must write "
+        "ONLY its bounded prefix, never a trailing terminator of its own");
+}

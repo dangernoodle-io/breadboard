@@ -727,6 +727,8 @@ void test_bb_serialize_json_populate_get_str_over_cap_truncates(void);
 void test_bb_serialize_json_populate_scalar_wrong_type_present_leaves_untouched(void);
 void test_bb_serialize_json_populate_duplicate_key_resolves_independently(void);
 void test_bb_serialize_json_populate_duplicate_key_order_irrelevant(void);
+void test_bb_serialize_json_populate_confirm_under_cap_value_leaves_tail_untouched(void);
+void test_bb_serialize_json_populate_confirm_over_cap_value_truncates_and_leaves_tail_untouched(void);
 
 // Forward declarations from test_bb_serialize_json_parse.c
 void test_bb_serialize_json_parse_bytes_null_args_return_invalid_arg(void);
@@ -9929,6 +9931,8 @@ int main(void) {
     RUN_TEST(test_bb_serialize_json_populate_scalar_wrong_type_present_leaves_untouched);
     RUN_TEST(test_bb_serialize_json_populate_duplicate_key_resolves_independently);
     RUN_TEST(test_bb_serialize_json_populate_duplicate_key_order_irrelevant);
+    RUN_TEST(test_bb_serialize_json_populate_confirm_under_cap_value_leaves_tail_untouched);
+    RUN_TEST(test_bb_serialize_json_populate_confirm_over_cap_value_truncates_and_leaves_tail_untouched);
 
     RUN_TEST(test_bb_serialize_json_parse_bytes_null_args_return_invalid_arg);
     RUN_TEST(test_bb_serialize_json_parse_bytes_flat_and_nested_roundtrip);
