@@ -13,7 +13,7 @@
 //   - production schema smoke: reboot, ota-check, log-level-post
 
 #include "unity.h"
-#include "bb_openapi.h"
+#include "bb_openapi_validate_priv.h"
 
 #include <cJSON.h>
 #include <string.h>

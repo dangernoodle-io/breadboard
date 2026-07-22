@@ -61,7 +61,7 @@
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_http_host.h"
-#include "bb_openapi.h"
+#include "bb_openapi_validate_priv.h"
 #include "bb_settings.h"
 #include "bb_wifi.h"
 #include "bb_wifi_http.h"

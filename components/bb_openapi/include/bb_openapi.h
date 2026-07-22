@@ -84,34 +84,6 @@ bb_err_t bb_openapi_emit_stream(bb_http_request_t *req,
 void bb_openapi_set_meta(const bb_openapi_meta_t *meta);
 
 // ---------------------------------------------------------------------------
-// JSON Schema validator
-// ---------------------------------------------------------------------------
-// Minimal structural validator for the JSON Schema keywords used in
-// breadboard's schema corpus: type, properties, required, items, enum,
-// additionalProperties (false only). Unknown keywords are logged and ignored.
-
-// Validation error: path is a dotted JSON-pointer-ish string ("", "foo.bar",
-// "arr[3].key"); message is a human-readable description of the failure.
-typedef struct {
-    char path[64];      // dotted path to the offending node
-    char message[192];  // human-readable failure reason
-} bb_openapi_validate_err_t;
-
-// Validate `value` (already-parsed JSON tree, as a bb_json_t handle) against
-// `schema_json` (raw JSON Schema string literal).
-//
-// Returns BB_OK if valid; err is untouched.
-// Returns BB_ERR_VALIDATION if invalid; err (if non-NULL) is filled with
-//   the first failure encountered: path + message.
-// Returns BB_ERR_INVALID_ARG if schema_json fails to parse as JSON.
-//
-// Memory: schema_json is parsed internally and freed before return.
-//   The caller retains ownership of value and schema_json.
-bb_err_t bb_openapi_validate(const char *schema_json,
-                             bb_json_t value,
-                             bb_openapi_validate_err_t *err);
-
-// ---------------------------------------------------------------------------
 // Schema component registry
 // ---------------------------------------------------------------------------
 // Maximum number of schema components that can be registered.
