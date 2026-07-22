@@ -220,7 +220,7 @@ class TestParsePathsLiteral(unittest.TestCase):
         self.assertEqual(paths["SRCS"], ["a.c", "b.c", "a.c"])
 
     def test_quoted_cmake_current_list_dir_token_not_mangled(self):
-        # A real-tree shape (bb_board, bb_cache_routes, ...): each SRCS entry
+        # A real-tree shape (bb_board, bb_diag, ...): each SRCS entry
         # is individually double-quoted -- the quotes must be stripped before
         # the token is returned, not fused into the path itself.
         cmake = (

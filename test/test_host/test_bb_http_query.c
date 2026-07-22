@@ -44,9 +44,9 @@ void test_bb_http_query_token_present_null_safe(void)
 //
 // B1-...: lost their only (indirect) coverage when the bb_pub/bb_sink_*
 // cluster was deleted — nothing on host called bb_http_host_capture_set_query_string
-// before that. Still has live ESP-IDF callers (bb_cache_routes, bb_event_routes,
-// bb_diag_routes all parse "&"-separated query strings) — direct tests here
-// restore real coverage of the parser itself.
+// before that. Still has live ESP-IDF callers (bb_event_routes, bb_diag_routes
+// all parse "&"-separated query strings) — direct tests here restore real
+// coverage of the parser itself.
 // ===========================================================================
 
 void test_bb_http_req_query_key_value_no_active_capture_returns_invalid_arg(void)

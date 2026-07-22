@@ -4793,12 +4793,14 @@ void test_pool_slots_on_destroy_fires_once_per_slot_including_never_acquired(voi
 void test_pool_slots_on_destroy_null_is_safe_noop(void);
 void test_pool_slots_on_destroy_not_called_for_non_slots_mode(void);
 
-// Forward declarations from test_cache_route_status.c (B1-583)
-void test_cache_route_map_status_ok_is_200(void);
-void test_cache_route_map_status_not_found_is_404(void);
-void test_cache_route_map_status_invalid_state_is_404(void);
-void test_cache_route_map_status_no_space_is_500(void);
-void test_cache_route_map_status_other_is_500(void);
+// Forward declarations from test_bb_diag_cache_route_status.c (B1-1121,
+// originally B1-583 -- folded in from the deleted bb_cache_routes component)
+void test_bb_diag_cache_route_map_status_ok_is_200(void);
+void test_bb_diag_cache_route_map_status_not_found_is_404(void);
+void test_bb_diag_cache_route_map_status_invalid_state_is_404(void);
+void test_bb_diag_cache_route_map_status_unsupported_is_501(void);
+void test_bb_diag_cache_route_map_status_no_space_is_500(void);
+void test_bb_diag_cache_route_map_status_other_is_500(void);
 
 // bb_thermal_reset_for_test: defined in platform/host/bb_thermal/bb_thermal_host.c
 // (BB_THERMAL_TESTING); resets fan+power+temp HAL state for test isolation.
@@ -9064,12 +9066,13 @@ int main(void) {
     RUN_TEST(test_pool_slots_on_destroy_null_is_safe_noop);
     RUN_TEST(test_pool_slots_on_destroy_not_called_for_non_slots_mode);
 
-    // cache_route_status tests (B1-583)
-    RUN_TEST(test_cache_route_map_status_ok_is_200);
-    RUN_TEST(test_cache_route_map_status_not_found_is_404);
-    RUN_TEST(test_cache_route_map_status_invalid_state_is_404);
-    RUN_TEST(test_cache_route_map_status_no_space_is_500);
-    RUN_TEST(test_cache_route_map_status_other_is_500);
+    // bb_diag_cache_route_status tests (B1-1121, originally B1-583)
+    RUN_TEST(test_bb_diag_cache_route_map_status_ok_is_200);
+    RUN_TEST(test_bb_diag_cache_route_map_status_not_found_is_404);
+    RUN_TEST(test_bb_diag_cache_route_map_status_invalid_state_is_404);
+    RUN_TEST(test_bb_diag_cache_route_map_status_unsupported_is_501);
+    RUN_TEST(test_bb_diag_cache_route_map_status_no_space_is_500);
+    RUN_TEST(test_bb_diag_cache_route_map_status_other_is_500);
 
     // bb_http: async-handler / peer-liveness host stub contracts (B1-517)
     RUN_TEST(test_bb_http_req_peer_alive_host_stub_always_true);

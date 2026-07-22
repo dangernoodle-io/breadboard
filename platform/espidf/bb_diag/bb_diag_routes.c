@@ -1,6 +1,7 @@
 #include "bb_diag.h"
 #include "bb_cache.h"
 #include "bb_diag_boot_wire.h"
+#include "bb_diag_cache_route_status.h"
 #include "bb_diag_event_priv.h"
 #include "bb_data.h"
 #include "bb_http.h"
@@ -39,6 +40,18 @@
 #include "lwip/priv/tcp_priv.h"
 
 static const char *TAG = "bb_diag_routes";
+
+// ---------------------------------------------------------------------------
+// Kconfig bridge — CONFIG_BB_DIAG_CACHE_BUF_BYTES. Bare guard (no ESP_PLATFORM
+// wrapper) is correct here: this TU is ESP-IDF-only, unlike bb_cache.h which
+// guards its bridge because it is shared between host and ESP-IDF builds.
+// ---------------------------------------------------------------------------
+#ifdef CONFIG_BB_DIAG_CACHE_BUF_BYTES
+#define BB_DIAG_CACHE_BUF_BYTES CONFIG_BB_DIAG_CACHE_BUF_BYTES
+#endif
+#ifndef BB_DIAG_CACHE_BUF_BYTES
+#define BB_DIAG_CACHE_BUF_BYTES 768
+#endif
 
 // Reboot-reason SSOT (B1-527 PR-A) — latched once at boot by load_reboot_record().
 static bb_reset_source_t s_reboot_src        = BB_RESET_SRC_UNKNOWN;
@@ -370,6 +383,106 @@ static const bb_route_t s_boot_delete_route = {
     .summary   = "Clear panic log and abnormal-reset counter",
     .responses = s_boot_delete_responses,
     .handler   = boot_delete_handler,
+};
+
+// --- cache ---
+// Folded in from the deleted bb_cache_routes component (B1-1121): this used
+// to be GET /api/cache?key=<key>, standalone. display.info's bb_json
+// serializer had no other REST reachability, so this route can't be dropped
+// until that serializer itself is retired (a later ticket). Query-param
+// (not path-param) because bb_dispatch_api is exact-match only
+// (components/bb_http_server/include/bb_http_server.h) -- a single
+// "/api/diag/cache" dispatch entry serves every key, filtered by ?key=.
+// Mirrors the ?topic= idiom on GET /api/events (bb_event_routes).
+
+static bb_err_t cache_get_handler(bb_http_request_t *req)
+{
+    // Parse required ?key= query parameter.
+    char key[BB_CACHE_KEY_MAX] = {0};
+    if (bb_http_req_query_key_value(req, "key", key, sizeof(key)) != BB_OK) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "missing or invalid key");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_OK;
+    }
+
+    char   buf[BB_DIAG_CACHE_BUF_BYTES];
+    size_t len = 0;
+    bb_err_t rc = bb_cache_get_serialized(key, buf, sizeof(buf), &len);
+    int status = bb_diag_cache_route_map_status(rc);
+
+    if (status != 200) {
+        if (status == 500) {
+            bb_log_e(TAG, "get_serialized('%s') failed: rc=%d", key, (int)rc);
+        }
+        bb_http_resp_set_status(req, status);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        const char *err_msg = "internal error";
+        if (status == 404) err_msg = "not found";
+        if (status == 501) err_msg = "key not available via this route (renders via bb_data)";
+        bb_http_resp_json_obj_set_str(&obj, "error", err_msg);
+        bb_http_resp_json_obj_end(&obj);
+        return BB_OK;
+    }
+
+    bb_err_t err = bb_http_resp_set_type(req, "application/json");
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, buf, (int)len);
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
+    return err;
+}
+
+static const bb_route_response_t s_cache_get_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"ts_ms\":{\"type\":\"integer\"},\"data\":{\"type\":\"object\"}},"
+      "\"required\":[\"ts_ms\",\"data\"]}",
+      "The key's enveloped {ts_ms,data} snapshot, verbatim from bb_cache." },
+    { 400, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "missing ?key= query parameter" },
+    { 404, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "key not registered, or registered but no snapshot yet" },
+    { 501, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "key registered with no legacy serializer bound -- it renders via bb_data, not this route" },
+    { 500, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "serialize/buffer failure" },
+    { 0 },
+};
+
+static const bb_route_param_t s_cache_get_params[] = {
+    {
+        .name        = "key",
+        .in          = "query",
+        .description = "bb_cache key to fetch. Available keys are the registered "
+                       "bb_cache_register() keys for this firmware.",
+        .required    = true,
+        .schema_type = "string",
+    },
+};
+
+static const bb_route_t s_cache_get_route = {
+    .method            = BB_HTTP_GET,
+    .path              = "/api/diag/cache",
+    .tag               = "diag",
+    .summary           = "Fetch a bb_cache key's enveloped snapshot",
+    .responses         = s_cache_get_responses,
+    .handler           = cache_get_handler,
+    .parameters        = s_cache_get_params,
+    .parameters_count  = 1,
 };
 
 static const bb_route_response_t s_panic_get_responses[] = {
@@ -938,6 +1051,9 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
 
     err = bb_http_register_described_route(server, &s_panic_get_route);
+    if (err != BB_OK) return err;
+
+    err = bb_http_register_described_route(server, &s_cache_get_route);
     if (err != BB_OK) return err;
 
 #ifdef CONFIG_BB_DIAG_PANIC_TRIGGER
