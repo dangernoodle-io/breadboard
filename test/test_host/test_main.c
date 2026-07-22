@@ -1224,6 +1224,8 @@ void test_storage_delete_no_body_returns_400(void);
 void test_storage_delete_missing_confirm_returns_412(void);
 void test_storage_delete_confirm_false_returns_412(void);
 void test_storage_delete_missing_namespace_returns_400(void);
+void test_storage_delete_empty_string_namespace_returns_400(void);
+void test_storage_delete_duplicate_namespace_key_first_occurrence_wins(void);
 void test_storage_delete_ns_string_clears_namespace_returns_200(void);
 void test_storage_delete_ns_string_with_key_clears_key_returns_200(void);
 void test_storage_delete_ns_array_clears_each_returns_200(void);
@@ -1240,6 +1242,9 @@ void test_storage_delete_backend_without_erase_namespace_returns_501(void);
 void test_storage_delete_explicit_backend_selects_correct_backend(void);
 void test_storage_delete_key_not_found_still_returns_200(void);
 void test_storage_delete_ns_array_over_cap_returns_400_before_erase(void);
+void test_storage_delete_ns_wrong_type_returns_400(void);
+void test_storage_delete_oversized_ns_string_returns_400(void);
+void test_storage_delete_oversized_ns_array_element_returns_400_before_erase(void);
 
 // Forward declarations from test_bb_storage_http_delete_wire.c
 void test_bb_storage_http_delete_wire_expected_json_zero_no_key(void);
@@ -6015,6 +6020,8 @@ int main(void) {
     RUN_TEST(test_storage_delete_missing_confirm_returns_412);
     RUN_TEST(test_storage_delete_confirm_false_returns_412);
     RUN_TEST(test_storage_delete_missing_namespace_returns_400);
+    RUN_TEST(test_storage_delete_empty_string_namespace_returns_400);
+    RUN_TEST(test_storage_delete_duplicate_namespace_key_first_occurrence_wins);
     RUN_TEST(test_storage_delete_ns_string_clears_namespace_returns_200);
     RUN_TEST(test_storage_delete_ns_string_with_key_clears_key_returns_200);
     RUN_TEST(test_storage_delete_ns_array_clears_each_returns_200);
@@ -6031,6 +6038,9 @@ int main(void) {
     RUN_TEST(test_storage_delete_explicit_backend_selects_correct_backend);
     RUN_TEST(test_storage_delete_key_not_found_still_returns_200);
     RUN_TEST(test_storage_delete_ns_array_over_cap_returns_400_before_erase);
+    RUN_TEST(test_storage_delete_ns_wrong_type_returns_400);
+    RUN_TEST(test_storage_delete_oversized_ns_string_returns_400);
+    RUN_TEST(test_storage_delete_oversized_ns_array_element_returns_400_before_erase);
 
     // DELETE /api/diag/storage response emit (bb_serialize wire descriptor)
     RUN_TEST(test_bb_storage_http_delete_wire_expected_json_zero_no_key);

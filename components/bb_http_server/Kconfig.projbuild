@@ -93,7 +93,11 @@ config BB_HTTP_TASK_STACK_SIZE
       default — headroom over the IDF default (4096) for the JSON-assembling
       /api handlers and response paths. Raise if a consumer's route handler
       does deep work (large stack frames, nested JSON); lower only on RAM-tight
-      builds with shallow handlers.
+      builds with shallow handlers. DELETE /api/diag/storage
+      (bb_storage_http_routes.c's storage_delete_handler) is the deepest
+      bb_data-migrated handler in-tree (~5KB frame: request body buffer +
+      parse scratch + a multi-namespace snapshot struct) -- raise this if a
+      build adds even deeper /api handlers on top of it.
 
 config BB_HTTP_LWIP_RESERVE
     int "Sockets reserved for non-httpd usage (stratum, mDNS, transient outbound)"

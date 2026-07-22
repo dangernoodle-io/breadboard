@@ -3,7 +3,7 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/bb_storage_http_delete_wire.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_storage
-    PRIV_REQUIRES bb_data bb_http bb_http_server bb_json bb_openapi bb_serialize bb_settings bb_log bb_str bb_system bb_timer
+    PRIV_REQUIRES bb_data bb_http bb_http_server bb_openapi bb_serialize bb_settings bb_log bb_str bb_system bb_timer
 )
 
 # bb_storage_http_routes.c is portable (no ESP-IDF-specific includes) but
