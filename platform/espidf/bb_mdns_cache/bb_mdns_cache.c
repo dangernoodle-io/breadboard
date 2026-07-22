@@ -7,7 +7,6 @@
 #include "bb_mdns.h"
 #include "bb_cache.h"
 #include "bb_cache_internal.h"
-#include "bb_json.h"
 #include "bb_timer.h"
 #include "bb_log.h"
 #include "bb_str.h"
@@ -62,18 +61,6 @@ static size_t effective_entry_size(void)
     return s_state.entry_size ? s_state.entry_size : sizeof(bb_mdns_cache_entry_t);
 }
 
-static void entry_serialize(bb_json_t obj, const void *snap)
-{
-    const bb_mdns_cache_entry_t *e = (const bb_mdns_cache_entry_t *)snap;
-    bb_json_obj_set_string(obj, "hostname", e->hostname);
-    bb_json_obj_set_string(obj, "ip4", e->ip4);
-    bb_json_obj_set_int(obj, "port", (int64_t)e->port);
-    if (s_state.txt_fields && s_state.txt_count > 0) {
-        bb_mdns_cache_txt_serialize(obj, snap, effective_entry_size(),
-                                    s_state.txt_fields, s_state.txt_count);
-    }
-}
-
 // Register key in bb_cache (AGE_OUT policy), then copy in the entry. Called
 // from both the hello handler and the re-query worker -- bb_cache_register()
 // is idempotent, so a race between the two contexts registering the same key
@@ -89,7 +76,11 @@ static void cache_upsert(const char *key, const void *entry)
         .key            = key,
         .snapshot       = NULL,
         .snap_size      = effective_entry_size(),
-        .serialize      = entry_serialize,
+        // .serialize intentionally omitted (B1-1146b: the legacy bb_json
+        // bb_cache serializer, entry_serialize(), is deleted -- a peer
+        // entry now renders exclusively via bb_mdns_cache_entry_wire_desc/
+        // _fill, components/bb_mdns_cache/bb_mdns_cache_wire_priv.h; see
+        // that header for why no bb_data_bind() replaces it here).
         .flags          = BB_CACHE_FLAG_NONE,
         .eviction       = {
             .policy       = BB_CACHE_EVICT_AGE_OUT,
