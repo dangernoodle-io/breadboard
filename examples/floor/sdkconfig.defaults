@@ -22,3 +22,8 @@ CONFIG_NEWLIB_NANO_FORMAT=y
 # (storage/nvs worst-case); right-size or move buffers to heap once the
 # full /api/diag surface is migrated + measured.
 CONFIG_BB_HTTP_TASK_STACK_SIZE=16384
+
+# PR6 (floor HW-validation gate): opt in to the destructive
+# POST /api/diag/factory-reset route (default n) so floor's bench board
+# can validate the full diag/storage HTTP surface end to end.
+CONFIG_BB_STORAGE_HTTP_FACTORY_RESET=y
