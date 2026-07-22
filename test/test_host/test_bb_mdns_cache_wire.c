@@ -1,8 +1,10 @@
-// Host unit tests for bb_mdns_cache_entry_wire_desc/_fill (B1-1115 PR-3).
-// Proves the EXACT rendered JSON shape of the new wire descriptor -- this
-// pins the NEW shape (documented in bb_mdns_cache_wire_priv.h), not parity
-// with the legacy entry_serialize() emitter; see that header's shape-change
-// comment for the old-vs-new side by side.
+// Host unit tests for bb_mdns_cache_entry_wire_desc/_fill (B1-1115 PR-3;
+// this descriptor became the sole serialization path once entry_serialize()
+// was deleted, B1-1146b). Proves the EXACT rendered JSON shape of the wire
+// descriptor -- this pins the shape (documented in
+// bb_mdns_cache_wire_priv.h), not parity with the legacy, now-deleted
+// entry_serialize() emitter; see that header's shape-change comment for the
+// old-vs-new side by side.
 
 #include "unity.h"
 

@@ -4,8 +4,9 @@
 // bb_mdns_cache peer entry (B1-1115 PR-3).
 //
 // SHAPE CHANGE from the legacy bb_json emitter (platform/espidf/
-// bb_mdns_cache/bb_mdns_cache.c's entry_serialize()) -- this is a
-// deliberate, DOCUMENTED divergence, not a bug. Every consumer of this
+// bb_mdns_cache/bb_mdns_cache.c's entry_serialize(), DELETED B1-1146b --
+// this descriptor is now the only serialization path for a peer entry) --
+// this is a deliberate, DOCUMENTED divergence, not a bug. Every consumer of this
 // component is frozen pending a rewrite (TaipanMiner frozen, taipan-brood
 // being rewritten), so there is no back-compat obligation and byte-parity
 // with the legacy emitter was dropped as the acceptance bar (KB 1384:
@@ -36,13 +37,48 @@
 // legacy shape spliced values into the object at all.
 //
 // Portable: no ESP-IDF/FreeRTOS types, compiles on host + ESP-IDF (mirrors
-// components/bb_wifi_http/bb_wifi_http_wire_priv.h's pattern). ADDITIVE
-// ONLY: no bb_data_bind() call exists anywhere in this PR, matching the
-// staging bb_diag_boot_wire.h is currently in (see
-// test/test_host/test_wire_desc_producers.c's file header) -- entry_serialize
-// and the bb_cache .serialize registration are untouched; this is a second,
-// parallel descriptor path a later PR can migrate bb_cache's own
-// serialization contract onto.
+// components/bb_wifi_http/bb_wifi_http_wire_priv.h's pattern).
+//
+// STILL NO bb_data_bind() (B1-1146b, unlike diag.boot/update.available/
+// health.display's own B1-1053 cutovers) -- and deliberately so, not an
+// oversight: bb_data_bind() binds exactly ONE fixed key to ONE descriptor
+// (bb_data_binding_t.key is a single const char*), whereas bb_mdns_cache
+// entries live at an open, RUNTIME-determined set of keys ("<key_prefix>
+// <instance_name>" per peer, bb_mdns_cache_build_key()) -- there is no
+// single "the mdns_cache key" to bind. A future per-key REST/SSE reader
+// (B1-1119) will need a different mechanism -- most likely driving this
+// same descriptor/fill pair directly against bb_cache_foreach()/
+// bb_cache_get_raw() for a caller-supplied key, not bb_data_bind() -- this
+// header only ships the descriptor + fill half of that; the read-path
+// wiring is out of scope here.
+//
+// entry_serialize() and its bb_cache .serialize registration (platform/
+// espidf/bb_mdns_cache/bb_mdns_cache.c) are DELETED (B1-1146b, the last
+// producer .serialize callback in the tree) -- this descriptor is the sole
+// remaining serialization path for a peer entry. The generic bb_cache debug
+// dump (GET /api/diag/cache?key=<mdns key>, bb_diag_routes.c) now 501s for
+// any mdns_cache key instead of returning the real payload, identical to
+// what already happened to diag.boot/update.available/health.display after
+// their own B1-1053/B1-1146a cutovers -- there was no dedicated REST route
+// for an mdns_cache key before this PR either, so this is not a regression.
+//
+// REFRESH FINDING FOR ANY FUTURE READER (B1-1119) -- VERIFIED against the
+// actual bodies of platform/espidf/bb_mdns_cache/bb_mdns_cache.c's on_hello()
+// and requery_work_fn(), not assumed: unlike health.display (written
+// EXACTLY ONCE, at registration, per B1-1146a's own finding), a given
+// mdns_cache entry's bb_cache record is kept CONTINUOUSLY warm for as long
+// as the peer is present -- both on_hello() (event-driven, fires on every
+// mDNS hello for that peer) and requery_work_fn() (periodic, every
+// requery_period_ms, default BB_MDNS_CACHE_REQUERY_PERIOD_S == 30s) call
+// cache_upsert() -> bb_cache_update() unconditionally on every pass, exactly
+// like diag.boot/update.available's own periodic-republish case (B1-1053
+// PR1/PR3). So a future reader that renders an entry via a pure
+// pass-through over bb_cache_get_raw()/bb_cache_foreach() (mirroring
+// bb_display_info_gather()'s or bb_ota_check_gather()'s shape) does NOT need
+// an extra pre-render refresh step to avoid a frozen/stale value -- the
+// worst-case staleness is bounded by requery_period_ms (or less, if hello
+// traffic is more frequent), not "forever since boot" the way health.display
+// was before its own bb_settings_display_enabled_set() runtime-toggle gap.
 //
 // Included by:
 //   - components/bb_mdns_cache/bb_mdns_cache_wire.c (this descriptor's SSOT)

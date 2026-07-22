@@ -222,7 +222,10 @@ void test_bb_mdns_cache_txt_serialize_emits_descriptor_fields(void)
     TEST_ASSERT_EQUAL_STRING("v1.2.3", version_out);
 
     // Exactly the descriptor fields -- no stray keys (e.g. identity fields
-    // are NOT re-emitted by this mirror; that's entry_serialize's job).
+    // are NOT re-emitted by this mirror; identity emission was formerly
+    // entry_serialize()'s job -- now deleted, B1-1146b -- and is today
+    // bb_mdns_cache_entry_wire_fill()'s, a separate function this helper
+    // does not call).
     TEST_ASSERT_FALSE(bb_json_obj_get_string(obj, "hostname", board_out, sizeof(board_out)));
 
     bb_json_free(obj);

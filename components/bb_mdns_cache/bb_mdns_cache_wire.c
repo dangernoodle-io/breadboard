@@ -1,7 +1,9 @@
 // bb_mdns_cache_wire — the format-agnostic "mdns_cache entry" descriptor
-// SSOT + fill. See bb_mdns_cache_wire_priv.h for the wire-struct contract
-// and the documented shape divergence from the legacy entry_serialize()
-// emitter. Compiles on both host and ESP-IDF; no platform-specific code.
+// SSOT + fill; the sole serialization path for a peer entry since
+// entry_serialize() was deleted (B1-1146b). See bb_mdns_cache_wire_priv.h
+// for the wire-struct contract and the documented shape divergence from the
+// now-deleted legacy emitter. Compiles on both host and ESP-IDF; no
+// platform-specific code.
 
 #include "bb_mdns_cache_wire_priv.h"
 
