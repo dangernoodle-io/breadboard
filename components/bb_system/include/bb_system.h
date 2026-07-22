@@ -527,6 +527,13 @@ bb_err_t bb_system_routes_init(bb_http_handle_t server);
 
 #endif /* ESP_PLATFORM */
 
+#ifdef BB_SYSTEM_TESTING
+/// Expose the POST /api/reboot handler for host unit tests (B1-1148 PR1).
+/// req is the opaque bb_http_request_t handle (no ESP_PLATFORM dependency --
+/// same posture as bb_storage_http_delete_handler_for_test).
+bb_err_t bb_system_reboot_handler_for_test(bb_http_request_t *req);
+#endif /* BB_SYSTEM_TESTING */
+
 #ifdef __cplusplus
 }
 #endif
