@@ -1,7 +1,6 @@
 #pragma once
 
 #include "bb_wifi.h"
-#include "bb_json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,21 +25,23 @@ extern "C" {
 
 // Format `bssid` as a colon-hex MAC string ("aa:bb:cc:dd:ee:ff") into `out`
 // (must be at least 18 bytes). Pure, host-testable -- the shared idiom
-// behind bb_wifi_emit_status and the "wifi" bb_diag section's fill
-// (bb_wifi_http_diag.h) and the GET /api/wifi wire descriptor
-// (bb_wifi_http_wire_priv.h), factored out per the hand-roll-twice-extract
-// convention rather than a third snprintf copy.
+// behind bb_health's root "network" gather (platform/espidf/bb_health/
+// bb_health.c), the "wifi" bb_diag section's fill (bb_wifi_http_diag.h),
+// and the GET /api/wifi wire descriptor (bb_wifi_http_wire_priv.h),
+// factored out per the hand-roll-twice-extract convention rather than a
+// third snprintf copy.
 void bb_wifi_http_format_bssid(char out[18], const uint8_t bssid[6]);
 
 // The GET /api/wifi bb_json_t emitter (bb_wifi_emit_section) was migrated
 // to a bb_serialize_desc_t (B1-1057) -- see bb_wifi_http_wire_priv.h
 // (bb_wifi_http_info_wire_desc / bb_wifi_http_info_wire_fill), the SSOT
 // wifi_info_handler now renders through.
-
-// Emit status-only wifi fields into a bb_json_t object (TA-505).
-// Writes: ssid, bssid (colon-hex), ip, connected — no numeric fields.
-// Calls bb_wifi_get_info internally; no info parameter required.
-void bb_wifi_emit_status(bb_json_t obj);
+//
+// bb_wifi_emit_status (the bb_json_t-based status-only emitter, TA-505) is
+// DELETED (B1-1149) -- the /api/health "network" section it backed renders
+// through bb_health_wire_desc (components/bb_health/bb_health_wire_priv.h)
+// instead, a bb_serialize_desc_t, not a bb_json_t emitter. This header no
+// longer includes bb_json.h.
 
 /// Reserve route-table slots for bb_wifi_http before the HTTP server starts.
 // bbtool:init tier=pre_http fn=bb_wifi_routes_reserve
