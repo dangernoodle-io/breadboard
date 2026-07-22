@@ -104,6 +104,30 @@ def extract_brief(path: Path) -> Optional[str]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Shared first-sentence extraction — the one home for this idiom (consolidation
+# rule: CLAUDE.md "the SECOND hand-rolled instance of a shared idiom...
+# triggers extraction"). Two callers today (`commands/docs.py`'s deps-table
+# Role cell, `gen_components_readme.py`'s Purpose cell) each assemble their
+# own candidate string first (a single physical README line vs. a joined
+# wrapped paragraph — that difference is legitimate: each caller's source
+# shape differs) and then both call this shared extractor.
+# ---------------------------------------------------------------------------
+_SENTENCE_RE = re.compile(r'(.+?[.!?])(?=\s+[A-Z]|\s*$)')
+
+
+def first_sentence(text: str) -> str:
+    """Return the first `.`/`!`/`?`-terminated sentence of `text` (a
+    lookahead on the next word starting with a capital letter, or
+    end-of-string, avoids false-splitting on abbreviations like `e.g.`/
+    `i.e.` that aren't followed by a capitalized word). Falls back to
+    `text` verbatim when it has no such terminator (e.g. a short phrase
+    with no closing punctuation) — never raises, never returns empty for
+    non-empty input."""
+    m = _SENTENCE_RE.match(text)
+    return m.group(1) if m else text
+
+
 def primary_header(root: Path, name: str) -> Optional[Path]:
     """Return the conventional primary public header for component `name`:
     <owning-dir>/include/<name>.h, resolved via the discovery SSOT

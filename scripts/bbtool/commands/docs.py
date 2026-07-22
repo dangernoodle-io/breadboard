@@ -107,7 +107,11 @@ from cmake_parse import (
     parse_requires as _parse_requires,
     strip_cmake_comments as _strip_cmake_comments,
 )
-from header_annot import extract_brief as _extract_brief, primary_header as _primary_header
+from header_annot import (
+    extract_brief as _extract_brief,
+    primary_header as _primary_header,
+    first_sentence as _first_sentence,
+)
 from discovery import build_index, normalize_roots
 
 NAME = "docs"
@@ -167,12 +171,15 @@ def _extract_first_sentence(readme_path: Path) -> str:
     """Pull the first sentence of a component README's one-line brief (the
     first non-blank, non-marker prose line after the title). Mirrors
     scripts/gen_components_readme.py's `extract_purpose` line-finding, then
-    additionally trims to the first `.`/`!`/`?`-terminated sentence. Blank
-    lines and bare `<!-- ... -->` marker lines (e.g. `bbtool:brief`
-    BEGIN/END lines) are skipped, so a converted dep's marker delimiters
-    never leak into a dependent's Role cell — after conversion, the brief
-    region's BODY (the first line following the marker) is the correct
-    prose to use. Returns "—" (em dash) if the README has no such line."""
+    delegates to the shared `header_annot.first_sentence` extractor (the
+    single home for `.`/`!`/`?`-terminated sentence-splitting — see that
+    module for why the candidate-assembly step stays per-caller while the
+    extraction itself is shared). Blank lines and bare `<!-- ... -->`
+    marker lines (e.g. `bbtool:brief` BEGIN/END lines) are skipped, so a
+    converted dep's marker delimiters never leak into a dependent's Role
+    cell — after conversion, the brief region's BODY (the first line
+    following the marker) is the correct prose to use. Returns "—" (em
+    dash) if the README has no such line."""
     lines = readme_path.read_text(encoding="utf-8").splitlines()
     idx = 0
     n = len(lines)
@@ -188,12 +195,7 @@ def _extract_first_sentence(readme_path: Path) -> str:
     idx = _skip_noise(idx)
     if idx >= n or not lines[idx].strip():
         return "—"
-    brief = lines[idx].strip()
-    m = _SENTENCE_RE.match(brief)
-    return m.group(1) if m else brief
-
-
-_SENTENCE_RE = re.compile(r'(.+?[.!?])(?=\s+[A-Z]|\s*$)')
+    return _first_sentence(lines[idx].strip())
 
 
 def _dep_role_and_link(root: Path, dep: str) -> Tuple[str, Optional[str]]:

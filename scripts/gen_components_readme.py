@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "bbtool"))
-from header_annot import extract_brief, primary_header  # noqa: E402
+from header_annot import extract_brief, primary_header, first_sentence  # noqa: E402
 from discovery import build_index  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -75,9 +75,20 @@ _COMMENT_LINE_RE = re.compile(r'^\s*<!--.*-->\s*$')
 
 def _first_prose_line(readme_path: Path) -> str:
     """README fallback: skip blank lines, a leading `#`-title line, and any
-    bare `<!-- ... -->` marker lines, then return the first non-blank prose
-    line that follows (trimmed). Returns "—" if the README has no such
-    line."""
+    bare `<!-- ... -->` marker lines, then return the first SENTENCE of the
+    prose paragraph that follows, trimmed. A hand-authored paragraph is
+    normal markdown and commonly wraps across several physical lines (e.g.
+    an 80-column-wrapped `components/<group>/README.md`) — every physical
+    line of that paragraph (up to the next blank line, comment line, or
+    EOF) is joined with a single space, then handed to the shared
+    `header_annot.first_sentence` extractor (the single home for
+    `.`/`!`/`?`-terminated sentence-splitting, also used by
+    `commands/docs.py`'s deps-table Role cell), so a paragraph that wraps
+    mid-sentence never renders as a truncated, unclosed-markdown table cell
+    (e.g. a dangling `` ` `` or `(`). Taking just the first sentence, not
+    the whole joined paragraph, keeps the index table cell short even when
+    the paragraph itself is long. Returns "—" if the README has no such
+    paragraph."""
     lines = readme_path.read_text(encoding="utf-8").splitlines()
     idx = 0
     n = len(lines)
@@ -92,10 +103,16 @@ def _first_prose_line(readme_path: Path) -> str:
         idx += 1
     idx = _skip_noise(idx)
 
-    if idx < n and lines[idx].strip():
-        return lines[idx].strip()
+    if idx >= n or not lines[idx].strip():
+        return "—"  # em dash
 
-    return "—"  # em dash
+    para_lines = []
+    while idx < n and lines[idx].strip() and not _COMMENT_LINE_RE.match(lines[idx]):
+        para_lines.append(lines[idx].strip())
+        idx += 1
+    paragraph = " ".join(para_lines)
+
+    return first_sentence(paragraph)
 
 
 class ComponentIndexError(Exception):
