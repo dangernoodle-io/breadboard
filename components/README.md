@@ -16,9 +16,6 @@ project-wide conventions, build instructions, and architecture notes.
 |-----------|---------|
 | [bb_attrs](./bb_attrs/) | Intrusive header carrying filter/collection metadata (`priority`, `kind`, `tag_mask`, `delivery_class`) that any element embeds as a member. |
 | [bb_bqueue](./bb_bqueue/) | Blocking mailbox/MPSC queue — capacity==1 selects mailbox mode (overwrite/reset), capacity>1 selects bounded-MPSC mode (send/dropped); peek/receive/count/capacity work in both. Zero heap: a Kconfig-sized static instance pool. |
-| [bb_button](./bb_button/) | — |
-| [bb_button_events](./bb_button_events/) | — |
-| [bb_button_gpio](./bb_button_gpio/) | — |
 | [bb_cache](./bb_cache/) | — |
 | [bb_cache_routes](./bb_cache_routes/) | — |
 | [bb_collection](./bb_collection/) | A humble, fixed-capacity, thread-safe ordered collection of caller-owned opaque items. |
@@ -27,11 +24,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_data](./bb_data/) | bb_data core binding table (B1-832) -- OWNS the `key -> (desc, gather)` binding table for the future bidirectional data path (the B1-828 epic replacing bb_pub + bb_sub + all bb_sink_*). DIRECT: bb_data delegates ONLY the wire-format step to the existing bb_serialize format-dispatch registry (bb_serialize_format.h) -- it does NOT wrap bb_cache or bb_cache_serialize, and has no dependency on either. |
 | [bb_data_http](./bb_data_http/) | bb_data_http -- the converged HTTP SSE/WS push transport (B1-1033, design KB 1443/1444). Dep-light pure core (bb_queue + bb_core only): it NEVER links bb_data or bb_ws_server directly. Instead it calls three INJECTED function-pointer seams -- render, generation-read, and send -- that the composition root wires to real bb_data / bb_ws_server / httpd calls (ESP-IDF) or to test doubles (host). This keeps bb_data_http free to serve any egress transport without a hard dependency on the data or websocket layers. |
 | [bb_diag](./bb_diag/) | — |
-| [bb_display](./bb_display/) | — |
-| [bb_display_ek79007](./bb_display_ek79007/) | — |
-| [bb_display_ili9341](./bb_display_ili9341/) | — |
-| [bb_display_spi_common](./bb_display_spi_common/) | — |
-| [bb_display_st77xx](./bb_display_st77xx/) | — |
 | [bb_fan](./bb_fan/) | — |
 | [bb_fan_emc2101](./bb_fan_emc2101/) | — |
 | [bb_filter](./bb_filter/) | Pure projection over elements carrying `bb_attrs`: given an array of `{attrs, item}` pairs and a selector, returns the matching, priority-sorted subset. |
@@ -43,12 +35,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_http_server](./bb_http_server/) | — |
 | [bb_i2c](./bb_i2c/) | — |
 | [bb_json](./bb_json/) | — |
-| [bb_led](./bb_led/) | — |
-| [bb_led_anim](./bb_led_anim/) | — |
-| [bb_led_apa102](./bb_led_apa102/) | — |
-| [bb_led_gpio](./bb_led_gpio/) | — |
-| [bb_led_pwm](./bb_led_pwm/) | — |
-| [bb_led_rgb_pwm](./bb_led_rgb_pwm/) | — |
 | [bb_lifecycle](./bb_lifecycle/) | Service run-state authority: register named services, track a computed STOPPED/PAUSED/RUNNING state per service, and let independent subsystems assert/clear open-vocabulary pause reasons without stepping on each other. PUSH (observer), PULL (generic emit sink), and POLL (lock-free version counter) delivery, all sourced from one lock-guarded commit. |
 | [bb_log](./bb_log/) | — |
 | [bb_log_event](./bb_log_event/) | "log" `bb_event` stream topic sink, carved out of `bb_log` (KB #708/#704). |
@@ -108,7 +94,9 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_wifi_http](./bb_wifi_http/) | Opt-in STA route bundle for `bb_wifi` (PR1 of the bb_wifi split, KB 781/809). |
 | [bb_wifi_prov](./bb_wifi_prov/) | bb_wifi_prov — Wi-Fi provisioning HTTP routes: parses a POSTed SSID/password form and a captive-portal redirect. Registers POST /save and a captive GET /* wildcard on the shared HTTP server; does not register /api/version, /api/wifi/scan, or /api/reboot (those live in bb_wifi_http / bb_system), and does not itself bring up SoftAP or drive a Wi-Fi lifecycle state machine (see bb_wifi_ap for AP bring-up). |
 | [bb_ws_server](./bb_ws_server/) | — |
-| [display/](./display/) | Display driver backends for `bb_display` (the portable framebuffer/font primitive) — one component per panel/controller, each registering with `bb_display` via the backend-dispatch convention rather than being a standalone consumer-facing API. |
+| [button/](./button/) | Button input primitives — `bb_button` (the portable debounced-button primitive) plus its GPIO backend (`bb_button_gpio`) and event-fanout helper (`bb_button_events`), each registering with `bb_button` via the backend-dispatch convention rather than being a standalone consumer-facing API. |
+| [display/](./display/) | `bb_display` (the portable framebuffer/font primitive) plus its per-panel/ controller driver backends, each registering with `bb_display` via the backend-dispatch convention rather than being a standalone consumer-facing API. |
+| [led/](./led/) | LED output primitives — `bb_led` (the portable LED primitive) plus per-driver backends (GPIO, PWM, RGB PWM, APA102) and the `bb_led_anim` animation helper, each registering with `bb_led` via the backend-dispatch convention rather than being a standalone consumer-facing API. |
 
 ---
 _Generated by `scripts/gen_components_readme.py` — see [doc conventions](../wiki/Component-Docs)._

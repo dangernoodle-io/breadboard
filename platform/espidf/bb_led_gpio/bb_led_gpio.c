@@ -1,6 +1,6 @@
 #include "bb_led_gpio.h"
 #include "bb_led_driver.h"
-#include "../../../components/bb_led_gpio/bb_led_gpio_internal.h"
+#include "../../../components/led/bb_led_gpio/bb_led_gpio_internal.h"
 #include "bb_mem.h"
 #include "driver/gpio.h"
 #include <stdlib.h>

@@ -1,14 +1,17 @@
 # display
 
-Display driver backends for `bb_display` (the portable framebuffer/font
-primitive) — one component per panel/controller, each registering with
-`bb_display` via the backend-dispatch convention rather than being a
-standalone consumer-facing API. Components land here as they migrate out of
-the flat `components/` tree; `bb_display` itself stays flat (it's the
-framework primitive the backends depend on, not a member of this group).
+`bb_display` (the portable framebuffer/font primitive) plus its per-panel/
+controller driver backends, each registering with `bb_display` via the
+backend-dispatch convention rather than being a standalone
+consumer-facing API.
 
 <!-- BEGIN bbtool:group-index -->
 | Component | Purpose |
 |-----------|---------|
+| [bb_display](./bb_display/) | — |
+| [bb_display_ek79007](./bb_display_ek79007/) | — |
+| [bb_display_ili9341](./bb_display_ili9341/) | — |
+| [bb_display_spi_common](./bb_display_spi_common/) | — |
 | [bb_display_ssd1306](./bb_display_ssd1306/) | — |
+| [bb_display_st77xx](./bb_display_st77xx/) | — |
 <!-- END bbtool:group-index -->

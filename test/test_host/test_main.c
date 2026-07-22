@@ -7,7 +7,7 @@
 #include "../../platform/host/bb_http_client/bb_http_client_host.h"
 #include "../../components/bb_ota_check/src/bb_ota_check_internal.h"
 #include "test_alloc_inject.h"
-#include "../../components/bb_display/bb_display_test.h"
+#include "../../components/display/bb_display/bb_display_test.h"
 #include "../../platform/host/bb_wdt/bb_wdt_test.h"
 #include "bb_i2c_test.h"
 #include "bb_health_test.h"

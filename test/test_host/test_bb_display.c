@@ -8,7 +8,7 @@
 #include "unity.h"
 #include "bb_display.h"
 #include "bb_display_backend.h"
-#include "../../components/bb_display/bb_display_test.h"
+#include "../../components/display/bb_display/bb_display_test.h"
 
 #include <string.h>
 #include <stdbool.h>

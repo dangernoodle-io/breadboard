@@ -1,7 +1,7 @@
 #include "bb_led_gpio.h"
 #include "bb_led_gpio_host.h"
 #include "bb_led_driver.h"
-#include "../../../components/bb_led_gpio/bb_led_gpio_internal.h"
+#include "../../../components/led/bb_led_gpio/bb_led_gpio_internal.h"
 #include <stdlib.h>
 
 #define BB_LED_GPIO_HOST_MAX_PIN 64
