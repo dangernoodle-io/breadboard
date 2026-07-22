@@ -2,13 +2,13 @@
 // Private shared header for the bb_diag section registry (B1-diag-dissolution
 // PR3). Kconfig-bridge byte budgets plus the pure, portable dispatch helpers
 // (name-from-uri parsing, query-param threading) -- factored out of the
-// ESP-IDF-only dispatcher (platform/espidf/bb_diag/bb_diag_section_dispatch.c)
+// ESP-IDF-only dispatcher (platform/espidf/bb_diag_http/bb_diag_http_section_dispatch.c)
 // so both it and a host test can exercise the SAME code path (mirrors PR2's
 // bb_http_uri_strip_query_copy: the shared logic lives in a portable file,
 // the ESP-IDF backend is a thin caller). No ESP-IDF or FreeRTOS types here.
 // Included by:
 //   - components/bb_diag/bb_diag_section.c
-//   - platform/espidf/bb_diag/bb_diag_section_dispatch.c
+//   - platform/espidf/bb_diag_http/bb_diag_http_section_dispatch.c
 //   - test/test_host/test_bb_diag_section.c
 
 #include "bb_diag_section.h"

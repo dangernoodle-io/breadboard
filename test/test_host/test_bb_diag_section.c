@@ -1,7 +1,7 @@
 // Host tests for the bb_diag section registry (B1-diag-dissolution PR3):
 // bb_diag_register_section() plus the pure, portable dispatch helpers
 // (bb_diag_section_find/name_from_uri/build_query) that the ESP-IDF
-// dispatcher (platform/espidf/bb_diag/bb_diag_section_dispatch.c) drives at
+// dispatcher (platform/espidf/bb_diag_http/bb_diag_http_section_dispatch.c) drives at
 // request time. This file reconstructs that SAME sequence end to end
 // (name_from_uri -> find -> build_query -> fill -> render) against a fake
 // producer -- the one-tested-path seam the dispatcher's own code just
@@ -360,7 +360,7 @@ void test_bb_diag_section_build_query_null_args_return_invalid_arg(void)
 
 // ---------------------------------------------------------------------------
 // Full dispatch sequence, driven entirely through the pure helpers -- the
-// SAME sequence platform/espidf/bb_diag/bb_diag_section_dispatch.c's
+// SAME sequence platform/espidf/bb_diag_http/bb_diag_http_section_dispatch.c's
 // diag_section_dispatch() drives, minus the httpd glue. Proves the one
 // tested code path both the device handler and this test exercise.
 // ---------------------------------------------------------------------------

@@ -5,8 +5,8 @@
  * wildcard route (B1-diag-dissolution PR3). A consumer registers a named
  * section once (typically from a composition root or the owning
  * component's own init fn) via bb_diag_register_section(); the ESP-IDF
- * dispatcher (bb_diag_sections_init(), platform/espidf/bb_diag/
- * bb_diag_section_dispatch.c) then serves GET /api/diag/<name> for every
+ * dispatcher (bb_diag_sections_init(), bb_diag_http, platform/espidf/
+ * bb_diag_http/bb_diag_http_section_dispatch.c) then serves GET /api/diag/<name> for every
  * registered section, streaming its snapshot straight through
  * bb_http_serialize_stream() (bb_serialize_json's flush-sink bridge, B1-1077
  * PR-1) -- NOT through bb_data. bb_diag stays bb_data-free here on purpose:
@@ -25,10 +25,10 @@
  * (meminfo/system/mdns/storage) land in later PRs against this same API.
  *
  * A registered name derives its route as GET /api/diag/<name>. Exact
- * routes (the 12 legacy handlers still owned by bb_diag_routes.c and
- * sibling *_routes components) continue to win over this wildcard for as
- * long as they coexist -- see bb_http_server's exact-before-wildcard
- * dispatch contract (PR2, #937).
+ * routes (the 12 legacy handlers still owned by bb_diag_http's own
+ * bb_diag_routes_init() and sibling *_routes components) continue to win
+ * over this wildcard for as long as they coexist -- see bb_http_server's
+ * exact-before-wildcard dispatch contract (PR2, #937).
  */
 
 #include "bb_core.h"
@@ -70,7 +70,7 @@ typedef bb_err_t (*bb_diag_fill_fn)(void *dst, const bb_diag_fill_args_t *args);
 // section whose snap_desc declares exactly one top-level BB_TYPE_ARR field
 // with `.cardinality == BB_ARR_STREAM` (reg-time-enforced, see
 // bb_diag_register_section() below). Driven around ONE request by the
-// ESP-IDF dispatcher (platform/espidf/bb_diag/bb_diag_section_dispatch.c),
+// ESP-IDF dispatcher (platform/espidf/bb_diag_http/bb_diag_http_section_dispatch.c),
 // which owns the row arena -- the section never allocates it:
 //
 //   Phase 1 COUNT: row_arena == NULL, row_cap == 0 -> fill `dst`'s scalar
@@ -144,19 +144,10 @@ typedef struct {
 // silent per-request truncation.
 bb_err_t bb_diag_register_section(const bb_diag_section_t *section);
 
-#if CONFIG_BB_DIAG_SECTIONS
-#ifdef ESP_PLATFORM
-#include "bb_http_server.h"
-
-// Registers the GET /api/diag/* wildcard route on `server`, dispatching to
-// whichever section a request names (platform/espidf/bb_diag/
-// bb_diag_section_dispatch.c). ESP-IDF only -- there is no host server to
-// register against.
-// bbtool:init tier=regular fn=bb_diag_sections_init server=true
-bb_err_t bb_diag_sections_init(bb_http_handle_t server);
-
-#endif /* ESP_PLATFORM */
-#endif /* CONFIG_BB_DIAG_SECTIONS */
+// bb_diag_sections_init() (the GET /api/diag/* wildcard dispatcher)
+// relocated to bb_diag_http (B1-1153, KB 1477) -- see
+// components/bb_diag_http/include/bb_diag_http.h. bb_diag itself is
+// bb_http_server-free after this split.
 
 #ifdef BB_DIAG_SECTION_TESTING
 // Test-only: clears every registered section back to empty.

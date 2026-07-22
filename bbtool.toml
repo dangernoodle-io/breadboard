@@ -137,6 +137,7 @@ components = [
     "bb_attrs", "bb_bqueue", "bb_button",
     "bb_button_events", "bb_button_gpio", "bb_cache",
     "bb_collection", "bb_config", "bb_core", "bb_data", "bb_data_http", "bb_diag",
+    "bb_diag_http",
     "bb_display",
     "bb_fan", "bb_filter", "bb_fmt", "bb_fsm", "bb_health", "bb_http",
     "bb_http_client", "bb_http_server", "bb_i2c", "bb_json",
@@ -315,6 +316,13 @@ remove_components = ["bb_wifi_ap"]
 # routes) plus the "storage/nvs"/"storage/partitions" inventory sections
 # (PR9) that previously had zero call sites.
 #
+# B1-1153 (KB 1477): bb_diag_http added -- bb_diag_sections_init() (the GET
+# /api/diag/* wildcard dispatcher floor's http_lifecycle_observer calls)
+# relocated there along with the rest of bb_diag's HTTP surface; bb_diag
+# itself is bb_http_server-free after the split. bb_diag_register_section()
+# (the registry floor's app_main() calls, composition-time-only) stays owned
+# by bb_diag, unaffected.
+#
 # B1-1100 (bb_health/bb_response migration chain, PR-5, epic B1-1054):
 # bb_health + bb_temp added -- floor is the handwire HW-validation vehicle
 # for the composed GET /api/health cutover (gather-then-stream off the
@@ -328,7 +336,7 @@ components = [
     "bb_log", "bb_meminfo", "bb_timer",
     "bb_wifi", "bb_storage_nvs", "bb_storage_rtc", "bb_settings",
     "bb_http", "bb_http_server", "bb_lifecycle",
-    "bb_data", "bb_serialize_json", "bb_system", "bb_diag",
+    "bb_data", "bb_serialize_json", "bb_system", "bb_diag", "bb_diag_http",
     "bb_serialize_console", "bb_health", "bb_temp",
     "bb_log_event", "bb_mqtt_client", "bb_mdns", "bb_data_http",
 ]
