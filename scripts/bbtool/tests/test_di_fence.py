@@ -13,11 +13,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
 import fence as fence_pkg  # noqa: E402
-from commands import di_fence, fence_cmd  # noqa: E402
+from commands import di_fence  # noqa: E402
+from discovery import build_index  # noqa: E402
+from fence_test_support import run_fence_cli as _run_fence  # noqa: E402
 
 
 def _write(root: Path, rel: str, content: str) -> Path:
@@ -28,18 +31,16 @@ def _write(root: Path, rel: str, content: str) -> Path:
 
 
 def _run_di_fence(root: str, update_baseline: bool = False) -> tuple:
+    # See `tests/fence_test_support.py`: these tests mutate the SAME tmp
+    # root across multiple calls within one process, so the memoized
+    # `discovery.build_index()` cache must be cleared per-invocation here
+    # too (di_fence.run() delegates straight to fence_cmd.run(), which no
+    # longer clears it itself — B1-1128).
+    build_index.cache_clear()
     args = argparse.Namespace(root=root, update_baseline=update_baseline)
     stdout, stderr = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
         rc = di_fence.run(args)
-    return rc, stdout.getvalue(), stderr.getvalue()
-
-
-def _run_fence(root: str, family=None, update_baseline: bool = False, seed=None) -> tuple:
-    args = argparse.Namespace(root=root, family=family, update_baseline=update_baseline, seed=seed)
-    stdout, stderr = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-        rc = fence_cmd.run(args)
     return rc, stdout.getvalue(), stderr.getvalue()
 
 

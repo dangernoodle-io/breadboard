@@ -2,22 +2,20 @@
 scanning (fires + does not fire), family auto-discovery, and the
 shrink-only baseline semantics (via the generic `fence` CLI) applied to
 this concrete family."""
-import argparse
-import contextlib
-import io
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
 import fence as fence_pkg  # noqa: E402
 from fence import Marker  # noqa: E402
 from fence.scalar_parse import scan_all, counts_by_bucket  # noqa: E402
-from commands import fence_cmd  # noqa: E402
+from fence_test_support import run_fence_cli  # noqa: E402
 
 
 def _write(root: Path, rel: str, content: str) -> Path:
@@ -187,14 +185,6 @@ class TestCountsByBucket(unittest.TestCase):
         self.assertEqual(counts, {"hand-rolled scalar_parse": 1})
 
 
-def _run_fence_cli(root: str, family=None, update_baseline: bool = False, seed=None) -> tuple:
-    args = argparse.Namespace(root=root, family=family, update_baseline=update_baseline, seed=seed)
-    stdout, stderr = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-        rc = fence_cmd.run(args)
-    return rc, stdout.getvalue(), stderr.getvalue()
-
-
 class TestFenceCliScalarParse(unittest.TestCase):
     """Exercises the generic `fence` CLI's shrink-only / net-new semantics
     against the real scalar_parse family scanner, on a synthetic tree."""
@@ -212,11 +202,11 @@ class TestFenceCliScalarParse(unittest.TestCase):
             root = Path(td)
             _write(root, "components/bb_fake_http/src/util.c", self._parse_src())
 
-            rc, out, _ = _run_fence_cli(str(root), seed="scalar_parse")
+            rc, out, _ = run_fence_cli(str(root), seed="scalar_parse")
             self.assertEqual(rc, 0)
             self.assertIn("baseline seeded", out)
 
-            rc2, out2, _ = _run_fence_cli(str(root), family=["scalar_parse"])
+            rc2, out2, _ = run_fence_cli(str(root), family=["scalar_parse"])
             self.assertEqual(rc2, 0)
             self.assertIn("PASS", out2)
 
@@ -224,7 +214,7 @@ class TestFenceCliScalarParse(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _write(root, "components/bb_fake_http/src/util.c", self._parse_src())
-            _run_fence_cli(str(root), seed="scalar_parse")
+            run_fence_cli(str(root), seed="scalar_parse")
 
             _write(root, "components/bb_fake_http2/src/util.c", (
                 "bool bb_url_parse_uint(const char *val, unsigned long *out)\n"
@@ -233,7 +223,7 @@ class TestFenceCliScalarParse(unittest.TestCase):
                 "}\n"
             ))
 
-            rc, out, err = _run_fence_cli(str(root), family=["scalar_parse"])
+            rc, out, err = run_fence_cli(str(root), family=["scalar_parse"])
             self.assertEqual(rc, 1)
             self.assertIn("new marker added", err)
             self.assertIn("bb_url_parse_uint", err)
@@ -242,7 +232,7 @@ class TestFenceCliScalarParse(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             src = _write(root, "components/bb_fake_http/src/util.c", self._parse_src())
-            _run_fence_cli(str(root), seed="scalar_parse")
+            run_fence_cli(str(root), seed="scalar_parse")
 
             # Simultaneously: remove the seeded definition AND add a new one.
             src.write_text(
@@ -253,7 +243,7 @@ class TestFenceCliScalarParse(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            rc, out, _ = _run_fence_cli(str(root), family=["scalar_parse"], update_baseline=True)
+            rc, out, _ = run_fence_cli(str(root), family=["scalar_parse"], update_baseline=True)
             self.assertEqual(rc, 0)
             self.assertIn("baseline pruned", out)
             self.assertIn("NOT added to the", out)
@@ -262,7 +252,7 @@ class TestFenceCliScalarParse(unittest.TestCase):
             baseline_ids = {m.id for m in baseline}
             self.assertNotIn("bb_url_parse_uint", baseline_ids, "net-new definition must never be blessed")
 
-            rc2, _, err2 = _run_fence_cli(str(root), family=["scalar_parse"])
+            rc2, _, err2 = run_fence_cli(str(root), family=["scalar_parse"])
             self.assertEqual(rc2, 1)
             self.assertIn("bb_url_parse_uint", err2)
 
@@ -270,7 +260,7 @@ class TestFenceCliScalarParse(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             src = _write(root, "components/bb_fake_http/src/util.c", self._parse_src())
-            _run_fence_cli(str(root), seed="scalar_parse")
+            run_fence_cli(str(root), seed="scalar_parse")
 
             # Migrate onto bb_scalar: the hand-rolled definition is gone.
             src.write_text(
@@ -279,12 +269,12 @@ class TestFenceCliScalarParse(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            rc, out, _ = _run_fence_cli(str(root), family=["scalar_parse"])
+            rc, out, _ = run_fence_cli(str(root), family=["scalar_parse"])
             self.assertEqual(rc, 0, "removing a hand-rolled definition must never fail the fence")
             self.assertIn("PASS", out)
             self.assertIn("candidate to prune from baseline", out)
 
-            rc2, out2, _ = _run_fence_cli(str(root), family=["scalar_parse"], update_baseline=True)
+            rc2, out2, _ = run_fence_cli(str(root), family=["scalar_parse"], update_baseline=True)
             self.assertEqual(rc2, 0)
             baseline = fence_pkg.load_baseline(str(root), "scalar_parse")
             self.assertEqual(baseline, set())
