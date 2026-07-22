@@ -36,3 +36,13 @@ idf_component_register(
     PRIV_REQUIRES ${_sys_priv_reqs}
 )
 
+# bb_system_routes.c is portable (no ESP-IDF-specific includes) but filed
+# under platform/espidf/ and only added to _sys_srcs above when
+# CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER is set -- the host scaffold's
+# directory-convention source walk (scripts/bbtool/boards.py's
+# derive_component) only looks under platform/host/<name>/ for the "native"
+# board and has no CONFIG_ awareness, so this hint pulls the portable route
+# source into host test builds too (same pattern as
+# bb_storage_http/CMakeLists.txt's own hint).
+# bbtool-scaffold-hint: source=platform/espidf/bb_system/bb_system_routes.c
+

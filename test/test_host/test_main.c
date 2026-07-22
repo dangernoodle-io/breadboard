@@ -3158,6 +3158,22 @@ void test_bb_system_get_mac_writes_empty_string_on_host(void);
 void test_bb_system_chip_revision_callable(void);
 void test_bb_system_cpu_freq_mhz_callable(void);
 
+// Forward declarations from test_bb_system_routes.c
+void test_bb_system_reboot_route_no_body_returns_200(void);
+void test_bb_system_reboot_route_empty_body_returns_200(void);
+void test_bb_system_reboot_route_valid_ts_returns_200(void);
+void test_bb_system_reboot_route_detail_present_returns_200(void);
+void test_bb_system_reboot_route_detail_absent_falls_back_to_user_agent(void);
+void test_bb_system_reboot_route_no_body_falls_back_to_user_agent(void);
+void test_bb_system_reboot_route_detail_present_wins_over_user_agent(void);
+void test_bb_system_reboot_route_no_detail_no_user_agent_resolves_empty(void);
+void test_bb_system_reboot_route_valid_ts_resolves_via_capture(void);
+void test_bb_system_reboot_route_malformed_body_returns_200(void);
+void test_bb_system_reboot_route_oversized_body_returns_200(void);
+void test_bb_system_reboot_route_recv_fail_treated_as_no_body(void);
+void test_bb_system_reboot_route_json_obj_begin_fail_propagates(void);
+void test_bb_system_reboot_route_json_obj_end_fail_propagates(void);
+
 // Forward declarations from test_bb_meminfo.c (heap-state classifier,
 // relocated from bb_board, B1-977 dissolution)
 void test_bb_meminfo_classify_heap_ok(void);
@@ -4784,6 +4800,7 @@ void bb_cache_reset_for_test(void);
 void setUp(void) {
     _bb_log_registry_reset();
     bb_system_boot_count_reset_for_test();
+    bb_system_reboot_capture_reset_for_test();
     bb_mdns_host_reset();
     wifi_reconn_policy_test_reset();
     bb_mdns_lifecycle_test_reset();
@@ -7146,6 +7163,22 @@ int main(void) {
     RUN_TEST(test_bb_system_get_mac_writes_empty_string_on_host);
     RUN_TEST(test_bb_system_chip_revision_callable);
     RUN_TEST(test_bb_system_cpu_freq_mhz_callable);
+
+    // bb_system POST /api/reboot route tests (B1-1148 PR1)
+    RUN_TEST(test_bb_system_reboot_route_no_body_returns_200);
+    RUN_TEST(test_bb_system_reboot_route_empty_body_returns_200);
+    RUN_TEST(test_bb_system_reboot_route_valid_ts_returns_200);
+    RUN_TEST(test_bb_system_reboot_route_detail_present_returns_200);
+    RUN_TEST(test_bb_system_reboot_route_detail_absent_falls_back_to_user_agent);
+    RUN_TEST(test_bb_system_reboot_route_no_body_falls_back_to_user_agent);
+    RUN_TEST(test_bb_system_reboot_route_detail_present_wins_over_user_agent);
+    RUN_TEST(test_bb_system_reboot_route_no_detail_no_user_agent_resolves_empty);
+    RUN_TEST(test_bb_system_reboot_route_valid_ts_resolves_via_capture);
+    RUN_TEST(test_bb_system_reboot_route_malformed_body_returns_200);
+    RUN_TEST(test_bb_system_reboot_route_oversized_body_returns_200);
+    RUN_TEST(test_bb_system_reboot_route_recv_fail_treated_as_no_body);
+    RUN_TEST(test_bb_system_reboot_route_json_obj_begin_fail_propagates);
+    RUN_TEST(test_bb_system_reboot_route_json_obj_end_fail_propagates);
 
     // bb_meminfo heap-state tests (relocated from bb_board, B1-977 dissolution)
     RUN_TEST(test_bb_meminfo_classify_heap_ok);
