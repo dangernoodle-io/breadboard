@@ -19,9 +19,12 @@
 
 #include <stdbool.h>
 
-// network subsection -- field order matches bb_wifi_emit_status()
-// (platform/host/bb_wifi_http/bb_wifi_http_emit.c): ssid, bssid, ip,
-// connected, then bb_health.c's own "mdns" append.
+// network subsection -- field order matches health_handler()'s own gather
+// step (platform/espidf/bb_health/bb_health.c): ssid, bssid, ip, connected,
+// then that same gather's "mdns" append. (Historical note: this order used
+// to also match a now-deleted bb_json_t emitter, bb_wifi_emit_status --
+// B1-1149 -- but health_handler() never called it; it always gathered these
+// fields directly.)
 typedef struct {
     char                  ssid[33];
     char                  bssid[18];

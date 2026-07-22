@@ -536,9 +536,12 @@ bool bb_wifi_gateway_reachable(uint32_t timeout_ms);
 // bb_wifi_emit_status (bb_json_t-based JSON emitter) moved to bb_wifi_http.h
 // (PR1, KB 781) — bb_wifi's public header no longer includes bb_json.h so
 // the STA core stays free of the http/json/openapi dependency closure.
-// Callers that need the JSON emitter (e.g. bb_health) include
-// bb_wifi_http.h instead. bb_wifi_emit_section, the GET /api/wifi
-// counterpart, migrated off bb_json entirely (B1-1057) to a
+// bb_wifi_emit_status is since DELETED (B1-1149): its only caller was a host
+// test fixture, never a production route (bb_health's own "network" section
+// gathers ssid/bssid/ip/connected directly and renders through
+// bb_health_wire_desc, a bb_serialize_desc_t, components/bb_health/
+// bb_health_wire_priv.h). bb_wifi_emit_section, the GET /api/wifi
+// counterpart, migrated off bb_json entirely (B1-1057) to its own
 // bb_serialize_desc_t -- see bb_wifi_http_wire_priv.h.
 
 // ---------------------------------------------------------------------------

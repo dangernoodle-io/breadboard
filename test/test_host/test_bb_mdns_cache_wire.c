@@ -159,8 +159,9 @@ void test_bb_mdns_cache_wire_fill_field_null_key_skipped(void)
 }
 
 // A field whose [dest_offset, dest_offset+dest_len) range exceeds
-// entry_size is skipped -- defensive bounds check, mirrors
-// bb_mdns_cache_txt_serialize()'s own guard.
+// entry_size is skipped -- defensive bounds check, the same guard
+// bb_mdns_cache_apply_txt() applies (and the now-deleted
+// bb_mdns_cache_txt_serialize() used to mirror, B1-1149).
 void test_bb_mdns_cache_wire_fill_field_out_of_bounds_skipped(void)
 {
     static const bb_mdns_txt_field_t fields[] = {

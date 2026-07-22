@@ -85,11 +85,11 @@ const char *bb_mdns_get_hostname(void);
 #include <time.h>
 #include <inttypes.h>
 
-#include "bb_json.h"
 #include "cJSON.h"
 
 #include "bb_http_serialize_stream.h"
 #include "../../components/bb_wifi_http/bb_wifi_http_wire_priv.h"
+#include "../../components/bb_health/bb_health_wire_priv.h"
 
 // ---------------------------------------------------------------------------
 // Production schemas (copied from production route descriptors)
@@ -270,35 +270,41 @@ static bb_err_t h_reboot(bb_http_request_t *req)
     return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
+// B1-1149: calls the real production wire descriptor (bb_health_wire_desc,
+// components/bb_health/bb_health_wire_priv.h) instead of hand-rolling
+// bb_json, mirroring health_handler()'s own gather step
+// (platform/espidf/bb_health/bb_health.c) with the host-available
+// bb_wifi_get_info/bb_mdns_get_hostname. TA-505: status bools/enums only —
+// no free_heap; numeric network fields moved to /api/diag/wifi.
+// test_fidelity_health_no_raw_numbers catches any future numeric addition at
+// test time. validated dropped (B1-977, bb_board dissolution). Renders only
+// the ROOT slice (ok/network) -- exactly what k_health_schema declares;
+// registered bb_health_section entries are a separate concern already
+// covered by test/test_host/test_bb_health_compose.c, so this fixture
+// deliberately does not touch the section registry (and stays independent
+// of RUN_TEST ordering across that suite).
 static bb_err_t h_health(bb_http_request_t *req)
 {
-    // TA-505: status bools/enums only — no free_heap; numeric network fields
-    // moved to /api/diag/wifi.  Uses bb_wifi_emit_status (SSOT) so any future
-    // numeric addition to bb_wifi_emit_status would require an intentional API
-    // change, and test_fidelity_health_no_raw_numbers catches it at test time.
-    // validated dropped (B1-977, bb_board dissolution).
+    bb_health_wire_t root;
+    memset(&root, 0, sizeof(root));
+
+    root.ok = bb_health_compute_ok();
+
+    bb_wifi_info_t info;
+    bb_wifi_get_info(&info);
+    strncpy(root.network.ssid, info.ssid, sizeof(root.network.ssid) - 1);
+    root.network.ssid[sizeof(root.network.ssid) - 1] = '\0';
+    bb_wifi_http_format_bssid(root.network.bssid, info.bssid);
+    strncpy(root.network.ip, info.ip, sizeof(root.network.ip) - 1);
+    root.network.ip[sizeof(root.network.ip) - 1] = '\0';
+    root.network.connected = info.connected;
+
     const char *hostname = bb_mdns_get_hostname();
+    root.network.mdns = hostname
+        ? (bb_serialize_str_n_t){ .ptr = hostname, .len = strlen(hostname) }
+        : (bb_serialize_str_n_t){ 0 };
 
-    bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_bool(root, "ok", bb_health_compute_ok());
-
-    bb_json_t net = bb_json_obj_new();
-    bb_wifi_emit_status(net);
-    if (hostname) {
-        bb_json_obj_set_string(net, "mdns", hostname);
-    } else {
-        bb_json_obj_set_null(net, "mdns");
-    }
-    bb_json_obj_set_obj(root, "network", net);
-
-    char *str = bb_json_serialize(root);
-    bb_json_free(root);
-    if (!str) return BB_ERR_NO_SPACE;
-    bb_http_resp_set_type(req, "application/json");
-    bb_err_t err = bb_http_resp_send_chunk(req, str, -1);
-    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
-    bb_json_free_str(str);
-    return err;
+    return bb_http_serialize_stream(req, &bb_health_wire_desc, &root);
 }
 
 // B1-467/B1-1057: calls the real production fill fn + wire descriptor

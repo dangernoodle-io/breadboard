@@ -141,24 +141,38 @@ extern const bb_serialize_desc_t bb_mdns_cache_entry_wire_desc;
 // Fills `dst` from `entry` plus an OPTIONAL TXT descriptor -- pure, no
 // locks/clock/I/O (this stays a pure fill deliberately -- it never logs;
 // see `out_dropped` below for how a caller surfaces truncation instead).
-// Zero-inits `dst` first, then writes every field unconditionally. `dst`
-// and `entry` are assumed non-NULL by the caller (same contract as
-// bb_wifi_http_info_wire_fill()).
+// Zero-inits `dst` first, then writes every field unconditionally.
+//
+// PRECONDITION -- `dst` and `entry` MUST NOT be NULL. This fn does not
+// guard either pointer: it unconditionally memset()s `dst` and dereferences
+// `entry` (reading the identity fields at its leading layout). Passing a
+// NULL `entry` -- e.g. forwarding a bb_cache_get_raw() miss straight through
+// without checking its return -- is undefined behaviour, not a no-op. Same
+// non-NULL contract as bb_wifi_http_info_wire_fill(). Neither current
+// producer of a live entry (platform/espidf/bb_mdns_cache/bb_mdns_cache.c's
+// on_hello() and requery_work_fn(), see the REFRESH FINDING above) calls
+// this fill today -- both only call cache_upsert() -> bb_cache_update(). Any
+// future caller wired against those same entries -- most likely the
+// per-key reader described above, driving this fill directly off
+// bb_cache_foreach()/bb_cache_get_raw() -- MUST check for a NULL/missing
+// lookup result itself before calling in; this fn will not catch it.
 //
 // `entry`/`entry_size`/`txt_fields`/`txt_count` mirror
-// bb_mdns_cache_txt_serialize()'s own parameters exactly (including its
-// untyped `const void *entry` -- the identity fields are read at the
-// leading bb_mdns_cache_entry_t layout, but the underlying buffer may be a
-// larger CONSUMER-defined struct per bb_mdns_cache_config_t.entry_size's
-// contract, so `entry` is never typed as bb_mdns_cache_entry_t* here) --
-// this is the SAME descriptor-walk the legacy serializer drives, just
-// emitting into `dst->txt_items`/`dst->txt` instead of a bb_json_t.
-// txt_fields == NULL or txt_count == 0 leaves `dst->txt` an empty
-// (count == 0) array -- the TXT-less case. A field whose [dest_offset,
-// dest_offset+dest_len) range would exceed entry_size, or whose txt_key is
-// NULL, is skipped (not read), same bounds contract as
-// bb_mdns_cache_txt_serialize(). At most BB_MDNS_CACHE_WIRE_TXT_MAX fields
-// are captured.
+// bb_mdns_cache_apply_txt()'s own parameters exactly (including its untyped
+// `const void *entry` -- the identity fields are read at the leading
+// bb_mdns_cache_entry_t layout, but the underlying buffer may be a larger
+// CONSUMER-defined struct per bb_mdns_cache_config_t.entry_size's contract,
+// so `entry` is never typed as bb_mdns_cache_entry_t* here) -- this is the
+// SAME descriptor-walk the legacy serializer (entry_serialize(), deleted
+// B1-1146b) used to drive, just emitting into `dst->txt_items`/`dst->txt`
+// instead of a bb_json_t. (bb_mdns_cache_txt_serialize(), the standalone
+// bb_json_t mirror of this same walk, is itself deleted -- B1-1149 -- since
+// its only production caller was entry_serialize().) txt_fields == NULL or
+// txt_count == 0 leaves `dst->txt` an empty (count == 0) array -- the
+// TXT-less case. A field whose [dest_offset, dest_offset+dest_len) range
+// would exceed entry_size, or whose txt_key is NULL, is skipped (not read),
+// same bounds contract as bb_mdns_cache_apply_txt(). At most
+// BB_MDNS_CACHE_WIRE_TXT_MAX fields are captured.
 //
 // `out_dropped` (nullable) -- counts ONLY entries skipped because the
 // BB_MDNS_CACHE_WIRE_TXT_MAX cap was already full when their turn in

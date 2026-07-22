@@ -1,6 +1,5 @@
 #include "unity.h"
 #include "bb_mdns_cache.h"
-#include "bb_json.h"
 
 #include <string.h>
 #include <stddef.h>
@@ -201,120 +200,11 @@ void test_bb_mdns_cache_apply_txt_zero_txt_count_is_noop(void)
     TEST_ASSERT_EQUAL_STRING("", entry.board);
 }
 
-// ---------------------------------------------------------------------------
-// bb_mdns_cache_txt_serialize
-// ---------------------------------------------------------------------------
-
-void test_bb_mdns_cache_txt_serialize_emits_descriptor_fields(void)
-{
-    test_entry_t entry = {0};
-    strcpy(entry.board, "tdongle-s3");
-    strcpy(entry.version, "v1.2.3");
-
-    bb_json_t obj = bb_json_obj_new();
-    bb_mdns_cache_txt_serialize(obj, &entry, sizeof(entry), s_fields, 2);
-
-    char board_out[16] = {0};
-    char version_out[16] = {0};
-    TEST_ASSERT_TRUE(bb_json_obj_get_string(obj, "board", board_out, sizeof(board_out)));
-    TEST_ASSERT_TRUE(bb_json_obj_get_string(obj, "version", version_out, sizeof(version_out)));
-    TEST_ASSERT_EQUAL_STRING("tdongle-s3", board_out);
-    TEST_ASSERT_EQUAL_STRING("v1.2.3", version_out);
-
-    // Exactly the descriptor fields -- no stray keys (e.g. identity fields
-    // are NOT re-emitted by this mirror; identity emission was formerly
-    // entry_serialize()'s job -- now deleted, B1-1146b -- and is today
-    // bb_mdns_cache_entry_wire_fill()'s, a separate function this helper
-    // does not call).
-    TEST_ASSERT_FALSE(bb_json_obj_get_string(obj, "hostname", board_out, sizeof(board_out)));
-
-    bb_json_free(obj);
-}
-
-void test_bb_mdns_cache_txt_serialize_field_null_key_skipped(void)
-{
-    test_entry_t entry = {0};
-    strcpy(entry.board, "tdongle-s3");
-    bb_mdns_txt_field_t fields[] = {
-        { .txt_key = NULL, .dest_offset = offsetof(test_entry_t, board), .dest_len = sizeof(entry.board) },
-    };
-
-    bb_json_t obj = bb_json_obj_new();
-    bb_mdns_cache_txt_serialize(obj, &entry, sizeof(entry), fields, 1);
-
-    char out[16] = {0};
-    TEST_ASSERT_FALSE(bb_json_obj_get_string(obj, "board", out, sizeof(out)));
-
-    bb_json_free(obj);
-}
-
-void test_bb_mdns_cache_txt_serialize_null_obj_is_noop(void)
-{
-    test_entry_t entry = {0};
-    strcpy(entry.board, "tdongle-s3");
-    // Must not crash.
-    bb_mdns_cache_txt_serialize(NULL, &entry, sizeof(entry), s_fields, 2);
-}
-
-void test_bb_mdns_cache_txt_serialize_null_entry_is_noop(void)
-{
-    bb_json_t obj = bb_json_obj_new();
-    bb_mdns_cache_txt_serialize(obj, NULL, sizeof(test_entry_t), s_fields, 2);
-
-    char out[16] = {0};
-    TEST_ASSERT_FALSE(bb_json_obj_get_string(obj, "board", out, sizeof(out)));
-
-    bb_json_free(obj);
-}
-
-void test_bb_mdns_cache_txt_serialize_null_fields_is_noop(void)
-{
-    test_entry_t entry = {0};
-    strcpy(entry.board, "tdongle-s3");
-
-    bb_json_t obj = bb_json_obj_new();
-    bb_mdns_cache_txt_serialize(obj, &entry, sizeof(entry), NULL, 2);
-
-    char out[16] = {0};
-    TEST_ASSERT_FALSE(bb_json_obj_get_string(obj, "board", out, sizeof(out)));
-
-    bb_json_free(obj);
-}
-
-void test_bb_mdns_cache_txt_serialize_zero_field_count_is_noop(void)
-{
-    test_entry_t entry = {0};
-    strcpy(entry.board, "tdongle-s3");
-
-    bb_json_t obj = bb_json_obj_new();
-    bb_mdns_cache_txt_serialize(obj, &entry, sizeof(entry), s_fields, 0);
-
-    char out[16] = {0};
-    TEST_ASSERT_FALSE(bb_json_obj_get_string(obj, "board", out, sizeof(out)));
-
-    bb_json_free(obj);
-}
-
-void test_bb_mdns_cache_txt_serialize_field_out_of_bounds_skipped(void)
-{
-    test_entry_t entry = {0};
-    strcpy(entry.board, "tdongle-s3");
-    strcpy(entry.version, "v1.2.3");
-
-    bb_json_t obj = bb_json_obj_new();
-    // entry_size deliberately truncated to just past "board" -- "version"
-    // (the 2nd descriptor field) falls entirely outside the bound and must
-    // be skipped rather than read.
-    bb_mdns_cache_txt_serialize(obj, &entry, offsetof(test_entry_t, version), s_fields, 2);
-
-    char board_out[16] = {0};
-    char version_out[16] = {0};
-    TEST_ASSERT_TRUE(bb_json_obj_get_string(obj, "board", board_out, sizeof(board_out)));
-    TEST_ASSERT_EQUAL_STRING("tdongle-s3", board_out);
-    TEST_ASSERT_FALSE(bb_json_obj_get_string(obj, "version", version_out, sizeof(version_out)));
-
-    bb_json_free(obj);
-}
+// bb_mdns_cache_txt_serialize (the bb_json_t mirror of the walk above) and
+// its tests are DELETED (B1-1149) -- see bb_mdns_cache.h's doc comment at
+// the deleted declaration's former site for why. The equivalent walk is
+// covered on the wire-descriptor path by test_bb_mdns_cache_wire.c
+// (bb_mdns_cache_entry_wire_fill()).
 
 // ---------------------------------------------------------------------------
 // BB_MDNS_CACHE_ASSERT_IDENTITY_LAYOUT -- compile-time-only check. A build

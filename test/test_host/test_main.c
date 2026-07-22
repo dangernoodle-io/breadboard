@@ -2581,13 +2581,6 @@ void test_bb_mdns_cache_apply_txt_null_fields_is_noop(void);
 void test_bb_mdns_cache_apply_txt_zero_field_count_is_noop(void);
 void test_bb_mdns_cache_apply_txt_null_txt_is_noop(void);
 void test_bb_mdns_cache_apply_txt_zero_txt_count_is_noop(void);
-void test_bb_mdns_cache_txt_serialize_emits_descriptor_fields(void);
-void test_bb_mdns_cache_txt_serialize_field_null_key_skipped(void);
-void test_bb_mdns_cache_txt_serialize_null_obj_is_noop(void);
-void test_bb_mdns_cache_txt_serialize_null_entry_is_noop(void);
-void test_bb_mdns_cache_txt_serialize_null_fields_is_noop(void);
-void test_bb_mdns_cache_txt_serialize_zero_field_count_is_noop(void);
-void test_bb_mdns_cache_txt_serialize_field_out_of_bounds_skipped(void);
 
 // Forward declarations from test_bb_mdns_cache_validate.c
 void test_bb_mdns_cache_validate_config_txt_fields_without_entry_size_rejected(void);
@@ -9415,13 +9408,6 @@ int main(void) {
     RUN_TEST(test_bb_mdns_cache_apply_txt_zero_field_count_is_noop);
     RUN_TEST(test_bb_mdns_cache_apply_txt_null_txt_is_noop);
     RUN_TEST(test_bb_mdns_cache_apply_txt_zero_txt_count_is_noop);
-    RUN_TEST(test_bb_mdns_cache_txt_serialize_emits_descriptor_fields);
-    RUN_TEST(test_bb_mdns_cache_txt_serialize_field_null_key_skipped);
-    RUN_TEST(test_bb_mdns_cache_txt_serialize_null_obj_is_noop);
-    RUN_TEST(test_bb_mdns_cache_txt_serialize_null_entry_is_noop);
-    RUN_TEST(test_bb_mdns_cache_txt_serialize_null_fields_is_noop);
-    RUN_TEST(test_bb_mdns_cache_txt_serialize_zero_field_count_is_noop);
-    RUN_TEST(test_bb_mdns_cache_txt_serialize_field_out_of_bounds_skipped);
 
     RUN_TEST(test_bb_mdns_cache_validate_config_txt_fields_without_entry_size_rejected);
     RUN_TEST(test_bb_mdns_cache_validate_config_entry_size_exceeds_max_rejected);

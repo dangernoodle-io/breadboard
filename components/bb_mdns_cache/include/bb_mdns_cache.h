@@ -20,7 +20,6 @@
 // (bb_cache_foreach/get, already UAF-safe copy-out).
 
 #include "bb_core.h"
-#include "bb_json.h"
 #include "bb_mdns.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -230,16 +229,12 @@ void bb_mdns_cache_apply_txt(void *entry, size_t entry_size,
                               const bb_mdns_txt_field_t *fields, size_t field_count,
                               const bb_mdns_txt_t *txt, size_t txt_count);
 
-// Serialize the SAME descriptor walked by bb_mdns_cache_apply_txt -- mirror
-// image so the on-wire JSON and the stored struct can never drift apart.
-// Emits obj[field->txt_key] = (const char*)(entry+field->dest_offset) for
-// each field. entry_size mirrors bb_mdns_cache_apply_txt's bound: a field
-// whose [dest_offset, dest_offset+dest_len) range would exceed entry_size is
-// skipped (not read) rather than risking an OOB read on a future caller
-// with a smaller/mismatched entry buffer. No-op when obj is NULL, entry is
-// NULL, fields is NULL, or field_count == 0.
-void bb_mdns_cache_txt_serialize(bb_json_t obj, const void *entry, size_t entry_size,
-                                  const bb_mdns_txt_field_t *fields, size_t field_count);
+// bb_mdns_cache_txt_serialize (the bb_json_t mirror of the walk above) is
+// DELETED (B1-1149) -- its only production caller, entry_serialize()
+// (platform/espidf/bb_mdns_cache/bb_mdns_cache.c), was itself deleted in
+// B1-1146b, leaving only a host test as caller. The same walk now lives, on
+// the wire-descriptor path, in bb_mdns_cache_entry_wire_fill() (components/
+// bb_mdns_cache/bb_mdns_cache_wire_priv.h / bb_mdns_cache_wire.c).
 
 // Build-time contract check for a consumer's TXT-capture entry struct: MUST
 // hold identity (hostname/ip4/port) at the SAME leading layout as
