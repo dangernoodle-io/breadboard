@@ -937,6 +937,11 @@ void test_bb_diag_panic_get_wire_meta_golden_matches_hand_literal(void);
 void test_bb_diag_sockets_get_wire_meta_validates_against_desc(void);
 void test_bb_diag_sockets_get_wire_meta_golden_matches_hand_literal(void);
 
+// Forward declarations from test_bb_diag_tasks_get_wire_meta_golden.c
+// (B1-1191 diag conversion)
+void test_bb_diag_tasks_get_wire_meta_validates_against_desc(void);
+void test_bb_diag_tasks_get_wire_meta_golden_matches_hand_literal(void);
+
 // Forward declarations from test_bb_storage_http_factory_reset_meta_golden.c
 // (B1-1059 PR-2b-i-1)
 void test_bb_storage_http_factory_reset_meta_validates_against_desc(void);
@@ -1474,6 +1479,17 @@ void test_bb_diag_sockets_get_wire_pcbs_at_cap(void);
 void test_bb_diag_sockets_get_wire_copy_rows_unknown_state_fallback(void);
 void test_bb_diag_sockets_get_wire_row_field_count_matches(void);
 void test_bb_diag_sockets_get_wire_fill_zero_inits(void);
+
+// Forward declarations from test_bb_diag_tasks_get_wire.c
+void test_bb_diag_tasks_get_wire_zero_tasks(void);
+void test_bb_diag_tasks_get_wire_one_task_no_optional_fields(void);
+void test_bb_diag_tasks_get_wire_one_task_all_optional_fields_present(void);
+void test_bb_diag_tasks_get_wire_multi_row_mixed_presence(void);
+void test_bb_diag_tasks_get_wire_row_field_count_matches(void);
+void test_bb_diag_tasks_get_wire_fill_row_zero_inits(void);
+void test_bb_diag_tasks_get_wire_fill_snap_zero_inits(void);
+void test_bb_diag_tasks_get_wire_fill_row_null_name(void);
+void test_bb_diag_tasks_get_wire_all_16_present_combinations(void);
 
 // Forward declarations from test_bb_storage_http_factory_reset.c
 void test_storage_http_factory_reset_no_body_returns_400(void);
@@ -6336,6 +6352,17 @@ int main(void) {
     RUN_TEST(test_bb_diag_sockets_get_wire_fill_zero_inits);
     RUN_TEST(test_bb_diag_sockets_get_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_diag_sockets_get_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_diag_tasks_get_wire_zero_tasks);
+    RUN_TEST(test_bb_diag_tasks_get_wire_one_task_no_optional_fields);
+    RUN_TEST(test_bb_diag_tasks_get_wire_one_task_all_optional_fields_present);
+    RUN_TEST(test_bb_diag_tasks_get_wire_multi_row_mixed_presence);
+    RUN_TEST(test_bb_diag_tasks_get_wire_row_field_count_matches);
+    RUN_TEST(test_bb_diag_tasks_get_wire_fill_row_zero_inits);
+    RUN_TEST(test_bb_diag_tasks_get_wire_fill_snap_zero_inits);
+    RUN_TEST(test_bb_diag_tasks_get_wire_fill_row_null_name);
+    RUN_TEST(test_bb_diag_tasks_get_wire_all_16_present_combinations);
+    RUN_TEST(test_bb_diag_tasks_get_wire_meta_validates_against_desc);
+    RUN_TEST(test_bb_diag_tasks_get_wire_meta_golden_matches_hand_literal);
 
     // POST /api/diag/factory-reset route tests (B1-960, rehomed off bb_nv)
     RUN_TEST(test_storage_http_factory_reset_no_body_returns_400);
