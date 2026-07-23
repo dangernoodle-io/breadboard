@@ -64,7 +64,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_release_manifest](./bb_release_manifest/) | — |
 | [bb_ring_diag](./bb_ring_diag/) | — |
 | [bb_scalar](./bb_scalar/) | — |
-| [bb_sensors](./bb_sensors/) | — |
+| [bb_sensor_http](./bb_sensor_http/) | — |
 | [bb_serialize](./bb_serialize/) | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. |
 | [bb_serialize_console](./bb_serialize_console/) | Heap-over-serial emit backend -- a bb_serialize_emit_t implementation that renders a snapshot as a single human-readable "key=val key=val" line (no braces, no quoting), plus a one-shot heap-snapshot report helper (bb_serialize_console_heap_report()) built on top of bb_meminfo. |
 | [bb_serialize_json](./bb_serialize_json/) | Hand-rolled, no-heap, bounded-buffer JSON bb_serialize_emit_t backend -- the default wire-format implementation for bb_serialize. |

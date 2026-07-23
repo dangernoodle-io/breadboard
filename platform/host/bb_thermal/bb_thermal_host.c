@@ -10,8 +10,8 @@
 
 // Host twin of the bb_thermal component — collect + testing hooks.
 // /api/thermal route deleted in B1-269 PR7. bb_thermal_collect() is now
-// consumed by bb_sensors_thermal_gather() (components/bb_sensors/
-// bb_sensors_wire.c) for /api/sensors/thermal (B1-828 PR-2); the old
+// consumed by bb_sensor_http_thermal_gather() (components/bb_sensor_http/
+// bb_sensor_http_wire.c) for /api/sensors/thermal (B1-828 PR-2); the old
 // bb_thermal_emit_section() JSON-emit wrapper (the composite /api/sensors
 // endpoint's SSOT) was deleted with it -- FULL BREAK, no other caller.
 

@@ -1,9 +1,9 @@
 // bb_thermal — pure value collector for aggregate thermal data.
 //
 // NOTE: GET /api/thermal route was deleted in B1-269 PR7. GET /api/sensors/
-// thermal (bb_sensors, B1-828 PR-2) is the primary HTTP surface for thermal
-// data -- its gather hook (bb_sensors_thermal_gather(),
-// components/bb_sensors/bb_sensors_wire.c) calls bb_thermal_collect()
+// thermal (bb_sensor_http, B1-828 PR-2) is the primary HTTP surface for thermal
+// data -- its gather hook (bb_sensor_http_thermal_gather(),
+// components/bb_sensor_http/bb_sensor_http_wire.c) calls bb_thermal_collect()
 // directly. bb_thermal_init() is a no-op stub kept for link compatibility.
 //
 // Host twin: platform/host/bb_thermal/bb_thermal_host.c
@@ -36,7 +36,7 @@ typedef struct {
 
 // Pure value collector — reads snapshots from HAL, fills *out.
 // Does NOT poll (callers must have already polled bb_power_poll / bb_fan_poll).
-// SSOT: bb_sensors_thermal_gather() (/api/sensors/thermal) calls this.
+// SSOT: bb_sensor_http_thermal_gather() (/api/sensors/thermal) calls this.
 void bb_thermal_collect(bb_thermal_values_t *out);
 
 // No-op stub kept for link compatibility. /api/thermal route deleted in B1-269 PR7.

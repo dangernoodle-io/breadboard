@@ -21,7 +21,7 @@
  * serves both GET and PATCH for every registered namespace's prefix.
  *
  * THIS PR SHIPS THE MECHANISM ONLY -- zero real namespaces (mirrors
- * bb_diag_section's own "MECHANISM ONLY" precedent). Producers (bb_sensors:
+ * bb_diag_section's own "MECHANISM ONLY" precedent). Producers (bb_sensor_http:
  * fan/power/thermal) land in a later PR against this same API.
  */
 
