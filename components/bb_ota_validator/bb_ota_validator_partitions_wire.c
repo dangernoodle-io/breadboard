@@ -50,6 +50,41 @@ const bb_serialize_desc_t bb_ota_validator_partitions_wire_desc = {
     .snap_size = sizeof(bb_ota_validator_partitions_wire_t),
 };
 
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-1) -- co-located JSON Schema
+// companion to bb_ota_validator_partitions_wire_desc above, gated behind
+// BB_SERIALIZE_META_HOST (see bb_ota_validator_partitions_wire_priv.h's
+// banner). Byte-fidelity vs the hand-authored
+// platform/espidf/bb_ota_validator/bb_ota_validator.c's s_partitions_responses[]
+// literal: see test_bb_ota_validator_partitions_wire_meta_golden.c for the
+// full comparison + documented deltas (top-level additionalProperties:false,
+// and the nested items object's "required" list, which the composer never
+// emits for BB_TYPE_ARR-of-BB_TYPE_OBJ fields).
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_partition_row_wire_meta_rows[] = {
+    { .key = "label",   .required = true },
+    { .key = "address", .required = true },
+    { .key = "size",    .required = true },
+    { .key = "running", .required = true },
+    { .key = "state",   .required = true },
+};
+
+static const bb_serialize_field_meta_t s_partitions_wire_meta_rows[] = {
+    { .key = "partitions", .required = true,
+      .children = s_partition_row_wire_meta_rows,
+      .n_children = sizeof(s_partition_row_wire_meta_rows) / sizeof(s_partition_row_wire_meta_rows[0]) },
+};
+
+const bb_serialize_desc_meta_t bb_ota_validator_partitions_wire_meta = {
+    .type_name = "bb_ota_validator_partitions_wire_t",
+    .rows      = s_partitions_wire_meta_rows,
+    .n_rows    = sizeof(s_partitions_wire_meta_rows) / sizeof(s_partitions_wire_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_HOST */
+
 void bb_ota_validator_partitions_wire_copy_rows(bb_ota_validator_partition_wire_t *dst,
                                                  const bb_ota_validator_partition_src_t *src,
                                                  size_t n)

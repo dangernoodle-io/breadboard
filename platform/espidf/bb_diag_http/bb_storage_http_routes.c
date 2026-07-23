@@ -598,6 +598,35 @@ static const bb_serialize_desc_t s_factory_reset_desc = {
     .snap_size = sizeof(bb_storage_factory_reset_apply_t),
 };
 
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-1) -- co-located JSON Schema
+// companion to s_factory_reset_desc above, gated behind
+// BB_SERIALIZE_META_HOST (see bb_storage_http.h's banner). "required"
+// mirrors the "required" array of s_factory_reset_route's hand-authored
+// request_schema literal below (["confirm"]). See
+// test_bb_storage_http_factory_reset_meta_golden.c for the fidelity proof.
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_factory_reset_meta_rows[] = {
+    { .key = "confirm", .required = true },
+};
+
+const bb_serialize_desc_meta_t bb_storage_http_factory_reset_meta = {
+    .type_name = "bb_storage_factory_reset_apply_t",
+    .rows      = s_factory_reset_meta_rows,
+    .n_rows    = sizeof(s_factory_reset_meta_rows) / sizeof(s_factory_reset_meta_rows[0]),
+};
+
+#ifdef BB_STORAGE_HTTP_TESTING
+const bb_serialize_desc_t *bb_storage_http_factory_reset_desc_for_test(void)
+{
+    return &s_factory_reset_desc;
+}
+#endif /* BB_STORAGE_HTTP_TESTING */
+
+#endif /* BB_SERIALIZE_META_HOST */
+
 // Egress hook: exists only to satisfy bb_data_bind()'s non-NULL-gather
 // invariant (a binding with no gather is rejected outright) -- this route is
 // POST-only, so gather is never actually invoked (BB_DATA_APPLY_POST always

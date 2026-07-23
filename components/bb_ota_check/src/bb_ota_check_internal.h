@@ -60,6 +60,27 @@ bb_err_t bb_ota_check_config_bind(void);
 const bb_route_t *bb_ota_check_config_get_route(void);
 const bb_route_t *bb_ota_check_config_post_route(void);
 
+// bb_serialize_desc_meta_t companion (B1-1059 PR-2b-i-1) -- co-located JSON
+// Schema docs/validation table for the POST /api/update/config request
+// descriptor (bb_ota_check_common.c's file-scope s_config_desc), same
+// #if-gated pattern as bb_wifi_http_wire_priv.h's exemplar (B1-1059 PR-2a).
+// BB_SERIALIZE_META_HOST is a host-only define (set by the PlatformIO
+// native env; see platformio.ini) -- NEVER set by the ESP-IDF/device
+// build, so these two declarations (and their definitions in
+// bb_ota_check_common.c) compile to nothing on-device. The desc itself is
+// file-scope static (no companion _wire_priv.h for this request shape), so
+// a for-test accessor exposes it rather than an extern -- same "_for_test"
+// naming convention as the BB_OTA_CHECK_TESTING-gated fns below, and
+// double-gated on BB_OTA_CHECK_TESTING for the same reason (test-only
+// surface, same posture as bb_storage_http.h's analogous factory_reset
+// accessor).
+#if defined(BB_SERIALIZE_META_HOST) && defined(BB_OTA_CHECK_TESTING)
+#include "bb_serialize_meta.h"
+
+const bb_serialize_desc_t *bb_ota_check_config_desc_for_test(void);
+extern const bb_serialize_desc_meta_t bb_ota_check_config_meta;
+#endif /* defined(BB_SERIALIZE_META_HOST) && defined(BB_OTA_CHECK_TESTING) */
+
 #ifdef BB_OTA_CHECK_TESTING
 // Reset all state so a test can start clean. Does NOT touch bb_data or
 // bb_mdns global state (callers reset those separately).

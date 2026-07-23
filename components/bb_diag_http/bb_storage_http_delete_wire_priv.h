@@ -76,6 +76,19 @@ typedef struct {
 // false.
 extern const bb_serialize_desc_t bb_storage_http_delete_wire_desc;
 
+// bb_serialize_desc_meta_t companion (B1-1059 PR-2b-i-1) -- co-located JSON
+// Schema docs/validation table for bb_storage_http_delete_wire_desc above,
+// same #if-gated pattern as bb_wifi_http_wire_priv.h's exemplar (B1-1059
+// PR-2a). BB_SERIALIZE_META_HOST is a host-only define (set by the
+// PlatformIO native env; see platformio.ini) -- NEVER set by the ESP-IDF/
+// device build, so this declaration (and its definition in
+// bb_storage_http_delete_wire.c) compiles to nothing on-device.
+#if defined(BB_SERIALIZE_META_HOST)
+#include "bb_serialize_meta.h"
+
+extern const bb_serialize_desc_meta_t bb_storage_http_delete_wire_meta;
+#endif /* BB_SERIALIZE_META_HOST */
+
 // Pure populate helper: zero-inits `dst`, copies `n` namespace names from
 // `names` into `dst->deleted_names` (bounded strlcpy-style, explicit
 // terminate), wires `dst->deleted_items`/`dst->deleted` to point at that
