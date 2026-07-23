@@ -397,6 +397,28 @@ typedef struct {
 // Format-agnostic descriptor SSOT for bb_mqtt_client_health_section_snap_t.
 extern const bb_serialize_desc_t bb_mqtt_client_health_section_desc;
 
+// bb_serialize_desc_meta_t companion (B1-1059 PR-2b-i-3) -- co-located JSON
+// Schema docs/validation table for bb_mqtt_client_health_section_desc
+// above, same #if-gated pattern as bb_wifi_http_wire_priv.h's exemplar
+// (B1-1059 PR-2a). BB_SERIALIZE_META_HOST is a host-only define (set by
+// the PlatformIO native env; see platformio.ini) -- NEVER set by the
+// ESP-IDF/device build, so this declaration (and its definition in
+// bb_mqtt_client_health_section.c) compiles to nothing on-device.
+//
+// UNLIKE the REST/SSE clusters, this descriptor's hand-authored companion
+// (k_mqtt_schema, bb_mqtt_client_health_section.c) is a bare /api/health
+// SECTION fragment -- no top-level "required"/"additionalProperties" of
+// its own, because bb_health_section_t.schema_props is spliced verbatim
+// into the /api/health composite's schema, which owns those decisions.
+// See test_bb_mqtt_client_health_section_meta_golden.c (fragment-only
+// assert, test_meta_fragment.h) for the fidelity proof this weaker check
+// implies.
+#if defined(BB_SERIALIZE_META_HOST)
+#include "bb_serialize_meta.h"
+
+extern const bb_serialize_desc_meta_t bb_mqtt_client_health_section_meta;
+#endif /* BB_SERIALIZE_META_HOST */
+
 // bb_health_fill_fn adapter: fills `dst` (a
 // bb_mqtt_client_health_section_snap_t) from bb_mqtt_client_default() +
 // bb_mqtt_client_is_connected(). `args` is unused (this section takes no
