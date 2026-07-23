@@ -14,6 +14,7 @@
 #include "bb_diag_boot_wire.h"
 #include "bb_diag_event_priv.h"
 #include "../../../components/bb_diag_http/bb_diag_heap_check_wire_priv.h"
+#include "../../../components/bb_diag_http/bb_diag_panic_get_wire_priv.h"
 #include "bb_data.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
@@ -218,21 +219,14 @@ static void diag_boot_publish(void)
 
 static bb_err_t panic_get_handler(bb_http_request_t *req)
 {
-    bool available     = bb_diag_panic_available();
+    bool available      = bb_diag_panic_available();
     bool coredump_avail = bb_diag_panic_coredump_available();
 
-    bb_http_json_obj_stream_t obj;
-    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
-    if (err != BB_OK) return err;
-
-    bb_http_resp_json_obj_set_bool(&obj, "available", available);
-    if (available || coredump_avail) {
-        bb_http_resp_json_obj_set_int(&obj, "boots_since",
-                                      (int64_t)bb_diag_panic_boots_since());
-    }
+    const char *reason_str = "unknown";
+    char panic_buf[512];
+    bool log_tail_ok = false;
 
     if (available) {
-        const char *reason_str = "unknown";
         esp_reset_reason_t reason = esp_reset_reason();
         switch (reason) {
             case ESP_RST_PANIC:    reason_str = "panic";    break;
@@ -242,40 +236,30 @@ static bb_err_t panic_get_handler(bb_http_request_t *req)
             case ESP_RST_BROWNOUT: reason_str = "brownout"; break;
             default: break;
         }
-        bb_http_resp_json_obj_set_str(&obj, "reset_reason", reason_str);
 
-        char panic_buf[512];
         size_t panic_len = sizeof(panic_buf) - 1;
-        if (bb_diag_panic_get(panic_buf, &panic_len) == BB_OK) {
-            bb_http_resp_json_obj_set_str(&obj, "log_tail", panic_buf);
-        }
+        log_tail_ok = (bb_diag_panic_get(panic_buf, &panic_len) == BB_OK);
     }
 
-#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
-    if (coredump_avail) {
-        bb_diag_panic_summary_t summary;
-        if (bb_diag_panic_coredump_get(&summary) == BB_OK) {
-            bb_http_resp_json_obj_set_str(&obj, "task",      summary.task_name);
-            bb_http_resp_json_obj_set_int(&obj, "exc_pc",    (int64_t)summary.exc_pc);
-            bb_http_resp_json_obj_set_int(&obj, "exc_cause", (int64_t)summary.exc_cause);
+    // bb_diag_panic_coredump_get() (like bb_diag_panic_coredump_available()
+    // above) is unconditionally link-safe -- it returns BB_ERR_NOT_FOUND on
+    // every build variant lacking CONFIG_BB_DIAG_PANIC_COREDUMP (real
+    // ESP-IDF without the Kconfig, safe-stub, host) -- so no
+    // `#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP` gate is needed here; the
+    // runtime `coredump_avail` check alone reproduces the pre-migration
+    // handler's #ifdef-gated block byte-for-byte (locked design decision,
+    // see bb_diag_panic_get_wire_priv.h's banner).
+    bb_diag_panic_summary_t summary;
+    memset(&summary, 0, sizeof(summary));
+    bool have_summary = coredump_avail && (bb_diag_panic_coredump_get(&summary) == BB_OK);
 
-            bb_http_resp_json_obj_set_arr_begin(&obj, "backtrace");
-            for (uint32_t i = 0; i < summary.bt_count; i++) {
-                bb_http_resp_json_obj_set_int(&obj, NULL, (int64_t)summary.bt_addrs[i]);
-            }
-            bb_http_resp_json_obj_set_arr_end(&obj);
+    bb_diag_panic_get_wire_t snap;
+    bb_diag_panic_get_wire_fill(&snap, available, coredump_avail,
+                                bb_diag_panic_boots_since(), reason_str,
+                                log_tail_ok, panic_buf,
+                                have_summary ? &summary : NULL);
 
-            if (summary.panic_reason[0] != '\0') {
-                bb_http_resp_json_obj_set_str(&obj, "panic_reason", summary.panic_reason);
-            }
-            if (summary.app_sha256[0] != '\0') {
-                bb_http_resp_json_obj_set_str(&obj, "app_sha256", summary.app_sha256);
-            }
-        }
-    }
-#endif
-
-    return bb_http_resp_json_obj_end(&obj);
+    return bb_http_serialize_stream(req, &bb_diag_panic_get_wire_desc, &snap);
 }
 
 // GET /api/diag/boot — compact boot-anomaly summary, rendered via bb_data

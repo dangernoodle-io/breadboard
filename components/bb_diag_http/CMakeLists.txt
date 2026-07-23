@@ -36,10 +36,15 @@
 # bb_storage_http_delete_wire.c above (used by bb_diag_http_routes.c, which
 # is itself gated on CONFIG_BB_DIAG_ROUTES below, but the wire file itself
 # stays unconditional/host-testable).
+# bb_diag_panic_get_wire.c (B1-1188 diag conversion): same always-built,
+# host-testable posture -- GET /api/diag/panic's bb_serialize migration
+# (single unconditional descriptor, runtime present-predicate on
+# coredump_avail, no Kconfig fork -- see bb_diag_panic_get_wire_priv.h).
 set(_diag_http_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_http_boot_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_storage_http_delete_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_heap_check_wire.c"
+    "${CMAKE_CURRENT_LIST_DIR}/bb_diag_panic_get_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_storage_http_routes.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_log_http.c"
 )
