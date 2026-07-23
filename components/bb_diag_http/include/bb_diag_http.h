@@ -15,7 +15,7 @@
  * unchanged in shape from their prior home:
  *   - CONFIG_BB_DIAG_ROUTES: legacy exact routes -- GET/DELETE
  *     /api/diag/boot, GET/DELETE /api/diag/panic, GET /api/diag/coredump,
- *     GET /api/diag/heap, GET /api/diag/tasks, GET /api/diag/sockets.
+ *     GET /api/diag/heap-check, GET /api/diag/tasks, GET /api/diag/sockets.
  *   - CONFIG_BB_DIAG_SECTIONS: the generic GET /api/diag/* wildcard
  *     dispatcher serving whichever section a caller has registered via
  *     bb_diag_register_section() (bb_diag_section.h, stays in bb_diag).
@@ -64,7 +64,7 @@ bb_err_t bb_diag_boot_render_envelope(bb_http_request_t *req);
 
 /**
  * Registry hook — registers GET/DELETE /api/diag/panic, GET /api/diag/boot,
- * plus heap/tasks/sockets diagnostics.
+ * plus heap-check/tasks/sockets diagnostics.
  */
 // bbtool:init tier=regular fn=bb_diag_routes_init server=true
 bb_err_t bb_diag_routes_init(bb_http_handle_t server);

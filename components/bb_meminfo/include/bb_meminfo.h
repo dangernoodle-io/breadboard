@@ -36,7 +36,7 @@ typedef struct {
     size_t largest_free_block; // heap_caps_get_largest_free_block
     size_t total;              // heap_caps_get_total_size
     size_t allocated;          // heap_caps_get_info's multi_heap_info_t.total_allocated_bytes
-                                // (folded in from the legacy /api/diag/heap route --
+                                // (folded in from the now-retired /api/diag/heap route --
                                 // see bb_meminfo_heap_snap.h's file header)
 } bb_meminfo_region_t;
 
@@ -55,7 +55,7 @@ typedef struct {
     // MALLOC_CAP_SPIRAM. All fields 0 on boards with no PSRAM.
     bb_meminfo_region_t spiram;
 
-    // MALLOC_CAP_EXEC -- executable heap (IRAM). Folded in from the legacy
+    // MALLOC_CAP_EXEC -- executable heap (IRAM). Folded in from the now-retired
     // /api/diag/heap route (heap reconciliation, B1-diag-dissolution).
     bb_meminfo_region_t exec;
 

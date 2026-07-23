@@ -11,8 +11,8 @@
 #include "soc/soc.h"
 
 // heap_caps_get_info() folds free/total/allocated into one call (matches
-// the legacy /api/diag/heap route's own approach, B1-diag-dissolution heap
-// reconciliation) -- largest_free_block still comes from its own call since
+// the now-retired /api/diag/heap route's own approach, B1-diag-dissolution
+// heap reconciliation) -- largest_free_block still comes from its own call since
 // it can take a distinct cap mask (see the MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT
 // callers below).
 static void fill_region(bb_meminfo_region_t *r, uint32_t caps, uint32_t largest_caps)

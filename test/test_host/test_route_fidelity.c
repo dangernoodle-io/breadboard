@@ -18,7 +18,7 @@
 //                            (same posture as /api/wifi/scan above)
 //   /api/update/recover    - calls esp_ota_erase_last_boot_app_partition (ESP-IDF only)
 //   /api/update/mark-valid (200) - bb_ota_is_pending() always false on host; 409 path covered
-//   /api/diag/heap         - calls heap_caps_* (ESP-IDF only)
+//   /api/diag/heap-check   - calls heap_caps_* (ESP-IDF only)
 //   /api/diag/sockets      - walks LWIP TCP PCBs (ESP-IDF only)
 //   /api/diag/tasks        - CONFIG_FREERTOS_USE_TRACE_FACILITY (ESP-IDF only)
 //   /api/diag/coredump     - ESP-IDF partition API (ESP-IDF only)

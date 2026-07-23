@@ -7,7 +7,7 @@ config BB_DIAG_ROUTES
     help
         When enabled, bb_diag_http registers the legacy exact-route HTTP
         handlers: GET/DELETE /api/diag/boot, GET/DELETE /api/diag/panic,
-        GET /api/diag/coredump, GET /api/diag/heap, GET /api/diag/tasks,
+        GET /api/diag/coredump, GET /api/diag/heap-check, GET /api/diag/tasks,
         and GET /api/diag/sockets. Relocated verbatim from bb_diag (B1-1153)
         -- same symbol name, same behavior, only ownership moved.
 

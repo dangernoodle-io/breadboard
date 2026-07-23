@@ -419,8 +419,8 @@ static const desc_audit_entry_t k_desc_audit[] = {
     // Tier 1: params added
     { "/api/diag/coredump", BB_HTTP_GET,
       { "consume", NULL }, false, 500, "application/json" },
-    { "/api/diag/heap",     BB_HTTP_GET,
-      { "check", NULL },   false,   0, NULL },
+    { "/api/diag/heap-check", BB_HTTP_GET,
+      { NULL },            false,   0, NULL },
     // Tier 1: content-type fixes
     { "/api/update/push",   BB_HTTP_POST,
       { NULL },             false, 200, "application/json" },
@@ -475,26 +475,21 @@ static const bb_route_t s_coredump_route_fixture = {
     .handler          = NULL,
 };
 
-// GET /api/diag/heap fixture
-static const bb_route_param_t s_heap_params_fixture[] = {
-    { "check", "query", "run heap integrity check", false, "string" },
-};
-static const bb_route_response_t s_heap_responses_fixture[] = {
+// GET /api/diag/heap-check fixture
+static const bb_route_response_t s_heap_check_responses_fixture[] = {
     { 200, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{\"integrity_ok\":{\"type\":\"boolean\"}},"
-      "\"additionalProperties\":{\"type\":\"object\"}}",
-      "heap stats" },
+      "\"required\":[\"integrity_ok\"]}",
+      "heap integrity check result" },
     { 0 },
 };
-static const bb_route_t s_heap_route_fixture = {
-    .method           = BB_HTTP_GET,
-    .path             = "/api/diag/heap",
-    .tag              = "diag",
-    .responses        = s_heap_responses_fixture,
-    .parameters       = s_heap_params_fixture,
-    .parameters_count = 1,
-    .handler          = NULL,
+static const bb_route_t s_heap_check_route_fixture = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/heap-check",
+    .tag       = "diag",
+    .responses = s_heap_check_responses_fixture,
+    .handler   = NULL,
 };
 
 // POST /api/update/push fixture
@@ -696,7 +691,7 @@ static void seed_desc_audit_fixtures(void)
 {
     bb_http_route_registry_clear();
     bb_http_register_route_descriptor_only(&s_coredump_route_fixture);
-    bb_http_register_route_descriptor_only(&s_heap_route_fixture);
+    bb_http_register_route_descriptor_only(&s_heap_check_route_fixture);
     bb_http_register_route_descriptor_only(&s_ota_push_route_fixture);
     bb_http_register_route_descriptor_only(&s_log_level_post_route_fixture);
     bb_http_register_route_descriptor_only(&s_events_route_fixture);

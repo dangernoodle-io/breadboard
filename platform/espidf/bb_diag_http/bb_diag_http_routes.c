@@ -2,9 +2,12 @@
 // bb_diag_routes.c (B1-1153, KB 1477): bb_diag itself is bb_http_server-free
 // after this split, so this legacy exact-route surface (GET/DELETE
 // /api/diag/boot, GET/DELETE /api/diag/panic, GET /api/diag/coredump, GET
-// /api/diag/heap, GET /api/diag/tasks, GET /api/diag/sockets) now lives in
-// its own component. No behavior change -- same routes, same handlers, same
-// Kconfig gate (CONFIG_BB_DIAG_ROUTES).
+// /api/diag/heap-check, GET /api/diag/tasks, GET /api/diag/sockets) now
+// lives in its own component, same Kconfig gate (CONFIG_BB_DIAG_ROUTES). The
+// B1-1153 move itself was a pure relocation (no behavior change); since
+// then this file has also absorbed the /api/diag/heap retirement --
+// GET /api/diag/heap[?check=true] is gone, its integrity check reshaped into
+// the standalone GET /api/diag/heap-check route below.
 #include "bb_diag.h"
 #include "bb_diag_http.h"
 #include "bb_cache.h"
@@ -584,92 +587,43 @@ static const bb_route_t s_coredump_get_route = {
 };
 #endif /* CONFIG_BB_DIAG_PANIC_COREDUMP */
 
-// --- heap ---
+// --- heap-check ---
 
-// GET /api/diag/heap[?check=true]
-// Optional query param ?check=true runs heap_caps_check_integrity_all and
-// appends "integrity_ok": bool to the response.
-// retained: live consumers (bbdevice readiness/monitor, bbtool size --heap-from-http)
-// not yet migrated to /api/diag/meminfo
-static bb_err_t heap_get_handler(bb_http_request_t *req)
+// GET /api/diag/heap-check — on-demand heap integrity walk. Kept as a
+// standalone route (not folded into /api/diag/meminfo, which covers the
+// per-cap stats this route used to also emit): heap_caps_check_integrity_all
+// is an expensive, interrupts-disabled blocking walk, semantically wrong for
+// a passive/pollable stats section.
+static bb_err_t heap_check_get_handler(bb_http_request_t *req)
 {
-    struct cap_entry { const char *name; uint32_t caps; };
-    static const struct cap_entry caps[] = {
-        { "internal", MALLOC_CAP_INTERNAL },
-        { "dma",      MALLOC_CAP_DMA },
-        { "spiram",   MALLOC_CAP_SPIRAM },
-        { "exec",     MALLOC_CAP_EXEC },
-        { "default",  MALLOC_CAP_DEFAULT },
-    };
-
-    char check_val[8];
-    bool run_check = (bb_http_req_query_key_value(req, "check", check_val, sizeof(check_val)) == BB_OK
-                      && strcmp(check_val, "true") == 0);
-
-    bool integrity_ok = false;
-    if (run_check) {
-        integrity_ok = heap_caps_check_integrity_all(true);
-    }
+    bool integrity_ok = heap_caps_check_integrity_all(true);
 
     bb_http_json_obj_stream_t obj;
     bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
     if (err != BB_OK) return err;
 
-    for (size_t i = 0; i < sizeof(caps) / sizeof(caps[0]); i++) {
-        if (heap_caps_get_total_size(caps[i].caps) == 0) continue;
-        multi_heap_info_t info;
-        heap_caps_get_info(&info, caps[i].caps);
-        bb_http_resp_json_obj_set_obj_begin(&obj, caps[i].name);
-        bb_http_resp_json_obj_set_int(&obj, "free",               (int64_t)info.total_free_bytes);
-        bb_http_resp_json_obj_set_int(&obj, "allocated",          (int64_t)info.total_allocated_bytes);
-        bb_http_resp_json_obj_set_int(&obj, "largest_free_block", (int64_t)info.largest_free_block);
-        bb_http_resp_json_obj_set_int(&obj, "minimum_ever_free",  (int64_t)info.minimum_free_bytes);
-        bb_http_resp_json_obj_set_obj_end(&obj);
-    }
-
-    if (run_check) {
-        bb_http_resp_json_obj_set_bool(&obj, "integrity_ok", integrity_ok);
-    }
+    bb_http_resp_json_obj_set_bool(&obj, "integrity_ok", integrity_ok);
 
     return bb_http_resp_json_obj_end(&obj);
 }
 
-static const bb_route_param_t s_heap_get_params[] = {
-    {
-        .name        = "check",
-        .in          = "query",
-        .description = "Set to true to run heap_caps_check_integrity_all and append "
-                       "integrity_ok boolean to the response.",
-        .required    = false,
-        .schema_type = "string",
-    },
-};
-
-static const bb_route_response_t s_heap_get_responses[] = {
+static const bb_route_response_t s_heap_check_get_responses[] = {
     { 200, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{"
       "\"integrity_ok\":{\"type\":\"boolean\"}},"
-      "\"additionalProperties\":{"
-      "\"type\":\"object\","
-      "\"properties\":{"
-      "\"free\":{\"type\":\"integer\"},"
-      "\"allocated\":{\"type\":\"integer\"},"
-      "\"largest_free_block\":{\"type\":\"integer\"},"
-      "\"minimum_ever_free\":{\"type\":\"integer\"}}}}",
-      "per-capability heap stats; optional ?check=true appends integrity_ok field" },
+      "\"required\":[\"integrity_ok\"]}",
+      "result of an on-demand heap_caps_check_integrity_all() walk" },
     { 0 },
 };
 
-static const bb_route_t s_heap_get_route = {
-    .method           = BB_HTTP_GET,
-    .path             = "/api/diag/heap",
-    .tag              = "diag",
-    .summary          = "Per-capability heap statistics; pass ?check=true to run integrity check",
-    .responses        = s_heap_get_responses,
-    .parameters       = s_heap_get_params,
-    .parameters_count = 1,
-    .handler          = heap_get_handler,
+static const bb_route_t s_heap_check_get_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/heap-check",
+    .tag       = "diag",
+    .summary   = "Run an on-demand heap integrity check (interrupts-disabled blocking walk)",
+    .responses = s_heap_check_get_responses,
+    .handler   = heap_check_get_handler,
 };
 
 // --- tasks ---
@@ -969,7 +923,7 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
 #endif
 
-    err = bb_http_register_described_route(server, &s_heap_get_route);
+    err = bb_http_register_described_route(server, &s_heap_check_get_route);
     if (err != BB_OK) return err;
 
 #if CONFIG_FREERTOS_USE_TRACE_FACILITY
