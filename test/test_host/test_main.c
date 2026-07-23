@@ -857,6 +857,12 @@ void test_bb_serialize_meta_openapi_oneof_null_branches_defensive(void);
 void test_bb_wifi_http_wire_meta_validates_against_desc(void);
 void test_bb_wifi_http_wire_meta_golden_matches_hand_literal(void);
 
+// Forward declarations from test_bb_wifi_http_creds_wire_meta_golden.c
+// (B1-1178) -- the PATCH /api/wifi REQUEST descriptor (distinct from
+// test_bb_wifi_http_wire_meta_golden.c's GET-side RESPONSE descriptor).
+void test_bb_wifi_http_creds_wire_meta_validates_against_desc(void);
+void test_bb_wifi_http_creds_wire_meta_golden_matches_hand_literal(void);
+
 // Forward declarations from test_bb_ota_validator_partitions_wire_meta_golden.c
 // (B1-1059 PR-2b-i-1)
 void test_bb_ota_validator_partitions_wire_meta_validates_against_desc(void);
@@ -10192,6 +10198,8 @@ int main(void) {
 
     RUN_TEST(test_bb_wifi_http_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_wifi_http_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_wifi_http_creds_wire_meta_validates_against_desc);
+    RUN_TEST(test_bb_wifi_http_creds_wire_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_ota_validator_partitions_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_ota_validator_partitions_wire_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_storage_http_delete_wire_meta_validates_against_desc);

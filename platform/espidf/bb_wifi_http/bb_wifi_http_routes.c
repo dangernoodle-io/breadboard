@@ -24,6 +24,12 @@
 // same relative-include convention as bb_wifi_http_wire_priv.h above.
 #include "../../../components/bb_wifi_http/bb_wifi_http_scan_wire_priv.h"
 
+// PATCH /api/wifi request wire descriptor (B1-1178) -- private header,
+// same relative-include convention as bb_wifi_http_wire_priv.h above.
+// Portable/unconditional (like the two wire headers above); only its
+// CONFIG_BB_WIFI_RECONFIGURE-gated usage below is feature-gated.
+#include "../../../components/bb_wifi_http/bb_wifi_http_creds_wire_priv.h"
+
 #if CONFIG_BB_WIFI_RECONFIGURE
 #include "bb_data.h"
 #include "bb_settings.h"
@@ -131,38 +137,13 @@ static const bb_route_t s_scan_route = {
 // solely for the apply (ingress) half.
 // ---------------------------------------------------------------------------
 
-// Fork 1 (B1-1022, user-decided): bb_serialize_populate()'s get_str
-// SILENTLY TRUNCATES a value that overflows a field's max_len -- this
-// route's pre-cutover handler instead REJECTED an oversized ssid/pass with
-// a 400. To preserve that reject-UX without changing populate's shipped
-// truncate contract, ssid/pass here are given MORE buffer than the real
-// BB_WIFI_PENDING_SSID_MAX/PASS_MAX limits, so an oversized value survives
-// intact (or, past this buffer's own cap, is detectably "buffer-full")
-// rather than being silently clipped down to exactly the real limit --
-// wifi_creds_apply() then re-checks against the real limit via
-// bb_wifi_pending_validate_buf() and rejects. See that fn's own doc for the
-// full truncation-safety argument.
-#define WIFI_CREDS_APPLY_SSID_BUF (BB_WIFI_PENDING_SSID_MAX + 1 + 32)  // 64
-#define WIFI_CREDS_APPLY_PASS_BUF (BB_WIFI_PENDING_PASS_MAX + 1 + 32)  // 96
-
-typedef struct {
-    char ssid[WIFI_CREDS_APPLY_SSID_BUF];
-    char pass[WIFI_CREDS_APPLY_PASS_BUF];
-} bb_wifi_creds_apply_t;
-
-static const bb_serialize_field_t s_wifi_creds_fields[] = {
-    { .key = "ssid", .type = BB_TYPE_STR, .offset = offsetof(bb_wifi_creds_apply_t, ssid),
-      .max_len = sizeof(((bb_wifi_creds_apply_t *)0)->ssid) },
-    { .key = "password", .type = BB_TYPE_STR, .offset = offsetof(bb_wifi_creds_apply_t, pass),
-      .max_len = sizeof(((bb_wifi_creds_apply_t *)0)->pass) },
-};
-
-static const bb_serialize_desc_t s_wifi_creds_desc = {
-    .type_name = "bb_wifi_creds_apply_t",
-    .fields    = s_wifi_creds_fields,
-    .n_fields  = 2,
-    .snap_size = sizeof(bb_wifi_creds_apply_t),
-};
+// Wire type + descriptor (bb_wifi_http_creds_wire_t /
+// bb_wifi_http_creds_wire_desc) extracted (B1-1178) into
+// components/bb_wifi_http/bb_wifi_http_creds_wire.c -- portable, so it can
+// host a BB_SERIALIZE_META_HOST meta table there and link on host (this TU
+// is ESP-IDF-only, includes <esp_wifi.h> unconditionally). See
+// bb_wifi_http_creds_wire_priv.h for the buffer-sizing rationale (Fork 1,
+// B1-1022, user-decided).
 
 // Review fix (B1-1022 finding #1, MEDIUM): this route applies via
 // BB_DATA_APPLY_POST (memset0 seed), NOT BB_DATA_APPLY_PATCH. An earlier
@@ -181,7 +162,7 @@ static const bb_serialize_desc_t s_wifi_creds_desc = {
 static bb_err_t wifi_creds_gather(void *dst, const bb_data_gather_args_t *args)
 {
     (void)args;
-    memset(dst, 0, sizeof(bb_wifi_creds_apply_t));
+    memset(dst, 0, sizeof(bb_wifi_http_creds_wire_t));
     return BB_OK;
 }
 
@@ -196,7 +177,7 @@ static bb_err_t wifi_creds_gather(void *dst, const bb_data_gather_args_t *args)
 static bb_err_t wifi_creds_apply(const void *snap, const bb_data_apply_args_t *args)
 {
     (void)args;
-    const bb_wifi_creds_apply_t *creds = (const bb_wifi_creds_apply_t *)snap;
+    const bb_wifi_http_creds_wire_t *creds = (const bb_wifi_http_creds_wire_t *)snap;
 
     if (bb_wifi_pending_validate_buf(creds->ssid, sizeof(creds->ssid),
                                       creds->pass, sizeof(creds->pass)) != BB_OK) {
@@ -242,7 +223,7 @@ static bb_err_t wifi_patch_handler(bb_http_request_t *req)
         return BB_ERR_INVALID_ARG;
     }
 
-    bb_wifi_creds_apply_t dst_scratch;
+    bb_wifi_http_creds_wire_t dst_scratch;
     char                  parse_scratch[WIFI_PATCH_PARSE_SCRATCH_BYTES];
     bb_data_apply_req_t apply_req = {
         .fmt               = BB_FORMAT_JSON,
@@ -345,7 +326,7 @@ bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
 #if CONFIG_BB_WIFI_RECONFIGURE
     bb_data_binding_t wifi_creds_binding = {
         .key    = "wifi",
-        .desc   = &s_wifi_creds_desc,
+        .desc   = &bb_wifi_http_creds_wire_desc,
         .gather = wifi_creds_gather,
         .apply  = wifi_creds_apply,
     };
