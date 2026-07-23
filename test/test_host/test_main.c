@@ -838,6 +838,11 @@ void test_bb_serialize_meta_openapi_overflow_null_out_len(void);
 void test_bb_serialize_meta_openapi_success_null_out_len(void);
 void test_bb_serialize_meta_openapi_coverage_fixture(void);
 
+// Forward declarations from test_bb_wifi_http_wire_meta_golden.c (B1-1059
+// PR-2a exemplar)
+void test_bb_wifi_http_wire_meta_validates_against_desc(void);
+void test_bb_wifi_http_wire_meta_golden_matches_hand_literal(void);
+
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
 void test_bb_log_warning(void);
@@ -10052,6 +10057,9 @@ int main(void) {
     RUN_TEST(test_bb_serialize_meta_openapi_overflow_null_out_len);
     RUN_TEST(test_bb_serialize_meta_openapi_success_null_out_len);
     RUN_TEST(test_bb_serialize_meta_openapi_coverage_fixture);
+
+    RUN_TEST(test_bb_wifi_http_wire_meta_validates_against_desc);
+    RUN_TEST(test_bb_wifi_http_wire_meta_golden_matches_hand_literal);
 
     // test_bb_lifecycle.c
     RUN_TEST(test_bb_lifecycle_autoinit_returns_ok);
