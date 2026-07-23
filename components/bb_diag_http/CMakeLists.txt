@@ -24,10 +24,17 @@
 # CONFIG_BB_STORAGE_HTTP_FACTORY_RESET #if (unrelated to BB_DIAG_ROUTES/
 # BB_DIAG_SECTIONS above -- that Kconfig symbol KEEPS its bb_storage_http-era
 # name; renaming it would break any sdkconfig.defaults already setting it).
+# bb_log_http.c (B1-1155, KB 1477): a FOURTH independent Kconfig-gated route
+# surface, dissolved in here from the former bb_log_http component --
+# GET/POST /api/log/level always builds (this file's own internal
+# CONFIG_BB_LOG_ROUTES #if gates registration, same posture as this
+# component's other always-built sources above); CONFIG_BB_LOG_ROUTES KEEPS
+# its bb_log_http-era name unchanged.
 set(_diag_http_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_http_boot_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_storage_http_delete_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_storage_http_routes.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_log_http.c"
 )
 
 if(CONFIG_BB_DIAG_ROUTES)
@@ -70,6 +77,12 @@ endif()
 # (B1-1154) -- bb_settings for the wipe_wifi guard's
 # bb_settings_ns_is_wifi_creds()/bb_settings_wifi_rtc_mirror_clear() calls,
 # bb_timer for the factory-reset route's deferred-reboot oneshot timer.
+# bb_log_http.c (B1-1155): adds ZERO new dep edges -- bb_http_server was
+# already a PUBLIC REQUIRES above (bb_log_http.c's own #include) and bb_log
+# was already a PRIV_REQUIRES above (the same edge bb_log_http's own
+# CMakeLists.txt PRIV_REQUIREd); bb_log itself gains no edge back onto
+# bb_diag_http/bb_http_server, preserving the cycle-break this component
+# existed to provide.
 idf_component_register(
     SRCS ${_diag_http_srcs}
     INCLUDE_DIRS "include"

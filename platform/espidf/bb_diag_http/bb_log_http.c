@@ -8,10 +8,10 @@
 #include "sdkconfig.h"
 #endif
 
-// This whole component only exists to be composed when the GET/POST
-// /api/log/level routes are wanted; CONFIG_BB_LOG_ROUTES (own Kconfig,
-// default y) additionally gates registration so a consumer can compose the
-// component yet still opt out of the route wiring at configure time.
+// B1-1155 (KB 1477): dissolved in from the former bb_log_http component --
+// file moved verbatim, keeping its name. CONFIG_BB_LOG_ROUTES (own Kconfig,
+// default y) gates registration so a consumer can compose bb_diag_http yet
+// still opt out of the log-level route wiring at configure time.
 #if defined(CONFIG_BB_LOG_ROUTES) && CONFIG_BB_LOG_ROUTES
 
 static const char *TAG = "bb_log_http";

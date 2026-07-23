@@ -240,7 +240,7 @@ static const char k_wifi_patch_500_schema[] =
 // the generic bb_diag section registry (B1-1077 PR-3a, #951) — see
 // test_bb_diag_storage_partitions.c and test_bb_wifi_http_diag.c.
 
-// GET /api/log/level — platform/espidf/bb_log_http/bb_log_http.c
+// GET /api/log/level — platform/espidf/bb_diag_http/bb_log_http.c
 static const char k_log_level_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
@@ -471,7 +471,7 @@ static bb_err_t h_update_check(bb_http_request_t *req)
 }
 
 // GET /api/log/level — mirrors log_level_get_handler in
-// platform/espidf/bb_log_http/bb_log_http.c.
+// platform/espidf/bb_diag_http/bb_log_http.c.
 // Uses only portable bb_log_tag_at / bb_log_level_to_str APIs.
 static bb_err_t h_log_level_get(bb_http_request_t *req)
 {

@@ -12,12 +12,14 @@ set(_log_reqs bb_core)
 # longer needs bb_task_registry (which drags in bb_init).
 #
 # KB #708: this base component intentionally has ZERO bb_http/bb_event/
-# bb_event_routes/bb_openapi/bb_json deps -- those live in the bb_log_http /
-# bb_log_event sink components (components/bb_log_http, components/bb_log_event),
-# which REQUIRE this component. Previously bb_http<->bb_log formed a circular
-# component dependency once CONFIG_BB_LOG_ROUTES/CONFIG_BB_LOG_EVENT_AUTO_ATTACH
-# pulled bb_http/bb_event into bb_log's own PRIV_REQUIRES; splitting the sinks
-# into their own components breaks the cycle at the source.
+# bb_event_routes/bb_openapi/bb_json deps -- those live in the bb_diag_http
+# (B1-1155, GET/POST /api/log/level, dissolved in from the former
+# bb_log_http component) / bb_log_event sink components
+# (components/bb_diag_http, components/bb_log_event), which REQUIRE this
+# component. Previously bb_http<->bb_log formed a circular component
+# dependency once CONFIG_BB_LOG_ROUTES/CONFIG_BB_LOG_EVENT_AUTO_ATTACH pulled
+# bb_http/bb_event into bb_log's own PRIV_REQUIRES; splitting the sinks into
+# their own components breaks the cycle at the source.
 set(_log_priv_reqs bb_str esp_ringbuf freertos log bb_task)
 
 if(CONFIG_BB_LOG_UDP_SINK)
