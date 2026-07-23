@@ -44,6 +44,18 @@ _Static_assert(sizeof(((bb_display_info_wire_t *)0)->height) == 8,
 
 extern const bb_serialize_desc_t bb_display_info_wire_desc;
 
+// bb_serialize_desc_meta_t companion (B1-1179) -- co-located JSON Schema
+// docs/validation table for bb_display_info_wire_desc above, same #if-gated
+// pattern as bb_diag_boot_wire.h's exemplar. BB_SERIALIZE_META_HOST is a
+// host-only define (set by the PlatformIO native env; see platformio.ini)
+// -- NEVER set by the ESP-IDF/device build, so this declaration (and its
+// definition in bb_display_info_wire.c) compiles to nothing on-device.
+#if defined(BB_SERIALIZE_META_HOST)
+#include "bb_serialize_meta.h"
+
+extern const bb_serialize_desc_meta_t bb_display_info_wire_meta;
+#endif /* BB_SERIALIZE_META_HOST */
+
 // Portable (no ESP-IDF dep): reads the health.display bb_cache entry via
 // bb_cache_get_raw() and widens width/height into `dst`. Returns
 // BB_ERR_INVALID_ARG if dst is NULL; otherwise propagates bb_cache_get_raw()'s

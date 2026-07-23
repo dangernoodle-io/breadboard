@@ -44,6 +44,42 @@ const bb_serialize_desc_t bb_display_info_wire_desc = {
     .snap_size = sizeof(bb_display_info_wire_t),
 };
 
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1179) -- co-located JSON Schema companion to
+// bb_display_info_wire_desc above, gated behind BB_SERIALIZE_META_HOST (see
+// bb_display_info_wire.h's banner), same pattern as
+// bb_diag_boot_wire.c's exemplar. "present" is the only field with no
+// `.present` predicate, so it's the only row marked `.required = true`;
+// "panel"/"width"/"height"/"enabled" are all gated by display_info_present()
+// above (see bb_serialize_walk.c's present-predicate skip), so none is
+// required -- mirroring bb_diag_boot_wire.c's `boots_since`/`detail`/
+// `age_s` rows (present-gated fields never marked required). This PR also
+// corrects platform/espidf/bb_display/bb_display_info.c's hand-authored
+// k_display_schema literal, which used to mark "panel" a nullable
+// `["string","null"]` union -- the serializer never emits a JSON null for
+// an absent-present field, it OMITS the key entirely, so the corrected
+// literal makes "panel" a plain (optional) string; see
+// test_bb_display_info_wire_meta_golden.c for the byte-fidelity proof
+// against the corrected literal.
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_display_info_wire_meta_rows[] = {
+    { .key = "present", .required = true },
+    { .key = "panel" },
+    { .key = "width" },
+    { .key = "height" },
+    { .key = "enabled" },
+};
+
+const bb_serialize_desc_meta_t bb_display_info_wire_meta = {
+    .type_name = "health_display",
+    .rows      = s_display_info_wire_meta_rows,
+    .n_rows    = sizeof(s_display_info_wire_meta_rows) / sizeof(s_display_info_wire_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_HOST */
+
 bb_err_t bb_display_info_gather(bb_display_info_wire_t *dst)
 {
     if (!dst) return BB_ERR_INVALID_ARG;
