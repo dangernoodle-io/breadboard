@@ -110,6 +110,25 @@ bb_err_t bb_storage_http_factory_reset_handler_for_test(bb_http_request_t *req);
 // without requiring a real bb_http_handle_t server -- see the .c file's own
 // doc comment.
 bb_err_t bb_storage_http_factory_reset_bind_for_test(void);
+
+// bb_serialize_desc_meta_t companion (B1-1059 PR-2b-i-1) -- co-located JSON
+// Schema docs/validation table for the POST /api/diag/factory-reset request
+// descriptor (bb_storage_http_routes.c's file-scope s_factory_reset_desc),
+// same #if-gated pattern as bb_wifi_http_wire_priv.h's exemplar (B1-1059
+// PR-2a). BB_SERIALIZE_META_HOST is a host-only define (set by the
+// PlatformIO native env; see platformio.ini) -- NEVER set by the ESP-IDF/
+// device build, so these two declarations (and their definitions in
+// bb_storage_http_routes.c) compile to nothing on-device. The desc itself
+// is file-scope static (unlike the wire-descriptor precedent, this route
+// has no companion _wire_priv.h), so a for-test accessor exposes it rather
+// than an extern -- same "_for_test" naming convention as the
+// BB_STORAGE_HTTP_TESTING-gated fns above.
+#if defined(BB_SERIALIZE_META_HOST)
+#include "bb_serialize_meta.h"
+
+const bb_serialize_desc_t *bb_storage_http_factory_reset_desc_for_test(void);
+extern const bb_serialize_desc_meta_t bb_storage_http_factory_reset_meta;
+#endif /* BB_SERIALIZE_META_HOST */
 #endif /* defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET */
 #endif /* BB_STORAGE_HTTP_TESTING */
 

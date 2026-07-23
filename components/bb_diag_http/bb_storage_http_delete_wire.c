@@ -36,6 +36,31 @@ const bb_serialize_desc_t bb_storage_http_delete_wire_desc = {
     .snap_size = sizeof(bb_storage_http_delete_wire_t),
 };
 
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-1) -- co-located JSON Schema
+// companion to bb_storage_http_delete_wire_desc above, gated behind
+// BB_SERIALIZE_META_HOST (see bb_storage_http_delete_wire_priv.h's banner).
+// "required" here mirrors the "required" array of
+// platform/espidf/bb_diag_http/bb_storage_http_routes.c's hand-authored
+// s_storage_delete_responses[] 200 literal (["deleted"] -- "key" is
+// conditionally present, never required). See
+// test_bb_storage_http_delete_wire_meta_golden.c for the fidelity proof.
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_delete_wire_meta_rows[] = {
+    { .key = "deleted", .required = true },
+    { .key = "key" },
+};
+
+const bb_serialize_desc_meta_t bb_storage_http_delete_wire_meta = {
+    .type_name = "bb_storage_http_delete_wire_t",
+    .rows      = s_delete_wire_meta_rows,
+    .n_rows    = sizeof(s_delete_wire_meta_rows) / sizeof(s_delete_wire_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_HOST */
+
 void bb_storage_http_delete_wire_fill(bb_storage_http_delete_wire_t *dst,
                                        const char names[][BB_STORAGE_HTTP_DELETE_NS_LEN], size_t n,
                                        const char *key, bool has_key)

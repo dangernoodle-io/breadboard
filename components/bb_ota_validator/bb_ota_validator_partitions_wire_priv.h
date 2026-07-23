@@ -99,6 +99,19 @@ typedef struct {
 // bb_http_serialize_stream()/bb_serialize_json_render().
 extern const bb_serialize_desc_t bb_ota_validator_partitions_wire_desc;
 
+// bb_serialize_desc_meta_t companion (B1-1059 PR-2b-i-1) -- co-located JSON
+// Schema docs/validation table for bb_ota_validator_partitions_wire_desc
+// above, same #if-gated pattern as bb_wifi_http_wire_priv.h's exemplar
+// (B1-1059 PR-2a). BB_SERIALIZE_META_HOST is a host-only define (set by the
+// PlatformIO native env; see platformio.ini) -- NEVER set by the ESP-IDF/
+// device build, so this declaration (and its definition in
+// bb_ota_validator_partitions_wire.c) compiles to nothing on-device.
+#if defined(BB_SERIALIZE_META_HOST)
+#include "bb_serialize_meta.h"
+
+extern const bb_serialize_desc_meta_t bb_ota_validator_partitions_wire_meta;
+#endif /* BB_SERIALIZE_META_HOST */
+
 // Pure row-copy helper: copies `n` rows from `src` into `dst` (row-count
 // bounded by BB_OTA_VALIDATOR_PARTITIONS_ROW_CAP by the caller). Copies
 // `label` into the fixed buffer (strncpy + explicit terminate) and wires

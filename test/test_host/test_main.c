@@ -843,6 +843,26 @@ void test_bb_serialize_meta_openapi_coverage_fixture(void);
 void test_bb_wifi_http_wire_meta_validates_against_desc(void);
 void test_bb_wifi_http_wire_meta_golden_matches_hand_literal(void);
 
+// Forward declarations from test_bb_ota_validator_partitions_wire_meta_golden.c
+// (B1-1059 PR-2b-i-1)
+void test_bb_ota_validator_partitions_wire_meta_validates_against_desc(void);
+void test_bb_ota_validator_partitions_wire_meta_golden_matches_hand_literal(void);
+
+// Forward declarations from test_bb_storage_http_delete_wire_meta_golden.c
+// (B1-1059 PR-2b-i-1)
+void test_bb_storage_http_delete_wire_meta_validates_against_desc(void);
+void test_bb_storage_http_delete_wire_meta_golden_matches_hand_literal(void);
+
+// Forward declarations from test_bb_storage_http_factory_reset_meta_golden.c
+// (B1-1059 PR-2b-i-1)
+void test_bb_storage_http_factory_reset_meta_validates_against_desc(void);
+void test_bb_storage_http_factory_reset_meta_golden_matches_hand_literal(void);
+
+// Forward declarations from test_bb_ota_check_config_meta_golden.c
+// (B1-1059 PR-2b-i-1)
+void test_bb_ota_check_config_meta_validates_against_desc(void);
+void test_bb_ota_check_config_meta_golden_matches_hand_literal(void);
+
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
 void test_bb_log_warning(void);
@@ -10074,6 +10094,14 @@ int main(void) {
 
     RUN_TEST(test_bb_wifi_http_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_wifi_http_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_ota_validator_partitions_wire_meta_validates_against_desc);
+    RUN_TEST(test_bb_ota_validator_partitions_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_storage_http_delete_wire_meta_validates_against_desc);
+    RUN_TEST(test_bb_storage_http_delete_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_storage_http_factory_reset_meta_validates_against_desc);
+    RUN_TEST(test_bb_storage_http_factory_reset_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_ota_check_config_meta_validates_against_desc);
+    RUN_TEST(test_bb_ota_check_config_meta_golden_matches_hand_literal);
 
     // test_bb_lifecycle.c
     RUN_TEST(test_bb_lifecycle_autoinit_returns_ok);

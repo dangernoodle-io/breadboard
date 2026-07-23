@@ -666,6 +666,35 @@ static const bb_serialize_desc_t s_config_desc = {
     .snap_size = sizeof(bb_ota_check_config_apply_t),
 };
 
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-1) -- co-located JSON Schema
+// companion to s_config_desc above, gated behind BB_SERIALIZE_META_HOST
+// (see bb_ota_check_internal.h's banner). "required" mirrors the
+// "required" array of s_config_post_route's hand-authored request_schema
+// literal below (["enabled"]). See
+// test_bb_ota_check_config_meta_golden.c for the fidelity proof.
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_config_meta_rows[] = {
+    { .key = "enabled", .required = true },
+};
+
+const bb_serialize_desc_meta_t bb_ota_check_config_meta = {
+    .type_name = "bb_ota_check_config_apply_t",
+    .rows      = s_config_meta_rows,
+    .n_rows    = sizeof(s_config_meta_rows) / sizeof(s_config_meta_rows[0]),
+};
+
+#ifdef BB_OTA_CHECK_TESTING
+const bb_serialize_desc_t *bb_ota_check_config_desc_for_test(void)
+{
+    return &s_config_desc;
+}
+#endif /* BB_OTA_CHECK_TESTING */
+
+#endif /* BB_SERIALIZE_META_HOST */
+
 // Egress hook / PATCH seed: seeds `dst` with the sentinel above so an
 // absent "enabled" field survives bb_serialize_populate() untouched and is
 // rejected below -- see the banner comment above. Unlike the wifi/
