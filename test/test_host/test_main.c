@@ -1903,24 +1903,6 @@ void test_bb_json_item_null_handle_is_safe(void);
 void test_bb_json_arr_append_string_n_basic(void);
 void test_bb_json_arr_append_string_n_null_arr_is_safe(void);
 void test_bb_json_arr_append_string_n_null_str_is_safe(void);
-void test_bb_json_envelope_split_basic_shape(void);
-void test_bb_json_envelope_split_negative_ts_is_valid(void);
-void test_bb_json_envelope_split_missing_ts_ms_returns_false(void);
-void test_bb_json_envelope_split_non_numeric_ts_ms_returns_false(void);
-void test_bb_json_envelope_split_bare_minus_ts_ms_returns_false(void);
-void test_bb_json_envelope_split_missing_data_returns_false(void);
-void test_bb_json_envelope_split_data_not_object_returns_false(void);
-void test_bb_json_envelope_split_unbalanced_data_braces_returns_false(void);
-void test_bb_json_envelope_split_brace_in_string_value_is_ignored(void);
-void test_bb_json_envelope_split_escaped_quote_before_brace_is_ignored(void);
-void test_bb_json_envelope_split_space_before_ts_value_is_skipped(void);
-void test_bb_json_envelope_split_tab_before_ts_value_is_skipped(void);
-void test_bb_json_envelope_split_newline_before_ts_value_is_skipped(void);
-void test_bb_json_envelope_split_cr_before_ts_value_is_skipped(void);
-void test_bb_json_envelope_split_ts_ms_value_at_buffer_end_returns_false(void);
-void test_bb_json_envelope_split_data_value_at_buffer_end_returns_false(void);
-void test_bb_json_envelope_split_nested_data_object_is_balanced(void);
-void test_bb_json_envelope_split_null_args_return_false(void);
 
 // Forward declarations from test_route_registry.c
 void test_route_registry_count_starts_at_zero(void);
@@ -2654,6 +2636,24 @@ void test_bb_str_bytes_to_hex_cap_one_writes_only_nul(void);
 void test_bb_str_bytes_to_hex_cap_truncates_to_whole_pairs(void);
 void test_bb_str_hex_bytes_roundtrip_varied_lengths(void);
 void test_bb_str_hex_bytes_roundtrip_zero_length(void);
+void test_bb_str_envelope_split_basic_shape(void);
+void test_bb_str_envelope_split_negative_ts_is_valid(void);
+void test_bb_str_envelope_split_missing_ts_ms_returns_false(void);
+void test_bb_str_envelope_split_non_numeric_ts_ms_returns_false(void);
+void test_bb_str_envelope_split_bare_minus_ts_ms_returns_false(void);
+void test_bb_str_envelope_split_missing_data_returns_false(void);
+void test_bb_str_envelope_split_data_not_object_returns_false(void);
+void test_bb_str_envelope_split_unbalanced_data_braces_returns_false(void);
+void test_bb_str_envelope_split_brace_in_string_value_is_ignored(void);
+void test_bb_str_envelope_split_escaped_quote_before_brace_is_ignored(void);
+void test_bb_str_envelope_split_space_before_ts_value_is_skipped(void);
+void test_bb_str_envelope_split_tab_before_ts_value_is_skipped(void);
+void test_bb_str_envelope_split_newline_before_ts_value_is_skipped(void);
+void test_bb_str_envelope_split_cr_before_ts_value_is_skipped(void);
+void test_bb_str_envelope_split_ts_ms_value_at_buffer_end_returns_false(void);
+void test_bb_str_envelope_split_data_value_at_buffer_end_returns_false(void);
+void test_bb_str_envelope_split_nested_data_object_is_balanced(void);
+void test_bb_str_envelope_split_null_args_return_false(void);
 
 // Forward declarations from test_bb_scalar.c
 void test_bb_scalar_parse_bool_table_driven(void);
@@ -6284,24 +6284,6 @@ int main(void) {
     RUN_TEST(test_bb_json_arr_append_string_n_basic);
     RUN_TEST(test_bb_json_arr_append_string_n_null_arr_is_safe);
     RUN_TEST(test_bb_json_arr_append_string_n_null_str_is_safe);
-    RUN_TEST(test_bb_json_envelope_split_basic_shape);
-    RUN_TEST(test_bb_json_envelope_split_negative_ts_is_valid);
-    RUN_TEST(test_bb_json_envelope_split_missing_ts_ms_returns_false);
-    RUN_TEST(test_bb_json_envelope_split_non_numeric_ts_ms_returns_false);
-    RUN_TEST(test_bb_json_envelope_split_bare_minus_ts_ms_returns_false);
-    RUN_TEST(test_bb_json_envelope_split_missing_data_returns_false);
-    RUN_TEST(test_bb_json_envelope_split_data_not_object_returns_false);
-    RUN_TEST(test_bb_json_envelope_split_unbalanced_data_braces_returns_false);
-    RUN_TEST(test_bb_json_envelope_split_brace_in_string_value_is_ignored);
-    RUN_TEST(test_bb_json_envelope_split_escaped_quote_before_brace_is_ignored);
-    RUN_TEST(test_bb_json_envelope_split_space_before_ts_value_is_skipped);
-    RUN_TEST(test_bb_json_envelope_split_tab_before_ts_value_is_skipped);
-    RUN_TEST(test_bb_json_envelope_split_newline_before_ts_value_is_skipped);
-    RUN_TEST(test_bb_json_envelope_split_cr_before_ts_value_is_skipped);
-    RUN_TEST(test_bb_json_envelope_split_ts_ms_value_at_buffer_end_returns_false);
-    RUN_TEST(test_bb_json_envelope_split_data_value_at_buffer_end_returns_false);
-    RUN_TEST(test_bb_json_envelope_split_nested_data_object_is_balanced);
-    RUN_TEST(test_bb_json_envelope_split_null_args_return_false);
 
     // bb_wifi tests
     RUN_TEST(test_bb_wifi_set_hostname_null);
@@ -6865,6 +6847,24 @@ int main(void) {
     RUN_TEST(test_bb_str_bytes_to_hex_cap_truncates_to_whole_pairs);
     RUN_TEST(test_bb_str_hex_bytes_roundtrip_varied_lengths);
     RUN_TEST(test_bb_str_hex_bytes_roundtrip_zero_length);
+    RUN_TEST(test_bb_str_envelope_split_basic_shape);
+    RUN_TEST(test_bb_str_envelope_split_negative_ts_is_valid);
+    RUN_TEST(test_bb_str_envelope_split_missing_ts_ms_returns_false);
+    RUN_TEST(test_bb_str_envelope_split_non_numeric_ts_ms_returns_false);
+    RUN_TEST(test_bb_str_envelope_split_bare_minus_ts_ms_returns_false);
+    RUN_TEST(test_bb_str_envelope_split_missing_data_returns_false);
+    RUN_TEST(test_bb_str_envelope_split_data_not_object_returns_false);
+    RUN_TEST(test_bb_str_envelope_split_unbalanced_data_braces_returns_false);
+    RUN_TEST(test_bb_str_envelope_split_brace_in_string_value_is_ignored);
+    RUN_TEST(test_bb_str_envelope_split_escaped_quote_before_brace_is_ignored);
+    RUN_TEST(test_bb_str_envelope_split_space_before_ts_value_is_skipped);
+    RUN_TEST(test_bb_str_envelope_split_tab_before_ts_value_is_skipped);
+    RUN_TEST(test_bb_str_envelope_split_newline_before_ts_value_is_skipped);
+    RUN_TEST(test_bb_str_envelope_split_cr_before_ts_value_is_skipped);
+    RUN_TEST(test_bb_str_envelope_split_ts_ms_value_at_buffer_end_returns_false);
+    RUN_TEST(test_bb_str_envelope_split_data_value_at_buffer_end_returns_false);
+    RUN_TEST(test_bb_str_envelope_split_nested_data_object_is_balanced);
+    RUN_TEST(test_bb_str_envelope_split_null_args_return_false);
 
     // bb_scalar tests
     RUN_TEST(test_bb_scalar_parse_bool_table_driven);
