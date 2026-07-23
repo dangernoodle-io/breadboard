@@ -10,12 +10,14 @@
 // diag_fill_meminfo local adapter).
 //
 // The legacy /api/diag/heap exact route (platform/espidf/bb_diag/
-// bb_diag_routes.c) is DELETED as part of this same change -- its `exec`
-// region and per-region `allocated` field were folded into bb_meminfo's own
-// snapshot (bb_meminfo.h/bb_meminfo_heap_snap.h) rather than duplicated
-// here, so /api/diag/meminfo is now the single unified memory report.
-// `?check=true` (heap_caps_check_integrity_all, a side-effecting action) is
-// deliberately NOT carried forward -- tracked as a separate follow-up.
+// bb_diag_routes.c) has been DELETED -- its `exec` region and per-region
+// `allocated` field were folded into bb_meminfo's own snapshot
+// (bb_meminfo.h/bb_meminfo_heap_snap.h) rather than duplicated here, so
+// /api/diag/meminfo is now the single unified memory report. The route's
+// `?check=true` integrity walk (heap_caps_check_integrity_all, a
+// side-effecting action, semantically wrong for a passive stats section) was
+// relocated to its own standalone GET /api/diag/heap-check route
+// (platform/espidf/bb_diag_http/bb_diag_http_routes.c).
 
 #include "bb_diag_section.h"
 #include "bb_serialize.h"
