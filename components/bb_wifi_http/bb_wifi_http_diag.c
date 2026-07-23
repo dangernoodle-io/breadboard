@@ -5,7 +5,7 @@
 #include "bb_wifi_http_diag.h"
 
 #include "bb_wifi_http.h"
-#include "bb_str.h"
+#include "bb_wifi_http_common_priv.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -184,19 +184,14 @@ bb_err_t bb_wifi_http_diag_fill(void *dst, const bb_diag_fill_args_t *args)
     bb_wifi_get_info(&info);
 
     // Shared fields -- SSOT with GET /api/wifi (bb_wifi_http_info_wire_fill,
-    // bb_wifi_http_wire_priv.h).
-    bb_strlcpy(snap->ssid, info.ssid, sizeof(snap->ssid));
-    bb_wifi_http_format_bssid(snap->bssid, info.bssid);
-    snap->rssi = (int64_t)info.rssi;
-    bb_strlcpy(snap->ip, info.ip, sizeof(snap->ip));
-    snap->connected = info.connected;
-    const char *disc_reason_str = bb_wifi_disc_reason_str(info.disc_reason);
-    snap->disc_reason.ptr = disc_reason_str;
-    snap->disc_reason.len = strlen(disc_reason_str);
-    snap->disc_age_s          = (int64_t)info.disc_age_s;
-    snap->retry_count         = (int64_t)info.retry_count;
-    snap->restart_sta_count   = (int64_t)bb_wifi_get_restart_sta_count();
-    snap->disconnect_rssi     = (int64_t)bb_wifi_get_disconnect_rssi();
+    // bb_wifi_http_wire_priv.h), both routed through
+    // bb_wifi_http_fill_common (B1-1106).
+    bb_wifi_http_fill_common(snap->ssid, sizeof(snap->ssid), snap->bssid,
+                              sizeof(snap->bssid), &snap->rssi, snap->ip,
+                              sizeof(snap->ip), &snap->connected,
+                              &snap->disc_reason, &snap->disc_age_s,
+                              &snap->retry_count, &snap->restart_sta_count,
+                              &snap->disconnect_rssi, &info);
 
     snap->roam_count     = (int64_t)bb_wifi_get_roam_count();
     snap->roam_age_s     = (int64_t)bb_wifi_get_roam_age_s();

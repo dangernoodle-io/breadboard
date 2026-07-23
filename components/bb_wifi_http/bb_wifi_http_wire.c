@@ -11,9 +11,9 @@
 #include "bb_wifi_http_wire_priv.h"
 
 #include "bb_wifi_http.h"
+#include "bb_wifi_http_common_priv.h"
 
 #include <stddef.h>
-#include <string.h>
 
 static const bb_serialize_field_t s_wifi_info_wire_fields[] = {
     { .key = "ssid", .type = BB_TYPE_STR,
@@ -83,19 +83,10 @@ const bb_serialize_desc_meta_t bb_wifi_http_info_wire_meta = {
 
 void bb_wifi_http_info_wire_fill(bb_wifi_http_info_wire_t *dst, const bb_wifi_info_t *info)
 {
-    strncpy(dst->ssid, info->ssid, sizeof(dst->ssid) - 1);
-    dst->ssid[sizeof(dst->ssid) - 1] = '\0';
-    bb_wifi_http_format_bssid(dst->bssid, info->bssid);
-    dst->rssi = (int64_t)info->rssi;
-    strncpy(dst->ip, info->ip, sizeof(dst->ip) - 1);
-    dst->ip[sizeof(dst->ip) - 1] = '\0';
-    dst->connected = info->connected;
-
-    const char *reason_str = bb_wifi_disc_reason_str(info->disc_reason);
-    dst->disc_reason = (bb_serialize_str_n_t){ .ptr = reason_str, .len = strlen(reason_str) };
-
-    dst->disc_age_s        = (int64_t)info->disc_age_s;
-    dst->retry_count       = (int64_t)info->retry_count;
-    dst->restart_sta_count = (int64_t)bb_wifi_get_restart_sta_count();
-    dst->disconnect_rssi   = (int64_t)bb_wifi_get_disconnect_rssi();
+    bb_wifi_http_fill_common(dst->ssid, sizeof(dst->ssid), dst->bssid,
+                              sizeof(dst->bssid), &dst->rssi, dst->ip,
+                              sizeof(dst->ip), &dst->connected,
+                              &dst->disc_reason, &dst->disc_age_s,
+                              &dst->retry_count, &dst->restart_sta_count,
+                              &dst->disconnect_rssi, info);
 }
