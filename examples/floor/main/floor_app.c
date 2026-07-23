@@ -32,6 +32,7 @@
 #include "bb_system_snap.h"
 #include "bb_diag_section.h"
 #include "bb_diag_http.h"
+#include "bb_storage_http.h"
 #include "bb_diag_meminfo.h"
 #include "bb_diag_storage_nvs.h"
 #include "bb_diag_storage_partitions.h"
@@ -159,6 +160,38 @@ static void http_lifecycle_observer(const bb_lifecycle_event_t *evt, void *user)
             bb_err_t route_err = bb_diag_sections_init(server);
             if (route_err != BB_OK) {
                 bb_log_w(TAG, "diag_sections_init failed (%d)", (int)route_err);
+            }
+            // PR6 (floor HW-validation gate for the diag/storage HTTP
+            // surface): the legacy exact-route panic/coredump/boot/heap/
+            // tasks/sockets handlers (bb_diag_routes_init(), gated
+            // CONFIG_BB_DIAG_ROUTES, default y) plus the backend-agnostic
+            // bb_storage DELETE/factory-reset routes (bb_storage_http.h,
+            // dissolved into bb_diag_http by B1-1154) -- all server-handle
+            // routes, so all three stay here on the RUNNING-entry edge
+            // alongside bb_diag_sections_init above.
+            //
+            // CAVEAT (unlike bb_diag_sections_init's registrations, which
+            // are one-time and hoisted to app_main() for exactly this
+            // reason): these three calls register one-time, non-idempotent
+            // state under the hood (bb_cache_register, bb_diag_boot_bind,
+            // an initial diag_boot_publish, a clear-on-read NVS
+            // reboot-record load) inside a branch this file's own header
+            // comment says "re-fires on every pause/resume." That's safe
+            // ONLY because floor never pauses/resumes the "http" lifecycle
+            // service today. If that changes, these three must move to a
+            // call-once path (composition-time, like bb_diag_sections_init's
+            // registrations) -- tracked separately.
+            route_err = bb_diag_routes_init(server);
+            if (route_err != BB_OK) {
+                bb_log_w(TAG, "diag_routes_init failed (%d)", (int)route_err);
+            }
+            route_err = bb_storage_http_routes_init(server);
+            if (route_err != BB_OK) {
+                bb_log_w(TAG, "storage_http_routes_init failed (%d)", (int)route_err);
+            }
+            route_err = bb_storage_http_factory_reset_routes_init(server);
+            if (route_err != BB_OK) {
+                bb_log_w(TAG, "storage_http_factory_reset_routes_init failed (%d)", (int)route_err);
             }
             // B1-1100 cutover: GET /api/health, gather-then-stream composed
             // from the bb_health_section registry (mqtt/temp registered
