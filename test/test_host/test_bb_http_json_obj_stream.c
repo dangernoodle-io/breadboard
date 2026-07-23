@@ -4,6 +4,7 @@
 #include "bb_http_host.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdint.h>
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -161,6 +162,46 @@ void test_json_obj_set_int_negative(void)
     bb_http_resp_json_obj_end(&obj);
     cap_end();
     TEST_ASSERT_EQUAL_STRING("{\"delta\":-7}", s_cap.body);
+    cap_free();
+}
+
+// Guards the bb_num_i64_to_dec integration (B1-1172): host %PRId64 works
+// fine, so this cannot reproduce the nano-newlib "ld" mangling itself, but
+// it does prove the buffer/length handling around bb_num_i64_to_dec is
+// correct for the extremes -- 0, INT64_MIN (20 digits + sign), INT64_MAX.
+void test_json_obj_set_int_zero(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_set_int(&obj, "z", 0);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    TEST_ASSERT_EQUAL_STRING("{\"z\":0}", s_cap.body);
+    cap_free();
+}
+
+void test_json_obj_set_int_min(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_set_int(&obj, "min", INT64_MIN);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    TEST_ASSERT_EQUAL_STRING("{\"min\":-9223372036854775808}", s_cap.body);
+    cap_free();
+}
+
+void test_json_obj_set_int_max(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_set_int(&obj, "max", INT64_MAX);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    TEST_ASSERT_EQUAL_STRING("{\"max\":9223372036854775807}", s_cap.body);
     cap_free();
 }
 

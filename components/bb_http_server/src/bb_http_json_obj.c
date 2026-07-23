@@ -1,8 +1,8 @@
 #include "bb_http_server.h"
+#include "bb_num.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
-#include <inttypes.h>
 
 // ============================================================================
 // STREAMING JSON OBJECT API — portable (uses only bb_http_resp_send_chunk)
@@ -177,9 +177,13 @@ bb_err_t bb_http_resp_json_obj_set_int(bb_http_json_obj_stream_t *stream,
     bb_err_t err = obj_emit_key(stream, key);
     if (err != BB_OK) return err;
 
+    // snprintf("%" PRId64, ...) mangles under CONFIG_NEWLIB_NANO_FORMAT on
+    // 32-bit targets (nano-newlib has no 64-bit int formatter), rendering
+    // the literal string "ld" instead of the value. bb_num_i64_to_dec is
+    // hand-rolled and portable across libcs that can't format 64-bit ints.
     char buf[24];
-    int n = snprintf(buf, sizeof(buf), "%" PRId64, val);
-    return obj_append(stream, buf, (size_t)n);
+    size_t n = bb_num_i64_to_dec(buf, sizeof(buf), val);
+    return obj_append(stream, buf, n);
 }
 
 bb_err_t bb_http_resp_json_obj_set_bool(bb_http_json_obj_stream_t *stream,
