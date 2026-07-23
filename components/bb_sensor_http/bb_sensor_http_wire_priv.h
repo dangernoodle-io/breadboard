@@ -1,7 +1,7 @@
 #pragma once
 
 // Private: bb_data wire descriptors for the /api/sensors/* per-section
-// dispatch (bb_sensors PR-2, B1-828 epic). FULL BREAK of the old composite
+// dispatch (bb_sensor_http PR-2, B1-828 epic). FULL BREAK of the old composite
 // GET/PATCH /api/sensors endpoint -- zero live consumers workspace-wide, so
 // no back-compat shim. See bb_http_section.h for the registry-agnostic
 // dispatch contract these bindings serve against.
@@ -32,7 +32,7 @@ extern "C" {
 
 // `present` reflects whether a primary fan exists at gather time -- GET
 // always succeeds (200), reporting absence via `present == false` rather
-// than failing, in BOTH variants below (bb_sensors_fan_gather()'s own doc).
+// than failing, in BOTH variants below (bb_sensor_http_fan_gather()'s own doc).
 #ifdef CONFIG_BB_FAN_AUTOFAN
 typedef struct {
     bool    present;
@@ -41,12 +41,12 @@ typedef struct {
     double  vr_target_c;   // wire name for bb_fan_autofan_cfg_t.aux_target_c
     int64_t manual_pct;
     int64_t min_pct;
-} bb_sensors_fan_wire_t;
+} bb_sensor_http_fan_wire_t;
 #else
 typedef struct {
     bool    present;
     int64_t duty_pct;
-} bb_sensors_fan_wire_t;
+} bb_sensor_http_fan_wire_t;
 #endif
 
 // ---------------------------------------------------------------------------
@@ -60,7 +60,7 @@ typedef struct {
     int64_t pout_mw;
     int64_t vin_mv;
     int64_t temp_c;
-} bb_sensors_power_wire_t;
+} bb_sensor_http_power_wire_t;
 
 // ---------------------------------------------------------------------------
 // Thermal (read-only telemetry -- nested {present,c} per source, matches
@@ -70,28 +70,28 @@ typedef struct {
 typedef struct {
     bool   present;
     double c;
-} bb_sensors_thermal_source_wire_t;
+} bb_sensor_http_thermal_source_wire_t;
 
 typedef struct {
-    bb_sensors_thermal_source_wire_t soc;
-    bb_sensors_thermal_source_wire_t vr;
-    bb_sensors_thermal_source_wire_t asic;
-    bb_sensors_thermal_source_wire_t board;
-} bb_sensors_thermal_wire_t;
+    bb_sensor_http_thermal_source_wire_t soc;
+    bb_sensor_http_thermal_source_wire_t vr;
+    bb_sensor_http_thermal_source_wire_t asic;
+    bb_sensor_http_thermal_source_wire_t board;
+} bb_sensor_http_thermal_wire_t;
 
-extern const bb_serialize_desc_t bb_sensors_fan_wire_desc;
-extern const bb_serialize_desc_t bb_sensors_power_wire_desc;
-extern const bb_serialize_desc_t bb_sensors_thermal_wire_desc;
+extern const bb_serialize_desc_t bb_sensor_http_fan_wire_desc;
+extern const bb_serialize_desc_t bb_sensor_http_power_wire_desc;
+extern const bb_serialize_desc_t bb_sensor_http_thermal_wire_desc;
 
 // Gather hooks (bb_data_gather_fn-shaped) -- bound to keys "fan"/"power"/
-// "thermal" in bb_sensors_bind_and_register() (bb_sensors_dispatch.c).
-bb_err_t bb_sensors_fan_gather(void *dst, const bb_data_gather_args_t *args);
-bb_err_t bb_sensors_power_gather(void *dst, const bb_data_gather_args_t *args);
-bb_err_t bb_sensors_thermal_gather(void *dst, const bb_data_gather_args_t *args);
+// "thermal" in bb_sensor_http_bind_and_register() (bb_sensor_http_dispatch.c).
+bb_err_t bb_sensor_http_fan_gather(void *dst, const bb_data_gather_args_t *args);
+bb_err_t bb_sensor_http_power_gather(void *dst, const bb_data_gather_args_t *args);
+bb_err_t bb_sensor_http_thermal_gather(void *dst, const bb_data_gather_args_t *args);
 
 // Apply hook (bb_data_apply_fn-shaped) -- fan only. power/thermal are
 // gather-only (egress-only) bindings, no apply hook bound.
-bb_err_t bb_sensors_fan_apply(const void *snap, const bb_data_apply_args_t *args);
+bb_err_t bb_sensor_http_fan_apply(const void *snap, const bb_data_apply_args_t *args);
 
 #ifdef __cplusplus
 }

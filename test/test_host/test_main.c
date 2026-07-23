@@ -4561,35 +4561,35 @@ void test_anim_detach_null_returns_invalid_arg(void);
 void test_anim_auto_start_timer_fires(void);
 void test_anim_no_auto_start_timer_does_not_fire(void);
 
-// Forward declarations from test_bb_sensors.c (B1-828 PR-2, FULL BREAK of
+// Forward declarations from test_bb_sensor_http.c (B1-828 PR-2, FULL BREAK of
 // the old bb_response-backed /api/sensors)
-void test_bb_sensors_power_gather_no_primary_all_absent(void);
-void test_bb_sensors_power_gather_with_primary_present(void);
-void test_bb_sensors_thermal_gather_all_absent_when_no_hw(void);
-void test_bb_sensors_thermal_gather_soc_present_when_available(void);
-void test_bb_sensors_thermal_gather_vr_asic_board_present_with_primaries(void);
-void test_bb_sensors_bind_and_register_ok(void);
-void test_bb_sensors_e2e_get_power_renders_json(void);
-void test_bb_sensors_e2e_power_patch_unsupported_maps_405(void);
-void test_bb_sensors_e2e_thermal_get_renders_nested_sources(void);
-void test_bb_sensors_e2e_get_fan_no_primary_returns_200_present_false(void);
-void test_bb_sensors_e2e_fan_patch_no_primary_maps_503(void);
-void test_bb_sensors_e2e_unbound_key_returns_404_never_reaches_bb_data(void);
+void test_bb_sensor_http_power_gather_no_primary_all_absent(void);
+void test_bb_sensor_http_power_gather_with_primary_present(void);
+void test_bb_sensor_http_thermal_gather_all_absent_when_no_hw(void);
+void test_bb_sensor_http_thermal_gather_soc_present_when_available(void);
+void test_bb_sensor_http_thermal_gather_vr_asic_board_present_with_primaries(void);
+void test_bb_sensor_http_bind_and_register_ok(void);
+void test_bb_sensor_http_e2e_get_power_renders_json(void);
+void test_bb_sensor_http_e2e_power_patch_unsupported_maps_405(void);
+void test_bb_sensor_http_e2e_thermal_get_renders_nested_sources(void);
+void test_bb_sensor_http_e2e_get_fan_no_primary_returns_200_present_false(void);
+void test_bb_sensor_http_e2e_fan_patch_no_primary_maps_503(void);
+void test_bb_sensor_http_e2e_unbound_key_returns_404_never_reaches_bb_data(void);
 #ifdef CONFIG_BB_FAN_AUTOFAN
-void test_bb_sensors_fan_gather_no_primary_present_false(void);
-void test_bb_sensors_fan_gather_reads_live_autofan_cfg(void);
-void test_bb_sensors_fan_apply_no_primary_returns_unsupported(void);
-void test_bb_sensors_fan_apply_valid_sets_autofan_cfg(void);
-void test_bb_sensors_fan_apply_die_target_zero_rejected(void);
-void test_bb_sensors_fan_apply_vr_target_negative_rejected(void);
-void test_bb_sensors_fan_apply_manual_pct_over_100_rejected(void);
-void test_bb_sensors_fan_apply_manual_pct_negative_rejected(void);
-void test_bb_sensors_fan_apply_min_pct_over_100_rejected(void);
-void test_bb_sensors_fan_apply_min_pct_negative_rejected(void);
-void test_bb_sensors_e2e_fan_patch_applies_and_validates(void);
-void test_bb_sensors_e2e_fan_patch_exponent_manual_pct_refused_not_truncated(void);
+void test_bb_sensor_http_fan_gather_no_primary_present_false(void);
+void test_bb_sensor_http_fan_gather_reads_live_autofan_cfg(void);
+void test_bb_sensor_http_fan_apply_no_primary_returns_unsupported(void);
+void test_bb_sensor_http_fan_apply_valid_sets_autofan_cfg(void);
+void test_bb_sensor_http_fan_apply_die_target_zero_rejected(void);
+void test_bb_sensor_http_fan_apply_vr_target_negative_rejected(void);
+void test_bb_sensor_http_fan_apply_manual_pct_over_100_rejected(void);
+void test_bb_sensor_http_fan_apply_manual_pct_negative_rejected(void);
+void test_bb_sensor_http_fan_apply_min_pct_over_100_rejected(void);
+void test_bb_sensor_http_fan_apply_min_pct_negative_rejected(void);
+void test_bb_sensor_http_e2e_fan_patch_applies_and_validates(void);
+void test_bb_sensor_http_e2e_fan_patch_exponent_manual_pct_refused_not_truncated(void);
 #else
-void test_bb_sensors_fan_apply_driver_capability_gap_returns_invalid_state(void);
+void test_bb_sensor_http_fan_apply_driver_capability_gap_returns_invalid_state(void);
 #endif
 
 // Forward declarations from test_bb_thermal_collect.c
@@ -4845,7 +4845,7 @@ void setUp(void) {
     bb_wdt_test_reset();
     bb_openapi_schema_registry_clear();
     bb_mem_reset_stats();
-    // Several consumers (bb_diag_section, bb_http_section, bb_sensors, ...)
+    // Several consumers (bb_diag_section, bb_http_section, bb_sensor_http, ...)
     // dispatch through the format-dispatch registry rather than a hardcoded
     // BB_FORMAT_JSON branch, so a test that exercises them needs
     // BB_FORMAT_JSON actually registered. Idempotent -- safe to call before
@@ -8869,34 +8869,34 @@ int main(void) {
     RUN_TEST(test_bb_http_client_host_set_session_calloc_overrides_allocator);
     RUN_TEST(test_bb_http_client_host_set_session_calloc_null_reverts_to_real_calloc);
 
-    // bb_sensors tests (B1-828 PR-2, FULL BREAK of the old /api/sensors)
-    RUN_TEST(test_bb_sensors_power_gather_no_primary_all_absent);
-    RUN_TEST(test_bb_sensors_power_gather_with_primary_present);
-    RUN_TEST(test_bb_sensors_thermal_gather_all_absent_when_no_hw);
-    RUN_TEST(test_bb_sensors_thermal_gather_soc_present_when_available);
-    RUN_TEST(test_bb_sensors_thermal_gather_vr_asic_board_present_with_primaries);
-    RUN_TEST(test_bb_sensors_bind_and_register_ok);
-    RUN_TEST(test_bb_sensors_e2e_get_power_renders_json);
-    RUN_TEST(test_bb_sensors_e2e_power_patch_unsupported_maps_405);
-    RUN_TEST(test_bb_sensors_e2e_thermal_get_renders_nested_sources);
-    RUN_TEST(test_bb_sensors_e2e_get_fan_no_primary_returns_200_present_false);
-    RUN_TEST(test_bb_sensors_e2e_fan_patch_no_primary_maps_503);
-    RUN_TEST(test_bb_sensors_e2e_unbound_key_returns_404_never_reaches_bb_data);
+    // bb_sensor_http tests (B1-828 PR-2, FULL BREAK of the old /api/sensors)
+    RUN_TEST(test_bb_sensor_http_power_gather_no_primary_all_absent);
+    RUN_TEST(test_bb_sensor_http_power_gather_with_primary_present);
+    RUN_TEST(test_bb_sensor_http_thermal_gather_all_absent_when_no_hw);
+    RUN_TEST(test_bb_sensor_http_thermal_gather_soc_present_when_available);
+    RUN_TEST(test_bb_sensor_http_thermal_gather_vr_asic_board_present_with_primaries);
+    RUN_TEST(test_bb_sensor_http_bind_and_register_ok);
+    RUN_TEST(test_bb_sensor_http_e2e_get_power_renders_json);
+    RUN_TEST(test_bb_sensor_http_e2e_power_patch_unsupported_maps_405);
+    RUN_TEST(test_bb_sensor_http_e2e_thermal_get_renders_nested_sources);
+    RUN_TEST(test_bb_sensor_http_e2e_get_fan_no_primary_returns_200_present_false);
+    RUN_TEST(test_bb_sensor_http_e2e_fan_patch_no_primary_maps_503);
+    RUN_TEST(test_bb_sensor_http_e2e_unbound_key_returns_404_never_reaches_bb_data);
 #ifdef CONFIG_BB_FAN_AUTOFAN
-    RUN_TEST(test_bb_sensors_fan_gather_no_primary_present_false);
-    RUN_TEST(test_bb_sensors_fan_gather_reads_live_autofan_cfg);
-    RUN_TEST(test_bb_sensors_fan_apply_no_primary_returns_unsupported);
-    RUN_TEST(test_bb_sensors_fan_apply_valid_sets_autofan_cfg);
-    RUN_TEST(test_bb_sensors_fan_apply_die_target_zero_rejected);
-    RUN_TEST(test_bb_sensors_fan_apply_vr_target_negative_rejected);
-    RUN_TEST(test_bb_sensors_fan_apply_manual_pct_over_100_rejected);
-    RUN_TEST(test_bb_sensors_fan_apply_manual_pct_negative_rejected);
-    RUN_TEST(test_bb_sensors_fan_apply_min_pct_over_100_rejected);
-    RUN_TEST(test_bb_sensors_fan_apply_min_pct_negative_rejected);
-    RUN_TEST(test_bb_sensors_e2e_fan_patch_applies_and_validates);
-    RUN_TEST(test_bb_sensors_e2e_fan_patch_exponent_manual_pct_refused_not_truncated);
+    RUN_TEST(test_bb_sensor_http_fan_gather_no_primary_present_false);
+    RUN_TEST(test_bb_sensor_http_fan_gather_reads_live_autofan_cfg);
+    RUN_TEST(test_bb_sensor_http_fan_apply_no_primary_returns_unsupported);
+    RUN_TEST(test_bb_sensor_http_fan_apply_valid_sets_autofan_cfg);
+    RUN_TEST(test_bb_sensor_http_fan_apply_die_target_zero_rejected);
+    RUN_TEST(test_bb_sensor_http_fan_apply_vr_target_negative_rejected);
+    RUN_TEST(test_bb_sensor_http_fan_apply_manual_pct_over_100_rejected);
+    RUN_TEST(test_bb_sensor_http_fan_apply_manual_pct_negative_rejected);
+    RUN_TEST(test_bb_sensor_http_fan_apply_min_pct_over_100_rejected);
+    RUN_TEST(test_bb_sensor_http_fan_apply_min_pct_negative_rejected);
+    RUN_TEST(test_bb_sensor_http_e2e_fan_patch_applies_and_validates);
+    RUN_TEST(test_bb_sensor_http_e2e_fan_patch_exponent_manual_pct_refused_not_truncated);
 #else
-    RUN_TEST(test_bb_sensors_fan_apply_driver_capability_gap_returns_invalid_state);
+    RUN_TEST(test_bb_sensor_http_fan_apply_driver_capability_gap_returns_invalid_state);
 #endif
 
     // bb_thermal_collect unit tests (B1-352)

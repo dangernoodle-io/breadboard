@@ -10,7 +10,7 @@ config BB_FAN_AUTOFAN
         5000 ms sample time, dual EMA (alpha=0.2) for die and aux (VR) temps,
         input-src selected by max((ema-target)/target) ratio.
 
-        When enabled, PATCH /api/sensors (bb_sensors, fan section) parses
+        When enabled, PATCH /api/sensors (bb_sensor_http, fan section) parses
         autofan config fields (autofan, die_target_c, vr_target_c, manual_pct,
         min_pct) instead of raw duty_pct. GET /api/sensors gains additional
         telemetry fields (die_ema_c, vr_ema_c, pid_input_c, pid_input_src).

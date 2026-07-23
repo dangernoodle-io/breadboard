@@ -1,4 +1,4 @@
-// bb_sensors — per-section /api/sensors/* dispatch (fan/power/thermal).
+// bb_sensor_http — per-section /api/sensors/* dispatch (fan/power/thermal).
 //
 // FULL BREAK (B1-828 PR-2): the old composite GET/PATCH /api/sensors
 // endpoint (bb_response-backed) is gone -- no back-compat shim, no dual
@@ -14,13 +14,13 @@
 //   GET       /api/sensors/thermal — read-only telemetry; PATCH -> 405.
 //
 // There is no bespoke section-registration API anymore: any consumer that
-// calls bb_data_bind() with its own key (before bb_sensors_init() runs) is
+// calls bb_data_bind() with its own key (before bb_sensor_http_init() runs) is
 // served automatically at /api/sensors/<key> -- the render/apply adapters
-// (bb_sensors_dispatch.c) are generic over bb_data.
+// (bb_sensor_http_dispatch.c) are generic over bb_data.
 //
-// Host twin: none. bb_sensors_init() itself is ESP-IDF only (it drives
+// Host twin: none. bb_sensor_http_init() itself is ESP-IDF only (it drives
 // bb_http_section_init(), which registers real httpd routes); the portable
-// bind step (bb_sensors_bind_and_register(), bb_sensors_dispatch_priv.h) is
+// bind step (bb_sensor_http_bind_and_register(), bb_sensor_http_dispatch_priv.h) is
 // what host tests drive directly.
 #pragma once
 #include "bb_core.h"
@@ -33,8 +33,8 @@ extern "C" {
 // Binds the built-in fan/power/thermal bb_data keys and registers GET+PATCH
 // /api/sensors/* with the HTTP server via the bb_http_section dispatch
 // helper (regular-tier init fn).
-// bbtool:init tier=regular fn=bb_sensors_init server=true
-bb_err_t bb_sensors_init(bb_http_handle_t server);
+// bbtool:init tier=regular fn=bb_sensor_http_init server=true
+bb_err_t bb_sensor_http_init(bb_http_handle_t server);
 
 #ifdef __cplusplus
 }

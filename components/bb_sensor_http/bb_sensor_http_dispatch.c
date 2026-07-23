@@ -1,5 +1,5 @@
-// bb_sensors_dispatch -- binds fan/power/thermal into bb_data and registers
-// the shared "/api/sensors/" bb_http_section namespace over them (bb_sensors
+// bb_sensor_http_dispatch -- binds fan/power/thermal into bb_data and registers
+// the shared "/api/sensors/" bb_http_section namespace over them (bb_sensor_http
 // PR-2, B1-828 epic).
 //
 // FIXED SERVABLE SET, NOT A GLOBAL bb_data PROXY: bb_data_bind() is a single
@@ -20,9 +20,9 @@
 // Compiles on both host and ESP-IDF -- bb_data_render()/bb_data_parse()/
 // bb_data_commit()/bb_http_section_register_ns() are all portable; only the
 // route registration itself (bb_http_section_init(), called separately by
-// bb_sensors_init()) is ESP-IDF only.
-#include "bb_sensors_dispatch_priv.h"
-#include "bb_sensors_wire_priv.h"
+// bb_sensor_http_init()) is ESP-IDF only.
+#include "bb_sensor_http_dispatch_priv.h"
+#include "bb_sensor_http_wire_priv.h"
 
 #include "bb_data.h"
 #include "bb_http_section.h"
@@ -30,12 +30,12 @@
 #include <stddef.h>
 #include <string.h>
 
-// Scratch sizing: the largest bound wire struct is bb_sensors_fan_wire_t
-// (autofan variant, 5 fields) or bb_sensors_thermal_wire_t (4 nested
+// Scratch sizing: the largest bound wire struct is bb_sensor_http_fan_wire_t
+// (autofan variant, 5 fields) or bb_sensor_http_thermal_wire_t (4 nested
 // {bool,double} sources) -- both comfortably under 64 bytes. Generous
 // headroom over a tight sizeof() so a future field addition doesn't need a
 // matching bump here.
-#define BB_SENSORS_SCRATCH_BYTES  64
+#define BB_SENSOR_HTTP_SCRATCH_BYTES  64
 
 // bb_data_parse()'s parse_scratch backs bb_serialize_json_parse_bytes()'s
 // token-recorder control structs + token pool, NOT just the decoded field
@@ -43,7 +43,7 @@
 // bb_storage_http_routes.c's FACTORY_RESET_PARSE_SCRATCH_BYTES, the same
 // 3072-byte sizing every other bb_data-backed PATCH route in this codebase
 // uses (a few hundred bytes undersizes it -- BB_ERR_NO_SPACE at PARSE stage).
-#define BB_SENSORS_PARSE_SCRATCH_BYTES  3072
+#define BB_SENSOR_HTTP_PARSE_SCRATCH_BYTES  3072
 
 // Fixed servable set -- see the file header's "FIXED SERVABLE SET" note.
 // name == bb_data key 1:1 for exactly these three; anything else is
@@ -64,7 +64,7 @@ static bb_err_t sensors_render(const char *name, const bb_serialize_query_t *que
 
     if (!sensors_key_is_known(name)) return BB_ERR_NOT_FOUND;
 
-    char scratch[BB_SENSORS_SCRATCH_BYTES];
+    char scratch[BB_SENSOR_HTTP_SCRATCH_BYTES];
     bb_data_render_req_t req = {
         .fmt         = BB_FORMAT_JSON,
         .key         = name,
@@ -84,7 +84,7 @@ static bb_err_t sensors_render(const char *name, const bb_serialize_query_t *que
 // test_bb_http_section_e2e_apply_drives_bb_data_parse_and_commit, PR-1's own
 // proof this shape is real). BB_DATA_APPLY_PATCH: a wire field absent from
 // the request body keeps whatever the binding's gather() hook seeded it
-// with (see bb_sensors_fan_gather()'s own PATCH-seed contract doc).
+// with (see bb_sensor_http_fan_gather()'s own PATCH-seed contract doc).
 static bb_http_section_apply_result_t sensors_apply(const char *name, const char *body,
                                                       size_t body_len, void *ctx)
 {
@@ -95,7 +95,7 @@ static bb_http_section_apply_result_t sensors_apply(const char *name, const char
                                                    .rc    = BB_ERR_NOT_FOUND };
     }
 
-    char parse_scratch[BB_SENSORS_PARSE_SCRATCH_BYTES];
+    char parse_scratch[BB_SENSOR_HTTP_PARSE_SCRATCH_BYTES];
     bb_data_parse_req_t parse_req = {
         .fmt               = BB_FORMAT_JSON,
         .key               = name,
@@ -110,7 +110,7 @@ static bb_http_section_apply_result_t sensors_apply(const char *name, const char
         return (bb_http_section_apply_result_t){ .stage = BB_HTTP_SECTION_STAGE_PARSE, .rc = rc };
     }
 
-    char dst_scratch[BB_SENSORS_SCRATCH_BYTES];
+    char dst_scratch[BB_SENSOR_HTTP_SCRATCH_BYTES];
     bb_data_commit_req_t commit_req = {
         .mode            = BB_DATA_APPLY_PATCH,
         .dst_scratch     = dst_scratch,
@@ -120,21 +120,21 @@ static bb_http_section_apply_result_t sensors_apply(const char *name, const char
     return (bb_http_section_apply_result_t){ .stage = BB_HTTP_SECTION_STAGE_COMMIT, .rc = rc };
 }
 
-bb_err_t bb_sensors_bind_and_register(void)
+bb_err_t bb_sensor_http_bind_and_register(void)
 {
     bb_data_binding_t fan_binding = {
         .key    = "fan",
-        .desc   = &bb_sensors_fan_wire_desc,
-        .gather = bb_sensors_fan_gather,
-        .apply  = bb_sensors_fan_apply,
+        .desc   = &bb_sensor_http_fan_wire_desc,
+        .gather = bb_sensor_http_fan_gather,
+        .apply  = bb_sensor_http_fan_apply,
     };
     bb_err_t err = bb_data_bind(&fan_binding);
     if (err != BB_OK) return err;
 
     bb_data_binding_t power_binding = {
         .key    = "power",
-        .desc   = &bb_sensors_power_wire_desc,
-        .gather = bb_sensors_power_gather,
+        .desc   = &bb_sensor_http_power_wire_desc,
+        .gather = bb_sensor_http_power_gather,
         // apply == NULL: egress-only -- PATCH /api/sensors/power -> 405.
     };
     err = bb_data_bind(&power_binding);
@@ -142,8 +142,8 @@ bb_err_t bb_sensors_bind_and_register(void)
 
     bb_data_binding_t thermal_binding = {
         .key    = "thermal",
-        .desc   = &bb_sensors_thermal_wire_desc,
-        .gather = bb_sensors_thermal_gather,
+        .desc   = &bb_sensor_http_thermal_wire_desc,
+        .gather = bb_sensor_http_thermal_gather,
         // apply == NULL: egress-only -- PATCH /api/sensors/thermal -> 405.
     };
     err = bb_data_bind(&thermal_binding);
@@ -154,8 +154,8 @@ bb_err_t bb_sensors_bind_and_register(void)
         .render = sensors_render,
         .apply  = sensors_apply,
         // 503, not the mapper's 405 default: a commit-stage BB_ERR_UNSUPPORTED
-        // on this namespace can ONLY come from bb_sensors_fan_apply()'s own
-        // "no primary fan" reject (see bb_sensors_wire.c) -- power/thermal
+        // on this namespace can ONLY come from bb_sensor_http_fan_apply()'s own
+        // "no primary fan" reject (see bb_sensor_http_wire.c) -- power/thermal
         // are apply-less bindings, so their PATCH rejection happens at
         // bb_data_parse()'s PARSE stage instead, which the status mapper
         // hardcodes to 405 regardless of this override (see

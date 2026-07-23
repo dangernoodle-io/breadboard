@@ -416,7 +416,7 @@ void test_bb_http_section_status_for_apply_commit_other_error_is_500(void)
 // bb_data_commit() DIRECTLY against a real bb_data binding -- proves the
 // helper is genuinely usable (not dead code) and that its stage tagging
 // lines up with bb_data's own parse/commit split. Mirrors what a real
-// bb_data-backed namespace (bb_sensors PR-2) would do; not wired to any
+// bb_data-backed namespace (bb_sensor_http PR-2) would do; not wired to any
 // actual HTTP route in this PR.
 // ---------------------------------------------------------------------------
 

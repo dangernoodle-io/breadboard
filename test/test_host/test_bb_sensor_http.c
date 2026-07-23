@@ -1,17 +1,17 @@
-// Tests for bb_sensors' per-section /api/sensors/* dispatch (B1-828 PR-2,
+// Tests for bb_sensor_http's per-section /api/sensors/* dispatch (B1-828 PR-2,
 // FULL BREAK of the old composite bb_response-backed endpoint -- see
 // bb_http_section.h for the registry-agnostic dispatch contract). Two
 // layers:
-//   - unit: bb_sensors_{fan,power,thermal}_gather()/bb_sensors_fan_apply()
+//   - unit: bb_sensor_http_{fan,power,thermal}_gather()/bb_sensor_http_fan_apply()
 //     called directly against a fake fan/power backend + bb_temp_test.
-//   - end-to-end: bb_sensors_bind_and_register() + bb_http_section_find()'s
+//   - end-to-end: bb_sensor_http_bind_and_register() + bb_http_section_find()'s
 //     render()/apply() hooks driven directly (no real HTTP server on host --
 //     same pattern as test_bb_http_section.c's own e2e proof), confirming
 //     the wiring is real and status-mapping is correct.
 #include "unity.h"
 
-#include "../../../components/bb_sensors/bb_sensors_wire_priv.h"
-#include "../../../components/bb_sensors/bb_sensors_dispatch_priv.h"
+#include "../../../components/bb_sensor_http/bb_sensor_http_wire_priv.h"
+#include "../../../components/bb_sensor_http/bb_sensor_http_dispatch_priv.h"
 
 #include "bb_data.h"
 #include "bb_http_section_priv.h"
@@ -127,15 +127,15 @@ static void sensors_test_reset(void)
 }
 
 // ===========================================================================
-// Unit: bb_sensors_power_gather / bb_sensors_thermal_gather
+// Unit: bb_sensor_http_power_gather / bb_sensor_http_thermal_gather
 // ===========================================================================
 
-void test_bb_sensors_power_gather_no_primary_all_absent(void)
+void test_bb_sensor_http_power_gather_no_primary_all_absent(void)
 {
     sensors_test_reset();
 
-    bb_sensors_power_wire_t w;
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_power_gather(&w, NULL));
+    bb_sensor_http_power_wire_t w;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_power_gather(&w, NULL));
     TEST_ASSERT_FALSE(w.present);
     TEST_ASSERT_TRUE(w.vout_mv < 0);
     TEST_ASSERT_TRUE(w.iout_ma < 0);
@@ -143,7 +143,7 @@ void test_bb_sensors_power_gather_no_primary_all_absent(void)
     TEST_ASSERT_TRUE(w.temp_c < 0);
 }
 
-void test_bb_sensors_power_gather_with_primary_present(void)
+void test_bb_sensor_http_power_gather_with_primary_present(void)
 {
     sensors_test_reset();
 
@@ -153,8 +153,8 @@ void test_bb_sensors_power_gather_with_primary_present(void)
     bb_power_poll(ph);
     bb_power_set_primary(ph);
 
-    bb_sensors_power_wire_t w;
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_power_gather(&w, NULL));
+    bb_sensor_http_power_wire_t w;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_power_gather(&w, NULL));
     TEST_ASSERT_TRUE(w.present);
     TEST_ASSERT_EQUAL_INT64(1200, w.vout_mv);
     TEST_ASSERT_EQUAL_INT64(500, w.iout_ma);
@@ -167,30 +167,30 @@ void test_bb_sensors_power_gather_with_primary_present(void)
     free(ph);
 }
 
-void test_bb_sensors_thermal_gather_all_absent_when_no_hw(void)
+void test_bb_sensor_http_thermal_gather_all_absent_when_no_hw(void)
 {
     sensors_test_reset();
 
-    bb_sensors_thermal_wire_t w;
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_thermal_gather(&w, NULL));
+    bb_sensor_http_thermal_wire_t w;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_thermal_gather(&w, NULL));
     TEST_ASSERT_FALSE(w.soc.present);
     TEST_ASSERT_FALSE(w.vr.present);
     TEST_ASSERT_FALSE(w.asic.present);
     TEST_ASSERT_FALSE(w.board.present);
 }
 
-void test_bb_sensors_thermal_gather_soc_present_when_available(void)
+void test_bb_sensor_http_thermal_gather_soc_present_when_available(void)
 {
     sensors_test_reset();
     bb_temp_test_set_soc(true, 62.5f);
 
-    bb_sensors_thermal_wire_t w;
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_thermal_gather(&w, NULL));
+    bb_sensor_http_thermal_wire_t w;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_thermal_gather(&w, NULL));
     TEST_ASSERT_TRUE(w.soc.present);
     TEST_ASSERT_EQUAL_FLOAT(62.5f, (float)w.soc.c);
 }
 
-void test_bb_sensors_thermal_gather_vr_asic_board_present_with_primaries(void)
+void test_bb_sensor_http_thermal_gather_vr_asic_board_present_with_primaries(void)
 {
     sensors_test_reset();
 
@@ -206,8 +206,8 @@ void test_bb_sensors_thermal_gather_vr_asic_board_present_with_primaries(void)
     bb_fan_poll(fh);
     bb_fan_set_primary(fh);
 
-    bb_sensors_thermal_wire_t w;
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_thermal_gather(&w, NULL));
+    bb_sensor_http_thermal_wire_t w;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_thermal_gather(&w, NULL));
     TEST_ASSERT_TRUE(w.vr.present);
     TEST_ASSERT_EQUAL_FLOAT(40.0f, (float)w.vr.c);
     TEST_ASSERT_TRUE(w.asic.present);
@@ -222,7 +222,7 @@ void test_bb_sensors_thermal_gather_vr_asic_board_present_with_primaries(void)
 }
 
 // ===========================================================================
-// Unit: bb_sensors_fan_gather / bb_sensors_fan_apply (autofan build --
+// Unit: bb_sensor_http_fan_gather / bb_sensor_http_fan_apply (autofan build --
 // non-autofan's #else branch mirrors the same shape and is exercised by the
 // espidf-target CI matrix build, same convention as the pre-PR-2 test file).
 // ===========================================================================
@@ -239,20 +239,20 @@ static bb_fan_handle_t make_autofan_handle(void)
     return fh;
 }
 
-void test_bb_sensors_fan_gather_no_primary_present_false(void)
+void test_bb_sensor_http_fan_gather_no_primary_present_false(void)
 {
     sensors_test_reset();
 
-    bb_sensors_fan_wire_t w;
+    bb_sensor_http_fan_wire_t w;
     // No primary fan is an ordinary hardware state -- gather() must NOT
     // fail; it reports absence via `present` (regression pin: reverting
-    // bb_sensors_fan_gather()'s no-primary branch back to "return
+    // bb_sensor_http_fan_gather()'s no-primary branch back to "return
     // BB_ERR_INVALID_STATE" turns this red).
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_fan_gather(&w, NULL));
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_fan_gather(&w, NULL));
     TEST_ASSERT_FALSE(w.present);
 }
 
-void test_bb_sensors_fan_gather_reads_live_autofan_cfg(void)
+void test_bb_sensor_http_fan_gather_reads_live_autofan_cfg(void)
 {
     sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
@@ -261,8 +261,8 @@ void test_bb_sensors_fan_gather_reads_live_autofan_cfg(void)
                                   .aux_target_c = 70.0f, .min_pct = 20, .manual_pct = 80 };
     bb_fan_set_autofan(fh, &cfg);
 
-    bb_sensors_fan_wire_t w;
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_fan_gather(&w, NULL));
+    bb_sensor_http_fan_wire_t w;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_fan_gather(&w, NULL));
     TEST_ASSERT_TRUE(w.autofan);
     TEST_ASSERT_EQUAL_FLOAT(65.0f, (float)w.die_target_c);
     TEST_ASSERT_EQUAL_FLOAT(70.0f, (float)w.vr_target_c);
@@ -273,27 +273,27 @@ void test_bb_sensors_fan_gather_reads_live_autofan_cfg(void)
     free(fh);
 }
 
-void test_bb_sensors_fan_apply_no_primary_returns_unsupported(void)
+void test_bb_sensor_http_fan_apply_no_primary_returns_unsupported(void)
 {
     sensors_test_reset();
 
-    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
+    bb_sensor_http_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
                                  .manual_pct = 50, .min_pct = 10 };
     // BB_ERR_UNSUPPORTED (not BB_ERR_INVALID_STATE) is what lets the shared
     // status mapper's commit-stage override land this on 503 -- see
-    // test_bb_sensors_e2e_fan_patch_no_primary_maps_503 below for the
+    // test_bb_sensor_http_e2e_fan_patch_no_primary_maps_503 below for the
     // status-code pin.
-    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_sensors_fan_apply(&w, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_sensor_http_fan_apply(&w, NULL));
 }
 
-void test_bb_sensors_fan_apply_valid_sets_autofan_cfg(void)
+void test_bb_sensor_http_fan_apply_valid_sets_autofan_cfg(void)
 {
     sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_sensors_fan_wire_t w = { .autofan = true, .die_target_c = 62.0, .vr_target_c = 71.0,
+    bb_sensor_http_fan_wire_t w = { .autofan = true, .die_target_c = 62.0, .vr_target_c = 71.0,
                                  .manual_pct = 33, .min_pct = 12 };
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_fan_apply(&w, NULL));
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_fan_apply(&w, NULL));
 
     bb_fan_autofan_cfg_t cfg;
     bb_fan_get_autofan_cfg(fh, &cfg);
@@ -307,79 +307,79 @@ void test_bb_sensors_fan_apply_valid_sets_autofan_cfg(void)
     free(fh);
 }
 
-void test_bb_sensors_fan_apply_die_target_zero_rejected(void)
+void test_bb_sensor_http_fan_apply_die_target_zero_rejected(void)
 {
     sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 0.0, .vr_target_c = 70.0,
+    bb_sensor_http_fan_wire_t w = { .autofan = false, .die_target_c = 0.0, .vr_target_c = 70.0,
                                  .manual_pct = 50, .min_pct = 10 };
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensors_fan_apply(&w, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensor_http_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
-void test_bb_sensors_fan_apply_vr_target_negative_rejected(void)
+void test_bb_sensor_http_fan_apply_vr_target_negative_rejected(void)
 {
     sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = -1.0,
+    bb_sensor_http_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = -1.0,
                                  .manual_pct = 50, .min_pct = 10 };
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensors_fan_apply(&w, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensor_http_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
-void test_bb_sensors_fan_apply_manual_pct_over_100_rejected(void)
+void test_bb_sensor_http_fan_apply_manual_pct_over_100_rejected(void)
 {
     sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
+    bb_sensor_http_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
                                  .manual_pct = 101, .min_pct = 10 };
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensors_fan_apply(&w, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensor_http_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
-void test_bb_sensors_fan_apply_manual_pct_negative_rejected(void)
+void test_bb_sensor_http_fan_apply_manual_pct_negative_rejected(void)
 {
     sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
+    bb_sensor_http_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
                                  .manual_pct = -1, .min_pct = 10 };
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensors_fan_apply(&w, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensor_http_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
-void test_bb_sensors_fan_apply_min_pct_over_100_rejected(void)
+void test_bb_sensor_http_fan_apply_min_pct_over_100_rejected(void)
 {
     sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
+    bb_sensor_http_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
                                  .manual_pct = 50, .min_pct = 200 };
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensors_fan_apply(&w, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensor_http_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
 }
 
-void test_bb_sensors_fan_apply_min_pct_negative_rejected(void)
+void test_bb_sensor_http_fan_apply_min_pct_negative_rejected(void)
 {
     sensors_test_reset();
     bb_fan_handle_t fh = make_autofan_handle();
 
-    bb_sensors_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
+    bb_sensor_http_fan_wire_t w = { .autofan = false, .die_target_c = 60.0, .vr_target_c = 70.0,
                                  .manual_pct = 50, .min_pct = -1 };
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensors_fan_apply(&w, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_sensor_http_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
@@ -400,23 +400,23 @@ static const bb_fan_driver_t drv_fan_no_duty = {
     .name              = "fake_fan_no_duty",
 };
 
-void test_bb_sensors_fan_apply_driver_capability_gap_returns_invalid_state(void)
+void test_bb_sensor_http_fan_apply_driver_capability_gap_returns_invalid_state(void)
 {
     sensors_test_reset();
     bb_fan_handle_t fh;
     bb_fan_handle_create(&drv_fan_no_duty, &g_fan, &fh);
     bb_fan_set_primary(fh);
 
-    bb_sensors_fan_wire_t w = { .duty_pct = 50 };
+    bb_sensor_http_fan_wire_t w = { .duty_pct = 50 };
     // A primary fan IS wired but its driver can't do duty -- must map to
     // BB_ERR_INVALID_STATE (-> 500), not BB_ERR_UNSUPPORTED (-> 503), so it
     // stays distinguishable from the no-primary-fan case above, which owns
     // the namespace's single unsupported_status override (see
-    // bb_sensors_fan_apply()'s own doc). Regression pin: reverting the
+    // bb_sensor_http_fan_apply()'s own doc). Regression pin: reverting the
     // BB_ERR_UNSUPPORTED->BB_ERR_INVALID_STATE translation in
-    // bb_sensors_fan_apply()'s #else branch collapses this back onto
+    // bb_sensor_http_fan_apply()'s #else branch collapses this back onto
     // BB_ERR_UNSUPPORTED, turning this red.
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_sensors_fan_apply(&w, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_sensor_http_fan_apply(&w, NULL));
 
     bb_fan_set_primary(NULL);
     free(fh);
@@ -425,20 +425,20 @@ void test_bb_sensors_fan_apply_driver_capability_gap_returns_invalid_state(void)
 #endif /* CONFIG_BB_FAN_AUTOFAN */
 
 // ===========================================================================
-// End-to-end: bb_sensors_bind_and_register() + bb_http_section_find() ->
+// End-to-end: bb_sensor_http_bind_and_register() + bb_http_section_find() ->
 // render()/apply() driven directly (no real HTTP server on host).
 // ===========================================================================
 
-void test_bb_sensors_bind_and_register_ok(void)
+void test_bb_sensor_http_bind_and_register_ok(void)
 {
     sensors_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_bind_and_register());
 }
 
-void test_bb_sensors_e2e_get_power_renders_json(void)
+void test_bb_sensor_http_e2e_get_power_renders_json(void)
 {
     sensors_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_bind_and_register());
 
     bb_power_handle_t ph;
     g_pwr.vout_mv = 1200; g_pwr.iout_ma = 500; g_pwr.vin_mv = 12000; g_pwr.temp_c = 45;
@@ -474,10 +474,10 @@ void test_bb_sensors_e2e_get_power_renders_json(void)
     free(ph);
 }
 
-void test_bb_sensors_e2e_power_patch_unsupported_maps_405(void)
+void test_bb_sensor_http_e2e_power_patch_unsupported_maps_405(void)
 {
     sensors_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_bind_and_register());
 
     char name[BB_HTTP_SECTION_NAME_MAX];
     const bb_http_section_ns_t *ns =
@@ -493,10 +493,10 @@ void test_bb_sensors_e2e_power_patch_unsupported_maps_405(void)
     TEST_ASSERT_EQUAL(405, bb_http_section_status_for_apply(result, ns->unsupported_status));
 }
 
-void test_bb_sensors_e2e_thermal_get_renders_nested_sources(void)
+void test_bb_sensor_http_e2e_thermal_get_renders_nested_sources(void)
 {
     sensors_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_bind_and_register());
     bb_temp_test_set_soc(true, 50.0f);
 
     char name[BB_HTTP_SECTION_NAME_MAX];
@@ -522,10 +522,10 @@ void test_bb_sensors_e2e_thermal_get_renders_nested_sources(void)
     bb_json_free(parsed);
 }
 
-void test_bb_sensors_e2e_get_fan_no_primary_returns_200_present_false(void)
+void test_bb_sensor_http_e2e_get_fan_no_primary_returns_200_present_false(void)
 {
     sensors_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_bind_and_register());
 
     char name[BB_HTTP_SECTION_NAME_MAX];
     const bb_http_section_ns_t *ns =
@@ -536,7 +536,7 @@ void test_bb_sensors_e2e_get_fan_no_primary_returns_200_present_false(void)
     char   buf[256];
     size_t out_len = 0;
     bb_err_t rc = ns->render(name, NULL, buf, sizeof(buf), &out_len, ns->ctx);
-    // Regression pin: reverting bb_sensors_fan_gather()'s no-primary branch
+    // Regression pin: reverting bb_sensor_http_fan_gather()'s no-primary branch
     // back to "return BB_ERR_INVALID_STATE" turns this red (500 instead of
     // 200) -- see the RED capture in the PR report.
     TEST_ASSERT_EQUAL(BB_OK, rc);
@@ -551,10 +551,10 @@ void test_bb_sensors_e2e_get_fan_no_primary_returns_200_present_false(void)
     bb_json_free(parsed);
 }
 
-void test_bb_sensors_e2e_fan_patch_no_primary_maps_503(void)
+void test_bb_sensor_http_e2e_fan_patch_no_primary_maps_503(void)
 {
     sensors_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_bind_and_register());
 
     char name[BB_HTTP_SECTION_NAME_MAX];
     const bb_http_section_ns_t *ns =
@@ -567,10 +567,10 @@ void test_bb_sensors_e2e_fan_patch_no_primary_maps_503(void)
     TEST_ASSERT_EQUAL(503, bb_http_section_status_for_apply(result, ns->unsupported_status));
 }
 
-void test_bb_sensors_e2e_unbound_key_returns_404_never_reaches_bb_data(void)
+void test_bb_sensor_http_e2e_unbound_key_returns_404_never_reaches_bb_data(void)
 {
     sensors_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_bind_and_register());
 
     // Bind a real, unrelated key -- the exact hazard FIX 1 closes: without
     // the fixed-set check, /api/sensors/log would proxy straight through to
@@ -578,8 +578,8 @@ void test_bb_sensors_e2e_unbound_key_returns_404_never_reaches_bb_data(void)
     // with no namespace concept).
     bb_data_binding_t log_binding = {
         .key    = "log",
-        .desc   = &bb_sensors_power_wire_desc,
-        .gather = bb_sensors_power_gather,
+        .desc   = &bb_sensor_http_power_wire_desc,
+        .gather = bb_sensor_http_power_gather,
     };
     TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&log_binding));
 
@@ -601,10 +601,10 @@ void test_bb_sensors_e2e_unbound_key_returns_404_never_reaches_bb_data(void)
 }
 
 #ifdef CONFIG_BB_FAN_AUTOFAN
-void test_bb_sensors_e2e_fan_patch_applies_and_validates(void)
+void test_bb_sensor_http_e2e_fan_patch_applies_and_validates(void)
 {
     sensors_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_bind_and_register());
     bb_fan_handle_t fh = make_autofan_handle();
 
     char name[BB_HTTP_SECTION_NAME_MAX];
@@ -614,7 +614,7 @@ void test_bb_sensors_e2e_fan_patch_applies_and_validates(void)
     TEST_ASSERT_NOT_NULL(ns->apply);
 
     // Partial PATCH: only manual_pct supplied -- PATCH-mode seeds the rest
-    // from the live cfg (bb_sensors_fan_gather()'s "real seed"), so
+    // from the live cfg (bb_sensor_http_fan_gather()'s "real seed"), so
     // die_target_c/vr_target_c/min_pct/autofan stay at their current values.
     const char *body = "{\"manual_pct\":77}";
     bb_http_section_apply_result_t result = ns->apply(name, body, strlen(body), ns->ctx);
@@ -648,10 +648,10 @@ void test_bb_sensors_e2e_fan_patch_applies_and_validates(void)
 // PATCH-mode's gather() seed keeps manual_pct at its live pre-PATCH value,
 // still 200 (a fraction/exponent numeral is not, on its own, a malformed
 // JSON body), rather than silently landing 5.
-void test_bb_sensors_e2e_fan_patch_exponent_manual_pct_refused_not_truncated(void)
+void test_bb_sensor_http_e2e_fan_patch_exponent_manual_pct_refused_not_truncated(void)
 {
     sensors_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_sensors_bind_and_register());
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_bind_and_register());
     bb_fan_handle_t fh = make_autofan_handle();
 
     bb_fan_autofan_cfg_t seed_cfg = { .enabled = true, .die_target_c = 65.0f,
