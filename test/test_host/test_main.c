@@ -4727,6 +4727,32 @@ void test_bb_sensor_http_e2e_fan_patch_applies_and_validates(void);
 void test_bb_sensor_http_e2e_fan_patch_exponent_manual_pct_refused_not_truncated(void);
 #endif
 
+// Forward declarations from test_bb_sensor_http_wire_meta_golden.c (B1-1180
+// PR-2, review fix HIGH 2 restructure) -- the 3 production-desc tests are
+// unconditional (bb_sensor_http_fan_wire_desc always exists as whichever
+// variant is active); the twin tests are gated on the OPPOSITE
+// CONFIG_BB_FAN_AUTOFAN fork from production (only the currently-INACTIVE
+// variant's twin is compiled/run -- see that file's banner). power/thermal
+// have no Kconfig fork at all.
+void test_bb_sensor_http_fan_meta_validates_against_desc(void);
+void test_bb_sensor_http_fan_meta_golden_matches_hand_literal(void);
+void test_bb_sensor_http_fan_request_meta_golden_matches_hand_literal(void);
+#if defined(CONFIG_BB_FAN_AUTOFAN)
+void test_bb_sensor_http_fan_manual_meta_validates_against_desc(void);
+void test_bb_sensor_http_fan_manual_meta_golden_matches_hand_literal(void);
+#else
+void test_bb_sensor_http_fan_autofan_meta_validates_against_desc(void);
+void test_bb_sensor_http_fan_autofan_meta_golden_matches_hand_literal(void);
+#endif
+void test_bb_sensor_http_power_meta_validates_against_desc(void);
+void test_bb_sensor_http_power_meta_golden_matches_hand_literal(void);
+void test_bb_sensor_http_thermal_meta_validates_against_desc(void);
+void test_bb_sensor_http_thermal_meta_golden_matches_hand_literal(void);
+
+// Forward declarations from test_bb_sensor_http_openapi_described.c (B1-1180
+// PR-2) -- unconditional (never depended on CONFIG_BB_FAN_AUTOFAN at all).
+void test_bb_sensor_http_openapi_described_paths_present(void);
+
 // Forward declarations from test_bb_sensor.c (bb_sensor domain primitive --
 // absorbs bb_thermal_collect() (B1-352, deleted bb_thermal component) plus
 // the fan/power gather + fan apply domain logic formerly unit-tested
@@ -9040,6 +9066,21 @@ int main(void) {
     RUN_TEST(test_bb_sensor_http_e2e_fan_patch_applies_and_validates);
     RUN_TEST(test_bb_sensor_http_e2e_fan_patch_exponent_manual_pct_refused_not_truncated);
 #endif
+    RUN_TEST(test_bb_sensor_http_fan_meta_validates_against_desc);
+    RUN_TEST(test_bb_sensor_http_fan_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_sensor_http_fan_request_meta_golden_matches_hand_literal);
+#if defined(CONFIG_BB_FAN_AUTOFAN)
+    RUN_TEST(test_bb_sensor_http_fan_manual_meta_validates_against_desc);
+    RUN_TEST(test_bb_sensor_http_fan_manual_meta_golden_matches_hand_literal);
+#else
+    RUN_TEST(test_bb_sensor_http_fan_autofan_meta_validates_against_desc);
+    RUN_TEST(test_bb_sensor_http_fan_autofan_meta_golden_matches_hand_literal);
+#endif
+    RUN_TEST(test_bb_sensor_http_power_meta_validates_against_desc);
+    RUN_TEST(test_bb_sensor_http_power_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_sensor_http_thermal_meta_validates_against_desc);
+    RUN_TEST(test_bb_sensor_http_thermal_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_sensor_http_openapi_described_paths_present);
 
     // bb_sensor domain primitive tests -- bb_sensor_thermal_snapshot absorbs
     // bb_thermal_collect (B1-352); bb_sensor_{fan,power}_snapshot/
