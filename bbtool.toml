@@ -150,11 +150,11 @@ components = [
     "bb_power_tps546",
     "bb_queue",
     "bb_registry", "bb_release_manifest", "bb_ring_diag",
-    "bb_scalar", "bb_sensor_http", "bb_serialize", "bb_serialize_console", "bb_serialize_json",
+    "bb_scalar", "bb_sensor", "bb_sensor_http", "bb_serialize", "bb_serialize_console", "bb_serialize_json",
     "bb_serialize_logfmt", "bb_settings",
     "bb_storage", "bb_storage_ram", "bb_storage_rtc",
     "bb_str", "bb_system", "bb_task", "bb_task_registry",
-    "bb_tcp_client", "bb_temp", "bb_thermal", "bb_timer", "bb_tls_creds",
+    "bb_tcp_client", "bb_temp", "bb_timer", "bb_tls_creds",
     "bb_udp_client", "bb_udp_frame", "bb_wdt", "bb_wifi", "bb_wifi_ap", "bb_wifi_http", "bb_wifi_prov", "bb_ws_server",
 ]
 

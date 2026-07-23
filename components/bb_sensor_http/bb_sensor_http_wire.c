@@ -1,11 +1,15 @@
 // bb_sensor_http_wire -- the bb_data descriptors + gather/apply hooks for
 // /api/sensors/{fan,power,thermal}. See bb_sensor_http_wire_priv.h for the
 // resource-shape contract. Compiles on both host and ESP-IDF.
+//
+// Thin binding layer only -- every gather/apply hook below calls straight
+// into bb_sensor (components/bb_sensor)'s domain snapshot getters / fan
+// write path and copies fields into the wire struct (renaming
+// bb_sensor_fan_snapshot_t's aux_target_c to this layer's own vr_target_c
+// wire name). No HAL calls (bb_fan_*/bb_power_*/bb_temp_*) happen here.
 #include "bb_sensor_http_wire_priv.h"
 
-#include "bb_fan.h"
-#include "bb_power.h"
-#include "bb_thermal.h"
+#include "bb_sensor.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -51,36 +55,19 @@ bb_err_t bb_sensor_http_fan_gather(void *dst, const bb_data_gather_args_t *args)
     bb_sensor_http_fan_wire_t *w = (bb_sensor_http_fan_wire_t *)dst;
     memset(w, 0, sizeof(*w));
 
-#ifdef CONFIG_BB_FAN_AUTOFAN
-    // No primary fan is an ORDINARY hardware state (autofan compiled in,
-    // nothing wired yet) -- GET must still succeed (200), reporting absence
-    // via `present`, not fail. Also doubles as the PATCH-seed step
-    // (BB_DATA_APPLY_PATCH): a real "seed from the live config" read so an
-    // absent PATCH field keeps its current value, same as before -- with no
-    // primary there is nothing to seed, so the merged fields simply stay at
-    // their zeroed defaults (bb_sensor_http_fan_apply() is what rejects the
-    // no-primary PATCH itself, at commit time -- see its own doc).
-    bb_fan_handle_t h = bb_fan_primary();
-    w->present = (h != NULL);
-    if (!h) return BB_OK;
+    bb_sensor_fan_snapshot_t snap;
+    bb_sensor_fan_snapshot(&snap);
 
-    bb_fan_autofan_cfg_t cfg;
-    bb_fan_get_autofan_cfg(h, &cfg);
-    w->autofan       = cfg.enabled;
-    w->die_target_c  = (double)cfg.die_target_c;
-    w->vr_target_c   = (double)cfg.aux_target_c;
-    w->manual_pct    = (int64_t)cfg.manual_pct;
-    w->min_pct       = (int64_t)cfg.min_pct;
+#ifdef CONFIG_BB_FAN_AUTOFAN
+    w->present      = snap.present;
+    w->autofan      = snap.autofan;
+    w->die_target_c = (double)snap.die_target_c;
+    w->vr_target_c  = (double)snap.aux_target_c;  // wire rename: aux_target_c -> vr_target_c
+    w->manual_pct   = (int64_t)snap.manual_pct;
+    w->min_pct      = (int64_t)snap.min_pct;
 #else
-    // Fixed SENTINEL, deliberately not a real seed. duty_pct is a REQUIRED
-    // field on every PATCH in this mode (mirrors the old fan_section_patch
-    // contract), so seeding never matters for the merge -- it always gets
-    // overwritten. GET reflects this same fixed sentinel; there is no
-    // "current duty" concept exposed on this resource in non-autofan mode.
-    // `present` still reflects live hardware state (consistent with the
-    // autofan branch above), independent of the sentinel.
-    w->present  = (bb_fan_primary() != NULL);
-    w->duty_pct = -1;
+    w->present  = snap.present;
+    w->duty_pct = (int64_t)snap.duty_pct;
 #endif
     return BB_OK;
 }
@@ -90,52 +77,19 @@ bb_err_t bb_sensor_http_fan_apply(const void *snap, const bb_data_apply_args_t *
     (void)args;
     const bb_sensor_http_fan_wire_t *w = (const bb_sensor_http_fan_wire_t *)snap;
 
-    bb_fan_handle_t h = bb_fan_primary();
-    // No primary fan: BB_ERR_UNSUPPORTED (not BB_ERR_INVALID_STATE) so the
-    // shared bb_http_section status mapper's commit-stage override lands
-    // this on 503 rather than a bare 500 -- see bb_sensor_http_dispatch.c's
-    // ns.unsupported_status doc. Common to both variants (mirrors the old
-    // handler's own no-primary-fan -> 503 behavior).
-    if (!h) return BB_ERR_UNSUPPORTED;
-
+    bb_sensor_fan_snapshot_t cfg;
 #ifdef CONFIG_BB_FAN_AUTOFAN
-    // Validates the WHOLE merged struct unconditionally -- correct under
-    // BB_DATA_APPLY_PATCH seeding: an absent field carries the gathered
-    // (already-valid, currently-live) value, so validating every field is
-    // equivalent to the old "validate only fields present in the raw PATCH
-    // body" behavior, without needing to inspect which fields the wire body
-    // itself supplied.
-    if (w->die_target_c <= 0.0)                    return BB_ERR_VALIDATION;
-    if (w->vr_target_c <= 0.0)                      return BB_ERR_VALIDATION;
-    if (w->manual_pct < 0 || w->manual_pct > 100)    return BB_ERR_VALIDATION;
-    if (w->min_pct < 0 || w->min_pct > 100)          return BB_ERR_VALIDATION;
-
-    bb_fan_autofan_cfg_t cfg = {
-        .enabled      = w->autofan,
-        .die_target_c = (float)w->die_target_c,
-        .aux_target_c = (float)w->vr_target_c,
-        .min_pct      = (int)w->min_pct,
-        .manual_pct   = (int)w->manual_pct,
-    };
-    return bb_fan_set_autofan(h, &cfg);
+    cfg.present      = w->present;
+    cfg.autofan      = w->autofan;
+    cfg.die_target_c = (float)w->die_target_c;
+    cfg.aux_target_c = (float)w->vr_target_c;  // wire rename: vr_target_c -> aux_target_c
+    cfg.manual_pct   = (int)w->manual_pct;
+    cfg.min_pct      = (int)w->min_pct;
 #else
-    if (w->duty_pct < 0 || w->duty_pct > 100) return BB_ERR_VALIDATION;
-
-    bb_err_t rc = bb_fan_set_duty_pct(h, (int)w->duty_pct);
-    // bb_fan_set_duty_pct() has its OWN, independent BB_ERR_UNSUPPORTED --
-    // the bound driver's vtable simply has no set_duty_pct (a legitimate,
-    // nullable capability gap; see platform/host/bb_fan/bb_fan.c and
-    // test/test_host/test_bb_fan.c's drv_minimal coverage). That is a
-    // DIFFERENT condition from "no primary fan" above, but shares the same
-    // bb_err_t value -- left alone it would collide on the namespace's
-    // single unsupported_status override (503, reserved for no-primary; see
-    // bb_sensor_http_dispatch.c and bb_http_section_status.c's single-override
-    // constraint), masking a real capability gap as "no fan wired". Retarget
-    // to BB_ERR_INVALID_STATE so it falls through the mapper's default 500
-    // instead, keeping the two conditions distinguishable on the wire.
-    if (rc == BB_ERR_UNSUPPORTED) return BB_ERR_INVALID_STATE;
-    return rc;
+    cfg.present  = w->present;
+    cfg.duty_pct = (int)w->duty_pct;
 #endif
+    return bb_sensor_fan_apply(&cfg);
 }
 
 // ---------------------------------------------------------------------------
@@ -184,16 +138,15 @@ bb_err_t bb_sensor_http_power_gather(void *dst, const bb_data_gather_args_t *arg
     (void)args;
     bb_sensor_http_power_wire_t *w = (bb_sensor_http_power_wire_t *)dst;
 
-    bb_power_handle_t h = bb_power_primary();
-    bb_power_snapshot_t snap;
-    bb_power_snapshot(h, &snap);
+    bb_sensor_power_snapshot_t snap;
+    bb_sensor_power_snapshot(&snap);
 
-    w->present  = (h != NULL);
-    w->vout_mv  = (int64_t)snap.vout_mv;
-    w->iout_ma  = (int64_t)snap.iout_ma;
-    w->pout_mw  = (int64_t)snap.pout_mw;
-    w->vin_mv   = (int64_t)snap.vin_mv;
-    w->temp_c   = (int64_t)snap.temp_c;
+    w->present = snap.present;
+    w->vout_mv = (int64_t)snap.vout_mv;
+    w->iout_ma = (int64_t)snap.iout_ma;
+    w->pout_mw = (int64_t)snap.pout_mw;
+    w->vin_mv  = (int64_t)snap.vin_mv;
+    w->temp_c  = (int64_t)snap.temp_c;
     return BB_OK;
 }
 
@@ -243,8 +196,8 @@ bb_err_t bb_sensor_http_thermal_gather(void *dst, const bb_data_gather_args_t *a
     (void)args;
     bb_sensor_http_thermal_wire_t *w = (bb_sensor_http_thermal_wire_t *)dst;
 
-    bb_thermal_values_t v;
-    bb_thermal_collect(&v);
+    bb_sensor_thermal_snapshot_t v;
+    bb_sensor_thermal_snapshot(&v);
 
     w->soc.present   = v.soc_present;
     w->soc.c         = (double)v.soc_c;

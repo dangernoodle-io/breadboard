@@ -13,8 +13,9 @@
 // are read-only telemetry snapshots (gather-only bindings; apply == NULL ->
 // bb_http_section maps PATCH to 405).
 //
-// Compiled on both host and ESP-IDF -- bb_fan_snapshot()/bb_power_snapshot()/
-// bb_thermal_collect() and the autofan cfg accessors are all portable.
+// Compiled on both host and ESP-IDF -- bb_sensor_{fan,power,thermal}_snapshot()
+// and bb_sensor_fan_apply() (components/bb_sensor) are all portable; this
+// layer does no HAL calls of its own, only wire (de)serialization.
 #include "bb_core.h"
 #include "bb_data.h"
 #include "bb_serialize.h"
