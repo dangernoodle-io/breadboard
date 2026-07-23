@@ -4,9 +4,10 @@
 // PR-7): validation constraints + JSON-Schema docs authored alongside a
 // wire descriptor's field table, kept structurally SEPARATE from the hot
 // bb_serialize_field_t walked at emit time. Lives entirely under
-// test/test_host/ -- neither the ESP-IDF component build nor bbtool's
-// native-board directory glob ever scans this directory, so this artifact
-// is unreachable from any real-firmware build path by construction
+// host_tools/bb_serialize_meta/ -- neither the ESP-IDF component build nor
+// bbtool's discovery.py component/board scan (components/ +
+// platform/<plat>/ only) ever walks host_tools/, so this artifact is
+// unreachable from any real-firmware build path by construction
 // (composition, not a Kconfig/#if gate). NOT wired into any live handler or
 // route registry; ADDITIVE only.
 //

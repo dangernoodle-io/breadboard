@@ -45,8 +45,8 @@ import coverage_baseline
 FILTERS = [
     "components/",
     "platform/host/",
-    r"test/test_host/bb_serialize_meta_validate\.c",
-    r"test/test_host/bb_serialize_meta_openapi\.c",
+    r"host_tools/bb_serialize_meta/bb_serialize_meta_validate\.c",
+    r"host_tools/bb_serialize_meta/bb_serialize_meta_openapi\.c",
 ]
 
 
