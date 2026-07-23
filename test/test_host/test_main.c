@@ -932,6 +932,11 @@ void test_bb_diag_heap_check_wire_meta_golden_matches_hand_literal(void);
 void test_bb_diag_panic_get_wire_meta_validates_against_desc(void);
 void test_bb_diag_panic_get_wire_meta_golden_matches_hand_literal(void);
 
+// Forward declarations from test_bb_diag_sockets_get_wire_meta_golden.c
+// (B1-1190 diag conversion)
+void test_bb_diag_sockets_get_wire_meta_validates_against_desc(void);
+void test_bb_diag_sockets_get_wire_meta_golden_matches_hand_literal(void);
+
 // Forward declarations from test_bb_storage_http_factory_reset_meta_golden.c
 // (B1-1059 PR-2b-i-1)
 void test_bb_storage_http_factory_reset_meta_validates_against_desc(void);
@@ -1460,6 +1465,15 @@ void test_bb_diag_panic_get_wire_fill_zero_inits(void);
 void test_bb_diag_panic_get_wire_null_reset_reason(void);
 void test_bb_diag_panic_get_wire_log_tail_present_but_null_buffer(void);
 void test_bb_diag_panic_get_wire_coredump_backtrace_count_clamped(void);
+
+// Forward declarations from test_bb_diag_sockets_get_wire.c
+void test_bb_diag_sockets_get_wire_zero_pcbs(void);
+void test_bb_diag_sockets_get_wire_n_pcbs_distinct_states(void);
+void test_bb_diag_sockets_get_wire_all_states_nonzero(void);
+void test_bb_diag_sockets_get_wire_pcbs_at_cap(void);
+void test_bb_diag_sockets_get_wire_copy_rows_unknown_state_fallback(void);
+void test_bb_diag_sockets_get_wire_row_field_count_matches(void);
+void test_bb_diag_sockets_get_wire_fill_zero_inits(void);
 
 // Forward declarations from test_bb_storage_http_factory_reset.c
 void test_storage_http_factory_reset_no_body_returns_400(void);
@@ -6313,6 +6327,15 @@ int main(void) {
     RUN_TEST(test_bb_diag_panic_get_wire_coredump_backtrace_count_clamped);
     RUN_TEST(test_bb_diag_panic_get_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_diag_panic_get_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_diag_sockets_get_wire_zero_pcbs);
+    RUN_TEST(test_bb_diag_sockets_get_wire_n_pcbs_distinct_states);
+    RUN_TEST(test_bb_diag_sockets_get_wire_all_states_nonzero);
+    RUN_TEST(test_bb_diag_sockets_get_wire_pcbs_at_cap);
+    RUN_TEST(test_bb_diag_sockets_get_wire_copy_rows_unknown_state_fallback);
+    RUN_TEST(test_bb_diag_sockets_get_wire_row_field_count_matches);
+    RUN_TEST(test_bb_diag_sockets_get_wire_fill_zero_inits);
+    RUN_TEST(test_bb_diag_sockets_get_wire_meta_validates_against_desc);
+    RUN_TEST(test_bb_diag_sockets_get_wire_meta_golden_matches_hand_literal);
 
     // POST /api/diag/factory-reset route tests (B1-960, rehomed off bb_nv)
     RUN_TEST(test_storage_http_factory_reset_no_body_returns_400);
