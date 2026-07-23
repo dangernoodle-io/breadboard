@@ -194,6 +194,34 @@ const bb_diag_section_t *bb_diag_section_find(const char *name)
     return slot ? &slot->section : NULL;
 }
 
+size_t bb_diag_section_count(void)
+{
+    return (size_t)bb_registry_count(&s_bb_diag_section_registry);
+}
+
+const bb_diag_section_t *bb_diag_section_at(size_t idx)
+{
+    if (idx >= BB_DIAG_SECTION_TABLE_CAP) return NULL;
+    if (!s_slots[idx].in_use) return NULL;
+    return &s_slots[idx].section;
+}
+
+bb_err_t bb_diag_section_describe_foreach(bb_diag_describe_register_fn register_fn, void *ctx)
+{
+    if (!register_fn) return BB_ERR_INVALID_ARG;
+
+    bb_err_t last_err = BB_OK;
+    size_t   count    = bb_diag_section_count();
+    for (size_t i = 0; i < count; i++) {
+        const bb_diag_section_t *sec = bb_diag_section_at(i);
+        if (!sec || !sec->describe_route) continue;
+
+        bb_err_t rc = register_fn(sec->describe_route, ctx);
+        if (rc != BB_OK) last_err = rc;
+    }
+    return last_err;
+}
+
 size_t bb_diag_section_stream_elem_size(const bb_diag_section_t *sec)
 {
     if (!sec) return 0;

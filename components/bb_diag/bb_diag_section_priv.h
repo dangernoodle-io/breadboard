@@ -44,6 +44,51 @@
 // not registered.
 const bb_diag_section_t *bb_diag_section_find(const char *name);
 
+// Returns the number of sections currently registered via
+// bb_diag_register_section(). Used by the ESP-IDF dispatcher
+// (bb_diag_sections_init(), platform/espidf/bb_diag_http/
+// bb_diag_http_section_dispatch.c) to walk the table and describe each
+// section with a schema to the OpenAPI route registry (B1-1180 PR-1) --
+// mirrors bb_http_section_count()'s sibling precedent
+// (components/bb_http_server/src/bb_http_section_priv.h).
+size_t bb_diag_section_count(void);
+
+// Returns section `idx`'s registration (idx MUST be < bb_diag_section_count()).
+// Registration order is stable: bb_diag_register_section() claims slots via
+// first-free-slot allocation and this registry supports no removal, so
+// slots [0, bb_diag_section_count()) are always exactly the in-use ones, in
+// registration order.
+const bb_diag_section_t *bb_diag_section_at(size_t idx);
+
+// Callback invoked once per registered section carrying a non-NULL
+// `describe_route` (bb_diag_section_t.describe_route) -- `describe_route`
+// is that same opaque pointer, logically `const bb_route_t *` (bb_http.h);
+// the caller (an ESP-IDF-only TU that DOES see bb_http_server.h) casts it
+// back and hands it to bb_http_register_route_descriptor_only(). Returns
+// whatever that registration call returns; a non-BB_OK return does not stop
+// the walk (see bb_diag_section_describe_foreach()).
+typedef bb_err_t (*bb_diag_describe_register_fn)(const void *describe_route, void *ctx);
+
+// Walks every registered section (bb_diag_section_at(), registration
+// order) and calls `register_fn(sec->describe_route, ctx)` for each one
+// whose `describe_route` is non-NULL -- the ENTIRE selection logic behind
+// the ESP-IDF dispatcher's OpenAPI describe step (B1-1180 PR-1,
+// bb_diag_sections_init(), platform/espidf/bb_diag_http/
+// bb_diag_http_section_dispatch.c), factored out here so a host test can
+// drive the SAME code path with a fake `register_fn` (no bb_http_server
+// dependency needed to prove the walk/selection is correct). Every
+// producer's `describe_route` is itself a `static const` route owned by
+// that producer (.rodata/flash) -- this helper never allocates, copies, or
+// mutates any per-section state of its own.
+//
+// Continue-on-error: a failing `register_fn` call does not stop the walk
+// (mirrors the dispatcher's prior per-section log-and-continue behavior) --
+// every section with a non-NULL `describe_route` is always attempted.
+// Returns the LAST non-BB_OK result seen (BB_OK if every call succeeded, or
+// if no section had a describe_route). Returns BB_ERR_INVALID_ARG if
+// `register_fn` is NULL.
+bb_err_t bb_diag_section_describe_foreach(bb_diag_describe_register_fn register_fn, void *ctx);
+
 // Reads the cached stream-field element size for `sec` -- a section pointer
 // previously returned by bb_diag_section_find() (i.e. `&slot->section` for
 // some registered slot; the accessor recovers the owning slot from `sec`'s

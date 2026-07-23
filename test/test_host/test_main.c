@@ -247,6 +247,15 @@ void test_bb_diag_section_name_from_uri_truncates_to_out_cap(void);
 void test_bb_diag_section_name_from_uri_null_args_return_invalid_arg(void);
 void test_bb_diag_section_find_null_name_returns_null(void);
 void test_bb_diag_section_find_unregistered_returns_null(void);
+void test_bb_diag_section_count_empty_returns_zero(void);
+void test_bb_diag_section_count_reflects_registrations(void);
+void test_bb_diag_section_at_returns_registrations_in_order(void);
+void test_bb_diag_section_at_out_of_range_returns_null(void);
+void test_bb_diag_section_describe_foreach_null_register_fn_returns_invalid_arg(void);
+void test_bb_diag_section_describe_foreach_empty_registry_returns_ok(void);
+void test_bb_diag_section_describe_foreach_skips_sections_without_describe_route(void);
+void test_bb_diag_section_describe_foreach_calls_for_sections_with_describe_route_in_order(void);
+void test_bb_diag_section_describe_foreach_continues_after_failure_and_returns_last_error(void);
 void test_bb_diag_section_build_query_no_keys_sets_count_zero(void);
 void test_bb_diag_section_build_query_threads_found_value(void);
 void test_bb_diag_section_build_query_missing_key_omitted(void);
@@ -867,6 +876,29 @@ void test_bb_wifi_http_creds_wire_meta_golden_matches_hand_literal(void);
 // (B1-1059 PR-2b-i-1)
 void test_bb_ota_validator_partitions_wire_meta_validates_against_desc(void);
 void test_bb_ota_validator_partitions_wire_meta_golden_matches_hand_literal(void);
+
+// Forward declarations from the B1-1180 PR-1 diag-section describe-only
+// meta goldens (test_bb_ws_server_diag_meta_golden.c,
+// test_bb_ring_diag_meta_golden.c, test_bb_meminfo_heap_snap_meta_golden.c,
+// test_bb_diag_storage_nvs_meta_golden.c,
+// test_bb_diag_storage_partitions_meta_golden.c,
+// test_bb_wifi_http_diag_meta_golden.c)
+void test_bb_ws_server_diag_meta_validates_against_desc(void);
+void test_bb_ws_server_diag_meta_golden_matches_hand_literal(void);
+void test_bb_ring_diag_meta_validates_against_desc(void);
+void test_bb_ring_diag_meta_golden_matches_hand_literal(void);
+void test_bb_meminfo_heap_snap_meta_validates_against_desc(void);
+void test_bb_meminfo_heap_snap_meta_golden_matches_hand_literal(void);
+void test_bb_diag_storage_nvs_meta_validates_against_desc(void);
+void test_bb_diag_storage_nvs_meta_golden_matches_hand_literal(void);
+void test_bb_diag_storage_partitions_meta_validates_against_desc(void);
+void test_bb_diag_storage_partitions_meta_golden_matches_hand_literal(void);
+void test_bb_wifi_http_diag_meta_validates_against_desc(void);
+void test_bb_wifi_http_diag_meta_golden_matches_hand_literal(void);
+
+// Forward declarations from test_bb_diag_sections_openapi_described.c
+// (B1-1180 PR-1)
+void test_bb_diag_sections_openapi_described_paths_present(void);
 
 // Forward declarations from test_bb_storage_http_delete_wire_meta_golden.c
 // (B1-1059 PR-2b-i-1)
@@ -10202,6 +10234,19 @@ int main(void) {
     RUN_TEST(test_bb_wifi_http_creds_wire_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_ota_validator_partitions_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_ota_validator_partitions_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_ws_server_diag_meta_validates_against_desc);
+    RUN_TEST(test_bb_ws_server_diag_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_ring_diag_meta_validates_against_desc);
+    RUN_TEST(test_bb_ring_diag_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_meminfo_heap_snap_meta_validates_against_desc);
+    RUN_TEST(test_bb_meminfo_heap_snap_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_diag_storage_nvs_meta_validates_against_desc);
+    RUN_TEST(test_bb_diag_storage_nvs_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_diag_storage_partitions_meta_validates_against_desc);
+    RUN_TEST(test_bb_diag_storage_partitions_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_wifi_http_diag_meta_validates_against_desc);
+    RUN_TEST(test_bb_wifi_http_diag_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_diag_sections_openapi_described_paths_present);
     RUN_TEST(test_bb_storage_http_delete_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_storage_http_delete_wire_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_storage_http_factory_reset_meta_validates_against_desc);
@@ -10425,6 +10470,15 @@ int main(void) {
     RUN_TEST(test_bb_diag_section_name_from_uri_null_args_return_invalid_arg);
     RUN_TEST(test_bb_diag_section_find_null_name_returns_null);
     RUN_TEST(test_bb_diag_section_find_unregistered_returns_null);
+    RUN_TEST(test_bb_diag_section_count_empty_returns_zero);
+    RUN_TEST(test_bb_diag_section_count_reflects_registrations);
+    RUN_TEST(test_bb_diag_section_at_returns_registrations_in_order);
+    RUN_TEST(test_bb_diag_section_at_out_of_range_returns_null);
+    RUN_TEST(test_bb_diag_section_describe_foreach_null_register_fn_returns_invalid_arg);
+    RUN_TEST(test_bb_diag_section_describe_foreach_empty_registry_returns_ok);
+    RUN_TEST(test_bb_diag_section_describe_foreach_skips_sections_without_describe_route);
+    RUN_TEST(test_bb_diag_section_describe_foreach_calls_for_sections_with_describe_route_in_order);
+    RUN_TEST(test_bb_diag_section_describe_foreach_continues_after_failure_and_returns_last_error);
     RUN_TEST(test_bb_diag_section_build_query_no_keys_sets_count_zero);
     RUN_TEST(test_bb_diag_section_build_query_threads_found_value);
     RUN_TEST(test_bb_diag_section_build_query_missing_key_omitted);

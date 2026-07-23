@@ -113,6 +113,45 @@ static bb_err_t diag_section_dispatch(bb_http_request_t *req)
     return bb_http_serialize_stream(req, sec->snap_desc, scratch);
 }
 
+// ---------------------------------------------------------------------------
+// OpenAPI describe-only registration (B1-1180 PR-1) -- makes every
+// registered section carrying a non-NULL `describe_route` VISIBLE to
+// bb_openapi_emit() without touching the live GET /api/diag/* wildcard
+// dispatch above. `describe_route` is each PRODUCER's own `static const`
+// bb_route_t (handler=NULL, .rodata/flash -- see e.g.
+// components/bb_meminfo/src/bb_meminfo_heap_snap.c) -- this file owns no
+// per-section storage of its own, mutable or otherwise. The walk/selection
+// logic itself (bb_diag_section_describe_foreach(), bb_diag_section.c) is
+// portable and directly host-tested (test/test_host/test_bb_diag_section.c)
+// -- this callback is the only ESP-IDF-specific part, and it does exactly
+// one thing: cast the opaque pointer back to `const bb_route_t *` (safe --
+// every producer sets `describe_route` to `&s_<name>_describe_route`, a
+// real `const bb_route_t`) and hand it to
+// bb_http_register_route_descriptor_only(), which (see route_registry.c)
+// adds ONLY to the registry's s_registry[] table, never to the exact-match
+// s_dispatch[] table that diag_section_dispatch() above answers requests
+// through.
+// ---------------------------------------------------------------------------
+
+static bb_err_t diag_section_describe_register(const void *describe_route, void *ctx)
+{
+    (void)ctx;
+    bb_err_t rc = bb_http_register_route_descriptor_only((const bb_route_t *)describe_route);
+    if (rc != BB_OK) {
+        bb_log_e(TAG, "failed to describe a diag section for OpenAPI: %d", (int)rc);
+    }
+    return rc;
+}
+
+// Describes every registered section carrying a non-NULL `describe_route`
+// to bb_http_server's OpenAPI route registry -- schema-only (handler=NULL),
+// so this never touches the live GET /api/diag/* wildcard dispatch
+// registered by bb_diag_sections_init() above.
+static void diag_sections_describe(void)
+{
+    bb_diag_section_describe_foreach(diag_section_describe_register, NULL);
+}
+
 bb_err_t bb_diag_sections_init(bb_http_handle_t server)
 {
     bb_err_t rc = bb_http_register_route(server, BB_HTTP_GET, "/api/diag/*", diag_section_dispatch);
@@ -122,5 +161,7 @@ bb_err_t bb_diag_sections_init(bb_http_handle_t server)
     }
 
     bb_log_i(TAG, "diag section wildcard route registered");
+
+    diag_sections_describe();
     return BB_OK;
 }

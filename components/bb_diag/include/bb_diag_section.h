@@ -102,6 +102,19 @@ typedef struct {
     void                       *ctx;
     const char *const         *query_keys;   // NULL-ok
     size_t                      n_query_keys; // <= BB_SERIALIZE_QUERY_MAX_PARAMS (4)
+
+    // Nullable; logically `const bb_route_t *` (bb_http.h) -- opaque `const
+    // void *` here because bb_diag stays bb_http-free (B1-1153's HTTP-free
+    // split; see this component's CMakeLists.txt). PRODUCER-OWNED
+    // static-const describe-only route (handler=NULL, .rodata/flash, never
+    // DRAM) -- makes GET /api/diag/<name> visible to bb_openapi_emit()
+    // without registering a live handler. The ESP-IDF dispatcher
+    // (bb_diag_sections_init(), platform/espidf/bb_diag_http/
+    // bb_diag_http_section_dispatch.c, which DOES see bb_http_server.h)
+    // casts this back to `const bb_route_t *` and passes it straight to
+    // bb_http_register_route_descriptor_only() -- no copy, no mutable
+    // per-section state.
+    const void                *describe_route;
 } bb_diag_section_t;
 
 // Registers `section`. Copies its fields (not the pointer) into the

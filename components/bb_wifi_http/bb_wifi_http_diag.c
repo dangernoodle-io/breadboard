@@ -4,6 +4,7 @@
 
 #include "bb_wifi_http_diag.h"
 
+#include "bb_http.h"
 #include "bb_wifi_http.h"
 #include "bb_wifi_http_common_priv.h"
 
@@ -169,6 +170,113 @@ const bb_serialize_desc_t bb_wifi_http_diag_desc = {
 };
 
 // ---------------------------------------------------------------------------
+// JSON Schema (B1-1180 PR-1) -- hand-authored, on-device (not host-gated;
+// see bb_wifi_http_diag.h's doc comment). Its byte-fidelity against the
+// BB_SERIALIZE_META_HOST-gated co-located meta table below is proven by
+// test/test_host/test_bb_wifi_http_diag_meta_golden.c.
+// ---------------------------------------------------------------------------
+
+// A #define (not just the extern variable below) so the static-const
+// describe route's response table (further down this file) can use the
+// SAME literal text as a genuine compile-time constant expression --
+// `.schema = bb_wifi_http_diag_schema` (the VARIABLE's runtime value) is
+// NOT a valid static/file-scope initializer in C ("initializer element is
+// not constant"); `.schema = BB_WIFI_HTTP_DIAG_SCHEMA_LITERAL` (the
+// macro-expanded string literal) is.
+#define BB_WIFI_HTTP_DIAG_SCHEMA_LITERAL \
+    "{\"type\":\"object\",\"properties\":{" \
+    "\"ssid\":{\"type\":\"string\"}," \
+    "\"bssid\":{\"type\":\"string\"}," \
+    "\"rssi\":{\"type\":\"integer\"}," \
+    "\"ip\":{\"type\":\"string\"}," \
+    "\"connected\":{\"type\":\"boolean\"}," \
+    "\"disc_reason\":{\"type\":\"string\"}," \
+    "\"disc_age_s\":{\"type\":\"integer\"}," \
+    "\"retry_count\":{\"type\":\"integer\"}," \
+    "\"restart_sta_count\":{\"type\":\"integer\"}," \
+    "\"disconnect_rssi\":{\"type\":\"integer\"}," \
+    "\"roam_count\":{\"type\":\"integer\"}," \
+    "\"roam_age_s\":{\"type\":\"integer\"}," \
+    "\"last_session_s\":{\"type\":\"integer\"}," \
+    "\"net_mode\":{\"type\":\"string\"}," \
+    "\"associated\":{\"type\":\"boolean\"}," \
+    "\"has_ip\":{\"type\":\"boolean\"}," \
+    "\"reason_histogram\":{\"type\":\"object\",\"properties\":{" \
+    "\"unknown\":{\"type\":\"integer\"}," \
+    "\"auth_fail\":{\"type\":\"integer\"}," \
+    "\"assoc_fail\":{\"type\":\"integer\"}," \
+    "\"handshake_timeout\":{\"type\":\"integer\"}," \
+    "\"connection_lost\":{\"type\":\"integer\"}," \
+    "\"no_ap_found\":{\"type\":\"integer\"}," \
+    "\"inactivity\":{\"type\":\"integer\"}," \
+    "\"deauth\":{\"type\":\"integer\"}," \
+    "\"beacon_timeout\":{\"type\":\"integer\"}," \
+    "\"bb_lost_ip\":{\"type\":\"integer\"}," \
+    "\"bb_egress_dead\":{\"type\":\"integer\"}," \
+    "\"bb_no_ip_watchdog\":{\"type\":\"integer\"}," \
+    "\"assoc_leave\":{\"type\":\"integer\"}," \
+    "\"top_reason\":{\"type\":\"string\"}," \
+    "\"top_reason_count\":{\"type\":\"integer\"}}," \
+    "\"required\":[],\"additionalProperties\":false}}," \
+    "\"required\":[\"ssid\",\"bssid\",\"rssi\",\"ip\",\"connected\",\"disc_reason\"," \
+    "\"disc_age_s\",\"retry_count\",\"restart_sta_count\",\"disconnect_rssi\"," \
+    "\"roam_count\",\"roam_age_s\",\"last_session_s\",\"net_mode\",\"associated\"," \
+    "\"has_ip\",\"reason_histogram\"]," \
+    "\"additionalProperties\":false}"
+
+const char *const bb_wifi_http_diag_schema = BB_WIFI_HTTP_DIAG_SCHEMA_LITERAL;
+
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_wifi_http_diag_hist_meta_rows[] = {
+    { .key = "unknown" },
+    { .key = "auth_fail" },
+    { .key = "assoc_fail" },
+    { .key = "handshake_timeout" },
+    { .key = "connection_lost" },
+    { .key = "no_ap_found" },
+    { .key = "inactivity" },
+    { .key = "deauth" },
+    { .key = "beacon_timeout" },
+    { .key = "bb_lost_ip" },
+    { .key = "bb_egress_dead" },
+    { .key = "bb_no_ip_watchdog" },
+    { .key = "assoc_leave" },
+    { .key = "top_reason" },
+    { .key = "top_reason_count" },
+};
+
+static const bb_serialize_field_meta_t s_wifi_http_diag_meta_rows[] = {
+    { .key = "ssid",              .required = true },
+    { .key = "bssid",             .required = true },
+    { .key = "rssi",              .required = true },
+    { .key = "ip",                .required = true },
+    { .key = "connected",         .required = true },
+    { .key = "disc_reason",       .required = true },
+    { .key = "disc_age_s",        .required = true },
+    { .key = "retry_count",       .required = true },
+    { .key = "restart_sta_count", .required = true },
+    { .key = "disconnect_rssi",   .required = true },
+    { .key = "roam_count",        .required = true },
+    { .key = "roam_age_s",        .required = true },
+    { .key = "last_session_s",    .required = true },
+    { .key = "net_mode",          .required = true },
+    { .key = "associated",        .required = true },
+    { .key = "has_ip",            .required = true },
+    { .key = "reason_histogram",  .required = true,
+      .children = s_wifi_http_diag_hist_meta_rows,
+      .n_children = sizeof(s_wifi_http_diag_hist_meta_rows) / sizeof(s_wifi_http_diag_hist_meta_rows[0]) },
+};
+
+const bb_serialize_desc_meta_t bb_wifi_http_diag_meta = {
+    .type_name = "wifi",
+    .rows      = s_wifi_http_diag_meta_rows,
+    .n_rows    = sizeof(s_wifi_http_diag_meta_rows) / sizeof(s_wifi_http_diag_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_HOST */
+
+// ---------------------------------------------------------------------------
 // Fill
 // ---------------------------------------------------------------------------
 
@@ -234,17 +342,39 @@ bb_err_t bb_wifi_http_diag_fill(void *dst, const bb_diag_fill_args_t *args)
     return BB_OK;
 }
 
+// ---------------------------------------------------------------------------
+// Describe-only route (B1-1180 PR-1 review fix) -- a PRODUCER-OWNED
+// `static const` bb_route_t (handler=NULL), .rodata/flash, never DRAM. See
+// bb_diag_section_t.describe_route's doc comment
+// (components/bb_diag/include/bb_diag_section.h) for the full mechanism.
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_wifi_http_diag_describe_responses[] = {
+    { .status = 200, .content_type = "application/json", .schema = BB_WIFI_HTTP_DIAG_SCHEMA_LITERAL },
+    { .status = 0 },
+};
+
+static const bb_route_t s_wifi_http_diag_describe_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/wifi",
+    .tag       = "diag",
+    .summary   = "WiFi diagnostic surface (B1-969, rehomed from the dissolved bb_net_health)",
+    .responses = s_wifi_http_diag_describe_responses,
+    .handler   = NULL,
+};
+
 #ifdef ESP_PLATFORM
 bb_err_t bb_wifi_http_diag_register(void)
 {
     bb_diag_section_t section = {
-        .name         = "wifi",
-        .desc         = "WiFi diagnostic surface (B1-969, rehomed from the dissolved bb_net_health)",
-        .snap_desc    = &bb_wifi_http_diag_desc,
-        .fill         = bb_wifi_http_diag_fill,
-        .ctx          = NULL,
-        .query_keys   = NULL,
-        .n_query_keys = 0,
+        .name           = "wifi",
+        .desc           = "WiFi diagnostic surface (B1-969, rehomed from the dissolved bb_net_health)",
+        .snap_desc      = &bb_wifi_http_diag_desc,
+        .fill           = bb_wifi_http_diag_fill,
+        .ctx            = NULL,
+        .query_keys     = NULL,
+        .n_query_keys   = 0,
+        .describe_route = &s_wifi_http_diag_describe_route,
     };
     return bb_diag_register_section(&section);
 }

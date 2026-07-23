@@ -57,11 +57,19 @@ set(_diag_srcs
 # bb_diag_meminfo.c calls bb_meminfo_heap_snap_fill() directly; the "meminfo"
 # section is a thin bb_diag_fill_fn adapter over bb_meminfo's own SSOT
 # snapshot, never exposed by bb_diag_meminfo.h itself.
+# bb_http: PRIVATE, re-added (B1-1180 PR-1 review fix) -- bb_diag_meminfo.c/
+# bb_diag_storage_nvs.c/bb_diag_storage_partitions.c each define a
+# PRODUCER-OWNED `static const bb_route_t` describe-only route (bb_route_t
+# lives in bb_http.h, the lean route-descriptor-only component -- NOT
+# bb_http_server, which stays dropped) wired into their section's
+# bb_diag_section_t.describe_route; bb_diag_section.h itself stays
+# bb_http-free (describe_route is an opaque `const void *` there) so this
+# is source-file-only, private.
 idf_component_register(
     SRCS ${_diag_srcs}
     INCLUDE_DIRS "include" "."
     REQUIRES bb_core bb_serialize
-    PRIV_REQUIRES bb_log bb_cache bb_config bb_storage bb_data espcoredump nvs_flash esp_partition esp_app_format bb_str bb_registry bb_partition bb_settings bb_meminfo
+    PRIV_REQUIRES bb_log bb_cache bb_config bb_storage bb_data espcoredump nvs_flash esp_partition esp_app_format bb_str bb_registry bb_partition bb_settings bb_meminfo bb_http
 )
 
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)
