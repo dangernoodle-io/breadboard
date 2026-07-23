@@ -6,6 +6,7 @@
 
 #include "bb_diag_storage_nvs.h"
 
+#include "bb_http.h"
 #include "bb_mem.h"
 #include "bb_settings.h"
 #include "bb_storage.h"
@@ -111,6 +112,79 @@ const bb_serialize_desc_t bb_diag_storage_nvs_desc = {
     .n_fields  = sizeof(s_snap_fields) / sizeof(s_snap_fields[0]),
     .snap_size = sizeof(bb_diag_storage_nvs_snap_t),
 };
+
+// ---------------------------------------------------------------------------
+// JSON Schema (B1-1180 PR-1) -- hand-authored, on-device (not host-gated;
+// see bb_diag_storage_nvs.h's doc comment). Its byte-fidelity against the
+// BB_SERIALIZE_META_HOST-gated co-located meta table below is proven by
+// test/test_host/test_bb_diag_storage_nvs_meta_golden.c.
+// ---------------------------------------------------------------------------
+
+// A #define (not just the extern variable below) so the static-const
+// describe route's response table (further down this file) can use the
+// SAME literal text as a genuine compile-time constant expression --
+// `.schema = bb_diag_storage_nvs_schema` (the VARIABLE's runtime value) is
+// NOT a valid static/file-scope initializer in C ("initializer element is
+// not constant"); `.schema = BB_DIAG_STORAGE_NVS_SCHEMA_LITERAL` (the
+// macro-expanded string literal) is.
+#define BB_DIAG_STORAGE_NVS_SCHEMA_LITERAL \
+    "{\"type\":\"object\",\"properties\":{" \
+    "\"entries\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{" \
+    "\"ns_or_dir\":{\"type\":\"string\"}," \
+    "\"key\":{\"type\":\"string\"}," \
+    "\"type\":{\"type\":\"string\"}," \
+    "\"label\":{\"type\":\"string\"}," \
+    "\"len\":{\"type\":\"integer\"}," \
+    "\"system\":{\"type\":\"boolean\"}," \
+    "\"has_schema\":{\"type\":\"boolean\"}," \
+    "\"secret\":{\"type\":\"boolean\"}," \
+    "\"provisioning_only\":{\"type\":\"boolean\"}," \
+    "\"reboot_required\":{\"type\":\"boolean\"}}," \
+    "\"additionalProperties\":false}}," \
+    "\"entry_count\":{\"type\":\"integer\"}," \
+    "\"used_bytes\":{\"type\":\"integer\"}," \
+    "\"free_bytes\":{\"type\":\"integer\"}," \
+    "\"total_bytes\":{\"type\":\"integer\"}," \
+    "\"namespace_count\":{\"type\":\"integer\"}}," \
+    "\"required\":[\"entries\",\"entry_count\",\"used_bytes\",\"free_bytes\"," \
+    "\"total_bytes\",\"namespace_count\"]," \
+    "\"additionalProperties\":false}"
+
+const char *const bb_diag_storage_nvs_schema = BB_DIAG_STORAGE_NVS_SCHEMA_LITERAL;
+
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_diag_storage_nvs_row_meta_rows[] = {
+    { .key = "ns_or_dir" },
+    { .key = "key" },
+    { .key = "type" },
+    { .key = "label" },
+    { .key = "len" },
+    { .key = "system" },
+    { .key = "has_schema" },
+    { .key = "secret" },
+    { .key = "provisioning_only" },
+    { .key = "reboot_required" },
+};
+
+static const bb_serialize_field_meta_t s_diag_storage_nvs_meta_rows[] = {
+    { .key = "entries", .required = true,
+      .children = s_diag_storage_nvs_row_meta_rows,
+      .n_children = sizeof(s_diag_storage_nvs_row_meta_rows) / sizeof(s_diag_storage_nvs_row_meta_rows[0]) },
+    { .key = "entry_count",     .required = true },
+    { .key = "used_bytes",      .required = true },
+    { .key = "free_bytes",      .required = true },
+    { .key = "total_bytes",     .required = true },
+    { .key = "namespace_count", .required = true },
+};
+
+const bb_serialize_desc_meta_t bb_diag_storage_nvs_meta = {
+    .type_name = "storage_nvs",
+    .rows      = s_diag_storage_nvs_meta_rows,
+    .n_rows    = sizeof(s_diag_storage_nvs_meta_rows) / sizeof(s_diag_storage_nvs_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_HOST */
 
 // ---------------------------------------------------------------------------
 // Fill
@@ -228,17 +302,39 @@ bb_err_t bb_diag_storage_nvs_iter(void *dst, void *row_arena, size_t row_cap,
     return BB_OK;
 }
 
+// ---------------------------------------------------------------------------
+// Describe-only route (B1-1180 PR-1 review fix) -- a PRODUCER-OWNED
+// `static const` bb_route_t (handler=NULL), .rodata/flash, never DRAM. See
+// bb_diag_section_t.describe_route's doc comment
+// (components/bb_diag/include/bb_diag_section.h) for the full mechanism.
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_diag_storage_nvs_describe_responses[] = {
+    { .status = 200, .content_type = "application/json", .schema = BB_DIAG_STORAGE_NVS_SCHEMA_LITERAL },
+    { .status = 0 },
+};
+
+static const bb_route_t s_diag_storage_nvs_describe_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/storage/nvs",
+    .tag       = "diag",
+    .summary   = "NVS storage inventory (live entries + schema overlay)",
+    .responses = s_diag_storage_nvs_describe_responses,
+    .handler   = NULL,
+};
+
 #ifdef ESP_PLATFORM
 bb_err_t bb_diag_storage_nvs_register(void)
 {
     bb_diag_section_t section = {
-        .name         = "storage/nvs",
-        .desc         = "NVS storage inventory (live entries + schema overlay)",
-        .snap_desc    = &bb_diag_storage_nvs_desc,
-        .iter         = bb_diag_storage_nvs_iter,
-        .ctx          = NULL,
-        .query_keys   = NULL,
-        .n_query_keys = 0,
+        .name           = "storage/nvs",
+        .desc           = "NVS storage inventory (live entries + schema overlay)",
+        .snap_desc      = &bb_diag_storage_nvs_desc,
+        .iter           = bb_diag_storage_nvs_iter,
+        .ctx            = NULL,
+        .query_keys     = NULL,
+        .n_query_keys   = 0,
+        .describe_route = &s_diag_storage_nvs_describe_route,
     };
     return bb_diag_register_section(&section);
 }

@@ -66,6 +66,65 @@ const bb_serialize_desc_t bb_meminfo_heap_snap_desc = {
     .snap_size = sizeof(bb_meminfo_heap_snap_t),
 };
 
+// ---------------------------------------------------------------------------
+// JSON Schema (B1-1180 PR-1) -- hand-authored, on-device (not host-gated;
+// see bb_meminfo_heap_snap.h's doc comment). Its byte-fidelity against the
+// BB_SERIALIZE_META_HOST-gated co-located meta table below is proven by
+// test/test_host/test_bb_meminfo_heap_snap_meta_golden.c. The literal text
+// itself is BB_MEMINFO_HEAP_SNAP_SCHEMA_LITERAL, a #define in
+// bb_meminfo_heap_snap.h (B1-1180 PR-1 review fix) -- moved there (rather
+// than staying a .c-local macro like this cluster's other five sections)
+// because the "meminfo" section's describe-only static-const route lives in
+// a DIFFERENT component/TU (components/bb_diag/bb_diag_meminfo.c, the
+// section's registrar) and needs the SAME literal text as a genuine
+// compile-time constant expression there too -- `.schema =
+// bb_meminfo_heap_snap_schema` (this variable's runtime value) is NOT a
+// valid static/file-scope initializer in C ("initializer element is not
+// constant"); the macro is.
+// ---------------------------------------------------------------------------
+
+const char *const bb_meminfo_heap_snap_schema = BB_MEMINFO_HEAP_SNAP_SCHEMA_LITERAL;
+
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_meminfo_region_heap_snap_meta_rows[] = {
+    { .key = "free",               .required = true },
+    { .key = "min_ever_free",      .required = true },
+    { .key = "largest_free_block", .required = true },
+    { .key = "total",              .required = true },
+    { .key = "allocated",          .required = true },
+};
+#define BB_MEMINFO_REGION_N_META_ROWS \
+    (sizeof(s_meminfo_region_heap_snap_meta_rows) / sizeof(s_meminfo_region_heap_snap_meta_rows[0]))
+
+static const bb_serialize_field_meta_t s_meminfo_heap_snap_meta_rows[] = {
+    { .key = "default",  .required = true,
+      .children = s_meminfo_region_heap_snap_meta_rows, .n_children = BB_MEMINFO_REGION_N_META_ROWS },
+    { .key = "internal", .required = true,
+      .children = s_meminfo_region_heap_snap_meta_rows, .n_children = BB_MEMINFO_REGION_N_META_ROWS },
+    { .key = "dma",      .required = true,
+      .children = s_meminfo_region_heap_snap_meta_rows, .n_children = BB_MEMINFO_REGION_N_META_ROWS },
+    { .key = "spiram",   .required = true,
+      .children = s_meminfo_region_heap_snap_meta_rows, .n_children = BB_MEMINFO_REGION_N_META_ROWS },
+    { .key = "exec",     .required = true,
+      .children = s_meminfo_region_heap_snap_meta_rows, .n_children = BB_MEMINFO_REGION_N_META_ROWS },
+    { .key = "esp_min_free_heap",     .required = true },
+    { .key = "mem_outstanding_bytes", .required = true },
+    { .key = "mem_peak_outstanding",  .required = true },
+    { .key = "mem_alloc_fail",        .required = true },
+    { .key = "rtc_used",              .required = true },
+    { .key = "rtc_total",             .required = true },
+    { .key = "dram_static_bytes",     .required = true },
+};
+
+const bb_serialize_desc_meta_t bb_meminfo_heap_snap_meta = {
+    .type_name = "meminfo",
+    .rows      = s_meminfo_heap_snap_meta_rows,
+    .n_rows    = sizeof(s_meminfo_heap_snap_meta_rows) / sizeof(s_meminfo_heap_snap_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_HOST */
+
 bb_err_t bb_meminfo_heap_snap_fill(bb_meminfo_heap_snap_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;

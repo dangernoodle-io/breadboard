@@ -302,6 +302,149 @@ void test_bb_diag_section_find_unregistered_returns_null(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_diag_section_count / bb_diag_section_at (B1-1180 PR-1) -- mirrors
+// bb_http_section_count()/_at()'s sibling precedent.
+// ---------------------------------------------------------------------------
+
+void test_bb_diag_section_count_empty_returns_zero(void)
+{
+    ds_reset();
+    TEST_ASSERT_EQUAL_UINT(0, bb_diag_section_count());
+}
+
+void test_bb_diag_section_count_reflects_registrations(void)
+{
+    ds_reset();
+    bb_diag_section_t a = { .name = "ds.count.a", .snap_desc = &s_ds_desc, .fill = ds_fill_ok };
+    bb_diag_section_t b = { .name = "ds.count.b", .snap_desc = &s_ds_desc, .fill = ds_fill_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_register_section(&a));
+    TEST_ASSERT_EQUAL_UINT(1, bb_diag_section_count());
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_register_section(&b));
+    TEST_ASSERT_EQUAL_UINT(2, bb_diag_section_count());
+}
+
+void test_bb_diag_section_at_returns_registrations_in_order(void)
+{
+    ds_reset();
+    bb_diag_section_t a = { .name = "ds.at.a", .snap_desc = &s_ds_desc, .fill = ds_fill_ok };
+    bb_diag_section_t b = { .name = "ds.at.b", .snap_desc = &s_ds_desc, .fill = ds_fill_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_register_section(&a));
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_register_section(&b));
+
+    const bb_diag_section_t *at0 = bb_diag_section_at(0);
+    const bb_diag_section_t *at1 = bb_diag_section_at(1);
+    TEST_ASSERT_NOT_NULL(at0);
+    TEST_ASSERT_NOT_NULL(at1);
+    TEST_ASSERT_EQUAL_STRING("ds.at.a", at0->name);
+    TEST_ASSERT_EQUAL_STRING("ds.at.b", at1->name);
+}
+
+void test_bb_diag_section_at_out_of_range_returns_null(void)
+{
+    ds_reset();
+    TEST_ASSERT_NULL(bb_diag_section_at(0));
+    TEST_ASSERT_NULL(bb_diag_section_at(BB_DIAG_SECTION_TABLE_CAP));
+    TEST_ASSERT_NULL(bb_diag_section_at(BB_DIAG_SECTION_TABLE_CAP + 1));
+}
+
+// ---------------------------------------------------------------------------
+// bb_diag_section_describe_foreach (B1-1180 PR-1 review fix) -- proves the
+// ENTIRE walk/selection logic behind the ESP-IDF dispatcher's OpenAPI
+// describe step without any bb_http_server dependency: a fake
+// bb_diag_describe_register_fn records which opaque `describe_route`
+// pointers it was called with, in order, and this test asserts it's called
+// once per section with a non-NULL describe_route (registration order,
+// skipping NULL ones) and never for a NULL one.
+// ---------------------------------------------------------------------------
+
+// Two dummy tokens -- their addresses are the only thing that matters here
+// (bb_diag_section_describe_foreach() never dereferences describe_route,
+// it only forwards the pointer byte-for-byte).
+static int s_describe_token_a = 1;
+static int s_describe_token_b = 2;
+
+typedef struct {
+    const void *calls[4];
+    size_t      n_calls;
+    bb_err_t    next_result;
+} ds_describe_fixture_t;
+
+static bb_err_t ds_describe_register(const void *describe_route, void *ctx)
+{
+    ds_describe_fixture_t *fx = (ds_describe_fixture_t *)ctx;
+    fx->calls[fx->n_calls++] = describe_route;
+    return fx->next_result;
+}
+
+void test_bb_diag_section_describe_foreach_null_register_fn_returns_invalid_arg(void)
+{
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_diag_section_describe_foreach(NULL, NULL));
+}
+
+void test_bb_diag_section_describe_foreach_empty_registry_returns_ok(void)
+{
+    ds_reset();
+    ds_describe_fixture_t fx = { .next_result = BB_OK };
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_section_describe_foreach(ds_describe_register, &fx));
+    TEST_ASSERT_EQUAL_UINT(0, fx.n_calls);
+}
+
+void test_bb_diag_section_describe_foreach_skips_sections_without_describe_route(void)
+{
+    ds_reset();
+    bb_diag_section_t no_route = { .name = "ds.describe.noroute", .snap_desc = &s_ds_desc, .fill = ds_fill_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_register_section(&no_route));
+
+    ds_describe_fixture_t fx = { .next_result = BB_OK };
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_section_describe_foreach(ds_describe_register, &fx));
+    TEST_ASSERT_EQUAL_UINT(0, fx.n_calls);
+}
+
+void test_bb_diag_section_describe_foreach_calls_for_sections_with_describe_route_in_order(void)
+{
+    ds_reset();
+    bb_diag_section_t a = {
+        .name = "ds.describe.a", .snap_desc = &s_ds_desc, .fill = ds_fill_ok,
+        .describe_route = &s_describe_token_a,
+    };
+    bb_diag_section_t no_route = { .name = "ds.describe.mid", .snap_desc = &s_ds_desc, .fill = ds_fill_ok };
+    bb_diag_section_t b = {
+        .name = "ds.describe.b", .snap_desc = &s_ds_desc, .fill = ds_fill_ok,
+        .describe_route = &s_describe_token_b,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_register_section(&a));
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_register_section(&no_route));
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_register_section(&b));
+
+    ds_describe_fixture_t fx = { .next_result = BB_OK };
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_section_describe_foreach(ds_describe_register, &fx));
+    TEST_ASSERT_EQUAL_UINT(2, fx.n_calls);
+    TEST_ASSERT_EQUAL_PTR(&s_describe_token_a, fx.calls[0]);
+    TEST_ASSERT_EQUAL_PTR(&s_describe_token_b, fx.calls[1]);
+}
+
+void test_bb_diag_section_describe_foreach_continues_after_failure_and_returns_last_error(void)
+{
+    ds_reset();
+    bb_diag_section_t a = {
+        .name = "ds.describe.faila", .snap_desc = &s_ds_desc, .fill = ds_fill_ok,
+        .describe_route = &s_describe_token_a,
+    };
+    bb_diag_section_t b = {
+        .name = "ds.describe.failb", .snap_desc = &s_ds_desc, .fill = ds_fill_ok,
+        .describe_route = &s_describe_token_b,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_register_section(&a));
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_register_section(&b));
+
+    ds_describe_fixture_t fx = { .next_result = BB_ERR_INVALID_STATE };
+    // Both calls happen (continue-on-error) even though every call fails;
+    // the LAST failure's error is what's returned.
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_diag_section_describe_foreach(ds_describe_register, &fx));
+    TEST_ASSERT_EQUAL_UINT(2, fx.n_calls);
+}
+
+// ---------------------------------------------------------------------------
 // bb_diag_section_build_query
 // ---------------------------------------------------------------------------
 
