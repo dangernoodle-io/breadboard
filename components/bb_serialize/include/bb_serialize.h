@@ -89,6 +89,15 @@ typedef struct {
 // walker in that case.
 typedef bb_serialize_arr_t bb_serialize_arr_str_t;
 
+// Layout-compatible alias for a BB_TYPE_ARR field whose elem_type is a
+// scalar type (BB_TYPE_I64/U64/F64/BOOL) -- `items` is reinterpreted as a
+// contiguous array of that type's own C storage (`const int64_t *`,
+// `const uint64_t *`, `const double *`, or `const bool *` respectively) by
+// the walker. No elem_size/stride is needed for this shape (unlike
+// elem_type == BB_TYPE_OBJ) since a scalar's stride is fully determined by
+// its type.
+typedef bb_serialize_arr_t bb_serialize_arr_scalar_t;
+
 // ---------------------------------------------------------------------------
 // Streamed-array carrier -- the BB_ARR_STREAM alternative to
 // bb_serialize_arr_t. A BB_TYPE_ARR field whose descriptor sets
@@ -228,9 +237,12 @@ typedef struct bb_serialize_field_s {
     uint16_t                           max_items;
 
     // BB_TYPE_ARR only: the element shape -- BB_TYPE_STR (items is
-    // `const char *const *`) or BB_TYPE_OBJ (items is a contiguous array of
+    // `const char *const *`), BB_TYPE_OBJ (items is a contiguous array of
     // element structs described by `children`/`n_children`, each
-    // `elem_size` bytes apart). Unused for all other types.
+    // `elem_size` bytes apart), or a scalar type -- BB_TYPE_I64/U64/F64/BOOL
+    // (items is a contiguous array of that type's own C storage, e.g.
+    // `const int64_t *`; see bb_serialize_arr_scalar_t). Unused for all
+    // other types.
     bb_type_t                          elem_type;
 
     // BB_TYPE_ARR + elem_type == BB_TYPE_OBJ only: the element stride, i.e.

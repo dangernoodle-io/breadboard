@@ -115,7 +115,7 @@ static void walk_fields(const bb_serialize_field_t *fields, uint16_t n_fields,
                                 emit->end_obj(emit->ctx);
                             }
                         }
-                    } else {
+                    } else if (f->elem_type == BB_TYPE_STR) {
                         // elem_type == BB_TYPE_STR: items is const char *const *.
                         // Bounded the same way as the embedded-STR path: NEVER
                         // strlen -- an element that isn't NUL-terminated within
@@ -130,6 +130,44 @@ static void walk_fields(const bb_serialize_field_t *fields, uint16_t n_fields,
                             } else {
                                 emit->emit_null(emit->ctx, NULL);
                             }
+                        }
+                    } else {
+                        // Scalar elem_type (I64/U64/F64/BOOL): items is a
+                        // contiguous array of the element's own underlying
+                        // C type -- no elem_size needed (unlike OBJ), since a
+                        // scalar's stride is fully determined by its type.
+                        // NULL key per element, same convention as the STR
+                        // item branch above.
+                        switch (f->elem_type) {
+                        case BB_TYPE_I64: {
+                            const int64_t *items = (const int64_t *)arr.items;
+                            for (size_t j = 0; j < arr.count; j++) {
+                                emit->emit_i64(emit->ctx, NULL, items[j]);
+                            }
+                            break;
+                        }
+                        case BB_TYPE_U64: {
+                            const uint64_t *items = (const uint64_t *)arr.items;
+                            for (size_t j = 0; j < arr.count; j++) {
+                                emit->emit_u64(emit->ctx, NULL, items[j]);
+                            }
+                            break;
+                        }
+                        case BB_TYPE_F64: {
+                            const double *items = (const double *)arr.items;
+                            for (size_t j = 0; j < arr.count; j++) {
+                                emit->emit_f64(emit->ctx, NULL, items[j]);
+                            }
+                            break;
+                        }
+                        case BB_TYPE_BOOL: {
+                            const bool *items = (const bool *)arr.items;
+                            for (size_t j = 0; j < arr.count; j++) {
+                                emit->emit_bool(emit->ctx, NULL, items[j]);
+                            }
+                            break;
+                        }
+                        default: break;  // LCOV_EXCL_LINE -- unsupported elem_type, defensive
                         }
                     }
                 }
