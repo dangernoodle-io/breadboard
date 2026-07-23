@@ -4567,12 +4567,10 @@ void test_anim_auto_start_timer_fires(void);
 void test_anim_no_auto_start_timer_does_not_fire(void);
 
 // Forward declarations from test_bb_sensor_http.c (B1-828 PR-2, FULL BREAK of
-// the old bb_response-backed /api/sensors)
-void test_bb_sensor_http_power_gather_no_primary_all_absent(void);
+// the old bb_response-backed /api/sensors; thinned to wire-copy + e2e proofs
+// only in the bb_sensor extraction -- domain logic moved to test_bb_sensor.c)
 void test_bb_sensor_http_power_gather_with_primary_present(void);
-void test_bb_sensor_http_thermal_gather_all_absent_when_no_hw(void);
 void test_bb_sensor_http_thermal_gather_soc_present_when_available(void);
-void test_bb_sensor_http_thermal_gather_vr_asic_board_present_with_primaries(void);
 void test_bb_sensor_http_bind_and_register_ok(void);
 void test_bb_sensor_http_e2e_get_power_renders_json(void);
 void test_bb_sensor_http_e2e_power_patch_unsupported_maps_405(void);
@@ -4581,33 +4579,42 @@ void test_bb_sensor_http_e2e_get_fan_no_primary_returns_200_present_false(void);
 void test_bb_sensor_http_e2e_fan_patch_no_primary_maps_503(void);
 void test_bb_sensor_http_e2e_unbound_key_returns_404_never_reaches_bb_data(void);
 #ifdef CONFIG_BB_FAN_AUTOFAN
-void test_bb_sensor_http_fan_gather_no_primary_present_false(void);
 void test_bb_sensor_http_fan_gather_reads_live_autofan_cfg(void);
-void test_bb_sensor_http_fan_apply_no_primary_returns_unsupported(void);
 void test_bb_sensor_http_fan_apply_valid_sets_autofan_cfg(void);
-void test_bb_sensor_http_fan_apply_die_target_zero_rejected(void);
-void test_bb_sensor_http_fan_apply_vr_target_negative_rejected(void);
-void test_bb_sensor_http_fan_apply_manual_pct_over_100_rejected(void);
-void test_bb_sensor_http_fan_apply_manual_pct_negative_rejected(void);
-void test_bb_sensor_http_fan_apply_min_pct_over_100_rejected(void);
-void test_bb_sensor_http_fan_apply_min_pct_negative_rejected(void);
 void test_bb_sensor_http_e2e_fan_patch_applies_and_validates(void);
 void test_bb_sensor_http_e2e_fan_patch_exponent_manual_pct_refused_not_truncated(void);
-#else
-void test_bb_sensor_http_fan_apply_driver_capability_gap_returns_invalid_state(void);
 #endif
 
-// Forward declarations from test_bb_thermal_collect.c
-void test_bb_thermal_collect_all_absent(void);
-void test_bb_thermal_collect_soc_present(void);
-void test_bb_thermal_collect_soc_absent(void);
-void test_bb_thermal_collect_vr_present_with_reading(void);
-void test_bb_thermal_collect_vr_hw_present_no_reading(void);
-void test_bb_thermal_collect_asic_present(void);
-void test_bb_thermal_collect_board_present(void);
-void test_bb_thermal_collect_asic_absent_when_die_nan(void);
-void test_bb_thermal_collect_board_absent_when_board_nan(void);
-void test_bb_thermal_collect_all_present(void);
+// Forward declarations from test_bb_sensor.c (bb_sensor domain primitive --
+// absorbs bb_thermal_collect() (B1-352, deleted bb_thermal component) plus
+// the fan/power gather + fan apply domain logic formerly unit-tested
+// directly against test_bb_sensor_http.c's wire functions)
+void test_bb_sensor_thermal_snapshot_all_absent(void);
+void test_bb_sensor_thermal_snapshot_soc_present(void);
+void test_bb_sensor_thermal_snapshot_soc_absent(void);
+void test_bb_sensor_thermal_snapshot_vr_present_with_reading(void);
+void test_bb_sensor_thermal_snapshot_vr_hw_present_no_reading(void);
+void test_bb_sensor_thermal_snapshot_asic_present(void);
+void test_bb_sensor_thermal_snapshot_board_present(void);
+void test_bb_sensor_thermal_snapshot_asic_absent_when_die_nan(void);
+void test_bb_sensor_thermal_snapshot_board_absent_when_board_nan(void);
+void test_bb_sensor_thermal_snapshot_all_present(void);
+void test_bb_sensor_power_snapshot_no_primary_all_absent(void);
+void test_bb_sensor_power_snapshot_with_primary_present(void);
+#ifdef CONFIG_BB_FAN_AUTOFAN
+void test_bb_sensor_fan_snapshot_no_primary_present_false(void);
+void test_bb_sensor_fan_snapshot_reads_live_autofan_cfg(void);
+void test_bb_sensor_fan_apply_no_primary_returns_unsupported(void);
+void test_bb_sensor_fan_apply_valid_sets_autofan_cfg(void);
+void test_bb_sensor_fan_apply_die_target_zero_rejected(void);
+void test_bb_sensor_fan_apply_vr_target_negative_rejected(void);
+void test_bb_sensor_fan_apply_manual_pct_over_100_rejected(void);
+void test_bb_sensor_fan_apply_manual_pct_negative_rejected(void);
+void test_bb_sensor_fan_apply_min_pct_over_100_rejected(void);
+void test_bb_sensor_fan_apply_min_pct_negative_rejected(void);
+#else
+void test_bb_sensor_fan_apply_driver_capability_gap_returns_invalid_state(void);
+#endif
 
 // Forward declarations from test_bb_ws_server.c
 void test_bb_ws_server_register_endpoint_null_server_ok(void);
@@ -4816,9 +4823,9 @@ void test_pool_slots_on_destroy_fires_once_per_slot_including_never_acquired(voi
 void test_pool_slots_on_destroy_null_is_safe_noop(void);
 void test_pool_slots_on_destroy_not_called_for_non_slots_mode(void);
 
-// bb_thermal_reset_for_test: defined in platform/host/bb_thermal/bb_thermal_host.c
-// (BB_THERMAL_TESTING); resets fan+power+temp HAL state for test isolation.
-void bb_thermal_reset_for_test(void);
+// bb_sensor_reset_for_test: defined in components/bb_sensor/src/bb_sensor.c
+// (BB_SENSOR_TESTING); resets fan+power+temp HAL state for test isolation.
+void bb_sensor_reset_for_test(void);
 
 // bb_cache_reset_for_test: defined in platform/espidf/bb_cache/bb_cache_espidf.c
 // (BB_CACHE_TESTING); clears the global cache registry for test isolation.
@@ -4834,7 +4841,7 @@ void setUp(void) {
     bb_power_test_reset_local();
     bb_i2c_host_reset();
     bb_fan_test_reset_local();
-    bb_thermal_reset_for_test();
+    bb_sensor_reset_for_test();
     bb_led_test_reset();
     bb_led_pwm_test_reset();
     bb_led_rgb_pwm_host_test_reset();
@@ -8874,12 +8881,10 @@ int main(void) {
     RUN_TEST(test_bb_http_client_host_set_session_calloc_overrides_allocator);
     RUN_TEST(test_bb_http_client_host_set_session_calloc_null_reverts_to_real_calloc);
 
-    // bb_sensor_http tests (B1-828 PR-2, FULL BREAK of the old /api/sensors)
-    RUN_TEST(test_bb_sensor_http_power_gather_no_primary_all_absent);
+    // bb_sensor_http tests (B1-828 PR-2, FULL BREAK of the old /api/sensors;
+    // thinned to wire-copy + e2e proofs -- domain logic moved to bb_sensor)
     RUN_TEST(test_bb_sensor_http_power_gather_with_primary_present);
-    RUN_TEST(test_bb_sensor_http_thermal_gather_all_absent_when_no_hw);
     RUN_TEST(test_bb_sensor_http_thermal_gather_soc_present_when_available);
-    RUN_TEST(test_bb_sensor_http_thermal_gather_vr_asic_board_present_with_primaries);
     RUN_TEST(test_bb_sensor_http_bind_and_register_ok);
     RUN_TEST(test_bb_sensor_http_e2e_get_power_renders_json);
     RUN_TEST(test_bb_sensor_http_e2e_power_patch_unsupported_maps_405);
@@ -8888,33 +8893,42 @@ int main(void) {
     RUN_TEST(test_bb_sensor_http_e2e_fan_patch_no_primary_maps_503);
     RUN_TEST(test_bb_sensor_http_e2e_unbound_key_returns_404_never_reaches_bb_data);
 #ifdef CONFIG_BB_FAN_AUTOFAN
-    RUN_TEST(test_bb_sensor_http_fan_gather_no_primary_present_false);
     RUN_TEST(test_bb_sensor_http_fan_gather_reads_live_autofan_cfg);
-    RUN_TEST(test_bb_sensor_http_fan_apply_no_primary_returns_unsupported);
     RUN_TEST(test_bb_sensor_http_fan_apply_valid_sets_autofan_cfg);
-    RUN_TEST(test_bb_sensor_http_fan_apply_die_target_zero_rejected);
-    RUN_TEST(test_bb_sensor_http_fan_apply_vr_target_negative_rejected);
-    RUN_TEST(test_bb_sensor_http_fan_apply_manual_pct_over_100_rejected);
-    RUN_TEST(test_bb_sensor_http_fan_apply_manual_pct_negative_rejected);
-    RUN_TEST(test_bb_sensor_http_fan_apply_min_pct_over_100_rejected);
-    RUN_TEST(test_bb_sensor_http_fan_apply_min_pct_negative_rejected);
     RUN_TEST(test_bb_sensor_http_e2e_fan_patch_applies_and_validates);
     RUN_TEST(test_bb_sensor_http_e2e_fan_patch_exponent_manual_pct_refused_not_truncated);
-#else
-    RUN_TEST(test_bb_sensor_http_fan_apply_driver_capability_gap_returns_invalid_state);
 #endif
 
-    // bb_thermal_collect unit tests (B1-352)
-    RUN_TEST(test_bb_thermal_collect_all_absent);
-    RUN_TEST(test_bb_thermal_collect_soc_present);
-    RUN_TEST(test_bb_thermal_collect_soc_absent);
-    RUN_TEST(test_bb_thermal_collect_vr_present_with_reading);
-    RUN_TEST(test_bb_thermal_collect_vr_hw_present_no_reading);
-    RUN_TEST(test_bb_thermal_collect_asic_present);
-    RUN_TEST(test_bb_thermal_collect_board_present);
-    RUN_TEST(test_bb_thermal_collect_asic_absent_when_die_nan);
-    RUN_TEST(test_bb_thermal_collect_board_absent_when_board_nan);
-    RUN_TEST(test_bb_thermal_collect_all_present);
+    // bb_sensor domain primitive tests -- bb_sensor_thermal_snapshot absorbs
+    // bb_thermal_collect (B1-352); bb_sensor_{fan,power}_snapshot/
+    // bb_sensor_fan_apply absorb the domain logic formerly unit-tested
+    // directly against bb_sensor_http_wire.c's HAL calls.
+    RUN_TEST(test_bb_sensor_thermal_snapshot_all_absent);
+    RUN_TEST(test_bb_sensor_thermal_snapshot_soc_present);
+    RUN_TEST(test_bb_sensor_thermal_snapshot_soc_absent);
+    RUN_TEST(test_bb_sensor_thermal_snapshot_vr_present_with_reading);
+    RUN_TEST(test_bb_sensor_thermal_snapshot_vr_hw_present_no_reading);
+    RUN_TEST(test_bb_sensor_thermal_snapshot_asic_present);
+    RUN_TEST(test_bb_sensor_thermal_snapshot_board_present);
+    RUN_TEST(test_bb_sensor_thermal_snapshot_asic_absent_when_die_nan);
+    RUN_TEST(test_bb_sensor_thermal_snapshot_board_absent_when_board_nan);
+    RUN_TEST(test_bb_sensor_thermal_snapshot_all_present);
+    RUN_TEST(test_bb_sensor_power_snapshot_no_primary_all_absent);
+    RUN_TEST(test_bb_sensor_power_snapshot_with_primary_present);
+#ifdef CONFIG_BB_FAN_AUTOFAN
+    RUN_TEST(test_bb_sensor_fan_snapshot_no_primary_present_false);
+    RUN_TEST(test_bb_sensor_fan_snapshot_reads_live_autofan_cfg);
+    RUN_TEST(test_bb_sensor_fan_apply_no_primary_returns_unsupported);
+    RUN_TEST(test_bb_sensor_fan_apply_valid_sets_autofan_cfg);
+    RUN_TEST(test_bb_sensor_fan_apply_die_target_zero_rejected);
+    RUN_TEST(test_bb_sensor_fan_apply_vr_target_negative_rejected);
+    RUN_TEST(test_bb_sensor_fan_apply_manual_pct_over_100_rejected);
+    RUN_TEST(test_bb_sensor_fan_apply_manual_pct_negative_rejected);
+    RUN_TEST(test_bb_sensor_fan_apply_min_pct_over_100_rejected);
+    RUN_TEST(test_bb_sensor_fan_apply_min_pct_negative_rejected);
+#else
+    RUN_TEST(test_bb_sensor_fan_apply_driver_capability_gap_returns_invalid_state);
+#endif
 
     // bb_tls_creds tests
     RUN_TEST(test_bb_tls_creds_override_ca_beats_nvs);

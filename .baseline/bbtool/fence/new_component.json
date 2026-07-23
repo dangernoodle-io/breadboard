@@ -326,8 +326,13 @@
       "type": "component"
     },
     {
-      "id": "bb_sensors",
-      "path": "components/bb_sensors",
+      "id": "bb_sensor",
+      "path": "components/bb_sensor",
+      "type": "component"
+    },
+    {
+      "id": "bb_sensor_http",
+      "path": "components/bb_sensor_http",
       "type": "component"
     },
     {
@@ -403,11 +408,6 @@
     {
       "id": "bb_temp",
       "path": "components/bb_temp",
-      "type": "component"
-    },
-    {
-      "id": "bb_thermal",
-      "path": "components/bb_thermal",
       "type": "component"
     },
     {

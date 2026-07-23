@@ -5,5 +5,5 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_sensor_http/bb_sensor_http.c"
     INCLUDE_DIRS "include" "."
     REQUIRES bb_core bb_http_server
-    PRIV_REQUIRES bb_log bb_fan bb_power bb_thermal bb_data bb_serialize
+    PRIV_REQUIRES bb_log bb_sensor bb_data bb_serialize
 )
