@@ -29,6 +29,19 @@ _Static_assert(sizeof(((bb_ota_hooks_wire_t *)0)->pct) == 8,
 
 extern const bb_serialize_desc_t bb_ota_hooks_wire_desc;
 
+// bb_serialize_desc_meta_t companion (B1-1059 PR-2b-i-2) -- co-located JSON
+// Schema docs/validation table for bb_ota_hooks_wire_desc above, same
+// #if-gated pattern as bb_wifi_http_wire_priv.h's exemplar (B1-1059 PR-2a).
+// BB_SERIALIZE_META_HOST is a host-only define (set by the PlatformIO native
+// env; see platformio.ini) -- NEVER set by the ESP-IDF/device build, so this
+// declaration (and its definition in bb_ota_hooks_wire.c) compiles to nothing
+// on-device.
+#if defined(BB_SERIALIZE_META_HOST)
+#include "bb_serialize_meta.h"
+
+extern const bb_serialize_desc_meta_t bb_ota_hooks_wire_meta;
+#endif /* BB_SERIALIZE_META_HOST */
+
 // Portable (no ESP-IDF dep): fills `dst` from bb_ota_hooks' last-emitted
 // progress stash (s_last_phase/s_last_pct/s_last_via in bb_ota_hooks.c,
 // updated unconditionally by bb_ota_emit_progress()). Returns

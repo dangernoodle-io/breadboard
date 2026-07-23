@@ -108,6 +108,72 @@ const bb_serialize_desc_t bb_diag_boot_wire_desc = {
 };
 
 // ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-2) -- co-located JSON Schema
+// companion to bb_diag_boot_wire_desc above, gated behind
+// BB_SERIALIZE_META_HOST (see bb_diag_boot_wire.h's banner). Three levels of
+// nesting (flat top-level fields, two BB_TYPE_OBJ fields ("panic",
+// "reboot_reason"), one BB_TYPE_ARR-of-BB_TYPE_OBJ field ("reboot_history"))
+// each need their own co-located sub-table, mirroring
+// bb_ota_validator_partitions_wire.c's ARR-of-OBJ precedent (B1-1059
+// PR-2b-i-1). Top-level "required" mirrors the "required" array of
+// platform/espidf/bb_diag_http/bb_diag_http_routes.c's hand-authored
+// k_diag_boot_schema literal (every top-level field is required there); that
+// same literal never marks any "panic"/"reboot_reason" child field required
+// (no "required" array at all on either nested object), so neither
+// sub-table below marks any child required either -- the composer always
+// emits a "required":[] for a BB_TYPE_OBJ field regardless, a documented
+// delta (see test_bb_diag_boot_wire_meta_golden.c). "reboot_history"'s
+// ARR-of-OBJ row sub-table matches its hand literal's items object, which
+// (like the partitions-wire precedent) carries no "required" list at all --
+// the composer's BB_TYPE_ARR-of-BB_TYPE_OBJ items branch never emits one, so
+// no delta there either.
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_diag_panic_wire_meta_rows[] = {
+    { .key = "available" },
+    { .key = "boots_since" },
+};
+
+static const bb_serialize_field_meta_t s_diag_reboot_reason_wire_meta_rows[] = {
+    { .key = "source" },
+    { .key = "detail" },
+    { .key = "uptime_s" },
+    { .key = "epoch_s" },
+    { .key = "age_s" },
+};
+
+static const bb_serialize_field_meta_t s_diag_reboot_hist_wire_meta_rows[] = {
+    { .key = "source" },
+    { .key = "epoch_s" },
+    { .key = "uptime_s" },
+};
+
+static const bb_serialize_field_meta_t s_diag_boot_wire_meta_rows[] = {
+    { .key = "reset_reason",    .required = true },
+    { .key = "wdt_resets",      .required = true },
+    { .key = "panic",           .required = true,
+      .children = s_diag_panic_wire_meta_rows,
+      .n_children = sizeof(s_diag_panic_wire_meta_rows) / sizeof(s_diag_panic_wire_meta_rows[0]) },
+    { .key = "pending_verify",  .required = true },
+    { .key = "rolled_back",     .required = true },
+    { .key = "reboot_reason",   .required = true,
+      .children = s_diag_reboot_reason_wire_meta_rows,
+      .n_children = sizeof(s_diag_reboot_reason_wire_meta_rows) / sizeof(s_diag_reboot_reason_wire_meta_rows[0]) },
+    { .key = "reboot_history",  .required = true,
+      .children = s_diag_reboot_hist_wire_meta_rows,
+      .n_children = sizeof(s_diag_reboot_hist_wire_meta_rows) / sizeof(s_diag_reboot_hist_wire_meta_rows[0]) },
+};
+
+const bb_serialize_desc_meta_t bb_diag_boot_wire_meta = {
+    .type_name = "diag_boot",
+    .rows      = s_diag_boot_wire_meta_rows,
+    .n_rows    = sizeof(s_diag_boot_wire_meta_rows) / sizeof(s_diag_boot_wire_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_HOST */
+
+// ---------------------------------------------------------------------------
 // Gather
 // ---------------------------------------------------------------------------
 

@@ -30,3 +30,34 @@ const bb_serialize_desc_t bb_log_event_line_wire_desc = {
     .n_fields  = sizeof(bb_log_event_line_wire_fields) / sizeof(bb_log_event_line_wire_fields[0]),
     .snap_size = sizeof(bb_log_event_line_wire_t),
 };
+
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-2) -- co-located JSON Schema
+// companion to bb_log_event_line_wire_desc above, gated behind
+// BB_SERIALIZE_META_HOST (see bb_log_event_line_wire_priv.h's banner).
+// "required" mirrors the "required" array of platform/espidf/bb_log_event/
+// bb_log_event.c's hand-authored k_log_event_schema literal
+// (["ts","level","tag","msg"]); "level"'s enum_vals mirrors that same
+// literal's "enum":["I","W","E","D","V","?"]. See
+// test_bb_log_event_line_wire_meta_golden.c for the fidelity proof.
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const char *const s_log_event_level_enum_vals[] = {
+    "I", "W", "E", "D", "V", "?", NULL,
+};
+
+static const bb_serialize_field_meta_t s_log_event_line_wire_meta_rows[] = {
+    { .key = "ts",    .required = true },
+    { .key = "level", .required = true, .enum_vals = s_log_event_level_enum_vals },
+    { .key = "tag",   .required = true },
+    { .key = "msg",   .required = true },
+};
+
+const bb_serialize_desc_meta_t bb_log_event_line_wire_meta = {
+    .type_name = "bb_log_event_line_wire_t",
+    .rows      = s_log_event_line_wire_meta_rows,
+    .n_rows    = sizeof(s_log_event_line_wire_meta_rows) / sizeof(s_log_event_line_wire_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_HOST */
