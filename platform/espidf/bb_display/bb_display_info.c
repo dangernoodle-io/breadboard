@@ -17,14 +17,28 @@
 static const char *TAG = "bb_display";
 static bool s_registered = false;
 
-/* JSON-Schema value for the health.display SSE topic. */
+/* JSON-Schema value for the health.display SSE topic (B1-1179: corrected
+ * from a spurious "panel":["string","null"] nullable union -- the
+ * bb_display_info_wire_desc serializer never emits a JSON null; "panel"
+ * (and every other field but "present") carries a `.present` predicate
+ * (display_info_present(), bb_display_info_wire.c) that OMITS the key
+ * entirely from the rendered object when no display backend is present
+ * -- see bb_serialize_walk.c's `if (f->present && !f->present(snap))
+ * continue;`. So "panel" is a plain optional string, matching the
+ * "present" field's meta-engine-generated companion below.
+ * "required":["present"] + "additionalProperties":false brought into line
+ * with the meta engine's fixed object-schema shape (B1-1059 PR-2b-i
+ * convention; see bb_display_info_wire.c's co-located
+ * bb_display_info_wire_meta banner for the golden byte-fidelity proof). */
 static const char k_display_schema[] =
     "{\"type\":\"object\",\"properties\":{"
     "\"present\":{\"type\":\"boolean\"},"
-    "\"panel\":{\"type\":[\"string\",\"null\"]},"
+    "\"panel\":{\"type\":\"string\"},"
     "\"width\":{\"type\":\"integer\"},"
     "\"height\":{\"type\":\"integer\"},"
-    "\"enabled\":{\"type\":\"boolean\"}}}";
+    "\"enabled\":{\"type\":\"boolean\"}},"
+    "\"required\":[\"present\"],"
+    "\"additionalProperties\":false}";
 
 static bb_display_snap_t make_snap(void)
 {
