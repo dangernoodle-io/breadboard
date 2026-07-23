@@ -40,11 +40,19 @@
 # host-testable posture -- GET /api/diag/panic's bb_serialize migration
 # (single unconditional descriptor, runtime present-predicate on
 # coredump_avail, no Kconfig fork -- see bb_diag_panic_get_wire_priv.h).
+# bb_diag_sockets_get_wire.c (B1-1190 diag conversion): same always-built,
+# host-testable posture -- GET /api/diag/sockets' bb_serialize migration
+# (unconditional descriptor, BB_TYPE_ARR-of-BB_TYPE_OBJ "pcbs" +
+# BB_TYPE_OBJ "by_state", row cap tracks CONFIG_LWIP_MAX_SOCKETS -- see
+# bb_diag_sockets_get_wire_priv.h). The wire file itself carries no LWIP
+# symbols (portable); only sockets_get_handler in bb_diag_http_routes.c
+# below touches LWIP directly.
 set(_diag_http_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_http_boot_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_storage_http_delete_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_heap_check_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_panic_get_wire.c"
+    "${CMAKE_CURRENT_LIST_DIR}/bb_diag_sockets_get_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_storage_http_routes.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_log_http.c"
 )

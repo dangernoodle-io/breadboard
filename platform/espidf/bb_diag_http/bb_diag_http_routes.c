@@ -15,6 +15,7 @@
 #include "bb_diag_event_priv.h"
 #include "../../../components/bb_diag_http/bb_diag_heap_check_wire_priv.h"
 #include "../../../components/bb_diag_http/bb_diag_panic_get_wire_priv.h"
+#include "../../../components/bb_diag_http/bb_diag_sockets_get_wire_priv.h"
 #include "bb_data.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
@@ -776,28 +777,40 @@ static const bb_route_t s_tasks_get_route = {
 // Walks LWIP TCP PCB lists under LOCK_TCPIP_CORE and emits a JSON snapshot
 // of per-state counts and individual PCBs. Designed for hunting CLOSE_WAIT
 // pile-ups that exhaust the LWIP socket pool under sustained SSE churn.
-
-static const char *s_tcp_state_names[] = {
-    "CLOSED", "LISTEN", "SYN_SENT", "SYN_RCVD",
-    "ESTABLISHED", "FIN_WAIT_1", "FIN_WAIT_2",
-    "CLOSE_WAIT", "CLOSING", "LAST_ACK", "TIME_WAIT"
-};
-#define S_TCP_STATE_COUNT (sizeof(s_tcp_state_names) / sizeof(s_tcp_state_names[0]))
-
-// Number of state names must cover all states (0..TIME_WAIT=10).
-_Static_assert(S_TCP_STATE_COUNT == 11, "tcp state name table mismatch");
-
+// Driven via the bb_serialize descriptor (B1-1190 diag conversion) rather
+// than hand-streamed cJSON -- see bb_diag_sockets_get_wire_priv.h for the
+// full shape; output is byte-identical to the pre-migration emitter. The
+// row cap (BB_DIAG_SOCKETS_ROW_CAP) tracks CONFIG_LWIP_MAX_SOCKETS, so both
+// the wire snapshot and this handler's own staging buffer are heap-allocated
+// (see bb_diag_sockets_get_wire_priv.h's banner) -- NEVER stack locals.
 static bb_err_t sockets_get_handler(bb_http_request_t *req)
 {
-    // Walk PCB lists under core lock and snapshot counts + per-entry data.
-    uint32_t by_state[S_TCP_STATE_COUNT] = {0};
-    uint32_t in_use = 0;
+    bb_diag_sockets_get_wire_t *dst = bb_malloc_prefer_spiram(sizeof(*dst));
+    if (!dst) {
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t err_obj;
+        bb_http_resp_json_obj_begin(req, &err_obj);
+        bb_http_resp_json_obj_set_str(&err_obj, "error", "alloc failed");
+        bb_http_resp_json_obj_end(&err_obj);
+        return BB_ERR_NO_SPACE;
+    }
 
-    // PCB snapshot: at most CONFIG_LWIP_MAX_SOCKETS entries.
-    typedef struct { uint16_t local_port; uint16_t remote_port;
-                     char remote_ip[40]; uint32_t state_idx; } pcb_snap_t;
-    pcb_snap_t *snaps = bb_malloc_prefer_spiram(sizeof(pcb_snap_t) * (size_t)CONFIG_LWIP_MAX_SOCKETS);
-    size_t snap_count = 0;
+    bb_diag_sockets_pcb_src_t *src =
+        bb_malloc_prefer_spiram(sizeof(*src) * (size_t)BB_DIAG_SOCKETS_ROW_CAP);
+    if (!src) {
+        bb_mem_free(dst);
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t err_obj;
+        bb_http_resp_json_obj_begin(req, &err_obj);
+        bb_http_resp_json_obj_set_str(&err_obj, "error", "alloc failed");
+        bb_http_resp_json_obj_end(&err_obj);
+        return BB_ERR_NO_SPACE;
+    }
+
+    // Walk PCB lists under core lock and snapshot counts + per-entry data.
+    uint32_t by_state[BB_DIAG_SOCKETS_STATE_COUNT] = {0};
+    uint32_t in_use = 0;
+    size_t src_count = 0;
 
     LOCK_TCPIP_CORE();
     struct tcp_pcb *lists[4];
@@ -810,10 +823,10 @@ static bb_err_t sockets_get_handler(bb_http_request_t *req)
         for (struct tcp_pcb *p = lists[li]; p != NULL; p = p->next) {
             enum tcp_state st = p->state;
             uint32_t idx = (uint32_t)st;
-            if (idx < S_TCP_STATE_COUNT) by_state[idx]++;
+            if (idx < BB_DIAG_SOCKETS_STATE_COUNT) by_state[idx]++;
             if (st != CLOSED) in_use++;
-            if (snaps && snap_count < (size_t)CONFIG_LWIP_MAX_SOCKETS) {
-                pcb_snap_t *s = &snaps[snap_count++];
+            if (src_count < (size_t)BB_DIAG_SOCKETS_ROW_CAP) {
+                bb_diag_sockets_pcb_src_t *s = &src[src_count++];
                 s->local_port  = p->local_port;
                 s->remote_port = p->remote_port;
                 s->state_idx   = idx;
@@ -826,36 +839,13 @@ static bb_err_t sockets_get_handler(bb_http_request_t *req)
     bb_log_i(TAG, "sockets: in_use=%"PRIu32" CLOSE_WAIT=%"PRIu32" TIME_WAIT=%"PRIu32,
              in_use, by_state[CLOSE_WAIT], by_state[TIME_WAIT]);
 
-    bb_http_json_obj_stream_t obj;
-    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
-    if (err != BB_OK) { bb_mem_free(snaps); return err; }
+    bb_diag_sockets_get_wire_fill(dst, (uint32_t)CONFIG_LWIP_MAX_SOCKETS, in_use,
+                                  by_state, src, src_count);
+    bb_mem_free(src);
 
-    bb_http_resp_json_obj_set_int(&obj, "lwip_max_sockets", (int64_t)CONFIG_LWIP_MAX_SOCKETS);
-    bb_http_resp_json_obj_set_int(&obj, "in_use",           (int64_t)in_use);
-
-    bb_http_resp_json_obj_set_obj_begin(&obj, "by_state");
-    for (uint32_t i = 0; i < S_TCP_STATE_COUNT; i++) {
-        bb_http_resp_json_obj_set_int(&obj, s_tcp_state_names[i], (int64_t)by_state[i]);
-    }
-    bb_http_resp_json_obj_set_obj_end(&obj);
-
-    bb_http_resp_json_obj_set_arr_begin(&obj, "pcbs");
-    if (snaps) {
-        for (size_t i = 0; i < snap_count; i++) {
-            const char *state_name = (snaps[i].state_idx < S_TCP_STATE_COUNT)
-                                     ? s_tcp_state_names[snaps[i].state_idx] : "UNKNOWN";
-            bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
-            bb_http_resp_json_obj_set_int(&obj, "local_port",  (int64_t)snaps[i].local_port);
-            bb_http_resp_json_obj_set_str(&obj, "remote_ip",   snaps[i].remote_ip);
-            bb_http_resp_json_obj_set_int(&obj, "remote_port", (int64_t)snaps[i].remote_port);
-            bb_http_resp_json_obj_set_str(&obj, "state",       state_name);
-            bb_http_resp_json_obj_set_obj_end(&obj);
-        }
-    }
-    bb_http_resp_json_obj_set_arr_end(&obj);
-
-    bb_mem_free(snaps);
-    return bb_http_resp_json_obj_end(&obj);
+    bb_err_t err = bb_http_serialize_stream(req, &bb_diag_sockets_get_wire_desc, dst);
+    bb_mem_free(dst);
+    return err;
 }
 
 static const bb_route_response_t s_sockets_get_responses[] = {
@@ -864,7 +854,20 @@ static const bb_route_response_t s_sockets_get_responses[] = {
       "\"properties\":{"
       "\"lwip_max_sockets\":{\"type\":\"integer\"},"
       "\"in_use\":{\"type\":\"integer\"},"
-      "\"by_state\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"integer\"}},"
+      "\"by_state\":{\"type\":\"object\",\"properties\":{"
+      "\"CLOSED\":{\"type\":\"integer\"},"
+      "\"LISTEN\":{\"type\":\"integer\"},"
+      "\"SYN_SENT\":{\"type\":\"integer\"},"
+      "\"SYN_RCVD\":{\"type\":\"integer\"},"
+      "\"ESTABLISHED\":{\"type\":\"integer\"},"
+      "\"FIN_WAIT_1\":{\"type\":\"integer\"},"
+      "\"FIN_WAIT_2\":{\"type\":\"integer\"},"
+      "\"CLOSE_WAIT\":{\"type\":\"integer\"},"
+      "\"CLOSING\":{\"type\":\"integer\"},"
+      "\"LAST_ACK\":{\"type\":\"integer\"},"
+      "\"TIME_WAIT\":{\"type\":\"integer\"}},"
+      "\"required\":[\"CLOSED\",\"LISTEN\",\"SYN_SENT\",\"SYN_RCVD\",\"ESTABLISHED\","
+      "\"FIN_WAIT_1\",\"FIN_WAIT_2\",\"CLOSE_WAIT\",\"CLOSING\",\"LAST_ACK\",\"TIME_WAIT\"]},"
       "\"pcbs\":{\"type\":\"array\",\"items\":{"
       "\"type\":\"object\","
       "\"properties\":{"
@@ -872,7 +875,10 @@ static const bb_route_response_t s_sockets_get_responses[] = {
       "\"remote_ip\":{\"type\":\"string\"},"
       "\"remote_port\":{\"type\":\"integer\"},"
       "\"state\":{\"type\":\"string\"}}}}}}",
-      "LWIP TCP socket state distribution: per-state counts and per-PCB detail" },
+      "LWIP TCP socket state distribution: per-state counts and per-PCB detail "
+      "(B1-1190: by_state schema tightened from additionalProperties to the 11 "
+      "named required integer fields this route always emits -- runtime JSON "
+      "is unchanged)" },
     { 0 },
 };
 
