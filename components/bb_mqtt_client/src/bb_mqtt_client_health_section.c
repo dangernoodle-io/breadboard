@@ -32,6 +32,31 @@ const bb_serialize_desc_t bb_mqtt_client_health_section_desc = {
     .snap_size = sizeof(bb_mqtt_client_health_section_snap_t),
 };
 
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-3) -- co-located JSON Schema
+// companion to bb_mqtt_client_health_section_desc above, gated behind
+// BB_SERIALIZE_META_HOST (see bb_mqtt_client.h's banner). Both fields are
+// unconditionally filled by bb_mqtt_client_health_section_fill() below (no
+// `.present` predicate on either), so both are marked required=true --
+// k_mqtt_schema itself carries no "required" array because it's a bare
+// /api/health section fragment (see test_bb_mqtt_client_health_section_meta_
+// golden.c for the fragment-only fidelity proof).
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_mqtt_health_section_meta_rows[] = {
+    { .key = "enabled",   .required = true },
+    { .key = "connected", .required = true },
+};
+
+const bb_serialize_desc_meta_t bb_mqtt_client_health_section_meta = {
+    .type_name = "mqtt_health_section",
+    .rows      = s_mqtt_health_section_meta_rows,
+    .n_rows    = sizeof(s_mqtt_health_section_meta_rows) / sizeof(s_mqtt_health_section_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_HOST */
+
 bb_err_t bb_mqtt_client_health_section_fill(void *dst, const bb_health_fill_args_t *args)
 {
     (void)args;

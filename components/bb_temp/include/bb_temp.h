@@ -61,6 +61,29 @@ typedef struct {
 // mirrors today's `{ "present": false }` (no "soc_c" key) shape.
 extern const bb_serialize_desc_t bb_temp_health_desc;
 
+// bb_serialize_desc_meta_t companion (B1-1059 PR-2b-i-3) -- co-located JSON
+// Schema docs/validation table for bb_temp_health_desc above, same
+// #if-gated pattern as bb_wifi_http_wire_priv.h's exemplar (B1-1059 PR-2a).
+// BB_SERIALIZE_META_HOST is a host-only define (set by the PlatformIO
+// native env; see platformio.ini) -- NEVER set by the ESP-IDF/device
+// build, so this declaration (and its definition in
+// platform/{host,espidf}/bb_temp/bb_temp.c -- PLATFORM TWIN, kept
+// byte-identical by convention like the rest of those twin files)
+// compiles to nothing on-device.
+//
+// UNLIKE the REST/SSE clusters, this descriptor's hand-authored companion
+// (k_temp_schema, in each platform twin) is a bare /api/health SECTION
+// fragment -- no top-level "required"/"additionalProperties" of its own,
+// because bb_health_section_t.schema_props is spliced verbatim into the
+// /api/health composite's schema, which owns those decisions. See
+// test_bb_temp_health_meta_golden.c (fragment-only assert,
+// test_meta_fragment.h) for the fidelity proof this weaker check implies.
+#if defined(BB_SERIALIZE_META_HOST)
+#include "bb_serialize_meta.h"
+
+extern const bb_serialize_desc_meta_t bb_temp_health_meta;
+#endif /* BB_SERIALIZE_META_HOST */
+
 // bb_health_fill_fn adapter: fills `dst` (a bb_temp_health_snap_t) from a
 // live bb_temp_read_soc() call. `args` is unused (this section takes no
 // query params). Returns BB_ERR_INVALID_ARG on NULL dst; the bb_health

@@ -888,6 +888,30 @@ void test_bb_ota_check_wire_meta_golden_matches_hand_literal(void);
 void test_bb_diag_boot_wire_meta_validates_against_desc(void);
 void test_bb_diag_boot_wire_meta_golden_matches_hand_literal(void);
 
+// Forward declarations from test_bb_mqtt_client_health_section_meta_golden.c
+// (B1-1059 PR-2b-i-3) -- fragment-only golden (shape-(c) exception)
+void test_bb_mqtt_client_health_section_meta_validates_against_desc(void);
+void test_bb_mqtt_client_health_section_meta_golden_matches_hand_fragment(void);
+
+// Forward declarations from test_bb_temp_health_meta_golden.c
+// (B1-1059 PR-2b-i-3) -- fragment-only golden (shape-(c) exception)
+void test_bb_temp_health_meta_validates_against_desc(void);
+void test_bb_temp_health_meta_golden_matches_hand_fragment(void);
+
+// Forward declarations from test_meta_fragment_selftest.c (B1-1059
+// PR-2b-i-3) -- direct branch coverage of
+// test_meta_fragment_extract_properties() (test_meta_fragment.h/.c)
+void test_meta_fragment_extract_properties_null_schema_returns_false(void);
+void test_meta_fragment_extract_properties_null_out_returns_false(void);
+void test_meta_fragment_extract_properties_zero_out_size_returns_false(void);
+void test_meta_fragment_extract_properties_missing_key_returns_false(void);
+void test_meta_fragment_extract_properties_value_not_object_returns_false(void);
+void test_meta_fragment_extract_properties_unbalanced_braces_returns_false(void);
+void test_meta_fragment_extract_properties_dangling_escape_returns_false(void);
+void test_meta_fragment_extract_properties_escaped_quote_extracts_successfully(void);
+void test_meta_fragment_extract_properties_out_buffer_too_small_returns_false(void);
+void test_meta_fragment_extract_properties_flat_object_succeeds(void);
+
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
 void test_bb_log_warning(void);
@@ -10137,6 +10161,20 @@ int main(void) {
     RUN_TEST(test_bb_ota_check_wire_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_diag_boot_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_diag_boot_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_mqtt_client_health_section_meta_validates_against_desc);
+    RUN_TEST(test_bb_mqtt_client_health_section_meta_golden_matches_hand_fragment);
+    RUN_TEST(test_bb_temp_health_meta_validates_against_desc);
+    RUN_TEST(test_bb_temp_health_meta_golden_matches_hand_fragment);
+    RUN_TEST(test_meta_fragment_extract_properties_null_schema_returns_false);
+    RUN_TEST(test_meta_fragment_extract_properties_null_out_returns_false);
+    RUN_TEST(test_meta_fragment_extract_properties_zero_out_size_returns_false);
+    RUN_TEST(test_meta_fragment_extract_properties_missing_key_returns_false);
+    RUN_TEST(test_meta_fragment_extract_properties_value_not_object_returns_false);
+    RUN_TEST(test_meta_fragment_extract_properties_unbalanced_braces_returns_false);
+    RUN_TEST(test_meta_fragment_extract_properties_dangling_escape_returns_false);
+    RUN_TEST(test_meta_fragment_extract_properties_escaped_quote_extracts_successfully);
+    RUN_TEST(test_meta_fragment_extract_properties_out_buffer_too_small_returns_false);
+    RUN_TEST(test_meta_fragment_extract_properties_flat_object_succeeds);
 
     // test_bb_lifecycle.c
     RUN_TEST(test_bb_lifecycle_autoinit_returns_ok);

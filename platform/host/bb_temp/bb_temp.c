@@ -56,6 +56,32 @@ const bb_serialize_desc_t bb_temp_health_desc = {
     .snap_size = sizeof(bb_temp_health_snap_t),
 };
 
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-3) -- co-located JSON Schema
+// companion to bb_temp_health_desc above, gated behind
+// BB_SERIALIZE_META_HOST (see bb_temp.h's banner). PLATFORM TWIN: kept
+// byte-identical with platform/espidf/bb_temp/bb_temp.c's copy by
+// convention, same as the rest of this file. `present` is unconditionally
+// filled (required=true); `soc_c` is omitted via the .present predicate
+// above (required=false) -- k_temp_schema itself carries no "required"
+// array because it's a bare /api/health section fragment (see
+// test_bb_temp_health_meta_golden.c for the fragment-only fidelity proof).
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_temp_health_meta_rows[] = {
+    { .key = "present", .required = true },
+    { .key = "soc_c" },
+};
+
+const bb_serialize_desc_meta_t bb_temp_health_meta = {
+    .type_name = "temp_health",
+    .rows      = s_temp_health_meta_rows,
+    .n_rows    = sizeof(s_temp_health_meta_rows) / sizeof(s_temp_health_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_HOST */
+
 bb_err_t bb_temp_health_fill(void *dst, const bb_health_fill_args_t *args)
 {
     (void)args;
