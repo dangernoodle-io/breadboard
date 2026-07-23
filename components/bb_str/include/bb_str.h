@@ -11,6 +11,7 @@
  * key=value parsing, and hex<->bytes codec. Pure C, no heap.
  */
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -105,6 +106,34 @@ size_t bb_str_hex_to_bytes(const char *hex, uint8_t *out, size_t max_out);
 // Returns the number of byte-pairs actually written, excluding the NUL
 // terminator (less than len on truncation).
 size_t bb_str_bytes_to_hex(const uint8_t *data, size_t len, char *hex, size_t hex_cap);
+
+// bb_str_envelope_split — pure byte-range scan, no tree parse.
+//
+// Split a {"ts_ms":<n>,"data":{...}} envelope (the bb_cache wire shape --
+// see bb_cache.h) into its two byte ranges, WITHOUT building a JSON
+// tree: locates the "ts_ms" numeric value and the "data" object (brace-depth
+// balanced) directly in the raw payload bytes. Callers that only need to
+// re-frame an already-serialized envelope (e.g. hoisting ts_ms/data to a
+// different wire wrapper) use this instead of a full parse+re-serialize
+// round trip.
+//
+// On success, *ts_start/*ts_len point at the numeric literal (no quotes,
+// e.g. "1700000000123") and *data_start/*data_len point at the balanced
+// "{...}" object bytes (braces included) -- both ranges point INTO payload,
+// valid only as long as payload is. Returns false (output pointers
+// untouched) if either key is missing, "ts_ms" is not a bare integer
+// literal, or "data" is missing/not an object/has unbalanced braces.
+//
+// The "data" object's brace-balance scan is quote/escape aware: braces
+// inside a JSON string value (honoring \" and \\ escapes) never affect the
+// balance. The top-level key search (locating "ts_ms": / "data":) is a
+// plain byte substring match and is NOT quote-aware -- it assumes the
+// canonical top-level key order bb_cache emits (ts_ms before data) and does
+// not disambiguate a "ts_ms":/"data": substring that happens to appear
+// inside nested string content.
+bool bb_str_envelope_split(const char *payload, int len,
+                            const char **ts_start, size_t *ts_len,
+                            const char **data_start, size_t *data_len);
 
 #ifdef __cplusplus
 }
