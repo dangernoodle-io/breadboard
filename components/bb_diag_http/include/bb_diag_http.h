@@ -31,6 +31,12 @@
  * CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) are declared in bb_storage_http.h
  * (this component's own second public header, unmerged into this file to
  * keep the mechanical move a pure relocation).
+ *
+ * B1-1155 (KB 1477): the former bb_log_http component was dissolved into
+ * this one -- GET/POST /api/log/level (bb_log_register_routes_init(),
+ * always builds; CONFIG_BB_LOG_ROUTES internally gates registration) are
+ * declared in bb_log_http.h (this component's own third public header,
+ * unmerged into this file to keep the mechanical move a pure relocation).
  */
 
 #include "bb_diag.h"

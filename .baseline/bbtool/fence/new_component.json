@@ -196,11 +196,6 @@
       "type": "component"
     },
     {
-      "id": "bb_log_http",
-      "path": "components/bb_log_http",
-      "type": "component"
-    },
-    {
       "id": "bb_mdns",
       "path": "components/bb_mdns",
       "type": "component"

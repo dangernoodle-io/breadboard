@@ -53,4 +53,30 @@ config BB_STORAGE_HTTP_FACTORY_RESET
       reboots after ~500 ms. Disabled by default because factory reset is a
       destructive operation that should be opt-in.
 
+# Dissolved in from the former bb_log_http component (B1-1155, KB 1477) --
+# symbol names KEPT unchanged from their bb_log_http-era names; renaming
+# would break any sdkconfig.defaults already setting them.
+config BB_LOG_ROUTES
+    bool "Build bb_log HTTP routes (log-level GET/POST)"
+    default y
+    help
+        When enabled, bb_diag_http compiles the routes module that exposes
+        GET /api/log/level and POST /api/log/level. Disable for headless
+        logging-only consumers that compose bb_diag_http but don't want the
+        routes wired.
+
+        The structured log stream is served separately via bb_data/
+        bb_data_http at GET /api/events?topic=log (see bb_log_event's
+        "log" bb_data key, B1-1045).
+
+config BB_LOG_SSE_KEEPALIVE_MS
+    int "SSE keepalive interval (ms)"
+    default 5000
+    range 1000 60000
+    depends on BB_LOG_ROUTES
+    help
+        Vestigial — the /api/logs SSE route has been retired. This symbol
+        is kept to avoid build breakage on boards that still reference it
+        via sdkconfig. It is unused.
+
 endmenu

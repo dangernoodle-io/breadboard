@@ -202,7 +202,7 @@ capabilities = ["core"]
 # here would land squarely on TM.
 [capability.smoke]
 components = [
-    "bb_log", "bb_log_event", "bb_log_http", "bb_wifi", "bb_wifi_ap",
+    "bb_log", "bb_log_event", "bb_wifi", "bb_wifi_ap",
     "bb_wifi_http", "bb_settings", "bb_http", "bb_http_server", "bb_mdns",
     "bb_mdns_cache", "bb_ota_pull", "bb_ota_push", "bb_ota_boot",
     "bb_ota_validator", "bb_system", "bb_openapi",

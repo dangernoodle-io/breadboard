@@ -38,7 +38,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_lifecycle](./bb_lifecycle/) | Service run-state authority: register named services, track a computed STOPPED/PAUSED/RUNNING state per service, and let independent subsystems assert/clear open-vocabulary pause reasons without stepping on each other. PUSH (observer), PULL (generic emit sink), and POLL (lock-free version counter) delivery, all sourced from one lock-guarded commit. |
 | [bb_log](./bb_log/) | — |
 | [bb_log_event](./bb_log_event/) | "log" `bb_event` stream topic sink, carved out of `bb_log` (KB #708/#704). |
-| [bb_log_http](./bb_log_http/) | GET/POST `/api/log/level` routes sink, carved out of `bb_log` (KB #708/#704). |
 | [bb_mdns](./bb_mdns/) | — |
 | [bb_mdns_cache](./bb_mdns_cache/) | — |
 | [bb_mem_arena](./bb_mem_arena/) | — |

@@ -8,6 +8,7 @@ bb_diag_http — the aggregate HTTP surface for bb_diag (B1-1153, KB 1477). bb_d
 
 <!-- BEGIN bbtool:api -->
 - [`bb_diag_http.h`](include/bb_diag_http.h)
+- [`bb_log_http.h`](include/bb_log_http.h)
 - [`bb_storage_http.h`](include/bb_storage_http.h)
 
 Public symbols use the `bb_` prefix.
