@@ -199,25 +199,42 @@ def _extract_first_sentence(readme_path: Path) -> str:
     return _first_sentence(lines[idx].strip())
 
 
-def _dep_role_and_link(root: Path, dep: str) -> Tuple[str, Optional[str]]:
+def _dep_role_and_link(root: Path, comp_dir: Path, dep: str) -> Tuple[str, Optional[str]]:
     """Return (role, docs_link) for one direct dependency `dep` of the
-    component being rendered. `role` is the dep's own README first sentence,
-    or "—" when the dep has no README. `docs_link` points at the dep's own
-    README.md when `components/<dep>/` exists in this repo; falls back to
-    the generated components/ index (components/README.md) for a local
-    component that has no README yet; is None for an external SDK
-    dependency (e.g. esp_timer, freertos) that has no components/<dep>/ dir
-    at all — the caller renders that as plain text, no link."""
-    dep_dir = root / "components" / dep
-    if not dep_dir.is_dir():
+    component rendered from `comp_dir`. `role` is the dep's own README first
+    sentence, or "—" when the dep has no README. `docs_link` is relative to
+    `comp_dir` and points at the dep's own README.md when `components/<dep>/`
+    exists in this repo (looked up via the discovery index, so a dep grouped
+    under components/<group>/<dep>/ still resolves at any nesting depth);
+    falls back to the generated components/ index (components/README.md)
+    for a local component that has no README yet; is None for an external
+    SDK dependency (e.g. esp_timer, freertos) that has no components/<dep>/
+    dir at all — the caller renders that as plain text, no link."""
+    # `dep_dir` (when found) comes back realpath-canonicalized (build_index
+    # resolves every root/dir via os.path.realpath), so `comp_dir` must be
+    # canonicalized the same way before any relpath call below — otherwise
+    # a symlinked tmp/root spelling (e.g. macOS's /var -> /private/var)
+    # makes relpath see no common prefix and emit a long, wrong `../../..`
+    # chain. This applies equally to the has-README branch and the
+    # falls-back-to-the-top-level-index branch below — a hardcoded
+    # "../README.md" is only correct for a consumer one level under
+    # components/; a consumer nested under components/<group>/ needs
+    # "../../README.md" instead, so both branches compute the link the
+    # same relpath-against-real_comp_dir way.
+    real_comp_dir = Path(os.path.realpath(str(comp_dir)))
+    dep_dir = build_index(normalize_roots(root)).component_dir(dep)
+    if dep_dir is None:
         return "—", None
     dep_readme = dep_dir / "README.md"
     if not dep_readme.is_file():
-        return "—", "../README.md"
-    return _extract_first_sentence(dep_readme), f"../{dep}/README.md"
+        index_readme = Path(os.path.realpath(str(root))) / "components" / "README.md"
+        rel_link = os.path.relpath(index_readme, real_comp_dir).replace(os.sep, "/")
+        return "—", rel_link
+    rel_link = os.path.relpath(dep_readme, real_comp_dir).replace(os.sep, "/")
+    return _extract_first_sentence(dep_readme), rel_link
 
 
-def _render_deps(root: Path, name: str, requires: List[str], priv_requires: List[str]) -> str:
+def _render_deps(root: Path, comp_dir: Path, requires: List[str], priv_requires: List[str]) -> str:
     """Render the Dependencies table: one row per DIRECT dep in this
     component's REQUIRES + PRIV_REQUIRES (scoped to direct deps only — no
     transitive walk), sorted, deduplicated. "Kind" is "public" when the dep
@@ -230,7 +247,7 @@ def _render_deps(root: Path, name: str, requires: List[str], priv_requires: List
     lines = ["| Component | Kind | Role | Docs |", "|-----------|------|------|------|"]
     for dep in deps:
         kind = "public" if dep in requires_set else "private"
-        role, link = _dep_role_and_link(root, dep)
+        role, link = _dep_role_and_link(root, comp_dir, dep)
         role = _escape_table_cell(role)
         docs_cell = f"[{dep}]({link})" if link else dep
         lines.append(f"| `{dep}` | {kind} | {role} | {docs_cell} |")
@@ -533,7 +550,7 @@ def _gen_component_readme(root: Path, name: str, config: Optional[dict] = None,
     generators: Dict[str, Callable[[], str]] = {
         "brief": lambda: _render_brief(root, name, comp_dir),
         "api": lambda: _render_api(root, name, comp_dir),
-        "deps": lambda: _render_deps(root, name, requires, priv_requires),
+        "deps": lambda: _render_deps(root, comp_dir, requires, priv_requires),
         "platform": lambda: _render_platform(matrix),
         "links": lambda: _render_links(config, name),
         "wiring": lambda: _render_wiring(config, name),

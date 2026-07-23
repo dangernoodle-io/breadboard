@@ -25,8 +25,8 @@ None — this component has no Kconfig options. The wifi SSID/password NVS names
 | `bb_config` | public | Typed configuration layer over `bb_storage` — gives its blob-only vtable scalar-typed meaning (bool/u8/u16/u32/i32/str/blob) via a caller-owned field descriptor table. | [bb_config](../bb_config/README.md) |
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
 | `bb_log` | private | — | [bb_log](../README.md) |
-| `bb_storage` | private | Portable storage facade + backend registry: one `bb_storage_get/set/erase/exists` API dispatching by `bb_storage_addr_t.backend` to whichever backend has registered itself. | [bb_storage](../bb_storage/README.md) |
-| `bb_storage_nvs` | private | ESP-IDF NVS backend for `bb_storage`. | [bb_storage_nvs](../bb_storage_nvs/README.md) |
+| `bb_storage` | private | Portable storage facade + backend registry: one `bb_storage_get/set/erase/exists` API dispatching by `bb_storage_addr_t.backend` to whichever backend has registered itself. | [bb_storage](../storage/bb_storage/README.md) |
+| `bb_storage_nvs` | private | ESP-IDF NVS backend for `bb_storage`. | [bb_storage_nvs](../storage/bb_storage_nvs/README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support

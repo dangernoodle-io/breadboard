@@ -30,10 +30,10 @@ The in-memory table is guarded by a mutex (mirroring the `bb_power`/`bb_fan` pol
 <!-- BEGIN bbtool:deps -->
 | Component | Kind | Role | Docs |
 |-----------|------|------|------|
-| `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
-| `bb_log` | private | — | [bb_log](../README.md) |
+| `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../../bb_core/README.md) |
+| `bb_log` | private | — | [bb_log](../../README.md) |
 | `bb_storage` | private | Portable storage facade + backend registry: one `bb_storage_get/set/erase/exists` API dispatching by `bb_storage_addr_t.backend` to whichever backend has registered itself. | [bb_storage](../bb_storage/README.md) |
-| `bb_str` | private | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. | [bb_str](../bb_str/README.md) |
+| `bb_str` | private | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. | [bb_str](../../bb_str/README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support
