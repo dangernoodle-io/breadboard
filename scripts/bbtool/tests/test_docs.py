@@ -203,40 +203,40 @@ class TestParseRequires(unittest.TestCase):
 
     def test_render_deps_empty(self):
         with tempfile.TemporaryDirectory() as td:
-            text = _render_deps(Path(td), "bb_fake", [], [])
+            text = _render_deps(Path(td), Path(td) / "components" / "bb_fake", [], [])
             self.assertIn("_(none)_", text)
 
     def test_render_deps_nonempty(self):
         with tempfile.TemporaryDirectory() as td:
-            text = _render_deps(Path(td), "bb_fake", ["bb_core"], ["bb_log"])
+            text = _render_deps(Path(td), Path(td) / "components" / "bb_fake", ["bb_core"], ["bb_log"])
             self.assertIn("`bb_core`", text)
             self.assertIn("`bb_log`", text)
 
     def test_render_deps_merges_requires_and_priv_requires_sorted(self):
         with tempfile.TemporaryDirectory() as td:
-            text = _render_deps(Path(td), "bb_fake", ["bb_z"], ["bb_a"])
+            text = _render_deps(Path(td), Path(td) / "components" / "bb_fake", ["bb_z"], ["bb_a"])
             self.assertLess(text.index("bb_a"), text.index("bb_z"))
 
     def test_render_deps_table_header(self):
         with tempfile.TemporaryDirectory() as td:
-            text = _render_deps(Path(td), "bb_fake", ["bb_core"], [])
+            text = _render_deps(Path(td), Path(td) / "components" / "bb_fake", ["bb_core"], [])
             self.assertIn("| Component | Kind | Role | Docs |", text)
 
 
 class TestRenderDepsKind(unittest.TestCase):
     def test_requires_only_is_public(self):
         with tempfile.TemporaryDirectory() as td:
-            text = _render_deps(Path(td), "bb_fake", ["bb_core"], [])
+            text = _render_deps(Path(td), Path(td) / "components" / "bb_fake", ["bb_core"], [])
             self.assertIn("| `bb_core` | public |", text)
 
     def test_priv_requires_only_is_private(self):
         with tempfile.TemporaryDirectory() as td:
-            text = _render_deps(Path(td), "bb_fake", [], ["bb_log"])
+            text = _render_deps(Path(td), Path(td) / "components" / "bb_fake", [], ["bb_log"])
             self.assertIn("| `bb_log` | private |", text)
 
     def test_dep_in_both_requires_and_priv_requires_is_public(self):
         with tempfile.TemporaryDirectory() as td:
-            text = _render_deps(Path(td), "bb_fake", ["bb_core"], ["bb_core"])
+            text = _render_deps(Path(td), Path(td) / "components" / "bb_fake", ["bb_core"], ["bb_core"])
             self.assertIn("| `bb_core` | public |", text)
             self.assertEqual(text.count("bb_core"), 2)  # one row only (deduped)
 
@@ -244,44 +244,54 @@ class TestRenderDepsKind(unittest.TestCase):
         # A component listing itself in REQUIRES is malformed CMake but must
         # not crash the generator — it renders as an ordinary (public) row.
         with tempfile.TemporaryDirectory() as td:
-            text = _render_deps(Path(td), "bb_fake", ["bb_fake"], [])
+            text = _render_deps(Path(td), Path(td) / "components" / "bb_fake", ["bb_fake"], [])
             self.assertIn("| `bb_fake` | public |", text)
 
 
     def test_render_deps_escapes_pipe_in_role(self):
         """B1-1135: a `|` in a dep's README first sentence (e.g. describing
         a pub/sub topic union) must not split the Role table cell."""
+        build_index.cache_clear()
+        self.addCleanup(build_index.cache_clear)
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             dep = root / "components" / "bb_dep"
             dep.mkdir(parents=True)
+            (dep / "CMakeLists.txt").write_text("", encoding="utf-8")
             (dep / "README.md").write_text(
                 "# bb_dep\n\nPublishes to topic foo|bar.\n",
                 encoding="utf-8",
             )
-            text = _render_deps(root, "bb_fake", ["bb_dep"], [])
+            text = _render_deps(root, root / "components" / "bb_fake", ["bb_dep"], [])
             self.assertIn("| `bb_dep` | public | Publishes to topic foo\\|bar. |", text)
 
 
 class TestDepRoleAndLink(unittest.TestCase):
+    def setUp(self):
+        build_index.cache_clear()
+        self.addCleanup(build_index.cache_clear)
+
     def test_dep_with_readme_uses_first_sentence_and_own_readme_link(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             dep = root / "components" / "bb_dep"
             dep.mkdir(parents=True)
+            (dep / "CMakeLists.txt").write_text("", encoding="utf-8")
             (dep / "README.md").write_text(
                 "# bb_dep\n\nFirst sentence here. Second sentence ignored.\n",
                 encoding="utf-8",
             )
-            role, link = _dep_role_and_link(root, "bb_dep")
+            role, link = _dep_role_and_link(root, root / "components" / "bb_fake", "bb_dep")
             self.assertEqual(role, "First sentence here.")
             self.assertEqual(link, "../bb_dep/README.md")
 
     def test_local_component_dir_with_no_readme_falls_back_to_index(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            (root / "components" / "bb_bare").mkdir(parents=True)
-            role, link = _dep_role_and_link(root, "bb_bare")
+            bare = root / "components" / "bb_bare"
+            bare.mkdir(parents=True)
+            (bare / "CMakeLists.txt").write_text("", encoding="utf-8")
+            role, link = _dep_role_and_link(root, root / "components" / "bb_fake", "bb_bare")
             self.assertEqual(role, "—")
             self.assertEqual(link, "../README.md")
 
@@ -290,13 +300,57 @@ class TestDepRoleAndLink(unittest.TestCase):
         # (e.g. esp_timer, freertos): plain text, no link, role "—".
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            role, link = _dep_role_and_link(root, "esp_timer")
+            role, link = _dep_role_and_link(root, root / "components" / "bb_fake", "esp_timer")
             self.assertEqual(role, "—")
             self.assertIsNone(link)
 
+    def test_dep_resolves_across_group_nesting_via_discovery_index(self):
+        # B1-1162: a dep grouped under components/<group>/<dep>/ must still
+        # resolve, and the link must be relative to the CONSUMING
+        # component's own directory (which may itself be nested one level
+        # deeper, or not nested at all) rather than assumed one level under
+        # components/ -- a flat root/components/<dep> lookup or a
+        # link computed relative to components/ (not comp_dir) both break
+        # this case.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dep = root / "components" / "storage" / "bb_storage"
+            dep.mkdir(parents=True)
+            (dep / "CMakeLists.txt").write_text("", encoding="utf-8")
+            (dep / "README.md").write_text(
+                "# bb_storage\n\nPortable storage facade.\n", encoding="utf-8",
+            )
+            # consumer NOT itself grouped (one level under components/)
+            consumer_dir = root / "components" / "bb_config"
+            role, link = _dep_role_and_link(root, consumer_dir, "bb_storage")
+            self.assertEqual(role, "Portable storage facade.")
+            self.assertEqual(link, "../storage/bb_storage/README.md")
+            # consumer ALSO grouped, sibling of the dep
+            sibling_dir = root / "components" / "storage" / "bb_storage_ram"
+            role, link = _dep_role_and_link(root, sibling_dir, "bb_storage")
+            self.assertEqual(role, "Portable storage facade.")
+            self.assertEqual(link, "../bb_storage/README.md")
+
+    def test_nested_consumer_dep_with_no_readme_falls_back_to_top_level_index(self):
+        # B1-1162 review follow-up: the has-no-README fallback branch must
+        # ALSO be relpath-computed from the consuming component's own
+        # directory, not a hardcoded "../README.md" -- for a consumer
+        # nested under components/<group>/, "../README.md" resolves to
+        # components/<group>/README.md (the group index), NOT the intended
+        # top-level components/README.md.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bare = root / "components" / "storage" / "bb_bare"
+            bare.mkdir(parents=True)
+            (bare / "CMakeLists.txt").write_text("", encoding="utf-8")
+            nested_consumer = root / "components" / "storage" / "bb_storage_ram"
+            role, link = _dep_role_and_link(root, nested_consumer, "bb_bare")
+            self.assertEqual(role, "—")
+            self.assertEqual(link, "../../README.md")
+
     def test_render_deps_renders_external_dep_as_plain_text(self):
         with tempfile.TemporaryDirectory() as td:
-            text = _render_deps(Path(td), "bb_fake", [], ["freertos"])
+            text = _render_deps(Path(td), Path(td) / "components" / "bb_fake", [], ["freertos"])
             self.assertIn("| `freertos` | private | — | freertos |", text)
             self.assertNotIn("[freertos]", text)
 
@@ -304,10 +358,11 @@ class TestDepRoleAndLink(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / "components" / "bb_dep").mkdir(parents=True)
+            (root / "components" / "bb_dep" / "CMakeLists.txt").write_text("", encoding="utf-8")
             (root / "components" / "bb_dep" / "README.md").write_text(
                 "# bb_dep\n\nDep purpose.\n", encoding="utf-8",
             )
-            text = _render_deps(root, "bb_fake", ["bb_dep"], [])
+            text = _render_deps(root, root / "components" / "bb_fake", ["bb_dep"], [])
             self.assertIn("[bb_dep](../bb_dep/README.md)", text)
 
 

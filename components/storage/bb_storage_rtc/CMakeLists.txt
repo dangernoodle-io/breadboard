@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_storage_rtc/bb_storage_rtc.c"
+    SRCS "${CMAKE_CURRENT_LIST_DIR}/../../../platform/espidf/bb_storage_rtc/bb_storage_rtc.c"
          "${CMAKE_CURRENT_LIST_DIR}/bb_storage_rtc_region.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core

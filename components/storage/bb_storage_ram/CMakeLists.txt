@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_storage_ram/bb_storage_ram.c"
+    SRCS "${CMAKE_CURRENT_LIST_DIR}/../../../platform/host/bb_storage_ram/bb_storage_ram.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
     PRIV_REQUIRES bb_storage bb_str bb_log
