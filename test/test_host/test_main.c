@@ -912,6 +912,14 @@ void test_bb_mqtt_client_health_section_meta_golden_matches_hand_fragment(void);
 void test_bb_temp_health_meta_validates_against_desc(void);
 void test_bb_temp_health_meta_golden_matches_hand_fragment(void);
 
+// Forward declarations from test_bb_health_schema_composite_meta_golden.c
+// (B1-1181b) -- proves the /api/health composite schema assembly splices
+// real producer sections' schema_props (reconstructed via
+// test_meta_fragment.h from each section's real _desc/_meta) in
+// registration order.
+void test_bb_health_schema_composite_meta_golden_mqtt_then_temp(void);
+void test_bb_health_schema_composite_meta_golden_wrong_order_fails_to_match(void);
+
 // Forward declarations from test_bb_system_reboot_meta_golden.c (B1-1181a)
 // -- NOT a oneOf: "ts" bound twice (U64 + F64 divergence-guard shadow),
 // only the U64 occurrence is documented/rendered.
@@ -10206,6 +10214,8 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_client_health_section_meta_golden_matches_hand_fragment);
     RUN_TEST(test_bb_temp_health_meta_validates_against_desc);
     RUN_TEST(test_bb_temp_health_meta_golden_matches_hand_fragment);
+    RUN_TEST(test_bb_health_schema_composite_meta_golden_mqtt_then_temp);
+    RUN_TEST(test_bb_health_schema_composite_meta_golden_wrong_order_fails_to_match);
     RUN_TEST(test_bb_system_reboot_meta_validates_against_desc);
     RUN_TEST(test_bb_system_reboot_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_storage_http_delete_apply_meta_validates_against_desc);
