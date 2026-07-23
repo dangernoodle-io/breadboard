@@ -927,6 +927,11 @@ void test_bb_storage_http_delete_wire_meta_golden_matches_hand_literal(void);
 void test_bb_diag_heap_check_wire_meta_validates_against_desc(void);
 void test_bb_diag_heap_check_wire_meta_golden_matches_hand_literal(void);
 
+// Forward declarations from test_bb_diag_panic_get_wire_meta_golden.c
+// (B1-1188 diag conversion)
+void test_bb_diag_panic_get_wire_meta_validates_against_desc(void);
+void test_bb_diag_panic_get_wire_meta_golden_matches_hand_literal(void);
+
 // Forward declarations from test_bb_storage_http_factory_reset_meta_golden.c
 // (B1-1059 PR-2b-i-1)
 void test_bb_storage_http_factory_reset_meta_validates_against_desc(void);
@@ -1442,6 +1447,19 @@ void test_bb_storage_http_delete_wire_key_included_when_present(void);
 void test_bb_diag_heap_check_wire_expected_json_true(void);
 void test_bb_diag_heap_check_wire_expected_json_false(void);
 void test_bb_diag_heap_check_wire_fill_zero_inits(void);
+
+// Forward declarations from test_bb_diag_panic_get_wire.c
+void test_bb_diag_panic_get_wire_nothing_available(void);
+void test_bb_diag_panic_get_wire_available_only(void);
+void test_bb_diag_panic_get_wire_available_with_log_tail(void);
+void test_bb_diag_panic_get_wire_coredump_full(void);
+void test_bb_diag_panic_get_wire_coredump_empty_optional_fields(void);
+void test_bb_diag_panic_get_wire_coredump_avail_but_get_failed(void);
+void test_bb_diag_panic_get_wire_available_coredump_and_logtail(void);
+void test_bb_diag_panic_get_wire_fill_zero_inits(void);
+void test_bb_diag_panic_get_wire_null_reset_reason(void);
+void test_bb_diag_panic_get_wire_log_tail_present_but_null_buffer(void);
+void test_bb_diag_panic_get_wire_coredump_backtrace_count_clamped(void);
 
 // Forward declarations from test_bb_storage_http_factory_reset.c
 void test_storage_http_factory_reset_no_body_returns_400(void);
@@ -6282,6 +6300,19 @@ int main(void) {
     RUN_TEST(test_bb_diag_heap_check_wire_fill_zero_inits);
     RUN_TEST(test_bb_diag_heap_check_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_diag_heap_check_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_diag_panic_get_wire_nothing_available);
+    RUN_TEST(test_bb_diag_panic_get_wire_available_only);
+    RUN_TEST(test_bb_diag_panic_get_wire_available_with_log_tail);
+    RUN_TEST(test_bb_diag_panic_get_wire_coredump_full);
+    RUN_TEST(test_bb_diag_panic_get_wire_coredump_empty_optional_fields);
+    RUN_TEST(test_bb_diag_panic_get_wire_coredump_avail_but_get_failed);
+    RUN_TEST(test_bb_diag_panic_get_wire_available_coredump_and_logtail);
+    RUN_TEST(test_bb_diag_panic_get_wire_fill_zero_inits);
+    RUN_TEST(test_bb_diag_panic_get_wire_null_reset_reason);
+    RUN_TEST(test_bb_diag_panic_get_wire_log_tail_present_but_null_buffer);
+    RUN_TEST(test_bb_diag_panic_get_wire_coredump_backtrace_count_clamped);
+    RUN_TEST(test_bb_diag_panic_get_wire_meta_validates_against_desc);
+    RUN_TEST(test_bb_diag_panic_get_wire_meta_golden_matches_hand_literal);
 
     // POST /api/diag/factory-reset route tests (B1-960, rehomed off bb_nv)
     RUN_TEST(test_storage_http_factory_reset_no_body_returns_400);
