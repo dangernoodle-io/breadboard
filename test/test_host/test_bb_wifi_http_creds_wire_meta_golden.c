@@ -12,17 +12,21 @@
 // Fidelity finding vs the hand-authored s_wifi_patch_route.request_schema
 // literal (bb_wifi_http_routes.c): the "properties"/"required" content is
 // BYTE-IDENTICAL modulo one documented delta:
-//   1. "maxLength" (31 for ssid, 63 for password in the hand literal) has
-//      no bb_serialize_field_meta_t equivalent (only "minLength" via
-//      min_len is supported) -- so the engine's rendering simply omits it.
-//      Buffer sizing/truncation-safety is instead enforced at the wire
-//      layer (BB_WIFI_HTTP_CREDS_WIRE_SSID_BUF/PASS_BUF, see
-//      bb_wifi_http_creds_wire_priv.h) plus wifi_creds_apply()'s explicit
-//      bb_wifi_pending_validate_buf() re-check -- not by this schema.
-//   2. a trailing "additionalProperties":false -- the engine always closes
+//   1. a trailing "additionalProperties":false -- the engine always closes
 //      every rendered object (same policy proven by every other golden in
 //      test_bb_serialize_meta_openapi.c); the hand literal predates that
 //      policy and never set it.
+//
+// B1-1186: "maxLength" (31 for ssid, 63 for password) now emits from the
+// meta table's `.max_len` (bb_wifi_http_creds_wire.c), matching the hand
+// literal exactly -- no longer a documented delta. `.max_len` there
+// carries the true validation bound (BB_WIFI_PENDING_SSID_MAX/PASS_MAX),
+// distinct from the base descriptor's oversized wire max_len (64/96, see
+// bb_wifi_http_creds_wire_priv.h) which exists purely for reject-vs-
+// truncate buffer sizing. Buffer sizing/truncation-safety remains enforced
+// at the wire layer (BB_WIFI_HTTP_CREDS_WIRE_SSID_BUF/PASS_BUF) plus
+// wifi_creds_apply()'s explicit bb_wifi_pending_validate_buf() re-check --
+// this schema now documents the same bound for API consumers too.
 #if defined(BB_SERIALIZE_META_HOST)
 
 #include "unity.h"
@@ -36,11 +40,11 @@
 // Byte-fidelity target: s_wifi_patch_route's request_schema
 // "properties"/"required" content, re-expressed as
 // bb_serialize_meta_openapi_schema()'s fixed object-schema shape (see file
-// banner for the two documented deltas).
+// banner for the one remaining documented delta).
 static const char *const k_expected_meta_schema =
     "{\"type\":\"object\",\"properties\":{"
-    "\"ssid\":{\"type\":\"string\"},"
-    "\"password\":{\"type\":\"string\"}},"
+    "\"ssid\":{\"type\":\"string\",\"maxLength\":31},"
+    "\"password\":{\"type\":\"string\",\"maxLength\":63}},"
     "\"required\":[\"ssid\"],"
     "\"additionalProperties\":false}";
 

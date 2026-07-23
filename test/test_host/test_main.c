@@ -842,6 +842,10 @@ void test_bb_serialize_meta_validate_oneof_missing_branches(void);
 void test_bb_serialize_meta_validate_oneof_null_branch_entry(void);
 void test_bb_serialize_meta_validate_duplicate_key_with_no_annotation_rejected(void);
 void test_bb_serialize_meta_validate_non_contiguous_duplicate_key_rejected(void);
+void test_bb_serialize_meta_validate_max_len_on_non_string_field(void);
+void test_bb_serialize_meta_validate_min_len_greater_than_max_len(void);
+void test_bb_serialize_meta_validate_max_len_exceeds_field_max_len(void);
+void test_bb_serialize_meta_validate_min_len_and_max_len_happy_path(void);
 
 // Forward declarations from test_bb_serialize_meta_openapi.c
 void test_bb_serialize_meta_openapi_widget_golden(void);
@@ -860,6 +864,7 @@ void test_bb_serialize_meta_openapi_occurrence_tagged_field_reboot_shaped(void);
 void test_bb_serialize_meta_openapi_occurrence_tagged_field_non_zero_occurrence(void);
 void test_bb_serialize_meta_openapi_duplicate_key_no_row_falls_back_to_first_occurrence(void);
 void test_bb_serialize_meta_openapi_oneof_null_branches_defensive(void);
+void test_bb_serialize_meta_openapi_max_len_emits(void);
 
 // Forward declarations from test_bb_wifi_http_wire_meta_golden.c (B1-1059
 // PR-2a exemplar)
@@ -10251,6 +10256,10 @@ int main(void) {
     RUN_TEST(test_bb_serialize_meta_validate_oneof_null_branch_entry);
     RUN_TEST(test_bb_serialize_meta_validate_duplicate_key_with_no_annotation_rejected);
     RUN_TEST(test_bb_serialize_meta_validate_non_contiguous_duplicate_key_rejected);
+    RUN_TEST(test_bb_serialize_meta_validate_max_len_on_non_string_field);
+    RUN_TEST(test_bb_serialize_meta_validate_min_len_greater_than_max_len);
+    RUN_TEST(test_bb_serialize_meta_validate_max_len_exceeds_field_max_len);
+    RUN_TEST(test_bb_serialize_meta_validate_min_len_and_max_len_happy_path);
 
     RUN_TEST(test_bb_serialize_meta_openapi_widget_golden);
     RUN_TEST(test_bb_serialize_meta_openapi_no_meta_at_all);
@@ -10268,6 +10277,7 @@ int main(void) {
     RUN_TEST(test_bb_serialize_meta_openapi_occurrence_tagged_field_non_zero_occurrence);
     RUN_TEST(test_bb_serialize_meta_openapi_duplicate_key_no_row_falls_back_to_first_occurrence);
     RUN_TEST(test_bb_serialize_meta_openapi_oneof_null_branches_defensive);
+    RUN_TEST(test_bb_serialize_meta_openapi_max_len_emits);
 
     RUN_TEST(test_bb_wifi_http_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_wifi_http_wire_meta_golden_matches_hand_literal);

@@ -170,9 +170,10 @@ static bb_err_t validate_fields(const bb_serialize_field_t *fields, uint16_t n_f
         bool str_shaped = is_string_shaped(f);
         bool numeric     = is_numeric(f->type);
 
-        if ((r->min_len != 0 || r->enum_vals != NULL) && !str_shaped) {
+        if ((r->min_len != 0 || r->max_len != 0 || r->enum_vals != NULL) && !str_shaped) {
             snprintf(err, err_len,
-                     "%s.%s: min_len/enum_vals only valid for string-shaped fields", path, f->key);
+                     "%s.%s: min_len/max_len/enum_vals only valid for string-shaped fields",
+                     path, f->key);
             return BB_ERR_VALIDATION;
         }
 
@@ -187,8 +188,18 @@ static bb_err_t validate_fields(const bb_serialize_field_t *fields, uint16_t n_f
             return BB_ERR_VALIDATION;
         }
 
+        if (r->min_len != 0 && r->max_len != 0 && r->min_len > r->max_len) {
+            snprintf(err, err_len, "%s.%s: min_len exceeds max_len", path, f->key);
+            return BB_ERR_VALIDATION;
+        }
+
         if (r->min_len != 0 && f->max_len != 0 && r->min_len > f->max_len) {
             snprintf(err, err_len, "%s.%s: min_len exceeds field max_len", path, f->key);
+            return BB_ERR_VALIDATION;
+        }
+
+        if (r->max_len != 0 && f->max_len != 0 && r->max_len > f->max_len) {
+            snprintf(err, err_len, "%s.%s: max_len exceeds field max_len", path, f->key);
             return BB_ERR_VALIDATION;
         }
 

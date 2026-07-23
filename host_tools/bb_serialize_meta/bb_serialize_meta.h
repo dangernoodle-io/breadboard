@@ -48,8 +48,16 @@ typedef struct bb_serialize_field_meta_s {
     // -- validation --
     bool     required;   // schema-level contract; DISTINCT from bb_serialize_field_t.present
                           // (a runtime emit predicate) -- no cross-check performed
-    uint16_t min_len;     // string/array min length; 0 = unset. max_len is NOT duplicated
-                           // here -- it stays on the base field for sizing/safety
+    uint16_t min_len;     // string/array min length; 0 = unset.
+    uint16_t max_len;     // string/array max length (schema "maxLength"); 0 = unset.
+                          // DISTINCT from the base bb_serialize_field_t.max_len, which
+                          // sizes the wire buffer/truncation safety cap and may be
+                          // deliberately LARGER than the true validation bound (e.g.
+                          // bb_wifi_http_creds_wire_t oversizes ssid/pass so an
+                          // overlong value is detectable rather than silently
+                          // truncated) -- this field carries the real schema-level
+                          // bound. Enforced by bb_serialize_meta_validate() to never
+                          // exceed the base field's max_len.
     bool     has_min;
     bool     has_max;
     double   min;         // numeric lower bound; ignored unless has_min
@@ -153,10 +161,11 @@ typedef struct {
 
 // Validates that `meta` is a structurally-consistent companion to `desc`:
 // type_name match, exactly one meta row per base field (no missing / no
-// orphan rows), type/constraint agreement (enum_vals/min_len only for
-// STR/STR_N/ARR-of-STR fields; min/max/has_min/has_max only for numeric
-// fields), bounds sanity (has_min && has_max => min <= max; min_len <=
-// base field.max_len), and recurses into `children` for BB_TYPE_OBJ /
+// orphan rows), type/constraint agreement (enum_vals/min_len/max_len only
+// for STR/STR_N/ARR-of-STR fields; min/max/has_min/has_max only for
+// numeric fields), bounds sanity (has_min && has_max => min <= max;
+// min_len <= max_len; min_len/max_len <= base field.max_len), and
+// recurses into `children` for BB_TYPE_OBJ /
 // ARR-of-OBJ fields (bounded by BB_SERIALIZE_MAX_DEPTH). First-error
 // semantics: stops at the first violation and writes a human-readable
 // path+key reason into `err` (truncated, always NUL-terminated within

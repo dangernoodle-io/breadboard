@@ -216,6 +216,12 @@ static void bb_oa_write_field_schema(bb_oa_ctx_t *ctx, const bb_serialize_field_
             int  n = snprintf(num, sizeof(num), "%u", (unsigned)row->min_len);
             bb_oa_put(ctx, num, (size_t)n);
         }
+        if (row->max_len) {
+            bb_oa_puts(ctx, ",\"maxLength\":");
+            char num[8];
+            int  n = snprintf(num, sizeof(num), "%u", (unsigned)row->max_len);
+            bb_oa_put(ctx, num, (size_t)n);
+        }
         if (row->has_min) {
             bb_oa_puts(ctx, ",\"minimum\":");
             char num[32];
