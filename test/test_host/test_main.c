@@ -950,6 +950,11 @@ void test_bb_ota_check_wire_meta_golden_matches_hand_literal(void);
 void test_bb_diag_boot_wire_meta_validates_against_desc(void);
 void test_bb_diag_boot_wire_meta_golden_matches_hand_literal(void);
 
+// Forward declarations from test_bb_diag_boot_wire_envelope_meta_golden.c
+// (B1-1189)
+void test_bb_diag_boot_wire_envelope_meta_validates_against_desc(void);
+void test_bb_diag_boot_wire_envelope_meta_golden_matches_hand_literal(void);
+
 // Forward declarations from test_bb_display_info_wire_meta_golden.c
 // (B1-1179)
 void test_bb_display_info_wire_meta_validates_against_desc(void);
@@ -10337,6 +10342,8 @@ int main(void) {
     RUN_TEST(test_bb_ota_check_wire_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_diag_boot_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_diag_boot_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_diag_boot_wire_envelope_meta_validates_against_desc);
+    RUN_TEST(test_bb_diag_boot_wire_envelope_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_display_info_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_display_info_wire_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_mqtt_client_health_section_meta_validates_against_desc);
