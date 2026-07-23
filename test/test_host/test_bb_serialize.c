@@ -412,6 +412,240 @@ void test_bb_serialize_arr_of_strings_empty(void)
 }
 
 // ---------------------------------------------------------------------------
+// 6b. ARR of scalars (I64/U64/F64/BOOL)
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    bb_serialize_arr_t nums;
+} arr_i64_snap_t;
+
+static const bb_serialize_field_t s_arr_i64_fields[] = {
+    { .key = "nums", .type = BB_TYPE_ARR, .offset = offsetof(arr_i64_snap_t, nums),
+      .elem_type = BB_TYPE_I64 },
+};
+
+static const bb_serialize_desc_t s_arr_i64_desc = {
+    .type_name = "arr_i64_snap_t",
+    .fields = s_arr_i64_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(arr_i64_snap_t),
+};
+
+void test_bb_serialize_arr_of_i64(void)
+{
+    rec_reset();
+    const int64_t vals[] = { 1, 2, 3 };
+    arr_i64_snap_t snap = { .nums = { .items = vals, .count = 3 } };
+
+    bb_serialize_walk(&s_arr_i64_desc, &snap, &s_mock_emit);
+
+    TEST_ASSERT_EQUAL_UINT(5, s_rec_n);
+    TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
+    assert_key("nums", s_rec[0].key);
+    TEST_ASSERT_EQUAL(OP_I64, s_rec[1].op);
+    assert_key(NULL, s_rec[1].key);
+    TEST_ASSERT_EQUAL_INT64(1, s_rec[1].num.i64);
+    TEST_ASSERT_EQUAL(OP_I64, s_rec[2].op);
+    TEST_ASSERT_EQUAL_INT64(2, s_rec[2].num.i64);
+    TEST_ASSERT_EQUAL(OP_I64, s_rec[3].op);
+    TEST_ASSERT_EQUAL_INT64(3, s_rec[3].num.i64);
+    TEST_ASSERT_EQUAL(OP_END_ARR, s_rec[4].op);
+}
+
+void test_bb_serialize_arr_of_i64_empty(void)
+{
+    rec_reset();
+    arr_i64_snap_t snap = { .nums = { .items = NULL, .count = 0 } };
+
+    bb_serialize_walk(&s_arr_i64_desc, &snap, &s_mock_emit);
+
+    TEST_ASSERT_EQUAL_UINT(2, s_rec_n);
+    TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
+    TEST_ASSERT_EQUAL(OP_END_ARR, s_rec[1].op);
+}
+
+void test_bb_serialize_arr_of_i64_single(void)
+{
+    rec_reset();
+    const int64_t vals[] = { 42 };
+    arr_i64_snap_t snap = { .nums = { .items = vals, .count = 1 } };
+
+    bb_serialize_walk(&s_arr_i64_desc, &snap, &s_mock_emit);
+
+    TEST_ASSERT_EQUAL_UINT(3, s_rec_n);
+    TEST_ASSERT_EQUAL(OP_I64, s_rec[1].op);
+    TEST_ASSERT_EQUAL_INT64(42, s_rec[1].num.i64);
+}
+
+typedef struct {
+    bb_serialize_arr_t nums;
+} arr_u64_snap_t;
+
+static const bb_serialize_field_t s_arr_u64_fields[] = {
+    { .key = "nums", .type = BB_TYPE_ARR, .offset = offsetof(arr_u64_snap_t, nums),
+      .elem_type = BB_TYPE_U64 },
+};
+
+static const bb_serialize_desc_t s_arr_u64_desc = {
+    .type_name = "arr_u64_snap_t",
+    .fields = s_arr_u64_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(arr_u64_snap_t),
+};
+
+void test_bb_serialize_arr_of_u64(void)
+{
+    rec_reset();
+    const uint64_t vals[] = { 10, 20 };
+    arr_u64_snap_t snap = { .nums = { .items = vals, .count = 2 } };
+
+    bb_serialize_walk(&s_arr_u64_desc, &snap, &s_mock_emit);
+
+    TEST_ASSERT_EQUAL_UINT(4, s_rec_n);
+    TEST_ASSERT_EQUAL(OP_U64, s_rec[1].op);
+    TEST_ASSERT_EQUAL_UINT64(10, s_rec[1].num.u64);
+    TEST_ASSERT_EQUAL(OP_U64, s_rec[2].op);
+    TEST_ASSERT_EQUAL_UINT64(20, s_rec[2].num.u64);
+}
+
+void test_bb_serialize_arr_of_u64_empty(void)
+{
+    rec_reset();
+    arr_u64_snap_t snap = { .nums = { .items = NULL, .count = 0 } };
+
+    bb_serialize_walk(&s_arr_u64_desc, &snap, &s_mock_emit);
+
+    TEST_ASSERT_EQUAL_UINT(2, s_rec_n);
+    TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
+    TEST_ASSERT_EQUAL(OP_END_ARR, s_rec[1].op);
+}
+
+void test_bb_serialize_arr_of_u64_single(void)
+{
+    rec_reset();
+    const uint64_t vals[] = { 42 };
+    arr_u64_snap_t snap = { .nums = { .items = vals, .count = 1 } };
+
+    bb_serialize_walk(&s_arr_u64_desc, &snap, &s_mock_emit);
+
+    TEST_ASSERT_EQUAL_UINT(3, s_rec_n);
+    TEST_ASSERT_EQUAL(OP_U64, s_rec[1].op);
+    TEST_ASSERT_EQUAL_UINT64(42, s_rec[1].num.u64);
+}
+
+typedef struct {
+    bb_serialize_arr_t nums;
+} arr_f64_snap_t;
+
+static const bb_serialize_field_t s_arr_f64_fields[] = {
+    { .key = "nums", .type = BB_TYPE_ARR, .offset = offsetof(arr_f64_snap_t, nums),
+      .elem_type = BB_TYPE_F64 },
+};
+
+static const bb_serialize_desc_t s_arr_f64_desc = {
+    .type_name = "arr_f64_snap_t",
+    .fields = s_arr_f64_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(arr_f64_snap_t),
+};
+
+void test_bb_serialize_arr_of_f64(void)
+{
+    rec_reset();
+    const double vals[] = { 1.5, -2.25 };
+    arr_f64_snap_t snap = { .nums = { .items = vals, .count = 2 } };
+
+    bb_serialize_walk(&s_arr_f64_desc, &snap, &s_mock_emit);
+
+    TEST_ASSERT_EQUAL_UINT(4, s_rec_n);
+    TEST_ASSERT_EQUAL(OP_F64, s_rec[1].op);
+    TEST_ASSERT_EQUAL_DOUBLE(1.5, s_rec[1].num.f64);
+    TEST_ASSERT_EQUAL(OP_F64, s_rec[2].op);
+    TEST_ASSERT_EQUAL_DOUBLE(-2.25, s_rec[2].num.f64);
+}
+
+void test_bb_serialize_arr_of_f64_empty(void)
+{
+    rec_reset();
+    arr_f64_snap_t snap = { .nums = { .items = NULL, .count = 0 } };
+
+    bb_serialize_walk(&s_arr_f64_desc, &snap, &s_mock_emit);
+
+    TEST_ASSERT_EQUAL_UINT(2, s_rec_n);
+    TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
+    TEST_ASSERT_EQUAL(OP_END_ARR, s_rec[1].op);
+}
+
+void test_bb_serialize_arr_of_f64_single(void)
+{
+    rec_reset();
+    const double vals[] = { 1.5 };
+    arr_f64_snap_t snap = { .nums = { .items = vals, .count = 1 } };
+
+    bb_serialize_walk(&s_arr_f64_desc, &snap, &s_mock_emit);
+
+    TEST_ASSERT_EQUAL_UINT(3, s_rec_n);
+    TEST_ASSERT_EQUAL(OP_F64, s_rec[1].op);
+    TEST_ASSERT_EQUAL_DOUBLE(1.5, s_rec[1].num.f64);
+}
+
+typedef struct {
+    bb_serialize_arr_t flags;
+} arr_bool_snap_t;
+
+static const bb_serialize_field_t s_arr_bool_fields[] = {
+    { .key = "flags", .type = BB_TYPE_ARR, .offset = offsetof(arr_bool_snap_t, flags),
+      .elem_type = BB_TYPE_BOOL },
+};
+
+static const bb_serialize_desc_t s_arr_bool_desc = {
+    .type_name = "arr_bool_snap_t",
+    .fields = s_arr_bool_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(arr_bool_snap_t),
+};
+
+void test_bb_serialize_arr_of_bool(void)
+{
+    rec_reset();
+    const bool vals[] = { true, false };
+    arr_bool_snap_t snap = { .flags = { .items = vals, .count = 2 } };
+
+    bb_serialize_walk(&s_arr_bool_desc, &snap, &s_mock_emit);
+
+    TEST_ASSERT_EQUAL_UINT(4, s_rec_n);
+    TEST_ASSERT_EQUAL(OP_BOOL, s_rec[1].op);
+    TEST_ASSERT_TRUE(s_rec[1].num.b);
+    TEST_ASSERT_EQUAL(OP_BOOL, s_rec[2].op);
+    TEST_ASSERT_FALSE(s_rec[2].num.b);
+}
+
+void test_bb_serialize_arr_of_bool_empty(void)
+{
+    rec_reset();
+    arr_bool_snap_t snap = { .flags = { .items = NULL, .count = 0 } };
+
+    bb_serialize_walk(&s_arr_bool_desc, &snap, &s_mock_emit);
+
+    TEST_ASSERT_EQUAL_UINT(2, s_rec_n);
+    TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
+    TEST_ASSERT_EQUAL(OP_END_ARR, s_rec[1].op);
+}
+
+void test_bb_serialize_arr_of_bool_single(void)
+{
+    rec_reset();
+    const bool vals[] = { true };
+    arr_bool_snap_t snap = { .flags = { .items = vals, .count = 1 } };
+
+    bb_serialize_walk(&s_arr_bool_desc, &snap, &s_mock_emit);
+
+    TEST_ASSERT_EQUAL_UINT(3, s_rec_n);
+    TEST_ASSERT_EQUAL(OP_BOOL, s_rec[1].op);
+    TEST_ASSERT_TRUE(s_rec[1].num.b);
+}
+
+// ---------------------------------------------------------------------------
 // 7. ARR of OBJ
 // ---------------------------------------------------------------------------
 
