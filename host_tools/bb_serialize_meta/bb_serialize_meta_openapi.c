@@ -152,6 +152,10 @@ static void bb_oa_write_items(bb_oa_ctx_t *ctx, const bb_serialize_field_t *f,
             uint16_t child_n_rows = row ? row->n_children : 0;
             bb_oa_puts(ctx, ",\"properties\":{");
             bool first = true;
+            // Plain bb_oa_find_row() lookup, no occurrence/oneOf awareness
+            // (B1-1181a) -- a duplicate-`.key` group nested inside an
+            // ARR-of-OBJ element is unsupported; only descriptor-top-level
+            // duplicate keys are.
             for (uint16_t i = 0; i < f->n_children; i++) {
                 if (!first) bb_oa_putc(ctx, ',');
                 first = false;
@@ -168,6 +172,32 @@ static void bb_oa_write_items(bb_oa_ctx_t *ctx, const bb_serialize_field_t *f,
         bb_oa_puts(ctx, "\"type\":");
         bb_oa_write_type(ctx, f->elem_type);
     }
+    bb_oa_putc(ctx, '}');
+}
+
+// Writes a duplicate-key group's combined JSON Schema "oneOf" (B1-1181a):
+// {"oneOf":[<branch 0 schema>,<branch 1 schema>,...]}[,<docs from `row`>].
+// `first_idx` is the physical `desc->fields[]` index of the key's FIRST
+// occurrence -- branch `k` pairs `desc->fields[first_idx + k]` (the type/
+// constraint source) with `row->branches[k]` (the branch's own docs/
+// constraint row, may be NULL). Docs (title/description/format/examples/
+// enum_vals) attach to `row` itself, never to an individual branch --
+// per-branch rows are consulted ONLY for min_len/has_min/has_max-style
+// constraint rendering inside bb_oa_write_field_schema, never for
+// bb_oa_write_docs.
+static void bb_oa_write_oneof(bb_oa_ctx_t *ctx, const bb_serialize_desc_t *desc, uint16_t first_idx,
+                               const bb_serialize_field_meta_t *row, unsigned depth)
+{
+    bb_oa_putc(ctx, '{');
+    bb_oa_puts(ctx, "\"oneOf\":[");
+    for (uint16_t k = 0; k < row->n_branches; k++) {
+        if (k) bb_oa_putc(ctx, ',');
+        const bb_serialize_field_t      *branch_field = &desc->fields[first_idx + k];
+        const bb_serialize_field_meta_t *branch_row    = row->branches ? row->branches[k] : NULL;
+        bb_oa_write_field_schema(ctx, branch_field, branch_row, depth);
+    }
+    bb_oa_putc(ctx, ']');
+    bb_oa_write_docs(ctx, row);
     bb_oa_putc(ctx, '}');
 }
 
@@ -210,6 +240,9 @@ static void bb_oa_write_field_schema(bb_oa_ctx_t *ctx, const bb_serialize_field_
 
         bb_oa_puts(ctx, ",\"properties\":{");
         bool first_prop = true;
+        // Plain bb_oa_find_row() lookup, no occurrence/oneOf awareness
+        // (B1-1181a) -- a duplicate-`.key` group nested inside a BB_TYPE_OBJ
+        // child is unsupported; only descriptor-top-level duplicate keys are.
         for (uint16_t i = 0; i < f->n_children; i++) {
             if (!first_prop) bb_oa_putc(ctx, ',');
             first_prop = false;
@@ -251,8 +284,35 @@ bb_err_t bb_serialize_meta_openapi_schema(const bb_serialize_desc_t      *desc,
     bool first = true;
     for (uint16_t i = 0; i < desc->n_fields; i++) {
         const bb_serialize_field_t      *f = &desc->fields[i];
+        uint16_t occ_idx   = bb_serialize_meta_occurrence_index(desc->fields, i);
+        uint16_t occ_count = bb_serialize_meta_occurrence_count(desc->fields, desc->n_fields, f->key);
         const bb_serialize_field_meta_t *row =
             meta ? bb_oa_find_row(meta->rows, meta->n_rows, f->key) : NULL;
+
+        // Duplicate-key group (B1-1181a): a "oneOf" row renders ONCE (at
+        // the key's first physical occurrence) combining every occurrence;
+        // an occurrence-tagged FIELD row renders ONLY its tagged occurrence
+        // and every other physical occurrence stays doc-invisible (e.g.
+        // reboot's F64 divergence-guard shadow never surfaces). An
+        // unannotated/missing row (not yet validated -- this composer does
+        // not itself validate) falls back to rendering only the first
+        // physical occurrence, best-effort.
+        if (occ_count > 1) {
+            if (row && row->kind == BB_SERIALIZE_META_KIND_ONEOF) {
+                if (occ_idx != 0) continue;
+                if (!first) bb_oa_putc(&ctx, ',');
+                first = false;
+                bb_oa_put_qstr(&ctx, f->key);
+                bb_oa_putc(&ctx, ':');
+                bb_oa_write_oneof(&ctx, desc, i, row, 0);
+                continue;
+            }
+            if (row && row->kind == BB_SERIALIZE_META_KIND_FIELD) {
+                if (occ_idx != row->occurrence) continue;
+            } else if (occ_idx != 0) {
+                continue;
+            }
+        }
 
         if (!first) bb_oa_putc(&ctx, ',');
         first = false;
@@ -264,7 +324,14 @@ bb_err_t bb_serialize_meta_openapi_schema(const bb_serialize_desc_t      *desc,
 
     bool first_req = true;
     for (uint16_t i = 0; i < desc->n_fields; i++) {
-        const bb_serialize_field_t      *f = &desc->fields[i];
+        const bb_serialize_field_t *f = &desc->fields[i];
+        // Only the key's first physical occurrence governs "required" --
+        // for an ordinary (non-duplicated) key this is every field; for a
+        // duplicate-key group `.required` lives on the ONE meta row for
+        // that key regardless of which occurrence it documents, so
+        // checking it once (at occurrence 0) is both sufficient and
+        // correct.
+        if (bb_serialize_meta_occurrence_index(desc->fields, i) != 0) continue;
         const bb_serialize_field_meta_t *row =
             meta ? bb_oa_find_row(meta->rows, meta->n_rows, f->key) : NULL;
         if (!row || !row->required) continue;

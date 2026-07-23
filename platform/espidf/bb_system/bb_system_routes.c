@@ -127,6 +127,44 @@ static const bb_serialize_desc_t s_reboot_desc = {
     .snap_size = sizeof(bb_system_reboot_apply_t),
 };
 
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1181a) -- co-located JSON Schema companion to
+// s_reboot_desc above, gated behind BB_SERIALIZE_META_HOST (see
+// bb_system.h's banner). NOT a oneOf: the wire binds "ts" TWICE (BB_TYPE_U64
+// + BB_TYPE_F64 divergence-guard shadow, see s_reboot_fields' doc comment
+// above), but the F64 occurrence is an internal check never meant to
+// surface -- the hand-authored POST /api/reboot request_schema below
+// renders "ts":{"type":"integer"} only. The meta row below tags occurrence
+// 0 (the U64 occurrence, kind defaults to BB_SERIALIZE_META_KIND_FIELD) and
+// carries no row for occurrence 1 (the F64 shadow), which
+// bb_serialize_meta_openapi_schema() then leaves doc-invisible -- see
+// test_bb_system_reboot_meta_golden.c for the fidelity proof. Neither field
+// is required per s_reboot_route's request_schema (no "required" array at
+// all -- see the composer's documented "always-emits-required" delta,
+// same as every other exemplar).
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_reboot_meta_rows[] = {
+    { .key = "ts", .occurrence = 0 },
+    { .key = "detail" },
+};
+
+const bb_serialize_desc_meta_t bb_system_reboot_meta = {
+    .type_name = "bb_system_reboot_apply_t",
+    .rows      = s_reboot_meta_rows,
+    .n_rows    = sizeof(s_reboot_meta_rows) / sizeof(s_reboot_meta_rows[0]),
+};
+
+#ifdef BB_SYSTEM_TESTING
+const bb_serialize_desc_t *bb_system_reboot_desc_for_test(void)
+{
+    return &s_reboot_desc;
+}
+#endif /* BB_SYSTEM_TESTING */
+
+#endif /* BB_SERIALIZE_META_HOST */
+
 // Egress hook: exists only to satisfy bb_data_bind()'s non-NULL-gather
 // invariant (a binding with no gather is rejected outright) -- this route is
 // POST-only, so gather is never actually invoked (BB_DATA_APPLY_POST always

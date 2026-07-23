@@ -413,3 +413,258 @@ void test_bb_serialize_meta_validate_null_key_row(void)
         bb_serialize_meta_validate(&bb_fixture_widget_desc, &meta, err, sizeof err));
     TEST_ASSERT_TRUE(strstr(err, "missing key") != NULL);
 }
+
+// ---------------------------------------------------------------------------
+// 15+. B1-1181a -- duplicate-key "oneOf" / occurrence-tagged rows. LOCAL
+// synthetic fixtures only (never the production reboot/storage_delete
+// tables -- see test_bb_system_reboot_meta_golden.c /
+// test_bb_storage_http_delete_apply_meta_golden.c for those).
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    char dup_str[8];
+    bb_serialize_arr_t dup_arr;
+} val_oneof_snap_t;
+
+static const bb_serialize_field_t s_val_oneof_fields[] = {
+    { .key = "dup", .type = BB_TYPE_STR, .offset = offsetof(val_oneof_snap_t, dup_str),
+      .max_len = sizeof(((val_oneof_snap_t *)0)->dup_str) },
+    { .key = "dup", .type = BB_TYPE_ARR, .elem_type = BB_TYPE_STR,
+      .offset = offsetof(val_oneof_snap_t, dup_arr) },
+};
+
+static const bb_serialize_desc_t s_val_oneof_desc = {
+    .type_name = "val_oneof", .fields = s_val_oneof_fields, .n_fields = 2,
+    .snap_size = sizeof(val_oneof_snap_t),
+};
+
+static const bb_serialize_field_meta_t s_val_oneof_branch_rows[] = {
+    { .key = "dup" },
+    { .key = "dup" },
+};
+
+static const bb_serialize_field_meta_t *const s_val_oneof_branches[] = {
+    &s_val_oneof_branch_rows[0], &s_val_oneof_branch_rows[1], NULL,
+};
+
+// 15. Happy path -- a clean 2-branch oneOf key.
+static const bb_serialize_field_meta_t s_val_oneof_rows_ok[] = {
+    { .key = "dup", .kind = BB_SERIALIZE_META_KIND_ONEOF,
+      .branches = s_val_oneof_branches, .n_branches = 2 },
+};
+
+static const bb_serialize_desc_meta_t s_val_oneof_meta_ok = {
+    .type_name = "val_oneof", .rows = s_val_oneof_rows_ok, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_validate_oneof_two_branches_happy_path(void)
+{
+    char err[128] = { 0 };
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_validate(&s_val_oneof_desc, &s_val_oneof_meta_ok, err, sizeof err));
+}
+
+// 16. Happy path -- a reboot-shaped duplicate key where only ONE physical
+// occurrence is ever meant to be documented/surfaced (occurrence-tagged
+// FIELD row, kind defaults to BB_SERIALIZE_META_KIND_FIELD).
+typedef struct {
+    uint64_t ts_real;
+    double   ts_shadow;
+} val_occ_snap_t;
+
+static const bb_serialize_field_t s_val_occ_fields[] = {
+    { .key = "ts", .type = BB_TYPE_U64, .offset = offsetof(val_occ_snap_t, ts_real) },
+    { .key = "ts", .type = BB_TYPE_F64, .offset = offsetof(val_occ_snap_t, ts_shadow) },
+};
+
+static const bb_serialize_desc_t s_val_occ_desc = {
+    .type_name = "val_occ", .fields = s_val_occ_fields, .n_fields = 2,
+    .snap_size = sizeof(val_occ_snap_t),
+};
+
+static const bb_serialize_field_meta_t s_val_occ_rows_ok[] = {
+    { .key = "ts", .occurrence = 0 },
+};
+
+static const bb_serialize_desc_meta_t s_val_occ_meta_ok = {
+    .type_name = "val_occ", .rows = s_val_occ_rows_ok, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_validate_occurrence_tagged_reboot_shaped_happy_path(void)
+{
+    char err[128] = { 0 };
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_validate(&s_val_occ_desc, &s_val_occ_meta_ok, err, sizeof err));
+}
+
+// 17. Failure -- oneOf branch-count mismatch (n_branches != occurrence count).
+static const bb_serialize_field_meta_t s_val_oneof_rows_bad_count[] = {
+    { .key = "dup", .kind = BB_SERIALIZE_META_KIND_ONEOF,
+      .branches = s_val_oneof_branches, .n_branches = 1 },  // desc has 2 occurrences
+};
+
+static const bb_serialize_desc_meta_t s_val_oneof_meta_bad_count = {
+    .type_name = "val_oneof", .rows = s_val_oneof_rows_bad_count, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_validate_oneof_branch_count_mismatch(void)
+{
+    char err[128] = { 0 };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
+        bb_serialize_meta_validate(&s_val_oneof_desc, &s_val_oneof_meta_bad_count, err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "oneOf n_branches") != NULL);
+}
+
+// 18. Failure -- occurrence-tagged FIELD row's `.occurrence` is out of range
+// (>= the key's physical occurrence count).
+static const bb_serialize_field_meta_t s_val_occ_rows_out_of_range[] = {
+    { .key = "ts", .occurrence = 2 },  // only occurrences 0/1 exist
+};
+
+static const bb_serialize_desc_meta_t s_val_occ_meta_out_of_range = {
+    .type_name = "val_occ", .rows = s_val_occ_rows_out_of_range, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_validate_occurrence_out_of_range(void)
+{
+    char err[128] = { 0 };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
+        bb_serialize_meta_validate(&s_val_occ_desc, &s_val_occ_meta_out_of_range, err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "occurrence 2 out of range") != NULL);
+}
+
+// 19. Failure -- an orphan oneOf branch (a branch row whose `.key` doesn't
+// match the parent oneOf row's key -- a copy-paste mistake pointing at the
+// wrong branch table).
+static const bb_serialize_field_meta_t s_val_oneof_orphan_branch_rows[] = {
+    { .key = "dup" },
+    { .key = "not_dup" },  // orphan -- key mismatch
+};
+
+static const bb_serialize_field_meta_t *const s_val_oneof_orphan_branches[] = {
+    &s_val_oneof_orphan_branch_rows[0], &s_val_oneof_orphan_branch_rows[1], NULL,
+};
+
+static const bb_serialize_field_meta_t s_val_oneof_rows_orphan[] = {
+    { .key = "dup", .kind = BB_SERIALIZE_META_KIND_ONEOF,
+      .branches = s_val_oneof_orphan_branches, .n_branches = 2 },
+};
+
+static const bb_serialize_desc_meta_t s_val_oneof_meta_orphan = {
+    .type_name = "val_oneof", .rows = s_val_oneof_rows_orphan, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_validate_oneof_orphan_branch(void)
+{
+    char err[128] = { 0 };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
+        bb_serialize_meta_validate(&s_val_oneof_desc, &s_val_oneof_meta_orphan, err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "orphan oneOf branch") != NULL);
+}
+
+// 20. Failure -- a ONEOF row with `.branches == NULL`.
+static const bb_serialize_field_meta_t s_val_oneof_rows_no_branches[] = {
+    { .key = "dup", .kind = BB_SERIALIZE_META_KIND_ONEOF, .branches = NULL, .n_branches = 2 },
+};
+
+static const bb_serialize_desc_meta_t s_val_oneof_meta_no_branches = {
+    .type_name = "val_oneof", .rows = s_val_oneof_rows_no_branches, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_validate_oneof_missing_branches(void)
+{
+    char err[128] = { 0 };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
+        bb_serialize_meta_validate(&s_val_oneof_desc, &s_val_oneof_meta_no_branches, err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "oneOf row missing branches") != NULL);
+}
+
+// 21. Failure -- one oneOf branch pointer is NULL.
+static const bb_serialize_field_meta_t s_val_oneof_one_null_branch_rows[] = {
+    { .key = "dup" },
+};
+
+static const bb_serialize_field_meta_t *const s_val_oneof_one_null_branches[] = {
+    &s_val_oneof_one_null_branch_rows[0], NULL, NULL,
+};
+
+static const bb_serialize_field_meta_t s_val_oneof_rows_null_branch[] = {
+    { .key = "dup", .kind = BB_SERIALIZE_META_KIND_ONEOF,
+      .branches = s_val_oneof_one_null_branches, .n_branches = 2 },
+};
+
+static const bb_serialize_desc_meta_t s_val_oneof_meta_null_branch = {
+    .type_name = "val_oneof", .rows = s_val_oneof_rows_null_branch, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_validate_oneof_null_branch_entry(void)
+{
+    char err[128] = { 0 };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
+        bb_serialize_meta_validate(&s_val_oneof_desc, &s_val_oneof_meta_null_branch, err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "oneOf branch 1 is NULL") != NULL);
+}
+
+// 22. Failure -- accidental unannotated duplicate key: NO meta row at all
+// for a key with occurrence_count > 1 (the "copy-paste dup still caught"
+// invariant -- must NOT silently pass through the relaxed bijection).
+static const bb_serialize_desc_meta_t s_val_oneof_meta_no_row_at_all = {
+    .type_name = "val_oneof", .rows = NULL, .n_rows = 0,
+};
+
+void test_bb_serialize_meta_validate_duplicate_key_with_no_annotation_rejected(void)
+{
+    char err[128] = { 0 };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
+        bb_serialize_meta_validate(&s_val_oneof_desc, &s_val_oneof_meta_no_row_at_all,
+                                    err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "duplicate key with no oneOf/occurrence annotation") != NULL);
+}
+
+// 23. Failure -- non-contiguous duplicate key (review finding): [X, Y, X]
+// -- the two physical "dup" occurrences are NOT back-to-back. Both the
+// ONEOF-branch matching and the occurrence-tagged FIELD path assume
+// contiguity (see bb_serialize_field_meta_s's "duplicate-key" doc); an
+// interleaved table must be REJECTED, never silently pass with the
+// second/later occurrence's row left NULL (which would look identical to
+// the intentional-undocumented-occurrence case).
+typedef struct {
+    char   dup0[8];
+    bool   middle;
+    char   dup1[8];
+} val_interleaved_snap_t;
+
+static const bb_serialize_field_t s_val_interleaved_fields[] = {
+    { .key = "dup", .type = BB_TYPE_STR, .offset = offsetof(val_interleaved_snap_t, dup0),
+      .max_len = sizeof(((val_interleaved_snap_t *)0)->dup0) },
+    { .key = "middle", .type = BB_TYPE_BOOL, .offset = offsetof(val_interleaved_snap_t, middle) },
+    { .key = "dup", .type = BB_TYPE_STR, .offset = offsetof(val_interleaved_snap_t, dup1),
+      .max_len = sizeof(((val_interleaved_snap_t *)0)->dup1) },
+};
+
+static const bb_serialize_desc_t s_val_interleaved_desc = {
+    .type_name = "val_interleaved", .fields = s_val_interleaved_fields, .n_fields = 3,
+    .snap_size = sizeof(val_interleaved_snap_t),
+};
+
+// Meta table content is irrelevant here -- the contiguity guard fires
+// before any row lookup -- but supply a plausible-looking occurrence-
+// tagged row + a "middle" row so a bug regressing the guard's ORDERING
+// (e.g. running it after row-matching) wouldn't accidentally still pass.
+static const bb_serialize_field_meta_t s_val_interleaved_rows[] = {
+    { .key = "dup", .occurrence = 0 },
+    { .key = "middle" },
+};
+
+static const bb_serialize_desc_meta_t s_val_interleaved_meta = {
+    .type_name = "val_interleaved", .rows = s_val_interleaved_rows, .n_rows = 2,
+};
+
+void test_bb_serialize_meta_validate_non_contiguous_duplicate_key_rejected(void)
+{
+    char err[128] = { 0 };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
+        bb_serialize_meta_validate(&s_val_interleaved_desc, &s_val_interleaved_meta,
+                                    err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "non-contiguous duplicate key") != NULL);
+}
