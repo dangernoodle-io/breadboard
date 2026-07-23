@@ -43,6 +43,22 @@ typedef struct {
 
 extern const bb_serialize_desc_t bb_wifi_http_info_wire_desc;
 
+// bb_serialize_desc_meta_t companion (B1-1059 PR-2a) -- co-located JSON
+// Schema docs/validation table for bb_wifi_http_info_wire_desc above,
+// exemplar for the #if-gated meta-table pattern. BB_SERIALIZE_META_HOST is
+// a host-only define (set by the PlatformIO native env; see
+// platformio.ini) -- NEVER set by the ESP-IDF/device build, so this
+// declaration (and its definition in bb_wifi_http_wire.c) compiles to
+// nothing on-device. bb_serialize_meta.h lives under
+// host_tools/bb_serialize_meta/ (PR-1), unreachable from any ESP-IDF
+// component build; the #include is itself compiled out when the guard is
+// off, so no extra include path is needed for the device build.
+#if defined(BB_SERIALIZE_META_HOST)
+#include "bb_serialize_meta.h"
+
+extern const bb_serialize_desc_meta_t bb_wifi_http_info_wire_meta;
+#endif /* BB_SERIALIZE_META_HOST */
+
 // Fills `dst` from `info` plus the two global recovery-telemetry getters
 // (bb_wifi_get_restart_sta_count/bb_wifi_get_disconnect_rssi) — same
 // sources bb_wifi_emit_section read. Pure/portable; `dst` is NOT

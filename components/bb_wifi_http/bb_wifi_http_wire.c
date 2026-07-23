@@ -48,6 +48,39 @@ const bb_serialize_desc_t bb_wifi_http_info_wire_desc = {
     .snap_size = sizeof(bb_wifi_http_info_wire_t),
 };
 
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1059 PR-2a exemplar) -- co-located JSON
+// Schema companion to bb_wifi_http_info_wire_desc above, gated behind
+// BB_SERIALIZE_META_HOST (see bb_wifi_http_wire_priv.h's banner for the
+// full mechanism doc). "required" here mirrors the "required" array of
+// platform/espidf/bb_wifi_http/bb_wifi_http_routes.c's hand-authored
+// k_wifi_info_schema literal (["ssid","connected"]) -- see
+// test_bb_wifi_http_wire_meta_golden.c for the fidelity proof this table
+// is meant to (eventually) replace that literal with.
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_wifi_info_wire_meta_rows[] = {
+    { .key = "ssid",              .required = true },
+    { .key = "bssid" },
+    { .key = "rssi" },
+    { .key = "ip" },
+    { .key = "connected",         .required = true },
+    { .key = "disc_reason" },
+    { .key = "disc_age_s" },
+    { .key = "retry_count" },
+    { .key = "restart_sta_count" },
+    { .key = "disconnect_rssi" },
+};
+
+const bb_serialize_desc_meta_t bb_wifi_http_info_wire_meta = {
+    .type_name = "wifi_info",
+    .rows      = s_wifi_info_wire_meta_rows,
+    .n_rows    = sizeof(s_wifi_info_wire_meta_rows) / sizeof(s_wifi_info_wire_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_HOST */
+
 void bb_wifi_http_info_wire_fill(bb_wifi_http_info_wire_t *dst, const bb_wifi_info_t *info)
 {
     strncpy(dst->ssid, info->ssid, sizeof(dst->ssid) - 1);
