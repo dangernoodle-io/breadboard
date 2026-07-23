@@ -13,9 +13,11 @@
 #include "bb_cache.h"
 #include "bb_diag_boot_wire.h"
 #include "bb_diag_event_priv.h"
+#include "../../../components/bb_diag_http/bb_diag_heap_check_wire_priv.h"
 #include "bb_data.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
+#include "bb_http_serialize_stream.h"
 #include "bb_log.h"
 #include "bb_openapi.h"
 #include "bb_config.h"
@@ -593,18 +595,18 @@ static const bb_route_t s_coredump_get_route = {
 // standalone route (not folded into /api/diag/meminfo, which covers the
 // per-cap stats this route used to also emit): heap_caps_check_integrity_all
 // is an expensive, interrupts-disabled blocking walk, semantically wrong for
-// a passive/pollable stats section.
+// a passive/pollable stats section. Driven via the bb_serialize descriptor
+// (B1-1054 diag conversion) rather than hand-streamed cJSON -- see
+// bb_diag_heap_check_wire_priv.h for the {"integrity_ok":<bool>} shape;
+// output is byte-identical to the pre-migration emitter.
 static bb_err_t heap_check_get_handler(bb_http_request_t *req)
 {
     bool integrity_ok = heap_caps_check_integrity_all(true);
 
-    bb_http_json_obj_stream_t obj;
-    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
-    if (err != BB_OK) return err;
+    bb_diag_heap_check_wire_t snap;
+    bb_diag_heap_check_wire_fill(&snap, integrity_ok);
 
-    bb_http_resp_json_obj_set_bool(&obj, "integrity_ok", integrity_ok);
-
-    return bb_http_resp_json_obj_end(&obj);
+    return bb_http_serialize_stream(req, &bb_diag_heap_check_wire_desc, &snap);
 }
 
 static const bb_route_response_t s_heap_check_get_responses[] = {
