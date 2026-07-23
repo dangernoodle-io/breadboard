@@ -95,7 +95,8 @@ static const char *TAG = "bb_storage_http";
 
 // Oversize-reject buffer slack (see the file header comment's "Oversize-
 // reject" section) -- 16 spare bytes past each field's real cap, same slack
-// bb_wifi_http_routes.c's WIFI_CREDS_APPLY_SSID_BUF/PASS_BUF use.
+// bb_wifi_http_creds_wire_priv.h's BB_WIFI_HTTP_CREDS_WIRE_SSID_BUF/
+// PASS_BUF use.
 #define BB_STORAGE_HTTP_DELETE_BACKEND_BUF (BB_STORAGE_HTTP_BACKEND_MAX + 16)          // 32
 #define BB_STORAGE_HTTP_DELETE_KEY_BUF     (BB_STORAGE_HTTP_KEY_MAX + 16)              // 32
 // Namespace name real limit matches BB_STORAGE_HTTP_DELETE_NS_LEN (the
