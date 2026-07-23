@@ -36,29 +36,113 @@ static bb_err_t validate_fields(const bb_serialize_field_t *fields, uint16_t n_f
         }
     }
 
-    // Per-field-exactly-one-row pass: every base field must have EXACTLY ONE
-    // matching meta row -- 0 is a missing row, >1 is a duplicate. Combined
-    // with the orphan-row pass below this is a true bijection between
-    // fields and rows. Captures the matched row pointer per field so the
-    // constraint pass below doesn't need to re-scan `rows` to find it again.
+    // Key-level row-matching pass: every DISTINCT key in `fields` must have
+    // EXACTLY ONE matching meta row -- 0 is a missing row, >1 is a
+    // duplicate. Combined with the orphan-row pass below this is a true
+    // bijection between KEYS and rows (B1-1181a relaxes the PHYSICAL-field
+    // bijection the comment above once described -- a duplicate-`.key`
+    // group is now legitimate, see bb_serialize_field_meta_s's
+    // "duplicate-key" doc). Captures, per physical field, the meta row that
+    // documents THAT SPECIFIC occurrence (NULL for an occurrence
+    // intentionally left undocumented, e.g. reboot's F64 divergence-guard
+    // shadow) so the constraint pass below doesn't need to re-derive it.
     const bb_serialize_field_meta_t *matched[n_fields];
+    for (uint16_t i = 0; i < n_fields; i++) matched[i] = NULL;
+
     for (uint16_t i = 0; i < n_fields; i++) {
-        uint16_t count = 0;
-        for (uint16_t j = 0; j < n_rows; j++) {
-            if (strcmp(rows[j].key, fields[i].key) == 0) {
-                count++;
-                matched[i] = &rows[j];
+        if (bb_serialize_meta_occurrence_index(fields, i) != 0) continue;  // process each key once
+
+        const char *key       = fields[i].key;
+        uint16_t    occ_count = bb_serialize_meta_occurrence_count(fields, n_fields, key);
+
+        // Contiguity guard (B1-1181a review finding): the ONEOF-branch
+        // matching (branches[k] <-> fields[i+k]) and the occurrence-tagged
+        // FIELD path (matched[i + row->occurrence]) both assume every
+        // physical occurrence of a duplicate key appears back-to-back
+        // starting at `i` (see bb_serialize_field_meta_s's "duplicate-key"
+        // doc). An interleaved table (e.g. [X, Y, X]) would otherwise
+        // silently misattribute a row to the wrong physical field and
+        // still return BB_OK -- the exact silent-pass failure mode this
+        // relaxed bijection must not allow. Checked BEFORE any row lookup:
+        // it's a desc-level structural defect, independent of the meta
+        // table.
+        if (occ_count > 1) {
+            for (uint16_t j = i; j < i + occ_count; j++) {
+                if (j >= n_fields || strcmp(fields[j].key, key) != 0) {
+                    snprintf(err, err_len, "%s.%s: non-contiguous duplicate key", path, key);
+                    return BB_ERR_VALIDATION;
+                }
             }
         }
+
+        uint16_t                         count = 0;
+        const bb_serialize_field_meta_t *found = NULL;
+        for (uint16_t j = 0; j < n_rows; j++) {
+            if (strcmp(rows[j].key, key) == 0) {
+                count++;
+                found = &rows[j];
+            }
+        }
+
         if (count == 0) {
-            snprintf(err, err_len, "%s.%s: missing meta row", path, fields[i].key);
+            if (occ_count == 1) {
+                snprintf(err, err_len, "%s.%s: missing meta row", path, key);
+            } else {
+                snprintf(err, err_len,
+                         "%s.%s: duplicate key with no oneOf/occurrence annotation", path, key);
+            }
             return BB_ERR_VALIDATION;
         }
         if (count > 1) {
-            snprintf(err, err_len, "%s.%s: duplicate meta row for key '%s'",
-                     path, fields[i].key, fields[i].key);
+            snprintf(err, err_len, "%s.%s: duplicate meta row for key '%s'", path, key, key);
             return BB_ERR_VALIDATION;
         }
+
+        const bb_serialize_field_meta_t *row = found;
+
+        if (occ_count == 1 && row->kind == BB_SERIALIZE_META_KIND_FIELD) {
+            // Ordinary, non-duplicated key -- the plain 1:1 bijection.
+            matched[i] = row;
+            continue;
+        }
+
+        if (row->kind == BB_SERIALIZE_META_KIND_ONEOF) {
+            if (row->n_branches != occ_count) {
+                snprintf(err, err_len, "%s.%s: oneOf n_branches (%u) != occurrence count (%u)",
+                         path, key, (unsigned)row->n_branches, (unsigned)occ_count);
+                return BB_ERR_VALIDATION;
+            }
+            if (!row->branches) {
+                snprintf(err, err_len, "%s.%s: oneOf row missing branches", path, key);
+                return BB_ERR_VALIDATION;
+            }
+            for (uint16_t k = 0; k < row->n_branches; k++) {
+                const bb_serialize_field_meta_t *branch = row->branches[k];
+                if (!branch) {
+                    snprintf(err, err_len, "%s.%s: oneOf branch %u is NULL", path, key, (unsigned)k);
+                    return BB_ERR_VALIDATION;
+                }
+                if (branch->key == NULL || strcmp(branch->key, key) != 0) {
+                    snprintf(err, err_len, "%s.%s: orphan oneOf branch %u (key mismatch)",
+                             path, key, (unsigned)k);
+                    return BB_ERR_VALIDATION;
+                }
+                matched[i + k] = branch;
+            }
+            continue;
+        }
+
+        // row->kind == BB_SERIALIZE_META_KIND_FIELD, occ_count > 1 (or an
+        // ONEOF row was mistakenly used on a non-duplicated key -- handled
+        // by the n_branches != occ_count check above for occ_count == 1).
+        if (row->occurrence >= occ_count) {
+            snprintf(err, err_len, "%s.%s: occurrence %u out of range (count %u)",
+                     path, key, (unsigned)row->occurrence, (unsigned)occ_count);
+            return BB_ERR_VALIDATION;
+        }
+        matched[i + row->occurrence] = row;
+        // Every other physical occurrence of `key` is intentionally left
+        // undocumented (matched[] stays NULL) -- the reboot "ts" shape.
     }
 
     // Orphan-row pass: every meta row must have a matching base field.
@@ -73,10 +157,15 @@ static bb_err_t validate_fields(const bb_serialize_field_t *fields, uint16_t n_f
         }
     }
 
-    // Per-field constraint agreement + bounds sanity + recursion.
+    // Per-field constraint agreement + bounds sanity + recursion. A field
+    // whose physical occurrence was intentionally left undocumented
+    // (matched[i] == NULL -- an occurrence-tagged FIELD row's untagged
+    // sibling occurrence, e.g. reboot's F64 divergence-guard shadow) has no
+    // constraints to check and no recursion to perform.
     for (uint16_t i = 0; i < n_fields; i++) {
         const bb_serialize_field_t      *f = &fields[i];
         const bb_serialize_field_meta_t *r = matched[i];
+        if (!r) continue;
 
         bool str_shaped = is_string_shaped(f);
         bool numeric     = is_numeric(f->type);

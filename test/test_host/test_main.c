@@ -824,6 +824,15 @@ void test_bb_serialize_meta_validate_depth_guard_bails_on_self_reference(void);
 void test_bb_serialize_meta_validate_coverage_fixture_happy_path(void);
 void test_bb_serialize_meta_validate_duplicate_row(void);
 void test_bb_serialize_meta_validate_null_key_row(void);
+void test_bb_serialize_meta_validate_oneof_two_branches_happy_path(void);
+void test_bb_serialize_meta_validate_occurrence_tagged_reboot_shaped_happy_path(void);
+void test_bb_serialize_meta_validate_oneof_branch_count_mismatch(void);
+void test_bb_serialize_meta_validate_occurrence_out_of_range(void);
+void test_bb_serialize_meta_validate_oneof_orphan_branch(void);
+void test_bb_serialize_meta_validate_oneof_missing_branches(void);
+void test_bb_serialize_meta_validate_oneof_null_branch_entry(void);
+void test_bb_serialize_meta_validate_duplicate_key_with_no_annotation_rejected(void);
+void test_bb_serialize_meta_validate_non_contiguous_duplicate_key_rejected(void);
 
 // Forward declarations from test_bb_serialize_meta_openapi.c
 void test_bb_serialize_meta_openapi_widget_golden(void);
@@ -837,6 +846,11 @@ void test_bb_serialize_meta_openapi_overflow_too_small_cap(void);
 void test_bb_serialize_meta_openapi_overflow_null_out_len(void);
 void test_bb_serialize_meta_openapi_success_null_out_len(void);
 void test_bb_serialize_meta_openapi_coverage_fixture(void);
+void test_bb_serialize_meta_openapi_oneof_two_branches(void);
+void test_bb_serialize_meta_openapi_occurrence_tagged_field_reboot_shaped(void);
+void test_bb_serialize_meta_openapi_occurrence_tagged_field_non_zero_occurrence(void);
+void test_bb_serialize_meta_openapi_duplicate_key_no_row_falls_back_to_first_occurrence(void);
+void test_bb_serialize_meta_openapi_oneof_null_branches_defensive(void);
 
 // Forward declarations from test_bb_wifi_http_wire_meta_golden.c (B1-1059
 // PR-2a exemplar)
@@ -897,6 +911,19 @@ void test_bb_mqtt_client_health_section_meta_golden_matches_hand_fragment(void);
 // (B1-1059 PR-2b-i-3) -- fragment-only golden (shape-(c) exception)
 void test_bb_temp_health_meta_validates_against_desc(void);
 void test_bb_temp_health_meta_golden_matches_hand_fragment(void);
+
+// Forward declarations from test_bb_system_reboot_meta_golden.c (B1-1181a)
+// -- NOT a oneOf: "ts" bound twice (U64 + F64 divergence-guard shadow),
+// only the U64 occurrence is documented/rendered.
+void test_bb_system_reboot_meta_validates_against_desc(void);
+void test_bb_system_reboot_meta_golden_matches_hand_literal(void);
+
+// Forward declarations from test_bb_storage_http_delete_apply_meta_golden.c
+// (B1-1181a) -- the DELETE /api/diag/storage REQUEST descriptor (distinct
+// from test_bb_storage_http_delete_wire_meta_golden.c's RESPONSE
+// descriptor). Genuine oneOf: "namespace" bound as STR + ARR-of-STR.
+void test_bb_storage_http_delete_apply_meta_validates_against_desc(void);
+void test_bb_storage_http_delete_apply_meta_golden_matches_hand_literal(void);
 
 // Forward declarations from test_meta_fragment_selftest.c (B1-1059
 // PR-2b-i-3) -- direct branch coverage of
@@ -10128,6 +10155,15 @@ int main(void) {
     RUN_TEST(test_bb_serialize_meta_validate_coverage_fixture_happy_path);
     RUN_TEST(test_bb_serialize_meta_validate_duplicate_row);
     RUN_TEST(test_bb_serialize_meta_validate_null_key_row);
+    RUN_TEST(test_bb_serialize_meta_validate_oneof_two_branches_happy_path);
+    RUN_TEST(test_bb_serialize_meta_validate_occurrence_tagged_reboot_shaped_happy_path);
+    RUN_TEST(test_bb_serialize_meta_validate_oneof_branch_count_mismatch);
+    RUN_TEST(test_bb_serialize_meta_validate_occurrence_out_of_range);
+    RUN_TEST(test_bb_serialize_meta_validate_oneof_orphan_branch);
+    RUN_TEST(test_bb_serialize_meta_validate_oneof_missing_branches);
+    RUN_TEST(test_bb_serialize_meta_validate_oneof_null_branch_entry);
+    RUN_TEST(test_bb_serialize_meta_validate_duplicate_key_with_no_annotation_rejected);
+    RUN_TEST(test_bb_serialize_meta_validate_non_contiguous_duplicate_key_rejected);
 
     RUN_TEST(test_bb_serialize_meta_openapi_widget_golden);
     RUN_TEST(test_bb_serialize_meta_openapi_no_meta_at_all);
@@ -10140,6 +10176,11 @@ int main(void) {
     RUN_TEST(test_bb_serialize_meta_openapi_overflow_null_out_len);
     RUN_TEST(test_bb_serialize_meta_openapi_success_null_out_len);
     RUN_TEST(test_bb_serialize_meta_openapi_coverage_fixture);
+    RUN_TEST(test_bb_serialize_meta_openapi_oneof_two_branches);
+    RUN_TEST(test_bb_serialize_meta_openapi_occurrence_tagged_field_reboot_shaped);
+    RUN_TEST(test_bb_serialize_meta_openapi_occurrence_tagged_field_non_zero_occurrence);
+    RUN_TEST(test_bb_serialize_meta_openapi_duplicate_key_no_row_falls_back_to_first_occurrence);
+    RUN_TEST(test_bb_serialize_meta_openapi_oneof_null_branches_defensive);
 
     RUN_TEST(test_bb_wifi_http_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_wifi_http_wire_meta_golden_matches_hand_literal);
@@ -10165,6 +10206,10 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_client_health_section_meta_golden_matches_hand_fragment);
     RUN_TEST(test_bb_temp_health_meta_validates_against_desc);
     RUN_TEST(test_bb_temp_health_meta_golden_matches_hand_fragment);
+    RUN_TEST(test_bb_system_reboot_meta_validates_against_desc);
+    RUN_TEST(test_bb_system_reboot_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_storage_http_delete_apply_meta_validates_against_desc);
+    RUN_TEST(test_bb_storage_http_delete_apply_meta_golden_matches_hand_literal);
     RUN_TEST(test_meta_fragment_extract_properties_null_schema_returns_false);
     RUN_TEST(test_meta_fragment_extract_properties_null_out_returns_false);
     RUN_TEST(test_meta_fragment_extract_properties_zero_out_size_returns_false);

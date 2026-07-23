@@ -361,3 +361,191 @@ void test_bb_serialize_meta_openapi_coverage_fixture(void)
     // fixture independent of the golden widget's "region" field.
     TEST_ASSERT_TRUE(strstr(buf, "\"enumf\":{\"type\":\"string\",\"enum\":[\"on\",\"off\"]}") != NULL);
 }
+
+// ---------------------------------------------------------------------------
+// 8. B1-1181a -- duplicate-key "oneOf" / occurrence-tagged rendering. LOCAL
+// synthetic fixtures only (never the production reboot/storage_delete
+// tables -- see test_bb_system_reboot_meta_golden.c /
+// test_bb_storage_http_delete_apply_meta_golden.c for those).
+// ---------------------------------------------------------------------------
+
+// 8a. Clean 2-branch oneOf key -- the storage_delete "namespace" shape.
+typedef struct {
+    char dup_str[8];
+    bb_serialize_arr_t dup_arr;
+} oneof_snap_t;
+
+static const bb_serialize_field_t s_oneof_fields[] = {
+    { .key = "dup", .type = BB_TYPE_STR, .offset = offsetof(oneof_snap_t, dup_str),
+      .max_len = sizeof(((oneof_snap_t *)0)->dup_str) },
+    { .key = "dup", .type = BB_TYPE_ARR, .elem_type = BB_TYPE_STR,
+      .offset = offsetof(oneof_snap_t, dup_arr) },
+};
+
+static const bb_serialize_desc_t s_oneof_desc = {
+    .type_name = "oneof", .fields = s_oneof_fields, .n_fields = 2,
+    .snap_size = sizeof(oneof_snap_t),
+};
+
+static const bb_serialize_field_meta_t s_oneof_branch_rows[] = {
+    { .key = "dup" },  // branch 0: STR occurrence
+    { .key = "dup" },  // branch 1: ARR-of-STR occurrence
+};
+
+static const bb_serialize_field_meta_t *const s_oneof_branches[] = {
+    &s_oneof_branch_rows[0], &s_oneof_branch_rows[1], NULL,
+};
+
+static const bb_serialize_field_meta_t s_oneof_rows[] = {
+    { .key = "dup", .required = true, .title = "Dup", .kind = BB_SERIALIZE_META_KIND_ONEOF,
+      .branches = s_oneof_branches, .n_branches = 2 },
+};
+
+static const bb_serialize_desc_meta_t s_oneof_meta = {
+    .type_name = "oneof", .rows = s_oneof_rows, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_openapi_oneof_two_branches(void)
+{
+    char   buf[512];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_schema(&s_oneof_desc, &s_oneof_meta, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{"
+        "\"dup\":{\"oneOf\":[{\"type\":\"string\"},"
+        "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}],\"title\":\"Dup\"}},"
+        "\"required\":[\"dup\"],\"additionalProperties\":false}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
+}
+
+// 8b. Occurrence-tagged FIELD row, occurrence 0 -- the reboot "ts" shape
+// (one real value + one internal shadow occurrence, only the FIRST
+// documented/rendered; the second is doc-invisible).
+typedef struct {
+    uint64_t ts_real;
+    double   ts_shadow;
+} occ0_snap_t;
+
+static const bb_serialize_field_t s_occ0_fields[] = {
+    { .key = "ts", .type = BB_TYPE_U64, .offset = offsetof(occ0_snap_t, ts_real) },
+    { .key = "ts", .type = BB_TYPE_F64, .offset = offsetof(occ0_snap_t, ts_shadow) },
+};
+
+static const bb_serialize_desc_t s_occ0_desc = {
+    .type_name = "occ0", .fields = s_occ0_fields, .n_fields = 2,
+    .snap_size = sizeof(occ0_snap_t),
+};
+
+static const bb_serialize_field_meta_t s_occ0_rows[] = {
+    { .key = "ts", .occurrence = 0 },
+};
+
+static const bb_serialize_desc_meta_t s_occ0_meta = {
+    .type_name = "occ0", .rows = s_occ0_rows, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_openapi_occurrence_tagged_field_reboot_shaped(void)
+{
+    char   buf[256];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_schema(&s_occ0_desc, &s_occ0_meta, buf, sizeof buf, &n));
+    // Single-shaped: "ts" renders exactly ONCE, as the U64 occurrence's
+    // "integer" type -- never a oneOf, never twice.
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{\"ts\":{\"type\":\"integer\"}},"
+        "\"required\":[],\"additionalProperties\":false}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
+}
+
+// 8c. Occurrence-tagged FIELD row, occurrence 1 (the SECOND physical
+// occurrence, not the default 0) -- proves occurrence-tagging isn't
+// hardcoded to "always the first"; here the second ("real") occurrence is
+// the one documented and the first is the doc-invisible one.
+typedef struct {
+    bool internal_flag;
+    char mode[8];
+} occ1_snap_t;
+
+static const bb_serialize_field_t s_occ1_fields[] = {
+    { .key = "mode", .type = BB_TYPE_BOOL, .offset = offsetof(occ1_snap_t, internal_flag) },
+    { .key = "mode", .type = BB_TYPE_STR, .offset = offsetof(occ1_snap_t, mode),
+      .max_len = sizeof(((occ1_snap_t *)0)->mode) },
+};
+
+static const bb_serialize_desc_t s_occ1_desc = {
+    .type_name = "occ1", .fields = s_occ1_fields, .n_fields = 2,
+    .snap_size = sizeof(occ1_snap_t),
+};
+
+static const bb_serialize_field_meta_t s_occ1_rows[] = {
+    { .key = "mode", .occurrence = 1 },
+};
+
+static const bb_serialize_desc_meta_t s_occ1_meta = {
+    .type_name = "occ1", .rows = s_occ1_rows, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_openapi_occurrence_tagged_field_non_zero_occurrence(void)
+{
+    char   buf[256];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_schema(&s_occ1_desc, &s_occ1_meta, buf, sizeof buf, &n));
+    // Renders the SECOND physical occurrence's type (string), not the
+    // first's (boolean).
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{\"mode\":{\"type\":\"string\"}},"
+        "\"required\":[],\"additionalProperties\":false}", buf);
+}
+
+// 8d. Duplicate key with NO meta row at all (unvalidated input --
+// bb_serialize_meta_openapi_schema() does not itself validate) -- the
+// composer's best-effort fallback renders only the first physical
+// occurrence, with no row (NULL) driving its schema.
+static const bb_serialize_desc_meta_t s_occ0_meta_empty = {
+    .type_name = "occ0", .rows = NULL, .n_rows = 0,
+};
+
+void test_bb_serialize_meta_openapi_duplicate_key_no_row_falls_back_to_first_occurrence(void)
+{
+    char   buf[256];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_schema(&s_occ0_desc, &s_occ0_meta_empty, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{\"ts\":{\"type\":\"integer\"}},"
+        "\"required\":[],\"additionalProperties\":false}", buf);
+}
+
+// 8e. ONEOF row with `.branches == NULL` (defensive -- a malformed table
+// that bb_serialize_meta_validate() would reject, but this composer never
+// validates) -- each branch renders with a NULL branch row (base field
+// type only, no per-branch constraints/docs), never a crash.
+static const bb_serialize_field_meta_t s_oneof_null_branches_rows[] = {
+    { .key = "dup", .kind = BB_SERIALIZE_META_KIND_ONEOF, .branches = NULL, .n_branches = 2 },
+};
+
+static const bb_serialize_desc_meta_t s_oneof_null_branches_meta = {
+    .type_name = "oneof", .rows = s_oneof_null_branches_rows, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_openapi_oneof_null_branches_defensive(void)
+{
+    char   buf[512];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_schema(&s_oneof_desc, &s_oneof_null_branches_meta,
+                                          buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{"
+        "\"dup\":{\"oneOf\":[{\"type\":\"string\"},"
+        "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}]}},"
+        "\"required\":[],\"additionalProperties\":false}", buf);
+}

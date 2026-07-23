@@ -203,6 +203,57 @@ static const bb_serialize_desc_t s_storage_delete_desc = {
     .snap_size = sizeof(storage_delete_apply_t),
 };
 
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1181a) -- co-located JSON Schema companion to
+// s_storage_delete_desc above, gated behind BB_SERIALIZE_META_HOST (see
+// bb_storage_http.h's banner). A genuine oneOf: "namespace" is bound TWICE
+// (BB_TYPE_STR + BB_TYPE_ARR-of-STR, see s_storage_delete_fields' doc
+// comment above), and BOTH occurrences are real, user-facing shapes -- the
+// hand-authored s_storage_delete_route's request_schema below renders
+// "namespace":{"oneOf":[{"type":"string"},{"type":"array","items":
+// {"type":"string"}}]}. The meta row's two branches pair 1:1, in field
+// order, with the two physical "namespace" occurrences (STR first, then
+// ARR-of-STR); `.required` lives on the ONEOF row itself (mirrors
+// request_schema's "required":["namespace","confirm"]). See
+// test_bb_storage_http_delete_apply_meta_golden.c for the fidelity proof.
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_storage_delete_ns_branches_rows[] = {
+    { .key = "namespace" },  // branch 0: BB_TYPE_STR occurrence
+    { .key = "namespace" },  // branch 1: BB_TYPE_ARR-of-STR occurrence
+};
+
+static const bb_serialize_field_meta_t *const s_storage_delete_ns_branches[] = {
+    &s_storage_delete_ns_branches_rows[0],
+    &s_storage_delete_ns_branches_rows[1],
+    NULL,
+};
+
+static const bb_serialize_field_meta_t s_storage_delete_meta_rows[] = {
+    { .key = "confirm", .required = true },
+    { .key = "wipe_wifi" },
+    { .key = "backend" },
+    { .key = "key" },
+    { .key = "namespace", .required = true, .kind = BB_SERIALIZE_META_KIND_ONEOF,
+      .branches = s_storage_delete_ns_branches, .n_branches = 2 },
+};
+
+const bb_serialize_desc_meta_t bb_storage_http_delete_apply_meta = {
+    .type_name = "storage_delete_apply_t",
+    .rows      = s_storage_delete_meta_rows,
+    .n_rows    = sizeof(s_storage_delete_meta_rows) / sizeof(s_storage_delete_meta_rows[0]),
+};
+
+#ifdef BB_STORAGE_HTTP_TESTING
+const bb_serialize_desc_t *bb_storage_http_delete_apply_desc_for_test(void)
+{
+    return &s_storage_delete_desc;
+}
+#endif /* BB_STORAGE_HTTP_TESTING */
+
+#endif /* BB_SERIALIZE_META_HOST */
+
 // Seed hook -- NOT a stub, and NOT egress-only despite the "gather" name
 // (unlike every other binding in this file/its siblings): this route drives
 // bb_data_apply() under BB_DATA_APPLY_PATCH specifically so THIS hook runs
