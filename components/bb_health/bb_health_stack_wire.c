@@ -24,3 +24,28 @@ const bb_serialize_desc_t bb_health_stack_wire_desc = {
     .n_fields  = sizeof(s_health_stack_wire_fields) / sizeof(s_health_stack_wire_fields[0]),
     .snap_size = sizeof(bb_health_stack_wire_t),
 };
+
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-2) -- co-located JSON Schema
+// companion to bb_health_stack_wire_desc above, gated behind
+// BB_SERIALIZE_META_HOST (see bb_health_stack_wire.h's banner). "required"
+// mirrors the "required" array of platform/espidf/bb_health/
+// bb_health_stack.c's hand-authored k_health_stack_schema literal
+// (["task","free_bytes","low"]). See
+// test_bb_health_stack_wire_meta_golden.c for the fidelity proof.
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_health_stack_wire_meta_rows[] = {
+    { .key = "task",       .required = true },
+    { .key = "free_bytes", .required = true },
+    { .key = "low",        .required = true },
+};
+
+const bb_serialize_desc_meta_t bb_health_stack_wire_meta = {
+    .type_name = "health_stack",
+    .rows      = s_health_stack_wire_meta_rows,
+    .n_rows    = sizeof(s_health_stack_wire_meta_rows) / sizeof(s_health_stack_wire_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_HOST */

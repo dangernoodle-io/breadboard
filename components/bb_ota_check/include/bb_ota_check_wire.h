@@ -56,6 +56,19 @@ _Static_assert(sizeof(((bb_ota_check_snap_t *)0)->last_check_ts) == 8,
 
 extern const bb_serialize_desc_t bb_ota_check_wire_desc;
 
+// bb_serialize_desc_meta_t companion (B1-1059 PR-2b-i-2) -- co-located JSON
+// Schema docs/validation table for bb_ota_check_wire_desc above, same
+// #if-gated pattern as bb_wifi_http_wire_priv.h's exemplar (B1-1059 PR-2a).
+// BB_SERIALIZE_META_HOST is a host-only define (set by the PlatformIO native
+// env; see platformio.ini) -- NEVER set by the ESP-IDF/device build, so this
+// declaration (and its definition in bb_ota_check_wire.c) compiles to
+// nothing on-device.
+#if defined(BB_SERIALIZE_META_HOST)
+#include "bb_serialize_meta.h"
+
+extern const bb_serialize_desc_meta_t bb_ota_check_wire_meta;
+#endif /* BB_SERIALIZE_META_HOST */
+
 // Portable (no ESP-IDF dep): reads the update.available bb_cache entry via
 // bb_cache_get_raw() into `dst` -- a plain copy, no widening needed. Returns
 // BB_ERR_INVALID_ARG if dst is NULL; otherwise propagates bb_cache_get_raw()'s

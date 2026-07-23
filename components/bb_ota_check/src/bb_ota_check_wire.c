@@ -50,6 +50,40 @@ const bb_serialize_desc_t bb_ota_check_wire_desc = {
     .snap_size = sizeof(bb_ota_check_snap_t),
 };
 
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-2) -- co-located JSON Schema
+// companion to bb_ota_check_wire_desc above, gated behind
+// BB_SERIALIZE_META_HOST (see bb_ota_check_wire.h's banner). "required"
+// mirrors the "required" array of components/bb_ota_check/src/
+// bb_ota_check_common.c's hand-authored k_update_available_schema literal
+// (["current","latest","download_url","available","ts","last_check_ok",
+// "enabled","outcome"]) -- "last_check_ts" is present-conditional (see
+// ota_check_last_check_ts_present() above) and, matching the hand literal,
+// is NOT marked required here either. See
+// test_bb_ota_check_wire_meta_golden.c for the fidelity proof.
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_HOST)
+
+static const bb_serialize_field_meta_t s_ota_check_wire_meta_rows[] = {
+    { .key = "current",       .required = true },
+    { .key = "latest",        .required = true },
+    { .key = "download_url",  .required = true },
+    { .key = "available",     .required = true },
+    { .key = "ts",            .required = true },
+    { .key = "last_check_ok", .required = true },
+    { .key = "enabled",       .required = true },
+    { .key = "outcome",       .required = true },
+    { .key = "last_check_ts" },
+};
+
+const bb_serialize_desc_meta_t bb_ota_check_wire_meta = {
+    .type_name = "update_available",
+    .rows      = s_ota_check_wire_meta_rows,
+    .n_rows    = sizeof(s_ota_check_wire_meta_rows) / sizeof(s_ota_check_wire_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_HOST */
+
 bb_err_t bb_ota_check_gather(bb_ota_check_snap_t *dst)
 {
     if (!dst) return BB_ERR_INVALID_ARG;

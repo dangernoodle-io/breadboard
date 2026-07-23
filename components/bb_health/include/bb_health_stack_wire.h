@@ -31,6 +31,19 @@ _Static_assert(sizeof(((bb_health_stack_wire_t *)0)->free_bytes) == 8,
 
 extern const bb_serialize_desc_t bb_health_stack_wire_desc;
 
+// bb_serialize_desc_meta_t companion (B1-1059 PR-2b-i-2) -- co-located JSON
+// Schema docs/validation table for bb_health_stack_wire_desc above, same
+// #if-gated pattern as bb_wifi_http_wire_priv.h's exemplar (B1-1059 PR-2a).
+// BB_SERIALIZE_META_HOST is a host-only define (set by the PlatformIO native
+// env; see platformio.ini) -- NEVER set by the ESP-IDF/device build, so this
+// declaration (and its definition in bb_health_stack_wire.c) compiles to
+// nothing on-device.
+#if defined(BB_SERIALIZE_META_HOST)
+#include "bb_serialize_meta.h"
+
+extern const bb_serialize_desc_meta_t bb_health_stack_wire_meta;
+#endif /* BB_SERIALIZE_META_HOST */
+
 #ifdef ESP_PLATFORM
 // ESP-IDF only, not host-reproducible: copies the last-published
 // health.stack state (s_last_stack in platform/espidf/bb_health/
