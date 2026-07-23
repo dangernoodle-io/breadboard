@@ -27,20 +27,27 @@
 //      has no hook for at all; supplied by
 //      bb_openapi_register_topic_schema()'s topic key argument instead.
 //   3. a trailing top-level "additionalProperties":false -- the engine
-//      always closes the outermost rendered object; the hand literal
-//      predates that policy and never set it.
+//      appends "additionalProperties":false to every rendered object (at
+//      any nesting depth, including ARR-of-OBJ items and the top-level
+//      object); the hand literal predates that policy and never set it.
 //   4. every nested BB_TYPE_OBJ field ("panic", "reboot_reason") gets a
-//      "required":[] (empty, since neither literal marks any child
-//      required) plus "additionalProperties":false -- the engine always
-//      closes a BB_TYPE_OBJ field's own schema this way regardless of
-//      whether any child is required; the hand literal never carries a
-//      "required" key on either nested object at all (same class of delta
-//      as the PR-2b-i-1 partitions-wire ARR-of-OBJ precedent, just for a
-//      direct-OBJ shape instead of an ARR-of-OBJ shape). "reboot_history"'s
-//      ARR-of-OBJ items object carries neither "required" nor
-//      "additionalProperties":false delta beyond what that precedent
-//      already documented -- the composer's items branch DOES still close
-//      with "additionalProperties":false (see below), matching the hand
+//      "required":[...]" (B1-1189: now populated, mirroring
+//      bb_diag_boot_wire_desc's own `.present` gating -- see
+//      bb_diag_boot_wire.c's meta-table banner; this is the derivation
+//      target for the REST envelope's s_boot_get_responses[] literal, see
+//      test_bb_diag_boot_wire_envelope_meta_golden.c) plus
+//      "additionalProperties":false -- the engine always closes a
+//      BB_TYPE_OBJ field's own schema this way regardless of content; the
+//      hand k_diag_boot_schema literal never carries a "required" key on
+//      either nested object AT ALL (same class of delta as the PR-2b-i-1
+//      partitions-wire ARR-of-OBJ precedent, just for a direct-OBJ shape
+//      instead of an ARR-of-OBJ shape -- the SSE topic schema simply omits
+//      required-ness documentation at the nested level, regardless of what
+//      the composer would emit there). "reboot_history"'s ARR-of-OBJ items
+//      object carries neither "required" nor "additionalProperties":false
+//      delta beyond what that precedent already documented -- the
+//      composer's items branch DOES still close with
+//      "additionalProperties":false (see below), matching the hand
 //      literal's lack of a "required" key on its items object.
 #if defined(BB_SERIALIZE_META_HOST)
 
@@ -62,7 +69,7 @@ static const char *const k_expected_meta_schema =
     "\"panic\":{\"type\":\"object\",\"properties\":{"
     "\"available\":{\"type\":\"boolean\"},"
     "\"boots_since\":{\"type\":\"integer\"}},"
-    "\"required\":[],\"additionalProperties\":false},"
+    "\"required\":[\"available\"],\"additionalProperties\":false},"
     "\"pending_verify\":{\"type\":\"boolean\"},"
     "\"rolled_back\":{\"type\":\"boolean\"},"
     "\"reboot_reason\":{\"type\":\"object\",\"properties\":{"
@@ -71,7 +78,7 @@ static const char *const k_expected_meta_schema =
     "\"uptime_s\":{\"type\":\"integer\"},"
     "\"epoch_s\":{\"type\":\"integer\"},"
     "\"age_s\":{\"type\":\"integer\"}},"
-    "\"required\":[],\"additionalProperties\":false},"
+    "\"required\":[\"source\",\"uptime_s\",\"epoch_s\"],\"additionalProperties\":false},"
     "\"reboot_history\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{"
     "\"source\":{\"type\":\"string\"},"
     "\"epoch_s\":{\"type\":\"integer\"},"

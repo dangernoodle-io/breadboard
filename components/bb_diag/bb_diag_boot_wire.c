@@ -108,45 +108,61 @@ const bb_serialize_desc_t bb_diag_boot_wire_desc = {
 };
 
 // ---------------------------------------------------------------------------
-// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-2) -- co-located JSON Schema
+// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-2, `.required` corrected +
+// re-targeted at the REST envelope B1-1189) -- co-located JSON Schema
 // companion to bb_diag_boot_wire_desc above, gated behind
 // BB_SERIALIZE_META_HOST (see bb_diag_boot_wire.h's banner). Three levels of
 // nesting (flat top-level fields, two BB_TYPE_OBJ fields ("panic",
 // "reboot_reason"), one BB_TYPE_ARR-of-BB_TYPE_OBJ field ("reboot_history"))
 // each need their own co-located sub-table, mirroring
 // bb_ota_validator_partitions_wire.c's ARR-of-OBJ precedent (B1-1059
-// PR-2b-i-1). Top-level "required" mirrors the "required" array of
-// platform/espidf/bb_diag_http/bb_diag_http_routes.c's hand-authored
-// k_diag_boot_schema literal (every top-level field is required there); that
-// same literal never marks any "panic"/"reboot_reason" child field required
-// (no "required" array at all on either nested object), so neither
-// sub-table below marks any child required either -- the composer always
-// emits a "required":[] for a BB_TYPE_OBJ field regardless, a documented
-// delta (see test_bb_diag_boot_wire_meta_golden.c). "reboot_history"'s
-// ARR-of-OBJ row sub-table matches its hand literal's items object, which
-// (like the partitions-wire precedent) carries no "required" list at all --
-// the composer's BB_TYPE_ARR-of-BB_TYPE_OBJ items branch never emits one, so
-// no delta there either.
+// PR-2b-i-1).
+//
+// `.required` mirrors bb_diag_boot_wire_desc's own `.present` gating at
+// every level: a field with no `.present` predicate is unconditionally
+// emitted (required = true); a present-gated field ("boots_since",
+// "detail", "age_s") is optional. This is the derivation target for GET
+// /api/diag/boot's REST envelope response schema
+// (platform/espidf/bb_diag_http/bb_diag_http_routes.c's hand-authored
+// s_boot_get_responses[] -- see test_bb_diag_boot_wire_envelope_meta_golden.c),
+// which DOES carry a "required" list on both nested BB_TYPE_OBJ fields
+// ("panic", "reboot_reason") matching this table's `.required` flags
+// exactly (mod the composer's own trailing "additionalProperties":false,
+// documented there).
+//
+// Collateral note for the SAME table's OTHER consumer,
+// test_bb_diag_boot_wire_meta_golden.c (the "diag.boot" SSE topic schema,
+// k_diag_boot_schema): that hand literal never carries a "required" key on
+// either nested object at all, regardless of content, so populating
+// `.required` here (needed for the REST envelope above) makes that other
+// golden's accepted delta wider (any nested "required" list vs none) but
+// not a new CLASS of delta -- see that file's own banner.
+//
+// "reboot_history"'s ARR-of-OBJ row sub-table also marks every child
+// `.required = true` (none of its fields are present-gated), but the
+// composer's BB_TYPE_ARR-of-BB_TYPE_OBJ items branch never emits a
+// "required" list at all (same engine limitation as the partitions-wire
+// precedent) -- an accepted delta, not a content mismatch.
 // ---------------------------------------------------------------------------
 #if defined(BB_SERIALIZE_META_HOST)
 
 static const bb_serialize_field_meta_t s_diag_panic_wire_meta_rows[] = {
-    { .key = "available" },
-    { .key = "boots_since" },
+    { .key = "available", .required = true },
+    { .key = "boots_since" },  // present-gated (panic_boots_since_present) -- optional
 };
 
 static const bb_serialize_field_meta_t s_diag_reboot_reason_wire_meta_rows[] = {
-    { .key = "source" },
-    { .key = "detail" },
-    { .key = "uptime_s" },
-    { .key = "epoch_s" },
-    { .key = "age_s" },
+    { .key = "source", .required = true },
+    { .key = "detail" },  // present-gated (reboot_detail_present) -- optional
+    { .key = "uptime_s", .required = true },
+    { .key = "epoch_s", .required = true },
+    { .key = "age_s" },  // present-gated (reboot_age_s_present) -- optional
 };
 
 static const bb_serialize_field_meta_t s_diag_reboot_hist_wire_meta_rows[] = {
-    { .key = "source" },
-    { .key = "epoch_s" },
-    { .key = "uptime_s" },
+    { .key = "source", .required = true },
+    { .key = "epoch_s", .required = true },
+    { .key = "uptime_s", .required = true },
 };
 
 static const bb_serialize_field_meta_t s_diag_boot_wire_meta_rows[] = {
