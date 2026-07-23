@@ -668,3 +668,111 @@ void test_bb_serialize_meta_validate_non_contiguous_duplicate_key_rejected(void)
                                     err, sizeof err));
     TEST_ASSERT_TRUE(strstr(err, "non-contiguous duplicate key") != NULL);
 }
+
+// ---------------------------------------------------------------------------
+// 24. B1-1186 -- max_len on a non-string field is rejected (same class as
+// min_len/enum_vals's existing check, now folded together).
+// ---------------------------------------------------------------------------
+
+static const bb_serialize_field_meta_t s_max_len_on_bool_rows[] = {
+    { .key = "serial" },
+    { .key = "calibrated", .max_len = 5 },  // BOOL field -- invalid
+    { .key = "armed" },
+    { .key = "installed_epoch_s" },
+    { .key = "region" },
+    { .key = "label" },
+    { .key = "tags" },
+};
+
+void test_bb_serialize_meta_validate_max_len_on_non_string_field(void)
+{
+    static const bb_serialize_desc_meta_t meta = {
+        .type_name = "widget", .rows = s_max_len_on_bool_rows, .n_rows = 7,
+    };
+
+    char err[128] = { 0 };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &meta, err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "calibrated") != NULL);
+    TEST_ASSERT_TRUE(strstr(err, "string-shaped") != NULL);
+}
+
+// ---------------------------------------------------------------------------
+// 25. B1-1186 -- bad bounds: min_len > max_len on the same field.
+// ---------------------------------------------------------------------------
+
+static const bb_serialize_field_meta_t s_bad_min_len_max_len_rows[] = {
+    { .key = "serial", .min_len = 10, .max_len = 5 },  // min_len > max_len
+    { .key = "calibrated" },
+    { .key = "armed" },
+    { .key = "installed_epoch_s" },
+    { .key = "region" },
+    { .key = "label" },
+    { .key = "tags" },
+};
+
+void test_bb_serialize_meta_validate_min_len_greater_than_max_len(void)
+{
+    static const bb_serialize_desc_meta_t meta = {
+        .type_name = "widget", .rows = s_bad_min_len_max_len_rows, .n_rows = 7,
+    };
+
+    char err[128] = { 0 };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &meta, err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "min_len exceeds max_len") != NULL);
+}
+
+// ---------------------------------------------------------------------------
+// 26. B1-1186 -- bad bounds: max_len exceeds the base field's own max_len
+// (the schema bound can never claim to accept MORE than the wire buffer
+// physically holds).
+// ---------------------------------------------------------------------------
+
+static const bb_serialize_field_meta_t s_bad_max_len_rows[] = {
+    { .key = "serial", .max_len = 100 },  // field max_len is 18
+    { .key = "calibrated" },
+    { .key = "armed" },
+    { .key = "installed_epoch_s" },
+    { .key = "region" },
+    { .key = "label" },
+    { .key = "tags" },
+};
+
+void test_bb_serialize_meta_validate_max_len_exceeds_field_max_len(void)
+{
+    static const bb_serialize_desc_meta_t meta = {
+        .type_name = "widget", .rows = s_bad_max_len_rows, .n_rows = 7,
+    };
+
+    char err[128] = { 0 };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &meta, err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "max_len exceeds field max_len") != NULL);
+}
+
+// ---------------------------------------------------------------------------
+// 27. B1-1186 -- happy path: max_len set within the base field's max_len,
+// combined with an existing min_len on the same field.
+// ---------------------------------------------------------------------------
+
+static const bb_serialize_field_meta_t s_good_min_max_len_rows[] = {
+    { .key = "serial", .min_len = 5, .max_len = 17 },  // field max_len is 18
+    { .key = "calibrated" },
+    { .key = "armed" },
+    { .key = "installed_epoch_s" },
+    { .key = "region" },
+    { .key = "label" },
+    { .key = "tags" },
+};
+
+void test_bb_serialize_meta_validate_min_len_and_max_len_happy_path(void)
+{
+    static const bb_serialize_desc_meta_t meta = {
+        .type_name = "widget", .rows = s_good_min_max_len_rows, .n_rows = 7,
+    };
+
+    char err[128] = { 0 };
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &meta, err, sizeof err));
+}

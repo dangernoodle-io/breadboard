@@ -549,3 +549,55 @@ void test_bb_serialize_meta_openapi_oneof_null_branches_defensive(void)
         "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}]}},"
         "\"required\":[],\"additionalProperties\":false}", buf);
 }
+
+// ---------------------------------------------------------------------------
+// 9. B1-1186 -- "maxLength" emission (mirrors min_len's gating: nonzero
+// row->max_len only). Also proves min_len+max_len combine on the same
+// field, and that an unset max_len (0) never emits.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    char bounded[16];
+    char max_only[16];
+    char unset[16];
+} s_maxlen_snap_t;
+
+static const bb_serialize_field_t s_maxlen_fields[] = {
+    { .key = "bounded", .type = BB_TYPE_STR, .offset = offsetof(s_maxlen_snap_t, bounded),
+      .max_len = sizeof(((s_maxlen_snap_t *)0)->bounded) },
+    { .key = "max_only", .type = BB_TYPE_STR, .offset = offsetof(s_maxlen_snap_t, max_only),
+      .max_len = sizeof(((s_maxlen_snap_t *)0)->max_only) },
+    { .key = "unset", .type = BB_TYPE_STR, .offset = offsetof(s_maxlen_snap_t, unset),
+      .max_len = sizeof(((s_maxlen_snap_t *)0)->unset) },
+};
+
+static const bb_serialize_desc_t s_maxlen_desc = {
+    .type_name = "maxlen", .fields = s_maxlen_fields, .n_fields = 3,
+    .snap_size = sizeof(s_maxlen_snap_t),
+};
+
+static const bb_serialize_field_meta_t s_maxlen_rows[] = {
+    { .key = "bounded", .min_len = 2, .max_len = 10 },  // both set, same field
+    { .key = "max_only", .max_len = 8 },                // max_len only, no min_len
+    { .key = "unset" },                                 // neither set -- no length constraints
+};
+
+static const bb_serialize_desc_meta_t s_maxlen_meta = {
+    .type_name = "maxlen", .rows = s_maxlen_rows, .n_rows = 3,
+};
+
+void test_bb_serialize_meta_openapi_max_len_emits(void)
+{
+    char   buf[512];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_schema(&s_maxlen_desc, &s_maxlen_meta, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{"
+        "\"bounded\":{\"type\":\"string\",\"minLength\":2,\"maxLength\":10},"
+        "\"max_only\":{\"type\":\"string\",\"maxLength\":8},"
+        "\"unset\":{\"type\":\"string\"}"
+        "},\"required\":[],\"additionalProperties\":false}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
+}

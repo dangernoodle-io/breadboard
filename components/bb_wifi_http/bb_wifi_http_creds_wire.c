@@ -34,15 +34,17 @@ const bb_serialize_desc_t bb_wifi_http_creds_wire_desc = {
 // platform/espidf/bb_wifi_http/bb_wifi_http_routes.c's hand-authored
 // s_wifi_patch_route.request_schema literal (["ssid"]) -- see
 // test_bb_wifi_http_creds_wire_meta_golden.c for the fidelity proof.
-// "maxLength" (31/63 in the hand literal) has no meta-engine equivalent
-// (only "minLength" is supported) -- a documented delta, same class as
-// every other exemplar's "additionalProperties":false addition.
+// "maxLength" (31/63, B1-1186) mirrors the hand literal's true validation
+// bound (BB_WIFI_PENDING_SSID_MAX/PASS_MAX) -- deliberately SMALLER than
+// the base descriptor's oversized wire max_len (64/96, see
+// bb_wifi_http_creds_wire_priv.h's buffer-sizing rationale), so the schema
+// documents the real accept/reject boundary, not the padded wire buffer.
 // ---------------------------------------------------------------------------
 #if defined(BB_SERIALIZE_META_HOST)
 
 static const bb_serialize_field_meta_t s_wifi_http_creds_wire_meta_rows[] = {
-    { .key = "ssid", .required = true },
-    { .key = "password" },
+    { .key = "ssid", .required = true, .max_len = BB_WIFI_PENDING_SSID_MAX },
+    { .key = "password", .max_len = BB_WIFI_PENDING_PASS_MAX },
 };
 
 const bb_serialize_desc_meta_t bb_wifi_http_creds_wire_meta = {
