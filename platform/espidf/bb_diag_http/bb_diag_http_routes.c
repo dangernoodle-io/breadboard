@@ -16,6 +16,7 @@
 #include "../../../components/bb_diag_http/bb_diag_heap_check_wire_priv.h"
 #include "../../../components/bb_diag_http/bb_diag_panic_get_wire_priv.h"
 #include "../../../components/bb_diag_http/bb_diag_sockets_get_wire_priv.h"
+#include "../../../components/bb_diag_http/bb_diag_tasks_get_wire_priv.h"
 #include "bb_data.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
@@ -617,6 +618,17 @@ static const bb_route_t s_heap_check_get_route = {
 // Requires CONFIG_FREERTOS_USE_TRACE_FACILITY=y (provides uxTaskGetSystemState).
 
 #if CONFIG_FREERTOS_USE_TRACE_FACILITY
+// Driven via the bb_serialize descriptor (B1-1191 diag conversion) rather
+// than hand-streamed cJSON -- see bb_diag_tasks_get_wire_priv.h for the
+// full shape; output is byte-identical to the pre-migration emitter. The
+// two ESP-IDF/Kconfig gates (CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID,
+// CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS) stay HERE, in the ESP-IDF-only
+// gather -- each is resolved to a plain (bool present, int64_t value) pair
+// BEFORE calling bb_diag_tasks_get_wire_fill_row(), so the wire descriptor
+// itself carries zero `#if CONFIG_*` (see the priv header's banner). Single
+// pass, no fixed row-count cap: uxTaskGetNumberOfTasks() gives an exact `n`
+// up front, so both the TaskStatus_t array and the portable row array are
+// heap-allocated to that exact size and streamed via BB_ARR_STREAM.
 static bb_err_t tasks_get_handler(bb_http_request_t *req)
 {
     UBaseType_t n = uxTaskGetNumberOfTasks();
@@ -633,17 +645,18 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
     uint32_t total_runtime = 0;
     UBaseType_t got = uxTaskGetSystemState(arr, n, &total_runtime);
 
-    // Top-level object: {"tasks":[...], "registry":{...}} (B1-471 — the
-    // registry occupancy object requires an object root, so the "tasks"
-    // array moved from array-at-root into a named field). Streamed via the
-    // obj-stream API (mirrors sockets_get_handler's nested "pcbs" array) so
-    // the per-task objects still stream true chunks — same memory profile
-    // as the prior bb_http_resp_json_arr_* form.
-    bb_http_json_obj_stream_t obj;
-    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
-    if (err != BB_OK) { bb_mem_free(arr); return err; }
+    bb_diag_tasks_get_wire_row_t *rows =
+        bb_malloc_prefer_spiram(sizeof(bb_diag_tasks_get_wire_row_t) * got);
+    if (!rows) {
+        bb_mem_free(arr);
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t err_obj;
+        bb_http_resp_json_obj_begin(req, &err_obj);
+        bb_http_resp_json_obj_set_str(&err_obj, "error", "alloc failed");
+        bb_http_resp_json_obj_end(&err_obj);
+        return BB_ERR_NO_SPACE;
+    }
 
-    bb_http_resp_json_obj_set_arr_begin(&obj, "tasks");
     for (UBaseType_t i = 0; i < got; i++) {
         const char *state_str = "?";
         switch (arr[i].eCurrentState) {
@@ -655,46 +668,46 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
             case eInvalid:   state_str = "invalid";   break;
             default: break;
         }
-        bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
-        bb_http_resp_json_obj_set_str(&obj, "name",      arr[i].pcTaskName);
-        bb_http_resp_json_obj_set_int(&obj, "prio",      (int64_t)arr[i].uxCurrentPriority);
-        bb_http_resp_json_obj_set_int(&obj, "base_prio", (int64_t)arr[i].uxBasePriority);
-        bb_http_resp_json_obj_set_int(&obj, "stack_hwm", (int64_t)arr[i].usStackHighWaterMark);
-        bb_http_resp_json_obj_set_str(&obj, "state",     state_str);
+
+        bool    core_present = false;
+        int64_t core         = 0;
 #if CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID
-        bb_http_resp_json_obj_set_int(&obj, "core",    (int64_t)arr[i].xCoreID);
+        core_present = true;
+        core         = (int64_t)arr[i].xCoreID;
 #endif
+
+        bool    runtime_present = false;
+        int64_t runtime         = 0;
 #if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
-        bb_http_resp_json_obj_set_int(&obj, "runtime", (int64_t)arr[i].ulRunTimeCounter);
+        runtime_present = true;
+        runtime         = (int64_t)arr[i].ulRunTimeCounter;
 #endif
-        // Additive enrichment (B1-445): cross-reference bb_task_registry by
-        // name via the pure lookup fn. Omitted (not null) when the task did
-        // not self-register — existing fields above are byte-unchanged.
-        {
-            uint32_t reg_budget = 0;
-            bool     reg_wdt    = false;
-            if (bb_task_registry_lookup_budget(arr[i].pcTaskName, &reg_budget, &reg_wdt)) {
-                bb_http_resp_json_obj_set_int(&obj, "stack_budget_bytes", (int64_t)reg_budget);
-                bb_http_resp_json_obj_set_bool(&obj, "wdt_subscribed", reg_wdt);
-            }
-        }
-        // Additive enrichment (B1-458 PR-B): software-watchdog diagnostics,
-        // emitted only when the task self-registered a non-zero
-        // sw_wdt_timeout_ms. Existing fields above are byte-unchanged.
-        {
-            uint32_t sw_timeout_ms = 0, sw_feed_age_ms = 0, sw_miss_age_ms = 0, sw_miss_count = 0;
-            if (bb_task_registry_lookup_sw_wdt(arr[i].pcTaskName, bb_clock_now_ms(),
-                                                &sw_timeout_ms, &sw_feed_age_ms,
-                                                &sw_miss_age_ms, &sw_miss_count)) {
-                bb_http_resp_json_obj_set_int(&obj, "sw_wdt_timeout_ms", (int64_t)sw_timeout_ms);
-                bb_http_resp_json_obj_set_int(&obj, "sw_wdt_last_feed_age_ms", (int64_t)sw_feed_age_ms);
-                bb_http_resp_json_obj_set_int(&obj, "sw_wdt_miss_count", (int64_t)sw_miss_count);
-                bb_http_resp_json_obj_set_int(&obj, "sw_wdt_last_miss_age_ms", (int64_t)sw_miss_age_ms);
-            }
-        }
-        bb_http_resp_json_obj_set_obj_end(&obj);
+
+        // Cross-reference bb_task_registry by name via the pure lookup fns
+        // (B1-445/B1-458 PR-B) -- present iff the task self-registered.
+        uint32_t reg_budget = 0;
+        bool     reg_wdt    = false;
+        bool     registry_present =
+            bb_task_registry_lookup_budget(arr[i].pcTaskName, &reg_budget, &reg_wdt);
+
+        uint32_t sw_timeout_ms = 0, sw_feed_age_ms = 0, sw_miss_age_ms = 0, sw_miss_count = 0;
+        bool sw_wdt_present =
+            bb_task_registry_lookup_sw_wdt(arr[i].pcTaskName, bb_clock_now_ms(),
+                                            &sw_timeout_ms, &sw_feed_age_ms,
+                                            &sw_miss_age_ms, &sw_miss_count);
+
+        bb_diag_tasks_get_wire_fill_row(&rows[i], arr[i].pcTaskName,
+                                         (int64_t)arr[i].uxCurrentPriority,
+                                         (int64_t)arr[i].uxBasePriority,
+                                         (int64_t)arr[i].usStackHighWaterMark,
+                                         state_str,
+                                         core_present, core,
+                                         runtime_present, runtime,
+                                         registry_present, (uint64_t)reg_budget, reg_wdt,
+                                         sw_wdt_present, (uint64_t)sw_timeout_ms,
+                                         (uint64_t)sw_feed_age_ms, (uint64_t)sw_miss_count,
+                                         (uint64_t)sw_miss_age_ms);
     }
-    bb_http_resp_json_obj_set_arr_end(&obj);
     bb_mem_free(arr);
 
     // Registry occupancy (B1-601 re-scope, was B1-471 on bb_task_registry):
@@ -703,13 +716,18 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
     // FreeRTOS task list above (a task can be base-registered without a
     // matching TaskStatus_t entry, e.g. a name mismatch, and vice versa for
     // tasks that never went through bb_task_create()).
-    bb_http_resp_json_obj_set_obj_begin(&obj, "registry");
-    bb_http_resp_json_obj_set_int(&obj, "count",    (int64_t)bb_task_base_count());
-    bb_http_resp_json_obj_set_int(&obj, "capacity", (int64_t)bb_task_base_capacity());
-    bb_http_resp_json_obj_set_int(&obj, "dropped",  (int64_t)bb_task_base_dropped());
-    bb_http_resp_json_obj_set_obj_end(&obj);
+    bb_diag_tasks_get_wire_t snap;
+    bb_diag_tasks_get_wire_fill_snap(&snap, rows, got,
+                                      (uint64_t)bb_task_base_count(),
+                                      (uint64_t)bb_task_base_capacity(),
+                                      (uint64_t)bb_task_base_dropped());
 
-    return bb_http_resp_json_obj_end(&obj);
+    // `rows` must outlive this call (bb_serialize_arr_stream_from_buf()'s
+    // iterator reads it lazily, not a copy) -- freed only after the stream
+    // render completes.
+    bb_err_t err = bb_http_serialize_stream(req, &bb_diag_tasks_get_wire_desc, &snap);
+    bb_mem_free(rows);
+    return err;
 }
 
 static const bb_route_response_t s_tasks_get_responses[] = {

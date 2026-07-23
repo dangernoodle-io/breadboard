@@ -47,12 +47,24 @@
 # bb_diag_sockets_get_wire_priv.h). The wire file itself carries no LWIP
 # symbols (portable); only sockets_get_handler in bb_diag_http_routes.c
 # below touches LWIP directly.
+# bb_diag_tasks_get_wire.c (B1-1191 diag conversion): same always-built,
+# host-testable posture -- GET /api/diag/tasks' bb_serialize migration
+# (unconditional row descriptor + nested "registry" BB_TYPE_OBJ, "tasks"
+# streamed via BB_ARR_STREAM/bb_serialize_arr_stream_from_buf -- no fixed
+# row-count cap, single-pass since uxTaskGetNumberOfTasks() gives an exact
+# n up front. 4 precomputed present-flags gate 8 per-row fields; the
+# genuinely-Kconfig-gated core/runtime TaskStatus_t members are resolved to
+# plain (bool, int64_t) pairs in tasks_get_handler's own ESP-IDF-only
+# gather -- see bb_diag_tasks_get_wire_priv.h). The wire file itself
+# carries no FreeRTOS/ESP-IDF symbols (portable); only tasks_get_handler in
+# bb_diag_http_routes.c below touches FreeRTOS/bb_task_registry directly.
 set(_diag_http_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_http_boot_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_storage_http_delete_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_heap_check_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_panic_get_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_sockets_get_wire.c"
+    "${CMAKE_CURRENT_LIST_DIR}/bb_diag_tasks_get_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_storage_http_routes.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_log_http.c"
 )
