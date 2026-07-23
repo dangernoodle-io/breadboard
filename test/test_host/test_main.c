@@ -910,6 +910,11 @@ void test_bb_diag_sections_openapi_described_paths_present(void);
 void test_bb_storage_http_delete_wire_meta_validates_against_desc(void);
 void test_bb_storage_http_delete_wire_meta_golden_matches_hand_literal(void);
 
+// Forward declarations from test_bb_diag_heap_check_wire_meta_golden.c
+// (B1-1054 diag conversion)
+void test_bb_diag_heap_check_wire_meta_validates_against_desc(void);
+void test_bb_diag_heap_check_wire_meta_golden_matches_hand_literal(void);
+
 // Forward declarations from test_bb_storage_http_factory_reset_meta_golden.c
 // (B1-1059 PR-2b-i-1)
 void test_bb_storage_http_factory_reset_meta_validates_against_desc(void);
@@ -1415,6 +1420,11 @@ void test_bb_storage_http_delete_wire_expected_json_escaped_ns(void);
 void test_bb_storage_http_delete_wire_expected_json_max_cap(void);
 void test_bb_storage_http_delete_wire_key_omitted_when_absent(void);
 void test_bb_storage_http_delete_wire_key_included_when_present(void);
+
+// Forward declarations from test_bb_diag_heap_check_wire.c
+void test_bb_diag_heap_check_wire_expected_json_true(void);
+void test_bb_diag_heap_check_wire_expected_json_false(void);
+void test_bb_diag_heap_check_wire_fill_zero_inits(void);
 
 // Forward declarations from test_bb_storage_http_factory_reset.c
 void test_storage_http_factory_reset_no_body_returns_400(void);
@@ -6247,6 +6257,14 @@ int main(void) {
     RUN_TEST(test_bb_storage_http_delete_wire_expected_json_max_cap);
     RUN_TEST(test_bb_storage_http_delete_wire_key_omitted_when_absent);
     RUN_TEST(test_bb_storage_http_delete_wire_key_included_when_present);
+
+    // GET /api/diag/heap-check response emit (bb_serialize wire descriptor,
+    // B1-1054 diag conversion)
+    RUN_TEST(test_bb_diag_heap_check_wire_expected_json_true);
+    RUN_TEST(test_bb_diag_heap_check_wire_expected_json_false);
+    RUN_TEST(test_bb_diag_heap_check_wire_fill_zero_inits);
+    RUN_TEST(test_bb_diag_heap_check_wire_meta_validates_against_desc);
+    RUN_TEST(test_bb_diag_heap_check_wire_meta_golden_matches_hand_literal);
 
     // POST /api/diag/factory-reset route tests (B1-960, rehomed off bb_nv)
     RUN_TEST(test_storage_http_factory_reset_no_body_returns_400);

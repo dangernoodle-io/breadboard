@@ -30,9 +30,16 @@
 # CONFIG_BB_LOG_ROUTES #if gates registration, same posture as this
 # component's other always-built sources above); CONFIG_BB_LOG_ROUTES KEEPS
 # its bb_log_http-era name unchanged.
+# bb_diag_heap_check_wire.c (B1-1054 diag conversion): the trivial
+# proof-of-pattern bb_serialize migration for GET /api/diag/heap-check --
+# same always-built posture as bb_diag_http_boot_wire.c/
+# bb_storage_http_delete_wire.c above (used by bb_diag_http_routes.c, which
+# is itself gated on CONFIG_BB_DIAG_ROUTES below, but the wire file itself
+# stays unconditional/host-testable).
 set(_diag_http_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_http_boot_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_storage_http_delete_wire.c"
+    "${CMAKE_CURRENT_LIST_DIR}/bb_diag_heap_check_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_storage_http_routes.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_log_http.c"
 )
