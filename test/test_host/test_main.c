@@ -1011,6 +1011,12 @@ void test_bb_diag_tasks_get_wire_schema_default_matches_literal(void);
 void test_bb_diag_sockets_get_wire_schema_default_matches_literal(void);
 void test_bb_storage_http_delete_wire_schema_default_matches_literal(void);
 
+// Forward declaration from test_bb_diag_http_boot_wire_schema_default.c
+// (B1-1059 emit boot) -- config-OFF byte-identity: GET /api/diag/boot's REST
+// envelope bb_diag_http_boot_wire_get_schema() serves the relocated hand
+// literal unchanged in this plain [env:native] build.
+void test_bb_diag_http_boot_wire_schema_default_matches_literal(void);
+
 // Forward declaration from test_bb_ota_validator_partitions_wire_schema_
 // default.c (B1-1059 emit batch D, site D1) -- config-OFF byte-identity:
 // bb_ota_validator_partitions_wire_get_schema() serves its relocated hand
@@ -6458,6 +6464,7 @@ int main(void) {
     RUN_TEST(test_bb_diag_panic_get_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_diag_panic_get_wire_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_diag_panic_get_wire_schema_default_matches_literal);
+    RUN_TEST(test_bb_diag_http_boot_wire_schema_default_matches_literal);
     RUN_TEST(test_bb_diag_sockets_get_wire_zero_pcbs);
     RUN_TEST(test_bb_diag_sockets_get_wire_n_pcbs_distinct_states);
     RUN_TEST(test_bb_diag_sockets_get_wire_all_states_nonzero);
