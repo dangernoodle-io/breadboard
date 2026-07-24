@@ -883,6 +883,22 @@ void test_bb_serialize_meta_openapi_fragment_overflow_too_small_cap(void);
 void test_bb_serialize_meta_openapi_fragment_overflow_null_out_len(void);
 void test_bb_serialize_meta_openapi_schema_empty_desc(void);
 void test_bb_serialize_meta_openapi_fragment_empty_desc(void);
+void test_bb_serialize_meta_openapi_nullable_str_emits_union(void);
+void test_bb_serialize_meta_openapi_non_nullable_regression_pin(void);
+void test_bb_serialize_meta_openapi_nullable_ignored_for_obj_row(void);
+void test_bb_serialize_meta_openapi_nullable_ignored_for_arr_row(void);
+void test_bb_serialize_meta_openapi_nullable_ignored_for_ref_row(void);
+void test_bb_serialize_meta_openapi_open_fragment_no_closing_brace(void);
+void test_bb_serialize_meta_openapi_open_fragment_render_cap_zero(void);
+void test_bb_serialize_meta_openapi_open_fragment_overflow_too_small_cap(void);
+void test_bb_serialize_meta_openapi_open_fragment_overflow_null_out_len(void);
+void test_bb_serialize_meta_openapi_open_fragment_success_null_out_len(void);
+void test_bb_serialize_meta_openapi_root_close_required_and_additional_properties(void);
+void test_bb_serialize_meta_openapi_root_close_success_null_out_len(void);
+void test_bb_serialize_meta_openapi_root_close_render_cap_zero(void);
+void test_bb_serialize_meta_openapi_root_close_overflow_too_small_cap(void);
+void test_bb_serialize_meta_openapi_root_close_overflow_null_out_len(void);
+void test_bb_serialize_meta_openapi_reconstruct_health_shaped_root(void);
 
 // Forward declarations from test_bb_wifi_http_wire_meta_golden.c (B1-1059
 // PR-2a exemplar)
@@ -10409,6 +10425,22 @@ int main(void) {
     RUN_TEST(test_bb_serialize_meta_openapi_fragment_overflow_null_out_len);
     RUN_TEST(test_bb_serialize_meta_openapi_schema_empty_desc);
     RUN_TEST(test_bb_serialize_meta_openapi_fragment_empty_desc);
+    RUN_TEST(test_bb_serialize_meta_openapi_nullable_str_emits_union);
+    RUN_TEST(test_bb_serialize_meta_openapi_non_nullable_regression_pin);
+    RUN_TEST(test_bb_serialize_meta_openapi_nullable_ignored_for_obj_row);
+    RUN_TEST(test_bb_serialize_meta_openapi_nullable_ignored_for_arr_row);
+    RUN_TEST(test_bb_serialize_meta_openapi_nullable_ignored_for_ref_row);
+    RUN_TEST(test_bb_serialize_meta_openapi_open_fragment_no_closing_brace);
+    RUN_TEST(test_bb_serialize_meta_openapi_open_fragment_render_cap_zero);
+    RUN_TEST(test_bb_serialize_meta_openapi_open_fragment_overflow_too_small_cap);
+    RUN_TEST(test_bb_serialize_meta_openapi_open_fragment_overflow_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_open_fragment_success_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_root_close_required_and_additional_properties);
+    RUN_TEST(test_bb_serialize_meta_openapi_root_close_success_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_root_close_render_cap_zero);
+    RUN_TEST(test_bb_serialize_meta_openapi_root_close_overflow_too_small_cap);
+    RUN_TEST(test_bb_serialize_meta_openapi_root_close_overflow_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_reconstruct_health_shaped_root);
 
     RUN_TEST(test_bb_wifi_http_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_wifi_http_wire_meta_golden_matches_hand_literal);

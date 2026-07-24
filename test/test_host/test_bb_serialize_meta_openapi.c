@@ -689,3 +689,437 @@ void test_bb_serialize_meta_openapi_fragment_empty_desc(void)
     TEST_ASSERT_EQUAL_STRING("{\"type\":\"object\",\"properties\":{}}", buf);
     TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
 }
+
+// ---------------------------------------------------------------------------
+// 11. B1-1059 PR-c -- nullable union type (bb_serialize_field_meta_s.nullable).
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    char label[8];
+} s_nullable_snap_t;
+
+static const bb_serialize_field_t s_nullable_fields[] = {
+    { .key = "label", .type = BB_TYPE_STR, .offset = offsetof(s_nullable_snap_t, label),
+      .max_len = sizeof(((s_nullable_snap_t *)0)->label) },
+};
+
+static const bb_serialize_desc_t s_nullable_desc = {
+    .type_name = "nullable", .fields = s_nullable_fields, .n_fields = 1,
+    .snap_size = sizeof(s_nullable_snap_t),
+};
+
+static const bb_serialize_field_meta_t s_nullable_rows[] = {
+    { .key = "label", .nullable = true },
+};
+
+static const bb_serialize_desc_meta_t s_nullable_meta = {
+    .type_name = "nullable", .rows = s_nullable_rows, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_openapi_nullable_str_emits_union(void)
+{
+    char   buf[256];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_fragment(&s_nullable_desc, &s_nullable_meta, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{\"label\":{\"type\":[\"string\",\"null\"]}}}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
+}
+
+// Regression pin: a row with `.nullable` left at its default (false) --
+// every existing meta table's trailing designated-initializer default --
+// must still emit the bare "type":"string", never a union.
+static const bb_serialize_field_meta_t s_non_nullable_rows[] = {
+    { .key = "label" },
+};
+
+static const bb_serialize_desc_meta_t s_non_nullable_meta = {
+    .type_name = "nullable", .rows = s_non_nullable_rows, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_openapi_non_nullable_regression_pin(void)
+{
+    char   buf[256];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_fragment(&s_nullable_desc, &s_non_nullable_meta, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"}}}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
+}
+
+// Regression pin: a row's `.nullable=true` on a BB_TYPE_OBJ container field
+// (an accidental/mistaken set -- the contract scopes nullable to SCALAR
+// LEAF types only, per bb_serialize_field_meta_s.nullable's doc) must be
+// silently IGNORED -- the nested object still renders its bare
+// "type":"object", never a `["object","null"]` union.
+typedef struct {
+    struct {
+        bool x;
+    } obj;
+} s_nullable_obj_snap_t;
+
+static const bb_serialize_field_t s_nullable_obj_child_fields[] = {
+    { .key = "x", .type = BB_TYPE_BOOL },
+};
+
+static const bb_serialize_field_t s_nullable_obj_fields[] = {
+    { .key = "obj", .type = BB_TYPE_OBJ, .offset = offsetof(s_nullable_obj_snap_t, obj),
+      .children = s_nullable_obj_child_fields, .n_children = 1 },
+};
+
+static const bb_serialize_desc_t s_nullable_obj_desc = {
+    .type_name = "nullable_obj", .fields = s_nullable_obj_fields, .n_fields = 1,
+    .snap_size = sizeof(s_nullable_obj_snap_t),
+};
+
+static const bb_serialize_field_meta_t s_nullable_obj_rows[] = {
+    { .key = "obj", .nullable = true },
+};
+
+static const bb_serialize_desc_meta_t s_nullable_obj_meta = {
+    .type_name = "nullable_obj", .rows = s_nullable_obj_rows, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_openapi_nullable_ignored_for_obj_row(void)
+{
+    char   buf[256];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_fragment(&s_nullable_obj_desc, &s_nullable_obj_meta, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{\"obj\":{\"type\":\"object\","
+        "\"properties\":{\"x\":{\"type\":\"boolean\"}},\"required\":[],"
+        "\"additionalProperties\":false}}}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
+}
+
+// Regression pin: same `.nullable=true`-is-ignored contract, but for a
+// BB_TYPE_ARR row -- bb_oa_write_field_schema()'s `nb` guard
+// (`f->type != BB_TYPE_OBJ && f->type != BB_TYPE_ARR && f->type != BB_TYPE_REF`)
+// short-circuits at the FIRST `!=` for an OBJ row (test above), so without
+// this test the ARR/REF-specific comparisons in that chain are never
+// independently evaluated to false.
+static const bb_serialize_field_t s_nullable_arr_fields[] = {
+    { .key = "arr", .type = BB_TYPE_ARR, .elem_type = BB_TYPE_I64 },
+};
+
+static const bb_serialize_desc_t s_nullable_arr_desc = {
+    .type_name = "nullable_arr", .fields = s_nullable_arr_fields, .n_fields = 1,
+};
+
+static const bb_serialize_field_meta_t s_nullable_arr_rows[] = {
+    { .key = "arr", .nullable = true },
+};
+
+static const bb_serialize_desc_meta_t s_nullable_arr_meta = {
+    .type_name = "nullable_arr", .rows = s_nullable_arr_rows, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_openapi_nullable_ignored_for_arr_row(void)
+{
+    char   buf[256];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_fragment(&s_nullable_arr_desc, &s_nullable_arr_meta, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{\"arr\":{\"type\":\"array\","
+        "\"items\":{\"type\":\"integer\"}}}}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
+}
+
+// Regression pin: same contract, BB_TYPE_REF row -- the last `!=` in the
+// chain, only reachable false when BOTH preceding comparisons (OBJ, ARR)
+// are true.
+static const bb_serialize_field_t s_nullable_ref_fields[] = {
+    { .key = "ref", .type = BB_TYPE_REF, .ref_key = "some.sibling" },
+};
+
+static const bb_serialize_desc_t s_nullable_ref_desc = {
+    .type_name = "nullable_ref", .fields = s_nullable_ref_fields, .n_fields = 1,
+};
+
+static const bb_serialize_field_meta_t s_nullable_ref_rows[] = {
+    { .key = "ref", .nullable = true },
+};
+
+static const bb_serialize_desc_meta_t s_nullable_ref_meta = {
+    .type_name = "nullable_ref", .rows = s_nullable_ref_rows, .n_rows = 1,
+};
+
+void test_bb_serialize_meta_openapi_nullable_ignored_for_ref_row(void)
+{
+    char   buf[256];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_fragment(&s_nullable_ref_desc, &s_nullable_ref_meta, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{\"ref\":{\"type\":\"object\"}}}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
+}
+
+// ---------------------------------------------------------------------------
+// 12. B1-1059 PR-c -- bb_serialize_meta_openapi_open_fragment()/
+// bb_serialize_meta_openapi_root_close(): root-reconstruction primitives.
+// Engine-only, ZERO callers this PR.
+// ---------------------------------------------------------------------------
+
+void test_bb_serialize_meta_openapi_open_fragment_no_closing_brace(void)
+{
+    char   buf[256];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_open_fragment(&s_lonely_desc, NULL, buf, sizeof buf, &n));
+    // Same shape as bb_serialize_meta_openapi_fragment() for this desc, MINUS
+    // the trailing '}' -- intentionally NOT valid standalone JSON.
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{\"lonely\":{\"type\":\"boolean\"}}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
+}
+
+void test_bb_serialize_meta_openapi_open_fragment_render_cap_zero(void)
+{
+    char buf[4] = { 'x', 'x', 'x', 'x' };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
+        bb_serialize_meta_openapi_open_fragment(&bb_fixture_widget_desc, &bb_fixture_widget_meta, buf, 0, NULL));
+}
+
+void test_bb_serialize_meta_openapi_open_fragment_overflow_too_small_cap(void)
+{
+    char   buf[8];
+    size_t n = 12345;
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
+        bb_serialize_meta_openapi_open_fragment(&bb_fixture_widget_desc, &bb_fixture_widget_meta, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING("", buf);
+    TEST_ASSERT_EQUAL_UINT(0, n);
+}
+
+void test_bb_serialize_meta_openapi_open_fragment_overflow_null_out_len(void)
+{
+    char buf[8];
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
+        bb_serialize_meta_openapi_open_fragment(&bb_fixture_widget_desc, &bb_fixture_widget_meta, buf, sizeof buf, NULL));
+}
+
+// Success path with out_len == NULL -- exercises the `if (out_len)` guard's
+// false branch, mirroring _schema()'s equivalent
+// test_bb_serialize_meta_openapi_success_null_out_len.
+void test_bb_serialize_meta_openapi_open_fragment_success_null_out_len(void)
+{
+    char buf[256];
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_open_fragment(&s_lonely_desc, NULL, buf, sizeof buf, NULL));
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{\"lonely\":{\"type\":\"boolean\"}}", buf);
+}
+
+// A small required-mixed desc: "a" required, "b" not.
+typedef struct {
+    bool a;
+    bool b;
+} s_root_close_snap_t;
+
+static const bb_serialize_field_t s_root_close_fields[] = {
+    { .key = "a", .type = BB_TYPE_BOOL, .offset = offsetof(s_root_close_snap_t, a) },
+    { .key = "b", .type = BB_TYPE_BOOL, .offset = offsetof(s_root_close_snap_t, b) },
+};
+
+static const bb_serialize_desc_t s_root_close_desc = {
+    .type_name = "root_close", .fields = s_root_close_fields, .n_fields = 2,
+    .snap_size = sizeof(s_root_close_snap_t),
+};
+
+static const bb_serialize_field_meta_t s_root_close_rows[] = {
+    { .key = "a", .required = true },
+    { .key = "b" },
+};
+
+static const bb_serialize_desc_meta_t s_root_close_meta = {
+    .type_name = "root_close", .rows = s_root_close_rows, .n_rows = 2,
+};
+
+void test_bb_serialize_meta_openapi_root_close_required_and_additional_properties(void)
+{
+    char   buf[128];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_root_close(&s_root_close_desc, &s_root_close_meta, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING(",\"required\":[\"a\"],\"additionalProperties\":false}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
+}
+
+// Success path with out_len == NULL -- exercises the `if (out_len)` guard's
+// false branch, mirroring _schema()'s equivalent
+// test_bb_serialize_meta_openapi_success_null_out_len.
+void test_bb_serialize_meta_openapi_root_close_success_null_out_len(void)
+{
+    char buf[128];
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_root_close(&s_root_close_desc, &s_root_close_meta, buf, sizeof buf, NULL));
+    TEST_ASSERT_EQUAL_STRING(",\"required\":[\"a\"],\"additionalProperties\":false}", buf);
+}
+
+void test_bb_serialize_meta_openapi_root_close_render_cap_zero(void)
+{
+    char buf[4] = { 'x', 'x', 'x', 'x' };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
+        bb_serialize_meta_openapi_root_close(&s_root_close_desc, &s_root_close_meta, buf, 0, NULL));
+}
+
+void test_bb_serialize_meta_openapi_root_close_overflow_too_small_cap(void)
+{
+    char   buf[8];
+    size_t n = 12345;
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
+        bb_serialize_meta_openapi_root_close(&s_root_close_desc, &s_root_close_meta, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING("", buf);
+    TEST_ASSERT_EQUAL_UINT(0, n);
+}
+
+// _render_cap_zero above hits the EARLIER `out_size == 0` guard, not this
+// one -- mirrors _schema()/_fragment()/_open_fragment()'s own
+// `_overflow_null_out_len` sibling: a REAL (non-zero, too-small) overflow
+// with out_len == NULL, exercising the `if (out_len)` guard's false arm
+// inside root_close()'s ctx.err-fail block.
+void test_bb_serialize_meta_openapi_root_close_overflow_null_out_len(void)
+{
+    char buf[8];
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
+        bb_serialize_meta_openapi_root_close(&s_root_close_desc, &s_root_close_meta, buf, sizeof buf, NULL));
+    TEST_ASSERT_EQUAL_STRING("", buf);
+}
+
+// ---------------------------------------------------------------------------
+// 13. B1-1059 PR-c -- reconstruct-health-shaped: a LOCAL synthetic root
+// desc/meta (ok BOOL required; network OBJ required with children
+// ssid/bssid/ip/connected + mdns .nullable=true) round-tripped through
+// open_fragment()/root_close(), proving the PRIMITIVE only -- no bb_health
+// code is exercised or referenced (no #include of the private header).
+//
+// The field set (ok/network/ssid/bssid/ip/connected/mdns-nullable) is
+// pinned against components/bb_health/bb_health_schema_priv.h's
+// k_health_base literal, but the exact bytes below are NOT byte-identical
+// to k_health_base: this engine's nested-OBJ path (bb_oa_write_field_schema)
+// always appends its own "required"/"additionalProperties" for a BB_TYPE_OBJ
+// field (see the "nested obj" golden earlier in this file), whereas
+// k_health_base's hand-authored "network" object omits both -- a
+// pre-existing divergence between the hand literal and this engine's
+// nested-OBJ contract, unrelated to this PR.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    bool ok;
+    struct {
+        char ssid[8];
+        char bssid[8];
+        char ip[8];
+        bool connected;
+        char mdns[8];
+    } network;
+} s_health_shaped_snap_t;
+
+static const bb_serialize_field_t s_health_shaped_network_children[] = {
+    { .key = "ssid", .type = BB_TYPE_STR,
+      .max_len = sizeof(((s_health_shaped_snap_t *)0)->network.ssid) },
+    { .key = "bssid", .type = BB_TYPE_STR,
+      .max_len = sizeof(((s_health_shaped_snap_t *)0)->network.bssid) },
+    { .key = "ip", .type = BB_TYPE_STR,
+      .max_len = sizeof(((s_health_shaped_snap_t *)0)->network.ip) },
+    { .key = "connected", .type = BB_TYPE_BOOL },
+    { .key = "mdns", .type = BB_TYPE_STR,
+      .max_len = sizeof(((s_health_shaped_snap_t *)0)->network.mdns) },
+};
+
+static const bb_serialize_field_t s_health_shaped_fields[] = {
+    { .key = "ok", .type = BB_TYPE_BOOL, .offset = offsetof(s_health_shaped_snap_t, ok) },
+    { .key = "network", .type = BB_TYPE_OBJ, .offset = offsetof(s_health_shaped_snap_t, network),
+      .children = s_health_shaped_network_children, .n_children = 5 },
+};
+
+static const bb_serialize_desc_t s_health_shaped_desc = {
+    .type_name = "health_shaped", .fields = s_health_shaped_fields, .n_fields = 2,
+    .snap_size = sizeof(s_health_shaped_snap_t),
+};
+
+static const bb_serialize_field_meta_t s_health_shaped_network_rows[] = {
+    { .key = "ssid" },
+    { .key = "bssid" },
+    { .key = "ip" },
+    { .key = "connected" },
+    { .key = "mdns", .nullable = true },
+};
+
+static const bb_serialize_field_meta_t s_health_shaped_rows[] = {
+    { .key = "ok", .required = true },
+    { .key = "network", .required = true,
+      .children = s_health_shaped_network_rows, .n_children = 5 },
+};
+
+static const bb_serialize_desc_meta_t s_health_shaped_meta = {
+    .type_name = "health_shaped", .rows = s_health_shaped_rows, .n_rows = 2,
+};
+
+void test_bb_serialize_meta_openapi_reconstruct_health_shaped_root(void)
+{
+    char   open_buf[512];
+    size_t open_n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_open_fragment(&s_health_shaped_desc, &s_health_shaped_meta,
+                                                 open_buf, sizeof open_buf, &open_n));
+    const char *expected_open =
+        "{\"type\":\"object\",\"properties\":{"
+        "\"ok\":{\"type\":\"boolean\"},"
+        "\"network\":{\"type\":\"object\",\"properties\":{"
+        "\"ssid\":{\"type\":\"string\"},"
+        "\"bssid\":{\"type\":\"string\"},"
+        "\"ip\":{\"type\":\"string\"},"
+        "\"connected\":{\"type\":\"boolean\"},"
+        "\"mdns\":{\"type\":[\"string\",\"null\"]}},"
+        "\"required\":[],\"additionalProperties\":false}}";
+    TEST_ASSERT_EQUAL_STRING(expected_open, open_buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(expected_open), open_n);
+
+    char full[768];
+    size_t off = 0;
+    memcpy(full + off, open_buf, open_n);
+    off += open_n;
+
+    // Concat a fake section spliced in between open and close, exactly the
+    // way a future composite-root consumer would splice a section fragment.
+    static const char s_fake_mqtt_section[] = ",\"mqtt\":{\"type\":\"object\",\"properties\":{}}";
+    memcpy(full + off, s_fake_mqtt_section, strlen(s_fake_mqtt_section));
+    off += strlen(s_fake_mqtt_section);
+
+    char   close_buf[128];
+    size_t close_n = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_root_close(&s_health_shaped_desc, &s_health_shaped_meta,
+                                              close_buf, sizeof close_buf, &close_n));
+    TEST_ASSERT_EQUAL_STRING(",\"required\":[\"ok\",\"network\"],\"additionalProperties\":false}", close_buf);
+
+    memcpy(full + off, close_buf, close_n);
+    off += close_n;
+    full[off] = '\0';
+
+    // Braces balance -- the concatenated result is well-formed JSON.
+    int depth = 0;
+    for (size_t i = 0; i < off; i++) {
+        if (full[i] == '{') depth++;
+        else if (full[i] == '}') depth--;
+    }
+    TEST_ASSERT_EQUAL_INT(0, depth);
+}

@@ -93,8 +93,14 @@ static const bb_serialize_field_meta_t *bb_oa_find_row(const bb_serialize_field_
 // Schema composition
 // ---------------------------------------------------------------------------
 
-static void bb_oa_write_type(bb_oa_ctx_t *ctx, bb_type_t type)
+// `nullable`: when true, wraps the bare type value in a 2-element JSON
+// Schema union `["<base>","null"]` instead of the bare "<base>" value --
+// see bb_serialize_field_meta_s.nullable's doc. Callers write the leading
+// "\"type\":" prefix; this only writes the value.
+static void bb_oa_write_type(bb_oa_ctx_t *ctx, bb_type_t type, bool nullable)
 {
+    if (nullable) bb_oa_putc(ctx, '[');
+
     switch (type) {  // LCOV_EXCL_BR_LINE -- exhaustive enum switch: the
                       // compiler-generated jump-table bounds-check branch is
                       // only taken for an out-of-range value, unreachable
@@ -118,6 +124,8 @@ static void bb_oa_write_type(bb_oa_ctx_t *ctx, bb_type_t type)
         break;
     default:            bb_oa_puts(ctx, "\"null\"");   break;  // LCOV_EXCL_LINE -- exhaustive enum, defensive
     }
+
+    if (nullable) bb_oa_puts(ctx, ",\"null\"]");
 }
 
 static void bb_oa_write_docs(bb_oa_ctx_t *ctx, const bb_serialize_field_meta_t *row)
@@ -187,7 +195,10 @@ static void bb_oa_write_items(bb_oa_ctx_t *ctx, const bb_serialize_field_t *f,
         bb_oa_puts(ctx, ",\"additionalProperties\":false");
     } else {
         bb_oa_puts(ctx, "\"type\":");
-        bb_oa_write_type(ctx, f->elem_type);
+        // Array elements are out of the nullable-union scope this PR --
+        // scalar-leaf nullable applies only to bb_oa_write_field_schema()'s
+        // own field, never to an ARR's elem_type.
+        bb_oa_write_type(ctx, f->elem_type, false);
     }
     bb_oa_putc(ctx, '}');
 }
@@ -224,7 +235,17 @@ static void bb_oa_write_field_schema(bb_oa_ctx_t *ctx, const bb_serialize_field_
 {
     bb_oa_putc(ctx, '{');
     bb_oa_puts(ctx, "\"type\":");
-    bb_oa_write_type(ctx, f->type);
+    // Scalar-leaf nullable union (bb_serialize_field_meta_s.nullable) --
+    // the row's own field type only; a nested OBJ's own "type":"object"
+    // above this call, and an ARR's elem_type in bb_oa_write_items(), are
+    // out of scope and always pass nullable=false. Enforced here too: a
+    // stray `.nullable=true` on an OBJ/ARR/REF row is silently ignored
+    // rather than emitting a union for a container type -- REF is included
+    // because it always renders as the same opaque "object" shape as OBJ
+    // (see bb_oa_write_type()'s BB_TYPE_REF case).
+    bool nb = row && row->nullable &&
+              f->type != BB_TYPE_OBJ && f->type != BB_TYPE_ARR && f->type != BB_TYPE_REF;
+    bb_oa_write_type(ctx, f->type, nb);
 
     if (row) {
         if (row->min_len) {
@@ -295,6 +316,36 @@ static void bb_oa_write_field_schema(bb_oa_ctx_t *ctx, const bb_serialize_field_
     bb_oa_putc(ctx, '}');
 }
 
+// Writes the top-level `"required":[...]` array for `desc`/`meta` --
+// extracted out of bb_oa_write_body() (B1-1059 PR-c) so
+// bb_serialize_meta_openapi_root_close() can emit a required-without-
+// properties tail. Same selection logic as before: only a key's first
+// physical occurrence governs "required" (see the inline comment at the
+// call site this was extracted from for the duplicate-key rationale).
+static void bb_oa_write_required(bb_oa_ctx_t *ctx, const bb_serialize_desc_t *desc,
+                                  const bb_serialize_desc_meta_t *meta)
+{
+    bb_oa_puts(ctx, ",\"required\":[");
+    bool first_req = true;
+    for (uint16_t i = 0; i < desc->n_fields; i++) {
+        const bb_serialize_field_t *f = &desc->fields[i];
+        // Only the key's first physical occurrence governs "required" --
+        // for an ordinary (non-duplicated) key this is every field; for a
+        // duplicate-key group `.required` lives on the ONE meta row for
+        // that key regardless of which occurrence it documents, so
+        // checking it once (at occurrence 0) is both sufficient and
+        // correct.
+        if (bb_serialize_meta_occurrence_index(desc->fields, i) != 0) continue;
+        const bb_serialize_field_meta_t *row =
+            meta ? bb_oa_find_row(meta->rows, meta->n_rows, f->key) : NULL;
+        if (!row || !row->required) continue;
+        if (!first_req) bb_oa_putc(ctx, ',');
+        first_req = false;
+        bb_oa_put_qstr(ctx, f->key);
+    }
+    bb_oa_putc(ctx, ']');
+}
+
 // Shared body-writer for both the standalone-schema and section-fragment
 // entry points -- writes "properties":{...}[,"required":[...]]
 // [,"additionalProperties":false]. Caller writes the leading
@@ -349,27 +400,7 @@ static void bb_oa_write_body(bb_oa_ctx_t *ctx, const bb_serialize_desc_t *desc,
     }
     bb_oa_putc(ctx, '}');
 
-    if (emit_required) {
-        bb_oa_puts(ctx, ",\"required\":[");
-        bool first_req = true;
-        for (uint16_t i = 0; i < desc->n_fields; i++) {
-            const bb_serialize_field_t *f = &desc->fields[i];
-            // Only the key's first physical occurrence governs "required" --
-            // for an ordinary (non-duplicated) key this is every field; for a
-            // duplicate-key group `.required` lives on the ONE meta row for
-            // that key regardless of which occurrence it documents, so
-            // checking it once (at occurrence 0) is both sufficient and
-            // correct.
-            if (bb_serialize_meta_occurrence_index(desc->fields, i) != 0) continue;
-            const bb_serialize_field_meta_t *row =
-                meta ? bb_oa_find_row(meta->rows, meta->n_rows, f->key) : NULL;
-            if (!row || !row->required) continue;
-            if (!first_req) bb_oa_putc(ctx, ',');
-            first_req = false;
-            bb_oa_put_qstr(ctx, f->key);
-        }
-        bb_oa_putc(ctx, ']');
-    }
+    if (emit_required) bb_oa_write_required(ctx, desc, meta);
 
     if (emit_additional_properties) {
         bb_oa_puts(ctx, ",\"additionalProperties\":false");
@@ -395,6 +426,52 @@ bb_err_t bb_serialize_meta_openapi_schema(const bb_serialize_desc_t      *desc,
     bb_oa_puts(&ctx, "{\"type\":\"object\",");
     bb_oa_write_body(&ctx, desc, meta, true, true);
     bb_oa_putc(&ctx, '}');
+
+    if (ctx.err != BB_OK) {
+        out[0] = '\0';
+        if (out_len) *out_len = 0;
+        return ctx.err;
+    }
+
+    out[ctx.len] = '\0';
+    if (out_len) *out_len = ctx.len;
+    return BB_OK;
+}
+
+bb_err_t bb_serialize_meta_openapi_open_fragment(const bb_serialize_desc_t      *desc,
+                                                  const bb_serialize_desc_meta_t *meta,
+                                                  char *out, size_t out_size, size_t *out_len)
+{
+    if (out_size == 0) return BB_ERR_NO_SPACE;
+
+    bb_oa_ctx_t ctx = { .buf = out, .cap = out_size - 1, .len = 0, .err = BB_OK };
+
+    bb_oa_puts(&ctx, "{\"type\":\"object\",");
+    bb_oa_write_body(&ctx, desc, meta, false, false);
+    // Deliberately no closing '}' -- the caller appends further section
+    // content, then closes with bb_serialize_meta_openapi_root_close().
+
+    if (ctx.err != BB_OK) {
+        out[0] = '\0';
+        if (out_len) *out_len = 0;
+        return ctx.err;
+    }
+
+    out[ctx.len] = '\0';
+    if (out_len) *out_len = ctx.len;
+    return BB_OK;
+}
+
+bb_err_t bb_serialize_meta_openapi_root_close(const bb_serialize_desc_t      *desc,
+                                               const bb_serialize_desc_meta_t *meta,
+                                               char *out, size_t out_size, size_t *out_len)
+{
+    if (out_size == 0) return BB_ERR_NO_SPACE;
+
+    bb_oa_ctx_t ctx = { .buf = out, .cap = out_size - 1, .len = 0, .err = BB_OK };
+
+    bb_oa_write_required(&ctx, desc, meta);
+    bb_oa_puts(&ctx, ",\"additionalProperties\":false}");
 
     if (ctx.err != BB_OK) {
         out[0] = '\0';

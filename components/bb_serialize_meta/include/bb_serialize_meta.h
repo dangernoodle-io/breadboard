@@ -143,6 +143,14 @@ typedef struct bb_serialize_field_meta_s {
     const struct bb_serialize_field_meta_s *const *branches;  // BB_SERIALIZE_META_KIND_ONEOF only;
                                                                 // NULL-terminated
     uint16_t n_branches;                                       // BB_SERIALIZE_META_KIND_ONEOF only
+
+    // When true, emits a 2-element JSON Schema union `"type":["<base>","null"]`
+    // instead of the bare `"type":"<base>"`. Default false (every existing
+    // meta table's trailing designated-initializer default). Scoped to
+    // SCALAR LEAF type emission only -- a row on a BB_TYPE_OBJ / BB_TYPE_ARR
+    // container field is out of scope for this PR (the array-items path and
+    // the nested-OBJ properties path never consult this flag).
+    bool nullable;
 } bb_serialize_field_meta_t;
 
 // Number of physical `fields[]` entries (0-based index < `n_fields`) sharing
@@ -240,6 +248,42 @@ bb_err_t bb_serialize_meta_openapi_schema(const bb_serialize_desc_t      *desc,
 bb_err_t bb_serialize_meta_openapi_fragment(const bb_serialize_desc_t      *desc,
                                              const bb_serialize_desc_meta_t *meta,
                                              char *out, size_t out_size, size_t *out_len);
+
+// Root-reconstruction primitives (B1-1059 PR-c): engine-only, ZERO callers
+// this PR -- inert until a later PR wires a composite-root consumer (e.g.
+// bb_health's assembled /api/health schema) onto them. Together they let a
+// caller splice section fragments (bb_serialize_meta_openapi_fragment()) in
+// between an "open" root object and its "close", instead of the fixed
+// hand-authored base/suffix string pair a composite root uses today.
+
+// Opens a root JSON Schema object for `desc`/`meta` and writes
+// `{"type":"object","properties":{...}}` -- SAME `bb_oa_write_body()` used
+// by bb_serialize_meta_openapi_fragment() (both top-level "required" and
+// "additionalProperties" flags false) but deliberately STOPS before any
+// closing brace: the returned bytes are NOT valid standalone JSON on their
+// own -- the caller is expected to append further section content (e.g.
+// `,"<name>":{...}`) then close the root with
+// bb_serialize_meta_openapi_root_close(). Same bounded-buffer, no-heap,
+// all-or-nothing overflow idiom as _fragment(): on BB_ERR_NO_SPACE,
+// `*out_len` is 0 and `out[0]` is '\0', never a partial fragment.
+bb_err_t bb_serialize_meta_openapi_open_fragment(const bb_serialize_desc_t      *desc,
+                                                  const bb_serialize_desc_meta_t *meta,
+                                                  char *out, size_t out_size, size_t *out_len);
+
+// Closes a root JSON Schema object previously opened with
+// bb_serialize_meta_openapi_open_fragment(): writes
+// `,"required":[...],"additionalProperties":false}` -- the root-level
+// "required" array (computed from `desc`/`meta`, same selection logic as
+// bb_serialize_meta_openapi_schema()'s top-level required array) followed
+// by the closing "additionalProperties":false and the root object's final
+// '}'. `desc`/`meta` here describe ONLY the root-level fields (e.g. the
+// "ok"/"network" pair), not any section spliced in between open and close.
+// Same bounded-buffer, no-heap, all-or-nothing overflow idiom as
+// _fragment(): on BB_ERR_NO_SPACE, `*out_len` is 0 and `out[0]` is '\0',
+// never a partial fragment.
+bb_err_t bb_serialize_meta_openapi_root_close(const bb_serialize_desc_t      *desc,
+                                               const bb_serialize_desc_meta_t *meta,
+                                               char *out, size_t out_size, size_t *out_len);
 
 #ifdef __cplusplus
 }
