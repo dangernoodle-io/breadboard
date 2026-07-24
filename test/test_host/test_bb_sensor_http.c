@@ -15,6 +15,7 @@
 
 #include "../../../components/bb_sensor_http/bb_sensor_http_wire_priv.h"
 #include "../../../components/bb_sensor_http/bb_sensor_http_dispatch_priv.h"
+#include "bb_sensor_http_wire_test.h"
 
 #include "bb_data.h"
 #include "bb_http_section_priv.h"
@@ -486,3 +487,52 @@ void test_bb_sensor_http_e2e_fan_patch_exponent_manual_pct_refused_not_truncated
     free(fh);
 }
 #endif /* CONFIG_BB_FAN_AUTOFAN */
+
+// ---------------------------------------------------------------------------
+// CONFIG_BB_OPENAPI_RUNTIME_META OFF (this env's default -- undefined) --
+// proves all four describe-only routes' schema/request_schema fields are
+// still the UNCHANGED const literal path, byte- AND pointer-identical to
+// bb_sensor_http_{fan,fan_request,power,thermal}_schema (both assigned from
+// the SAME *_SCHEMA_LITERAL macro invocation in this SAME translation unit,
+// bb_sensor_http_wire.c -- GCC pools identical string literals WITHIN a
+// single TU, so pointer identity is a stable, toolchain-independent proof
+// here, same as the wifi/diag and storage/nvs precedents). B1-1059 PR-3
+// batch 3: config-OFF is a zero-diff no-op for all four sites.
+// ---------------------------------------------------------------------------
+
+void test_bb_sensor_http_wire_describe_fan_schema_is_unchanged_const_literal(void)
+{
+    // The for-test assemble is a documented no-op at this config gate (see
+    // bb_sensor_http_wire_test.h) -- still exercised here so the
+    // compiled-out #else arm of
+    // bb_sensor_http_wire_assemble_fan_schema_for_test() is covered, not
+    // just the accessor.
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_wire_assemble_fan_schema_for_test());
+
+    TEST_ASSERT_EQUAL_PTR(bb_sensor_http_fan_schema,
+                           bb_sensor_http_wire_get_fan_describe_schema_for_test());
+}
+
+void test_bb_sensor_http_wire_describe_fan_request_schema_is_unchanged_const_literal(void)
+{
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_wire_assemble_fan_request_schema_for_test());
+
+    TEST_ASSERT_EQUAL_PTR(bb_sensor_http_fan_request_schema,
+                           bb_sensor_http_wire_get_fan_describe_request_schema_for_test());
+}
+
+void test_bb_sensor_http_wire_describe_power_schema_is_unchanged_const_literal(void)
+{
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_wire_assemble_power_schema_for_test());
+
+    TEST_ASSERT_EQUAL_PTR(bb_sensor_http_power_schema,
+                           bb_sensor_http_wire_get_power_describe_schema_for_test());
+}
+
+void test_bb_sensor_http_wire_describe_thermal_schema_is_unchanged_const_literal(void)
+{
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_wire_assemble_thermal_schema_for_test());
+
+    TEST_ASSERT_EQUAL_PTR(bb_sensor_http_thermal_schema,
+                           bb_sensor_http_wire_get_thermal_describe_schema_for_test());
+}
