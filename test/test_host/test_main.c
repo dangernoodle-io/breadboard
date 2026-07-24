@@ -4124,6 +4124,7 @@ void test_bb_wifi_http_diag_fill_mixed_histogram_and_shared_fields(void);
 void test_bb_wifi_http_diag_walk_empty_histogram_omits_every_bucket(void);
 void test_bb_wifi_http_diag_walk_mixed_histogram_present_gates_correct_buckets(void);
 void test_bb_wifi_http_diag_desc_fits_scratch(void);
+void test_bb_wifi_http_diag_describe_schema_is_unchanged_const_literal(void);
 
 // Forward declarations from test_bb_ring_diag.c
 void test_bb_ring_diag_fill_null_dst_returns_invalid_arg(void);
@@ -5905,6 +5906,7 @@ int main(void) {
     RUN_TEST(test_bb_wifi_http_diag_walk_empty_histogram_omits_every_bucket);
     RUN_TEST(test_bb_wifi_http_diag_walk_mixed_histogram_present_gates_correct_buckets);
     RUN_TEST(test_bb_wifi_http_diag_desc_fits_scratch);
+    RUN_TEST(test_bb_wifi_http_diag_describe_schema_is_unchanged_const_literal);
     RUN_TEST(test_bb_ring_diag_fill_null_dst_returns_invalid_arg);
     RUN_TEST(test_bb_ring_diag_fill_empty_registry);
     RUN_TEST(test_bb_ring_diag_fill_reports_live_rings);

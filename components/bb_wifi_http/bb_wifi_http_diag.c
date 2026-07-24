@@ -349,10 +349,64 @@ bb_err_t bb_wifi_http_diag_fill(void *dst, const bb_diag_fill_args_t *args)
 // (components/bb_diag/include/bb_diag_section.h) for the full mechanism.
 // ---------------------------------------------------------------------------
 
+// CONFIG_BB_OPENAPI_RUNTIME_META (B1-1059 PR-3 batch 2) -- gated DIRECTLY on
+// this Kconfig symbol, never on BB_SERIALIZE_META_SHIP: that macro also
+// covers BB_SERIALIZE_META_HOST (unconditionally set by the plain `native`
+// host env, see platformio.ini), which must NOT flip this section onto the
+// runtime-compose path -- "meta tables compiled in for golden-testing"
+// (SHIP) and "this route sources its schema at runtime" (RUNTIME_META) are
+// deliberately distinct gates. Config OFF (default) is a zero-diff no-op:
+// the `#else` arm below is byte-identical to the pre-batch table.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Sized to the golden-tested hand literal
+// (test_bb_wifi_http_diag_meta_golden.c proves the engine's output is
+// byte-identical to BB_WIFI_HTTP_DIAG_SCHEMA_LITERAL) -- not an arbitrary
+// round cap; any future desync trips bb_serialize_meta_openapi_schema()'s
+// own bounded-buffer BB_ERR_NO_SPACE contract instead of silently
+// truncating.
+static char s_wifi_http_diag_schema_buf[sizeof(BB_WIFI_HTTP_DIAG_SCHEMA_LITERAL)];
+
+static bb_err_t assemble_schema(void)
+{
+    size_t n = 0;
+    return bb_serialize_meta_openapi_schema(&bb_wifi_http_diag_desc, &bb_wifi_http_diag_meta,
+                                             s_wifi_http_diag_schema_buf,
+                                             sizeof(s_wifi_http_diag_schema_buf), &n);
+}
+
+// Mutable (`.data`, not `.rodata`) with this config on -- `.schema` starts
+// NULL and is patched in once by bb_wifi_http_diag_register() (or the test
+// accessor below) before the route is ever registered/served.
+static bb_route_response_t s_wifi_http_diag_describe_responses[] = {
+    { .status = 200, .content_type = "application/json", .schema = NULL /* patched at init */ },
+    { .status = 0 },
+};
+
+#else
+
 static const bb_route_response_t s_wifi_http_diag_describe_responses[] = {
     { .status = 200, .content_type = "application/json", .schema = BB_WIFI_HTTP_DIAG_SCHEMA_LITERAL },
     { .status = 0 },
 };
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+// Shared compose-and-patch step, called from both bb_wifi_http_diag_
+// register() and the test accessor below: idempotent (a second call is a
+// pointer-stable no-op once `.schema` is set) and fail-loud (propagates
+// assemble_schema()'s rc without ever patching a partial/NULL schema in).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+static bb_err_t ensure_schema_patched(void)
+{
+    if (!s_wifi_http_diag_describe_responses[0].schema) {
+        bb_err_t rc = assemble_schema();
+        if (rc != BB_OK) return rc;  // fail loud -- never register a NULL/partial schema
+        s_wifi_http_diag_describe_responses[0].schema = s_wifi_http_diag_schema_buf;
+    }
+    return BB_OK;
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 static const bb_route_t s_wifi_http_diag_describe_route = {
     .method    = BB_HTTP_GET,
@@ -366,6 +420,11 @@ static const bb_route_t s_wifi_http_diag_describe_route = {
 #ifdef ESP_PLATFORM
 bb_err_t bb_wifi_http_diag_register(void)
 {
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t patch_rc = ensure_schema_patched();
+    if (patch_rc != BB_OK) return patch_rc;
+#endif
+
     bb_diag_section_t section = {
         .name           = "wifi",
         .desc           = "WiFi diagnostic surface (B1-969, rehomed from the dissolved bb_net_health)",
@@ -379,3 +438,27 @@ bb_err_t bb_wifi_http_diag_register(void)
     return bb_diag_register_section(&section);
 }
 #endif
+
+// ---------------------------------------------------------------------------
+// Test-only accessors (BB_WIFI_HTTP_DIAG_TESTING) -- see
+// bb_wifi_http_diag_test.h. Portable (not ESP_PLATFORM-gated): exercises
+// the same guarded, idempotent compose-and-patch bb_wifi_http_diag_
+// register() runs, without requiring the ESP-IDF-gated register() itself.
+// ---------------------------------------------------------------------------
+#ifdef BB_WIFI_HTTP_DIAG_TESTING
+#include "bb_wifi_http_diag_test.h"
+
+bb_err_t bb_wifi_http_diag_assemble_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return ensure_schema_patched();
+#else
+    return BB_OK;
+#endif
+}
+
+const char *bb_wifi_http_diag_get_describe_schema_for_test(void)
+{
+    return s_wifi_http_diag_describe_responses[0].schema;
+}
+#endif /* BB_WIFI_HTTP_DIAG_TESTING */
