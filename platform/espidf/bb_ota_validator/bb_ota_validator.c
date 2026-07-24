@@ -205,22 +205,37 @@ bb_err_t bb_ota_validator_init(bb_http_handle_t server)
         .handler  = mark_valid_handler,
     };
 
-    static const bb_route_response_t s_partitions_responses[] = {
-        { 200, "application/json",
-          "{\"type\":\"object\","
-          "\"properties\":{\"partitions\":{\"type\":\"array\","
-          "\"items\":{\"type\":\"object\","
-          "\"properties\":{"
-          "\"label\":{\"type\":\"string\"},"
-          "\"address\":{\"type\":\"integer\"},"
-          "\"size\":{\"type\":\"integer\"},"
-          "\"running\":{\"type\":\"boolean\"},"
-          "\"state\":{\"type\":\"string\"}},"
-          "\"required\":[\"label\",\"address\",\"size\",\"running\",\"state\"]}}},"
-          "\"required\":[\"partitions\"]}",
+    // GET /api/update/partitions response schema literal -- shared via
+    // BB_OTA_VALIDATOR_PARTITIONS_SCHEMA_LITERAL
+    // (bb_ota_validator_partitions_wire_priv.h, B1-1059 emit batch D, site
+    // D1) so this config-OFF table and
+    // bb_ota_validator_partitions_wire.c's config-OFF accessor can never
+    // desync (config OFF returns that same literal unchanged; config ON
+    // returns a runtime-composed buffer -- see
+    // bb_ota_validator_partitions_wire_get_schema()'s own doc comment).
+    //
+    // DEVIATION (unlike the other B1-1059 emit-batch sites): this table is
+    // a function-LOCAL static, not file-scope, because it lives inside
+    // bb_ota_validator_init() alongside every other route table here. With
+    // CONFIG_BB_OPENAPI_RUNTIME_META on, `.schema` starts NULL and is
+    // patched in-place below (still a function-local `static`, just not
+    // `const` in that configuration) -- same mutable-until-init-patches-it
+    // shape as bb_diag_http_routes.c's s_sockets_get_responses[], just
+    // scoped to this function's stack frame instead of file scope.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    static bb_route_response_t s_partitions_responses[] = {
+        { 200, "application/json", NULL /* patched below */,
           "list of OTA app partition slot states" },
         { 0 },
     };
+#else
+    static const bb_route_response_t s_partitions_responses[] = {
+        { 200, "application/json",
+          BB_OTA_VALIDATOR_PARTITIONS_SCHEMA_LITERAL,
+          "list of OTA app partition slot states" },
+        { 0 },
+    };
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     static const bb_route_t s_partitions_route = {
         .method    = BB_HTTP_GET,
@@ -253,6 +268,19 @@ bb_err_t bb_ota_validator_init(bb_http_handle_t server)
 
     bb_err_t rc = bb_http_register_described_route(server, &s_mark_valid_route);
     if (rc != BB_OK) return BB_ERR_INVALID_STATE;
+
+    // Compose (config ON only) before registering -- never interleave
+    // compose and register (avoids a partial-registration on a
+    // mid-sequence compose failure). bb_ota_validator_partitions_wire_get_schema()
+    // is ALWAYS declared (B1-1059 emit batch D, site D1 wire.c pattern) and
+    // already returns the right content for config OFF, so only the
+    // ensure_schema_patched() call and the response patch are gated.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t partitions_schema_rc = bb_ota_validator_partitions_wire_ensure_schema_patched();
+    if (partitions_schema_rc != BB_OK) return partitions_schema_rc;
+    s_partitions_responses[0].schema = bb_ota_validator_partitions_wire_get_schema();
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
     rc = bb_http_register_described_route(server, &s_partitions_route);
     if (rc != BB_OK) return BB_ERR_INVALID_STATE;
     rc = bb_http_register_described_route(server, &s_recover_route);

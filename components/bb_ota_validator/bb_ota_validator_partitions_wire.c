@@ -85,6 +85,49 @@ const bb_serialize_desc_meta_t bb_ota_validator_partitions_wire_meta = {
 
 #endif /* BB_SERIALIZE_META_SHIP */
 
+// ---------------------------------------------------------------------------
+// GET /api/update/partitions response schema (B1-1059 emit batch D, site D1).
+// Config OFF (default) keeps BB_OTA_VALIDATOR_PARTITIONS_SCHEMA_LITERAL
+// byte-identical -- config ON composes it at init from
+// bb_ota_validator_partitions_wire_desc/bb_ota_validator_partitions_wire_meta
+// via bb_serialize_meta_ensure_composed() -- see
+// bb_ota_validator_partitions_wire_ensure_schema_patched() below. Accepted
+// config-ON deltas (see test_bb_ota_validator_partitions_wire_meta_golden.c):
+// a trailing "additionalProperties":false at every object depth, and the
+// nested ARR-of-OBJ "items" object never gets a "required" list (engine
+// limitation, not a content change -- every field is still marked
+// .required = true in the co-located meta table above); config-OFF ships the
+// untouched literal.
+// ---------------------------------------------------------------------------
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+// Sized with headroom over the golden-proven composed body
+// (test_bb_ota_validator_partitions_wire_meta_golden.c's
+// k_expected_meta_schema is 323 bytes incl. NUL) -- any future desync trips
+// bb_serialize_meta_openapi_schema()'s own bounded-buffer BB_ERR_NO_SPACE
+// contract instead of silently truncating.
+static char s_ota_validator_partitions_schema_buf[512];
+#else
+static const char k_ota_validator_partitions_schema[] = BB_OTA_VALIDATOR_PARTITIONS_SCHEMA_LITERAL;
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_ota_validator_partitions_wire_ensure_schema_patched(void)
+{
+    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                              &bb_ota_validator_partitions_wire_desc, &bb_ota_validator_partitions_wire_meta,
+                                              s_ota_validator_partitions_schema_buf, sizeof(s_ota_validator_partitions_schema_buf));
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+const char *bb_ota_validator_partitions_wire_get_schema(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return s_ota_validator_partitions_schema_buf;
+#else
+    return k_ota_validator_partitions_schema;
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+}
+
 void bb_ota_validator_partitions_wire_copy_rows(bb_ota_validator_partition_wire_t *dst,
                                                  const bb_ota_validator_partition_src_t *src,
                                                  size_t n)

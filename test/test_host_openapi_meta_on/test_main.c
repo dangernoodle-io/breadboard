@@ -221,6 +221,12 @@ void test_bb_storage_http_delete_response_schema_offline_on_compose_failure(void
 void test_bb_storage_http_delete_response_schema_matches_expected_content(void);
 void test_bb_storage_http_delete_response_schema_idempotent_pointer_stable(void);
 
+// From test_bb_ota_validator_partitions_wire_route_wiring.c (B1-1059 emit
+// batch D, site D1)
+void test_bb_ota_validator_partitions_wire_schema_offline_on_compose_failure(void);
+void test_bb_ota_validator_partitions_wire_schema_matches_expected_content(void);
+void test_bb_ota_validator_partitions_wire_schema_idempotent_pointer_stable(void);
+
 void setUp(void) {}
 
 // Defensive belt-and-suspenders for the BB_SERIALIZE_META_TESTING
@@ -427,6 +433,9 @@ int main(void)
     RUN_TEST(test_bb_storage_http_delete_response_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_storage_http_delete_response_schema_matches_expected_content);
     RUN_TEST(test_bb_storage_http_delete_response_schema_idempotent_pointer_stable);
+    RUN_TEST(test_bb_ota_validator_partitions_wire_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_ota_validator_partitions_wire_schema_matches_expected_content);
+    RUN_TEST(test_bb_ota_validator_partitions_wire_schema_idempotent_pointer_stable);
 
     return UNITY_END();
 }

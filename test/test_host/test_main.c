@@ -1011,6 +1011,12 @@ void test_bb_diag_tasks_get_wire_schema_default_matches_literal(void);
 void test_bb_diag_sockets_get_wire_schema_default_matches_literal(void);
 void test_bb_storage_http_delete_wire_schema_default_matches_literal(void);
 
+// Forward declaration from test_bb_ota_validator_partitions_wire_schema_
+// default.c (B1-1059 emit batch D, site D1) -- config-OFF byte-identity:
+// bb_ota_validator_partitions_wire_get_schema() serves its relocated hand
+// literal unchanged in this plain [env:native] build.
+void test_bb_ota_validator_partitions_wire_schema_default_matches_literal(void);
+
 // Forward declarations from test_bb_ota_check_config_meta_golden.c
 // (B1-1059 PR-2b-i-1)
 void test_bb_ota_check_config_meta_validates_against_desc(void);
@@ -6547,6 +6553,7 @@ int main(void) {
     RUN_TEST(test_ota_validator_partitions_wire_expected_json_escaped_label);
     RUN_TEST(test_ota_validator_partitions_wire_copy_rows_null_label_and_state);
     RUN_TEST(test_ota_validator_partitions_wire_row_field_count_matches);
+    RUN_TEST(test_bb_ota_validator_partitions_wire_schema_default_matches_literal);
 
     // Log event line wire (bb_json -> bb_serialize migration) tests
     RUN_TEST(test_log_event_line_wire_expected_json_normal_row);
