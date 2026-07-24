@@ -173,6 +173,59 @@ void test_bb_ota_check_update_available_schema_is_unchanged_hand_literal(void)
         schema);
 }
 
+/* ---------------------------------------------------------------------------
+ * CONFIG_BB_OPENAPI_RUNTIME_META OFF (B1-1059 emit batch A, site 3) --
+ * proves GET /api/update/config's response schema registered at init is
+ * still the UNCHANGED hand literal (bb_ota_check_config_schema is an
+ * extern, so EQUAL_STRING for cross-TU safety per KB 1492 -- s_config_get_
+ * responses[0].schema itself is file-static). Config-OFF is a zero-diff
+ * no-op: bb_ota_check_assemble_config_get_schema_for_test() is a documented
+ * no-op at this config gate, still exercised here so the compiled-out
+ * #else arm is covered, not just the accessor.
+ * ---------------------------------------------------------------------------*/
+void test_bb_ota_check_config_get_schema_is_unchanged_hand_literal(void)
+{
+    reset_world();
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_assemble_config_get_schema_for_test());
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
+
+    const char *schema = bb_ota_check_get_config_get_schema_for_test();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_EQUAL_STRING(bb_ota_check_config_schema, schema);
+}
+
+/* ---------------------------------------------------------------------------
+ * CONFIG_BB_OPENAPI_RUNTIME_META OFF (B1-1059 emit batch A, site 4) --
+ * proves POST /api/update/config's request AND its own 200 response schema
+ * registered at init are still the UNCHANGED hand literal (both share the
+ * same shape as GET's, bb_ota_check_config_schema). EQUAL_STRING for
+ * cross-TU safety per KB 1492.
+ * ---------------------------------------------------------------------------*/
+void test_bb_ota_check_config_post_request_schema_is_unchanged_hand_literal(void)
+{
+    reset_world();
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_assemble_config_post_request_schema_for_test());
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
+
+    const char *schema = bb_ota_check_get_config_post_request_schema_for_test();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_EQUAL_STRING(bb_ota_check_config_schema, schema);
+}
+
+void test_bb_ota_check_config_post_response_schema_is_unchanged_hand_literal(void)
+{
+    reset_world();
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_assemble_config_post_response_schema_for_test());
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
+
+    const char *schema = bb_ota_check_get_config_post_response_schema_for_test();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_EQUAL_STRING(bb_ota_check_config_schema, schema);
+}
+
 void test_bb_ota_check_is_initialized_reflects_init_state(void)
 {
     reset_world();

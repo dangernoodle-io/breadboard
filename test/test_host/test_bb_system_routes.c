@@ -664,3 +664,20 @@ void test_bb_system_reboot_route_gather_stub_reachable_via_patch_mode(void)
 
     TEST_ASSERT_EQUAL(BB_OK, bb_data_apply(&req));
 }
+
+// ---------------------------------------------------------------------------
+// Runtime-compose config-OFF fidelity (B1-1059 emit batch A, site 2) --
+// proves the for-test assemble/get accessors are a documented no-op at this
+// config gate (CONFIG_BB_OPENAPI_RUNTIME_META not set): the route's
+// request_schema pointer is byte-identical to the extern hand literal.
+// Cross-TU comparison (test file vs bb_system_routes.c), so EQUAL_STRING
+// (not EQUAL_PTR -- KB 1492).
+// ---------------------------------------------------------------------------
+
+void test_bb_system_reboot_route_request_schema_is_unchanged_const_literal(void)
+{
+    TEST_ASSERT_EQUAL(BB_OK, bb_system_reboot_assemble_request_schema_for_test());
+
+    TEST_ASSERT_EQUAL_STRING(bb_system_reboot_request_schema,
+                              bb_system_reboot_get_request_schema_for_test());
+}

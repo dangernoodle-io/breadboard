@@ -425,23 +425,95 @@ static const bb_route_response_t s_reboot_responses[] = {
     { 0 },
 };
 
+// A #define (not just the extern variable below) so the runtime-compose
+// buffer's size and the config-OFF route table below can both use the SAME
+// literal text as a genuine compile-time constant expression -- mirrors
+// bb_diag_storage_nvs.c's precedent (B1-1180 PR-1 / B1-1059 pilot).
+// Byte-fidelity against the co-located s_reboot_desc/bb_system_reboot_meta
+// pair above is proven by test_bb_system_reboot_meta_golden.c (accepted
+// delta: the hand literal below has NO "required" key at all; compose adds
+// "required":[] (empty) -- neither field is required either way).
+#define BB_SYSTEM_REBOOT_REQUEST_SCHEMA_LITERAL \
+    "{\"type\":\"object\"," \
+    "\"properties\":{" \
+    "\"ts\":{\"type\":\"integer\"}," \
+    "\"detail\":{\"type\":\"string\"}}}"
+
+const char *const bb_system_reboot_request_schema = BB_SYSTEM_REBOOT_REQUEST_SCHEMA_LITERAL;
+
+// CONFIG_BB_OPENAPI_RUNTIME_META (B1-1059 emit batch A, site 2) -- gated
+// DIRECTLY on this Kconfig symbol, never on BB_SERIALIZE_META_SHIP: that
+// macro also covers BB_SERIALIZE_META_HOST (unconditionally set by the plain
+// `native` host env, see platformio.ini), which must NOT flip this route
+// onto the runtime-compose path. Config OFF (default) is a zero-diff no-op:
+// the `#else` arm below is byte-identical to the pre-migration inline
+// literal.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Sized with headroom over the golden-proven composed body
+// (test_bb_system_reboot_meta_golden.c's k_expected_meta_schema is 127
+// bytes incl. NUL -- the hand literal's own sizeof is smaller since the
+// composed body picks up ",\"required\":[],\"additionalProperties\":false}"
+// the hand literal never had, see the accepted-delta doc comment above) --
+// any future desync trips bb_serialize_meta_openapi_schema()'s own
+// bounded-buffer BB_ERR_NO_SPACE contract instead of silently truncating.
+static char s_reboot_request_schema_buf[192];
+
+// s_reboot_route stays `static const`: only the BYTES the
+// `.request_schema` pointer targets change at runtime (via
+// ensure_reboot_request_schema_patched() below), never the pointer value
+// itself -- same posture as bb_sensor_http_wire.c's PATCH /api/sensors/fan
+// request_schema (B1-1059 PR-3 batch 3). Before the first compose, the
+// buffer is all-zero (buf[0] == '\0', an empty string, never NULL).
 static const bb_route_t s_reboot_route = {
     .method               = BB_HTTP_POST,
     .path                 = "/api/reboot",
     .tag                  = "system",
     .summary              = "Reboot the device",
     .request_content_type = "application/json",
-    .request_schema       = "{\"type\":\"object\","
-                            "\"properties\":{"
-                            "\"ts\":{\"type\":\"integer\"},"
-                            "\"detail\":{\"type\":\"string\"}}}",
+    .request_schema       = s_reboot_request_schema_buf,
     .responses            = s_reboot_responses,
     .handler              = reboot_handler,
 };
 
+#else
+
+static const bb_route_t s_reboot_route = {
+    .method               = BB_HTTP_POST,
+    .path                 = "/api/reboot",
+    .tag                  = "system",
+    .summary              = "Reboot the device",
+    .request_content_type = "application/json",
+    .request_schema       = BB_SYSTEM_REBOOT_REQUEST_SCHEMA_LITERAL,
+    .responses            = s_reboot_responses,
+    .handler              = reboot_handler,
+};
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+// Compose-and-patch step, called from both bb_system_routes_init() and the
+// test accessor below: idempotent (a second call is a pointer-stable no-op,
+// guarded by bb_serialize_meta_ensure_composed()'s buf[0] sentinel) and
+// fail-loud (propagates the composer's rc without ever leaving a
+// partial schema in the buffer).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+static bb_err_t ensure_reboot_request_schema_patched(void)
+{
+    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                              &s_reboot_desc, &bb_system_reboot_meta,
+                                              s_reboot_request_schema_buf,
+                                              sizeof(s_reboot_request_schema_buf));
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
 bb_err_t bb_system_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
+
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t compose_rc = ensure_reboot_request_schema_patched();
+    if (compose_rc != BB_OK) return compose_rc;
+#endif
 
     bb_data_binding_t reboot_binding = {
         .key    = "reboot",
@@ -488,5 +560,33 @@ bb_err_t bb_system_reboot_bind_for_test(void)
         .apply  = reboot_apply,
     };
     return bb_data_bind(&reboot_binding);
+}
+
+// Runtime-compose test accessors (B1-1059 emit batch A, site 2) -- exercise
+// the same guarded, idempotent compose-and-patch step bb_system_routes_init()
+// runs, without requiring a real bb_http_handle_t server. Portable (not
+// ESP_PLATFORM-gated), same posture as bb_diag_storage_nvs.c's pilot
+// accessors.
+bb_err_t bb_system_reboot_assemble_request_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return ensure_reboot_request_schema_patched();
+#else
+    return BB_OK;
+#endif
+}
+
+const char *bb_system_reboot_get_request_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    // s_reboot_route.request_schema always points at
+    // s_reboot_request_schema_buf (see that route's own doc comment) -- an
+    // empty buffer (buf[0] == '\0') means "not yet composed", the same
+    // sentinel bb_serialize_meta_ensure_composed() itself uses, so report it
+    // as NULL rather than an empty string.
+    return s_reboot_request_schema_buf[0] != '\0' ? s_reboot_request_schema_buf : NULL;
+#else
+    return s_reboot_route.request_schema;
+#endif
 }
 #endif /* BB_SYSTEM_TESTING */

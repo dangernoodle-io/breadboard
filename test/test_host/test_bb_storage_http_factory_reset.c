@@ -492,3 +492,20 @@ void test_storage_http_factory_reset_gather_stub_reachable_via_patch_mode(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_data_apply(&req));
     TEST_ASSERT_EQUAL_INT(1, s_erase_all_calls);
 }
+
+// ---------------------------------------------------------------------------
+// Runtime-compose config-OFF fidelity (B1-1059 emit batch A, site 5) --
+// proves the for-test assemble/get accessors are a documented no-op at this
+// config gate (CONFIG_BB_OPENAPI_RUNTIME_META not set): the route's
+// request_schema pointer is byte-identical to the extern hand literal.
+// Cross-TU comparison (test file vs bb_storage_http_routes.c), so
+// EQUAL_STRING (not EQUAL_PTR -- KB 1492).
+// ---------------------------------------------------------------------------
+
+void test_storage_http_factory_reset_route_request_schema_is_unchanged_const_literal(void)
+{
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_http_factory_reset_assemble_request_schema_for_test());
+
+    TEST_ASSERT_EQUAL_STRING(bb_storage_http_factory_reset_request_schema,
+                              bb_storage_http_factory_reset_get_request_schema_for_test());
+}

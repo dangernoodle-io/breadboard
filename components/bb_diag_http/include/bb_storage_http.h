@@ -68,6 +68,13 @@ extern "C" {
 // bbtool:init tier=regular fn=bb_storage_http_routes_init server=true
 bb_err_t bb_storage_http_routes_init(bb_http_handle_t server);
 
+// Hand-authored JSON Schema for DELETE /api/diag/storage's request body
+// (B1-1059 emit batch A, site 1) -- bb_storage_http_routes.c is portable
+// (compiled on both ESP-IDF and host), so this is unconditional, not
+// ESP_PLATFORM-gated. See test_bb_storage_http_delete_apply_meta_golden.c
+// for the byte-fidelity proof against bb_storage_http_delete_apply_meta.
+extern const char *const bb_storage_http_delete_request_schema;
+
 // Registry hook — registers POST /api/diag/factory-reset. Rehomed off bb_nv
 // (B1-960, bb_nv dissolution epic B1-708) — was POST /api/factory-reset on
 // bb_nv_factory_reset_routes_init. A valid request body
@@ -89,6 +96,14 @@ bb_err_t bb_storage_http_routes_init(bb_http_handle_t server);
 #if defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET
 // bbtool:init tier=regular fn=bb_storage_http_factory_reset_routes_init server=true
 bb_err_t bb_storage_http_factory_reset_routes_init(bb_http_handle_t server);
+
+// Hand-authored JSON Schema for POST /api/diag/factory-reset's request body
+// (B1-1059 emit batch A, site 5) -- bb_storage_http_routes.c is portable
+// (compiled on both ESP-IDF and host), so this is unconditional (within
+// this Kconfig gate), not ESP_PLATFORM-gated. See
+// test_bb_storage_http_factory_reset_meta_golden.c for the byte-fidelity
+// proof against bb_storage_http_factory_reset_meta.
+extern const char *const bb_storage_http_factory_reset_request_schema;
 #else
 static inline bb_err_t bb_storage_http_factory_reset_routes_init(bb_http_handle_t server)
 {
@@ -104,6 +119,17 @@ bb_err_t bb_storage_http_delete_handler_for_test(bb_http_request_t *req);
 // without requiring a real bb_http_handle_t server -- see the .c file's own
 // doc comment.
 bb_err_t bb_storage_http_delete_bind_for_test(void);
+
+/// Runtime-compose test accessors (B1-1059 emit batch A, site 1) for DELETE
+/// /api/diag/storage's request schema (bb_storage_http_routes.c's
+/// file-scope s_storage_delete_route). The assemble fn runs the same
+/// guarded, idempotent compose-and-patch step
+/// bb_storage_http_routes_init() runs (CONFIG_BB_OPENAPI_RUNTIME_META build
+/// only; a documented no-op returning BB_OK otherwise). The get fn returns
+/// the route's current request_schema pointer (NULL before assemble has
+/// run, config-ON only). Mirrors bb_diag_storage_nvs.c's pilot accessors.
+bb_err_t bb_storage_http_delete_assemble_request_schema_for_test(void);
+const char *bb_storage_http_delete_get_request_schema_for_test(void);
 
 // bb_serialize_desc_meta_t companion (B1-1181a) -- co-located JSON Schema
 // docs/validation table for the DELETE /api/diag/storage request
@@ -129,6 +155,18 @@ bb_err_t bb_storage_http_factory_reset_handler_for_test(bb_http_request_t *req);
 // without requiring a real bb_http_handle_t server -- see the .c file's own
 // doc comment.
 bb_err_t bb_storage_http_factory_reset_bind_for_test(void);
+
+/// Runtime-compose test accessors (B1-1059 emit batch A, site 5) for POST
+/// /api/diag/factory-reset's request schema (bb_storage_http_routes.c's
+/// file-scope s_factory_reset_route). The assemble fn runs the same
+/// guarded, idempotent compose-and-patch step
+/// bb_storage_http_factory_reset_routes_init() runs
+/// (CONFIG_BB_OPENAPI_RUNTIME_META build only; a documented no-op returning
+/// BB_OK otherwise). The get fn returns the route's current request_schema
+/// pointer (NULL before assemble has run, config-ON only). Mirrors
+/// bb_diag_storage_nvs.c's pilot accessors.
+bb_err_t bb_storage_http_factory_reset_assemble_request_schema_for_test(void);
+const char *bb_storage_http_factory_reset_get_request_schema_for_test(void);
 
 // bb_serialize_desc_meta_t companion (B1-1059 PR-2b-i-1) -- co-located JSON
 // Schema docs/validation table for the POST /api/diag/factory-reset request

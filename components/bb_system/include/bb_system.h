@@ -495,6 +495,13 @@ bb_err_t bb_system_get_app_sha256(char *out, size_t out_size);
 // bbtool:init tier=early fn=bb_system_boot_banner_init
 bb_err_t bb_system_boot_banner_init(void);
 
+// Hand-authored JSON Schema for POST /api/reboot's request body (B1-1059
+// emit batch A, site 2) -- bb_system_routes.c is portable (compiled on both
+// ESP-IDF and host), so this is unconditional, not ESP_PLATFORM-gated. See
+// test/test_host/test_bb_system_reboot_meta_golden.c for the byte-fidelity
+// proof against bb_system_reboot_meta.
+extern const char *const bb_system_reboot_request_schema;
+
 #ifdef ESP_PLATFORM
 #include "bb_http_server.h"
 
@@ -521,6 +528,17 @@ bb_err_t bb_system_reboot_handler_for_test(bb_http_request_t *req);
 /// bb_system_reboot_handler_for_test(). Mirrors
 /// bb_storage_http_factory_reset_bind_for_test().
 bb_err_t bb_system_reboot_bind_for_test(void);
+
+/// Runtime-compose test accessors (B1-1059 emit batch A, site 2) for POST
+/// /api/reboot's request schema (bb_system_routes.c's file-scope
+/// s_reboot_route). The assemble fn runs the same guarded, idempotent
+/// compose-and-patch step bb_system_routes_init() runs
+/// (CONFIG_BB_OPENAPI_RUNTIME_META build only; a documented no-op returning
+/// BB_OK otherwise). The get fn returns the route's current request_schema
+/// pointer (NULL before assemble has run, config-ON only). Mirrors
+/// bb_diag_storage_nvs.c's pilot accessors.
+bb_err_t bb_system_reboot_assemble_request_schema_for_test(void);
+const char *bb_system_reboot_get_request_schema_for_test(void);
 
 // bb_serialize_desc_meta_t companion (B1-1181a) -- co-located JSON Schema
 // docs/validation table for the POST /api/reboot request descriptor

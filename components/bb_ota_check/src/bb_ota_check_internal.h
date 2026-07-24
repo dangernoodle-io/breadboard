@@ -60,6 +60,14 @@ bb_err_t bb_ota_check_config_bind(void);
 const bb_route_t *bb_ota_check_config_get_route(void);
 const bb_route_t *bb_ota_check_config_post_route(void);
 
+// Hand-authored JSON Schema shared by all three occurrences of the
+// "{enabled: boolean}" shape (B1-1059 emit batch A, sites 3+4): GET
+// /api/update/config's response, POST /api/update/config's request, and
+// POST /api/update/config's 200 response. Unconditional (compiled on both
+// ESP-IDF and host). See test_bb_ota_check_config_meta_golden.c for the
+// byte-fidelity proof against bb_ota_check_config_meta.
+extern const char *const bb_ota_check_config_schema;
+
 // bb_serialize_desc_meta_t companion (B1-1059 PR-2b-i-1) -- co-located JSON
 // Schema docs/validation table for the POST /api/update/config request
 // descriptor (bb_ota_check_common.c's file-scope s_config_desc), same
@@ -93,6 +101,20 @@ extern const bb_serialize_desc_meta_t bb_ota_check_config_meta;
 // bb_diag_storage_nvs's assemble/get pair.
 bb_err_t bb_ota_check_assemble_update_available_schema_for_test(void);
 const char *bb_ota_check_get_update_available_schema_for_test(void);
+
+// Test-only accessors for GET /api/update/config's runtime-compose site
+// (B1-1059 emit batch A, site 3, bb_ota_check_common.c). Same "_for_test"
+// convention as the pair above.
+bb_err_t bb_ota_check_assemble_config_get_schema_for_test(void);
+const char *bb_ota_check_get_config_get_schema_for_test(void);
+
+// Test-only accessors for POST /api/update/config's runtime-compose site
+// (B1-1059 emit batch A, site 4, bb_ota_check_common.c). Two independently-
+// composed buffers (request + its own 200 response).
+bb_err_t bb_ota_check_assemble_config_post_request_schema_for_test(void);
+const char *bb_ota_check_get_config_post_request_schema_for_test(void);
+bb_err_t bb_ota_check_assemble_config_post_response_schema_for_test(void);
+const char *bb_ota_check_get_config_post_response_schema_for_test(void);
 
 // Reset all state so a test can start clean. Does NOT touch bb_data or
 // bb_mdns global state (callers reset those separately).

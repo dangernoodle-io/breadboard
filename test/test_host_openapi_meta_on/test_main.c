@@ -38,6 +38,29 @@ void test_bb_ota_check_update_available_schema_offline_on_compose_failure(void);
 void test_bb_ota_check_update_available_schema_matches_expected_content(void);
 void test_bb_ota_check_update_available_schema_idempotent_pointer_stable(void);
 
+// From test_bb_ota_check_config_get_wiring.c (B1-1059 emit batch A, site 3)
+void test_bb_ota_check_config_get_schema_offline_on_compose_failure(void);
+void test_bb_ota_check_config_get_schema_matches_expected_content(void);
+void test_bb_ota_check_config_get_schema_idempotent_pointer_stable(void);
+
+// From test_bb_ota_check_config_post_wiring.c (B1-1059 emit batch A, site 4)
+void test_bb_ota_check_config_post_request_schema_offline_on_compose_failure(void);
+void test_bb_ota_check_config_post_response_schema_offline_on_compose_failure(void);
+void test_bb_ota_check_config_post_request_schema_matches_expected_content(void);
+void test_bb_ota_check_config_post_response_schema_matches_expected_content(void);
+void test_bb_ota_check_config_post_request_schema_idempotent_pointer_stable(void);
+void test_bb_ota_check_config_post_response_schema_idempotent_pointer_stable(void);
+
+// From test_bb_storage_http_delete_route_wiring.c (B1-1059 emit batch A, site 1)
+void test_bb_storage_http_delete_assemble_request_schema_offline_on_compose_failure(void);
+void test_bb_storage_http_delete_assemble_request_schema_patches_matching_content(void);
+void test_bb_storage_http_delete_assemble_request_schema_idempotent_pointer_stable(void);
+
+// From test_bb_storage_http_factory_reset_route_wiring.c (B1-1059 emit batch A, site 5)
+void test_bb_storage_http_factory_reset_assemble_request_schema_offline_on_compose_failure(void);
+void test_bb_storage_http_factory_reset_assemble_request_schema_patches_matching_content(void);
+void test_bb_storage_http_factory_reset_assemble_request_schema_idempotent_pointer_stable(void);
+
 // From test_bb_diag_storage_nvs_route_wiring.c
 void test_bb_diag_storage_nvs_assemble_schema_offline_on_compose_failure(void);
 void test_bb_diag_storage_nvs_assemble_schema_patches_matching_content(void);
@@ -81,6 +104,11 @@ void test_bb_sensor_http_wire_assemble_power_schema_idempotent_pointer_stable(vo
 void test_bb_sensor_http_wire_assemble_thermal_schema_offline_on_compose_failure(void);
 void test_bb_sensor_http_wire_assemble_thermal_schema_patches_matching_content(void);
 void test_bb_sensor_http_wire_assemble_thermal_schema_idempotent_pointer_stable(void);
+
+// From test_bb_system_reboot_route_wiring.c (B1-1059 emit batch A, site 2)
+void test_bb_system_reboot_assemble_request_schema_offline_on_compose_failure(void);
+void test_bb_system_reboot_assemble_request_schema_patches_matching_content(void);
+void test_bb_system_reboot_assemble_request_schema_idempotent_pointer_stable(void);
 
 // From test_bb_diag_boot_topic_wiring.c (B1-1059 SSE batch PR-3)
 void test_bb_diag_boot_topic_schema_offline_on_compose_failure(void);
@@ -165,11 +193,32 @@ int main(void)
 {
     UNITY_BEGIN();
 
-    // Fail-fast (offline-on-compose-failure) MUST run before the two
-    // success tests below -- see each test's own comment.
+    // Fail-fast (offline-on-compose-failure) MUST run before the success
+    // tests below -- see each test's own comment. update_available,
+    // config_get, and config_post's request/response all share ONE init()
+    // call site (bb_ota_check_init(), B1-1059 emit batch A sites 3+4), in
+    // that fixed compose order -- every site's own offline test primes
+    // every EARLIER site's buffer directly (bypassing init()), so ALL FOUR
+    // offline tests MUST run before ANY site's success test (a full
+    // successful init() call composes every buffer as a side effect,
+    // permanently defeating a not-yet-run offline test's fail-injection).
+    // See test_bb_ota_check_config_get_wiring.c's / test_bb_ota_check_
+    // config_post_wiring.c's own comments.
     RUN_TEST(test_bb_ota_check_update_available_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_ota_check_config_get_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_ota_check_config_post_request_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_ota_check_config_post_response_schema_offline_on_compose_failure);
+
     RUN_TEST(test_bb_ota_check_update_available_schema_matches_expected_content);
     RUN_TEST(test_bb_ota_check_update_available_schema_idempotent_pointer_stable);
+
+    RUN_TEST(test_bb_ota_check_config_get_schema_matches_expected_content);
+    RUN_TEST(test_bb_ota_check_config_get_schema_idempotent_pointer_stable);
+
+    RUN_TEST(test_bb_ota_check_config_post_request_schema_matches_expected_content);
+    RUN_TEST(test_bb_ota_check_config_post_response_schema_matches_expected_content);
+    RUN_TEST(test_bb_ota_check_config_post_request_schema_idempotent_pointer_stable);
+    RUN_TEST(test_bb_ota_check_config_post_response_schema_idempotent_pointer_stable);
 
     RUN_TEST(test_bb_serialize_meta_ensure_composed_composes_when_buf_empty);
     RUN_TEST(test_bb_serialize_meta_ensure_composed_overflow_leaves_buf_empty);
@@ -192,6 +241,14 @@ int main(void)
     RUN_TEST(test_bb_serialize_meta_ensure_topic_schema_overflow_leaves_buf_empty);
     RUN_TEST(test_bb_serialize_meta_ensure_topic_schema_idempotent_second_call_is_noop);
     RUN_TEST(test_bb_serialize_meta_ensure_topic_schema_dispatches_schema_composer);
+
+    RUN_TEST(test_bb_storage_http_delete_assemble_request_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_storage_http_delete_assemble_request_schema_patches_matching_content);
+    RUN_TEST(test_bb_storage_http_delete_assemble_request_schema_idempotent_pointer_stable);
+
+    RUN_TEST(test_bb_storage_http_factory_reset_assemble_request_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_storage_http_factory_reset_assemble_request_schema_patches_matching_content);
+    RUN_TEST(test_bb_storage_http_factory_reset_assemble_request_schema_idempotent_pointer_stable);
 
     RUN_TEST(test_bb_diag_storage_nvs_assemble_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_diag_storage_nvs_assemble_schema_patches_matching_content);
@@ -236,6 +293,10 @@ int main(void)
     RUN_TEST(test_bb_sensor_http_wire_assemble_thermal_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_sensor_http_wire_assemble_thermal_schema_patches_matching_content);
     RUN_TEST(test_bb_sensor_http_wire_assemble_thermal_schema_idempotent_pointer_stable);
+
+    RUN_TEST(test_bb_system_reboot_assemble_request_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_system_reboot_assemble_request_schema_patches_matching_content);
+    RUN_TEST(test_bb_system_reboot_assemble_request_schema_idempotent_pointer_stable);
 
     RUN_TEST(test_bb_diag_boot_topic_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_diag_boot_topic_schema_matches_expected_content);

@@ -595,6 +595,51 @@ static const bb_route_response_t s_storage_delete_responses[] = {
     { 0 },
 };
 
+// A #define (not just used inline) so the runtime-compose buffer below and
+// the config-OFF route table can both use the SAME literal text as a
+// genuine compile-time constant expression -- mirrors bb_diag_storage_nvs.c's
+// precedent (B1-1180 PR-1 / B1-1059 pilot). Byte-fidelity against the
+// co-located s_storage_delete_desc/bb_storage_http_delete_apply_meta pair
+// above is proven by test_bb_storage_http_delete_apply_meta_golden.c
+// (accepted deltas: "properties"/"required" key ORDER follows physical
+// field declaration order, not this literal's authoring order; a trailing
+// "additionalProperties":false the hand literal never had -- see that
+// file's own banner for the full detail. The "namespace" oneOf shape and
+// the required SET are byte-identical in substance either way).
+#define BB_STORAGE_HTTP_DELETE_REQUEST_SCHEMA_LITERAL \
+    "{\"type\":\"object\"," \
+    "\"properties\":{" \
+    "\"backend\":{\"type\":\"string\"}," \
+    "\"namespace\":{\"oneOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"items\":{\"type\":\"string\"}}]}," \
+    "\"key\":{\"type\":\"string\"}," \
+    "\"confirm\":{\"type\":\"boolean\"}," \
+    "\"wipe_wifi\":{\"type\":\"boolean\"}}," \
+    "\"required\":[\"namespace\",\"confirm\"]}"
+
+const char *const bb_storage_http_delete_request_schema = BB_STORAGE_HTTP_DELETE_REQUEST_SCHEMA_LITERAL;
+
+// CONFIG_BB_OPENAPI_RUNTIME_META (B1-1059 emit batch A, site 1) -- gated
+// DIRECTLY on this Kconfig symbol, never on BB_SERIALIZE_META_SHIP: that
+// macro also covers BB_SERIALIZE_META_HOST (unconditionally set by the
+// plain `native` host env, see platformio.ini), which must NOT flip this
+// route onto the runtime-compose path. Config OFF (default) is a zero-diff
+// no-op: the `#else` arm below is byte-identical to the pre-migration
+// inline literal.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Sized with headroom over the golden-proven composed body
+// (test_bb_storage_http_delete_apply_meta_golden.c's k_expected_meta_schema
+// is the byte-fidelity target) -- any future desync trips
+// bb_serialize_meta_openapi_schema()'s own bounded-buffer BB_ERR_NO_SPACE
+// contract instead of silently truncating.
+static char s_storage_delete_request_schema_buf[320];
+
+// s_storage_delete_route stays `static const`: only the BYTES the
+// `.request_schema` pointer targets change at runtime (via
+// ensure_storage_delete_request_schema_patched() below), never the pointer
+// value itself -- same posture as bb_sensor_http_wire.c's PATCH
+// /api/sensors/fan request_schema. Before the first compose, the buffer is
+// all-zero (buf[0] == '\0', an empty string, never NULL).
 static const bb_route_t s_storage_delete_route = {
     .method           = BB_HTTP_DELETE,
     .path             = "/api/diag/storage",
@@ -607,20 +652,52 @@ static const bb_route_t s_storage_delete_route = {
                         "CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP is enabled). Use an array namespace to "
                         "reset multiple namespaces in one call (e.g. [\"bb_mqtt\",\"bb_udp\",\"bb_tcp\"]). "
                         "\"key\" is forbidden when namespace is an array.",
-    .request_schema   = "{\"type\":\"object\","
-                        "\"properties\":{"
-                        "\"backend\":{\"type\":\"string\"},"
-                        "\"namespace\":{\"oneOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"items\":{\"type\":\"string\"}}]},"
-                        "\"key\":{\"type\":\"string\"},"
-                        "\"confirm\":{\"type\":\"boolean\"},"
-                        "\"wipe_wifi\":{\"type\":\"boolean\"}},"
-                        "\"required\":[\"namespace\",\"confirm\"]}",
+    .request_schema   = s_storage_delete_request_schema_buf,
     .request_content_type = "application/json",
     .responses        = s_storage_delete_responses,
     .parameters       = NULL,
     .parameters_count = 0,
     .handler          = storage_delete_handler,
 };
+
+#else
+
+static const bb_route_t s_storage_delete_route = {
+    .method           = BB_HTTP_DELETE,
+    .path             = "/api/diag/storage",
+    .tag              = "diag",
+    .summary          = "Delete one storage key or one/multiple namespaces via JSON body. "
+                        "Requires {\"confirm\":true}. Works against any registered bb_storage "
+                        "backend (\"backend\", default \"nvs\"). For the wifi-creds namespace "
+                        "(bb_settings-owned) also requires {\"wipe_wifi\":true} (contains wifi "
+                        "credentials; RTC backup may restore them on next boot if "
+                        "CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP is enabled). Use an array namespace to "
+                        "reset multiple namespaces in one call (e.g. [\"bb_mqtt\",\"bb_udp\",\"bb_tcp\"]). "
+                        "\"key\" is forbidden when namespace is an array.",
+    .request_schema   = BB_STORAGE_HTTP_DELETE_REQUEST_SCHEMA_LITERAL,
+    .request_content_type = "application/json",
+    .responses        = s_storage_delete_responses,
+    .parameters       = NULL,
+    .parameters_count = 0,
+    .handler          = storage_delete_handler,
+};
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+// Compose-and-patch step, called from both bb_storage_http_routes_init() and
+// the test accessor below: idempotent (a second call is a pointer-stable
+// no-op, guarded by bb_serialize_meta_ensure_composed()'s buf[0] sentinel)
+// and fail-loud (propagates the composer's rc without ever patching a
+// partial/NULL schema in).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+static bb_err_t ensure_storage_delete_request_schema_patched(void)
+{
+    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                              &s_storage_delete_desc, &bb_storage_http_delete_apply_meta,
+                                              s_storage_delete_request_schema_buf,
+                                              sizeof(s_storage_delete_request_schema_buf));
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 // ---------------------------------------------------------------------------
 // POST /api/diag/factory-reset — whole-"nvs"-backend erase + reboot
@@ -888,22 +965,94 @@ static const bb_route_response_t s_factory_reset_responses[] = {
     { 0 },
 };
 
+// A #define (not just used inline) so the runtime-compose buffer below and
+// the config-OFF route table can both use the SAME literal text as a
+// genuine compile-time constant expression -- mirrors bb_diag_storage_nvs.c's
+// precedent (B1-1180 PR-1 / B1-1059 pilot). Byte-fidelity against the
+// co-located s_factory_reset_desc/bb_storage_http_factory_reset_meta pair
+// above is proven by test_bb_storage_http_factory_reset_meta_golden.c
+// (accepted delta: a trailing "additionalProperties":false the hand literal
+// never had).
+#define BB_STORAGE_HTTP_FACTORY_RESET_REQUEST_SCHEMA_LITERAL \
+    "{\"type\":\"object\"," \
+    "\"properties\":{\"confirm\":{\"type\":\"string\"}}," \
+    "\"required\":[\"confirm\"]}"
+
+const char *const bb_storage_http_factory_reset_request_schema =
+    BB_STORAGE_HTTP_FACTORY_RESET_REQUEST_SCHEMA_LITERAL;
+
+// CONFIG_BB_OPENAPI_RUNTIME_META (B1-1059 emit batch A, site 5) -- gated
+// DIRECTLY on this Kconfig symbol, never on BB_SERIALIZE_META_SHIP: that
+// macro also covers BB_SERIALIZE_META_HOST (unconditionally set by the
+// plain `native` host env, see platformio.ini), which must NOT flip this
+// route onto the runtime-compose path. Config OFF (default) is a zero-diff
+// no-op: the `#else` arm below is byte-identical to the pre-migration
+// inline literal.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Sized with headroom over the golden-proven composed body
+// (test_bb_storage_http_factory_reset_meta_golden.c's k_expected_meta_schema
+// is the byte-fidelity target) -- any future desync trips
+// bb_serialize_meta_openapi_schema()'s own bounded-buffer BB_ERR_NO_SPACE
+// contract instead of silently truncating.
+static char s_factory_reset_request_schema_buf[160];
+
+// s_factory_reset_route stays `static const`: only the BYTES the
+// `.request_schema` pointer targets change at runtime (via
+// ensure_factory_reset_request_schema_patched() below), never the pointer
+// value itself -- same posture as bb_sensor_http_wire.c's PATCH
+// /api/sensors/fan request_schema. Before the first compose, the buffer is
+// all-zero (buf[0] == '\0', an empty string, never NULL).
 static const bb_route_t s_factory_reset_route = {
     .method               = BB_HTTP_POST,
     .path                 = "/api/diag/factory-reset",
     .tag                  = "diag",
     .summary              = "Erase the whole \"nvs\" bb_storage backend and reboot to factory defaults",
     .request_content_type = "application/json",
-    .request_schema       = "{\"type\":\"object\","
-                            "\"properties\":{\"confirm\":{\"type\":\"string\"}},"
-                            "\"required\":[\"confirm\"]}",
+    .request_schema       = s_factory_reset_request_schema_buf,
     .responses            = s_factory_reset_responses,
     .handler              = factory_reset_handler,
 };
 
+#else
+
+static const bb_route_t s_factory_reset_route = {
+    .method               = BB_HTTP_POST,
+    .path                 = "/api/diag/factory-reset",
+    .tag                  = "diag",
+    .summary              = "Erase the whole \"nvs\" bb_storage backend and reboot to factory defaults",
+    .request_content_type = "application/json",
+    .request_schema       = BB_STORAGE_HTTP_FACTORY_RESET_REQUEST_SCHEMA_LITERAL,
+    .responses            = s_factory_reset_responses,
+    .handler              = factory_reset_handler,
+};
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+// Compose-and-patch step, called from both
+// bb_storage_http_factory_reset_routes_init() and the test accessor below:
+// idempotent (a second call is a pointer-stable no-op, guarded by
+// bb_serialize_meta_ensure_composed()'s buf[0] sentinel) and fail-loud
+// (propagates the composer's rc without ever patching a partial/NULL
+// schema in).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+static bb_err_t ensure_factory_reset_request_schema_patched(void)
+{
+    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                              &s_factory_reset_desc, &bb_storage_http_factory_reset_meta,
+                                              s_factory_reset_request_schema_buf,
+                                              sizeof(s_factory_reset_request_schema_buf));
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
 bb_err_t bb_storage_http_factory_reset_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
+
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t schema_rc = ensure_factory_reset_request_schema_patched();
+    if (schema_rc != BB_OK) return schema_rc;  // fail loud
+#endif
 
     bb_data_binding_t factory_reset_binding = {
         .key    = "factory_reset",
@@ -942,6 +1091,34 @@ bb_err_t bb_storage_http_factory_reset_bind_for_test(void)
     };
     return bb_data_bind(&factory_reset_binding);
 }
+
+// Runtime-compose test accessors (B1-1059 emit batch A, site 5) -- exercise
+// the same guarded, idempotent compose-and-patch step
+// bb_storage_http_factory_reset_routes_init() runs, without requiring a
+// real bb_http_handle_t server. Portable (not ESP_PLATFORM-gated), same
+// posture as bb_diag_storage_nvs.c's pilot accessors.
+bb_err_t bb_storage_http_factory_reset_assemble_request_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return ensure_factory_reset_request_schema_patched();
+#else
+    return BB_OK;
+#endif
+}
+
+const char *bb_storage_http_factory_reset_get_request_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    // s_factory_reset_route.request_schema always points at
+    // s_factory_reset_request_schema_buf (see that route's own doc
+    // comment) -- an empty buffer (buf[0] == '\0') means "not yet
+    // composed", the same sentinel bb_serialize_meta_ensure_composed()
+    // itself uses, so report it as NULL rather than an empty string.
+    return s_factory_reset_request_schema_buf[0] != '\0' ? s_factory_reset_request_schema_buf : NULL;
+#else
+    return s_factory_reset_route.request_schema;
+#endif
+}
 #endif /* BB_STORAGE_HTTP_TESTING */
 
 #endif /* defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET */
@@ -953,6 +1130,11 @@ bb_err_t bb_storage_http_factory_reset_bind_for_test(void)
 bb_err_t bb_storage_http_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
+
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t schema_rc = ensure_storage_delete_request_schema_patched();
+    if (schema_rc != BB_OK) return schema_rc;  // fail loud
+#endif
 
     bb_data_binding_t storage_delete_binding = {
         .key    = "storage_delete",
@@ -994,5 +1176,33 @@ bb_err_t bb_storage_http_delete_bind_for_test(void)
         .apply  = storage_delete_apply,
     };
     return bb_data_bind(&storage_delete_binding);
+}
+
+// Runtime-compose test accessors (B1-1059 emit batch A, site 1) -- exercise
+// the same guarded, idempotent compose-and-patch step
+// bb_storage_http_routes_init() runs, without requiring a real
+// bb_http_handle_t server. Portable (not ESP_PLATFORM-gated), same posture
+// as bb_diag_storage_nvs.c's pilot accessors.
+bb_err_t bb_storage_http_delete_assemble_request_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return ensure_storage_delete_request_schema_patched();
+#else
+    return BB_OK;
+#endif
+}
+
+const char *bb_storage_http_delete_get_request_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    // s_storage_delete_route.request_schema always points at
+    // s_storage_delete_request_schema_buf (see that route's own doc
+    // comment) -- an empty buffer (buf[0] == '\0') means "not yet
+    // composed", the same sentinel bb_serialize_meta_ensure_composed()
+    // itself uses, so report it as NULL rather than an empty string.
+    return s_storage_delete_request_schema_buf[0] != '\0' ? s_storage_delete_request_schema_buf : NULL;
+#else
+    return s_storage_delete_route.request_schema;
+#endif
 }
 #endif /* BB_STORAGE_HTTP_TESTING */

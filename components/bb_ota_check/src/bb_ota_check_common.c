@@ -180,6 +180,17 @@ static bb_err_t ensure_update_available_schema_patched(void)
 }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
+// Forward declaration -- GET /api/update/config's runtime-compose step
+// (B1-1059 emit batch A, site 3) is defined further down this file
+// alongside s_config_get_route (co-located with the route table it
+// patches), but bb_ota_check_init() below needs to call it before that
+// point in the file.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+static bb_err_t ensure_config_get_schema_patched(void);
+static bb_err_t ensure_config_post_request_schema_patched(void);
+static bb_err_t ensure_config_post_response_schema_patched(void);
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -251,6 +262,28 @@ bb_err_t bb_ota_check_init(const bb_ota_check_cfg_t *cfg)
 #else
     bb_openapi_register_topic_schema(BB_OTA_CHECK_TOPIC, k_update_available_schema,
                                      "UpdateAvailable");
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+    // GET /api/update/config's runtime-compose (B1-1059 emit batch A, site
+    // 3) -- composed here (not at either route-registration call site,
+    // bb_ota_check_espidf.c's bb_ota_check_register_init()) for the same
+    // reason as the "update.available" compose just above: bb_ota_check_init()
+    // is the one function both platform entry points already call, and
+    // ensure_config_get_schema_patched() is file-scope static (same TU).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t config_get_schema_rc = ensure_config_get_schema_patched();
+    if (config_get_schema_rc != BB_OK) return config_get_schema_rc;  // fail loud
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+    // POST /api/update/config's runtime-compose (B1-1059 emit batch A, site
+    // 4) -- same co-located call-site rationale as GET's compose just
+    // above. Compose BOTH buffers (request then response) before either is
+    // ever served -- never interleave with route registration.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t config_post_request_schema_rc = ensure_config_post_request_schema_patched();
+    if (config_post_request_schema_rc != BB_OK) return config_post_request_schema_rc;  // fail loud
+    bb_err_t config_post_response_schema_rc = ensure_config_post_response_schema_patched();
+    if (config_post_response_schema_rc != BB_OK) return config_post_response_schema_rc;  // fail loud
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     s_initialized = true;
@@ -898,14 +931,56 @@ bb_err_t bb_ota_check_config_post_handler(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
+// A #define (not just used inline) so the runtime-compose buffers below and
+// the config-OFF route tables can both use the SAME literal text as a
+// genuine compile-time constant expression -- mirrors bb_diag_storage_nvs.c's
+// precedent (B1-1180 PR-1 / B1-1059 pilot). Shared by all three occurrences
+// of this shape below (GET /api/update/config response, POST request, POST
+// response -- all byte-identical in production). Byte-fidelity against the
+// co-located s_config_desc/bb_ota_check_config_meta pair above is proven by
+// test_bb_ota_check_config_meta_golden.c (accepted delta: the hand literal
+// has no top-level "additionalProperties":false; compose adds it).
+#define BB_OTA_CHECK_CONFIG_SCHEMA_LITERAL \
+    "{\"type\":\"object\"," \
+    "\"properties\":{\"enabled\":{\"type\":\"boolean\"}}," \
+    "\"required\":[\"enabled\"]}"
+
+const char *const bb_ota_check_config_schema = BB_OTA_CHECK_CONFIG_SCHEMA_LITERAL;
+
+// CONFIG_BB_OPENAPI_RUNTIME_META (B1-1059 emit batch A, site 3) -- gated
+// DIRECTLY on this Kconfig symbol, never on BB_SERIALIZE_META_SHIP: that
+// macro also covers BB_SERIALIZE_META_HOST (unconditionally set by the
+// plain `native` host env, see platformio.ini), which must NOT flip this
+// route onto the runtime-compose path. Config OFF (default) is a zero-diff
+// no-op: the `#else` arm below is byte-identical to the pre-migration
+// inline literal.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Sized with headroom over the golden-proven composed body
+// (test_bb_ota_check_config_meta_golden.c's k_expected_meta_schema is 114
+// bytes incl. NUL) -- any future desync trips
+// bb_serialize_meta_openapi_schema()'s own bounded-buffer BB_ERR_NO_SPACE
+// contract instead of silently truncating.
+static char s_config_get_schema_buf[160];
+
+// Mutable (`.data`, not `.rodata`) with this config on -- `.schema` starts
+// NULL and is patched in once by bb_ota_check_init() (or the test accessor
+// below) before the route is ever registered/served.
+static bb_route_response_t s_config_get_responses[] = {
+    { 200, "application/json", NULL /* patched at init */, "current update-check opt-out state" },
+    { 0 },
+};
+
+#else
+
 static const bb_route_response_t s_config_get_responses[] = {
     { 200, "application/json",
-      "{\"type\":\"object\","
-       "\"properties\":{\"enabled\":{\"type\":\"boolean\"}},"
-       "\"required\":[\"enabled\"]}",
+      BB_OTA_CHECK_CONFIG_SCHEMA_LITERAL,
       "current update-check opt-out state" },
     { 0 },
 };
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 static const bb_route_t s_config_get_route = {
     .method   = BB_HTTP_GET,
@@ -916,11 +991,69 @@ static const bb_route_t s_config_get_route = {
     .handler  = bb_ota_check_config_get_handler,
 };
 
+// Compose-and-patch step, called from both bb_ota_check_register_init() and
+// the test accessor below: idempotent (a second call is a pointer-stable
+// no-op, guarded by bb_serialize_meta_ensure_composed()'s buf[0] sentinel)
+// and fail-loud (propagates the composer's rc without ever patching a
+// partial/NULL schema in).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+static bb_err_t ensure_config_get_schema_patched(void)
+{
+    bb_err_t rc = bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                                      &s_config_desc, &bb_ota_check_config_meta,
+                                                      s_config_get_schema_buf,
+                                                      sizeof(s_config_get_schema_buf));
+    if (rc != BB_OK) return rc;  // fail loud -- never register a NULL/partial schema
+    s_config_get_responses[0].schema = s_config_get_schema_buf;
+    return BB_OK;
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+// CONFIG_BB_OPENAPI_RUNTIME_META (B1-1059 emit batch A, site 4) -- same
+// shared shape as GET /api/update/config (site 3) above, composed into TWO
+// independently-composed buffers (POST's request schema and its own 200
+// response schema) since each is a distinct route slot -- same posture as
+// bb_sensor_http_wire.c's PATCH /api/sensors/fan (GET response + PATCH
+// request, same shape, separate buffers).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Sized with headroom over the golden-proven composed body (same target as
+// s_config_get_schema_buf above -- see that buffer's own doc comment).
+static char s_config_post_request_schema_buf[160];
+static char s_config_post_response_schema_buf[160];
+
+// Mutable (`.data`, not `.rodata`) with this config on -- `.schema` starts
+// NULL and is patched in once by bb_ota_check_init() (or the test accessor
+// below) before the route is ever registered/served.
+static bb_route_response_t s_config_post_responses[] = {
+    { 200, "application/json", NULL /* patched at init */, "updated state" },
+    { 400, "text/plain", NULL, "missing or invalid body" },
+    { 500, "text/plain", NULL, "update failed" },
+    { 0 },
+};
+
+// `.request_schema` points DIRECTLY at the compose buffer (a link-time-
+// constant array address, valid in a static initializer) rather than
+// starting NULL-then-patched -- same posture as bb_sensor_http_wire.c's
+// PATCH /api/sensors/fan request_schema (see that route's own doc comment).
+// The route struct itself stays `static const`: only the BYTES the pointer
+// targets change at runtime.
+static const bb_route_t s_config_post_route = {
+    .method               = BB_HTTP_POST,
+    .path                 = "/api/update/config",
+    .tag                  = "update",
+    .summary              = "Set update-check enabled flag",
+    .request_content_type = "application/json",
+    .request_schema       = s_config_post_request_schema_buf,
+    .responses            = s_config_post_responses,
+    .handler              = bb_ota_check_config_post_handler,
+};
+
+#else
+
 static const bb_route_response_t s_config_post_responses[] = {
     { 200, "application/json",
-      "{\"type\":\"object\","
-       "\"properties\":{\"enabled\":{\"type\":\"boolean\"}},"
-       "\"required\":[\"enabled\"]}",
+      BB_OTA_CHECK_CONFIG_SCHEMA_LITERAL,
       "updated state" },
     { 400, "text/plain", NULL, "missing or invalid body" },
     { 500, "text/plain", NULL, "update failed" },
@@ -933,13 +1066,42 @@ static const bb_route_t s_config_post_route = {
     .tag                  = "update",
     .summary              = "Set update-check enabled flag",
     .request_content_type = "application/json",
-    .request_schema       =
-        "{\"type\":\"object\","
-         "\"properties\":{\"enabled\":{\"type\":\"boolean\"}},"
-         "\"required\":[\"enabled\"]}",
-    .responses = s_config_post_responses,
-    .handler  = bb_ota_check_config_post_handler,
+    .request_schema       = BB_OTA_CHECK_CONFIG_SCHEMA_LITERAL,
+    .responses            = s_config_post_responses,
+    .handler              = bb_ota_check_config_post_handler,
 };
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+// Compose-and-patch steps, called from both bb_ota_check_init() and the
+// test accessors below: each is idempotent (a second call is a
+// pointer-stable no-op, guarded by bb_serialize_meta_ensure_composed()'s
+// buf[0] sentinel) and fail-loud (propagates the composer's rc without ever
+// patching a partial/NULL schema in).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+// No field-patch step here (unlike the response sibling below) --
+// s_config_post_route's `.request_schema` already points directly at
+// s_config_post_request_schema_buf (see that route's own doc comment);
+// composing into the buffer is the only work needed.
+static bb_err_t ensure_config_post_request_schema_patched(void)
+{
+    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                              &s_config_desc, &bb_ota_check_config_meta,
+                                              s_config_post_request_schema_buf,
+                                              sizeof(s_config_post_request_schema_buf));
+}
+
+static bb_err_t ensure_config_post_response_schema_patched(void)
+{
+    bb_err_t rc = bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                                      &s_config_desc, &bb_ota_check_config_meta,
+                                                      s_config_post_response_schema_buf,
+                                                      sizeof(s_config_post_response_schema_buf));
+    if (rc != BB_OK) return rc;  // fail loud -- never register a NULL/partial schema
+    s_config_post_responses[0].schema = s_config_post_response_schema_buf;
+    return BB_OK;
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 const bb_route_t *bb_ota_check_config_get_route(void)  { return &s_config_get_route; }
 const bb_route_t *bb_ota_check_config_post_route(void) { return &s_config_post_route; }
@@ -1125,6 +1287,63 @@ const char *bb_ota_check_get_update_available_schema_for_test(void)
 #else
     return k_update_available_schema;
 #endif
+}
+
+// Test-only accessors for GET /api/update/config's runtime-compose site
+// (B1-1059 emit batch A, site 3) -- same "_for_test" convention as the
+// "update.available" pair above.
+bb_err_t bb_ota_check_assemble_config_get_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return ensure_config_get_schema_patched();
+#else
+    return BB_OK;
+#endif
+}
+
+const char *bb_ota_check_get_config_get_schema_for_test(void)
+{
+    return s_config_get_responses[0].schema;
+}
+
+// Test-only accessors for POST /api/update/config's runtime-compose site
+// (B1-1059 emit batch A, site 4) -- same "_for_test" convention as the pair
+// above.
+bb_err_t bb_ota_check_assemble_config_post_request_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return ensure_config_post_request_schema_patched();
+#else
+    return BB_OK;
+#endif
+}
+
+const char *bb_ota_check_get_config_post_request_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    // s_config_post_route.request_schema always points at
+    // s_config_post_request_schema_buf (see that route's own doc comment) --
+    // an empty buffer (buf[0] == '\0') means "not yet composed", the same
+    // sentinel bb_serialize_meta_ensure_composed() itself uses, so report it
+    // as NULL rather than an empty string.
+    return s_config_post_request_schema_buf[0] != '\0' ? s_config_post_request_schema_buf : NULL;
+#else
+    return s_config_post_route.request_schema;
+#endif
+}
+
+bb_err_t bb_ota_check_assemble_config_post_response_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return ensure_config_post_response_schema_patched();
+#else
+    return BB_OK;
+#endif
+}
+
+const char *bb_ota_check_get_config_post_response_schema_for_test(void)
+{
+    return s_config_post_responses[0].schema;
 }
 
 void bb_ota_check_reset_for_test(void)

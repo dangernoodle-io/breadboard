@@ -656,3 +656,20 @@ void test_storage_delete_key_not_found_still_returns_200(void)
     TEST_ASSERT_EQUAL_INT(200, cap.status);
     bb_http_host_capture_free(&cap);
 }
+
+// ---------------------------------------------------------------------------
+// Runtime-compose config-OFF fidelity (B1-1059 emit batch A, site 1) --
+// proves the for-test assemble/get accessors are a documented no-op at this
+// config gate (CONFIG_BB_OPENAPI_RUNTIME_META not set): the route's
+// request_schema pointer is byte-identical to the extern hand literal.
+// Cross-TU comparison (test file vs bb_storage_http_routes.c), so
+// EQUAL_STRING (not EQUAL_PTR -- KB 1492).
+// ---------------------------------------------------------------------------
+
+void test_storage_delete_route_request_schema_is_unchanged_const_literal(void)
+{
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_http_delete_assemble_request_schema_for_test());
+
+    TEST_ASSERT_EQUAL_STRING(bb_storage_http_delete_request_schema,
+                              bb_storage_http_delete_get_request_schema_for_test());
+}
