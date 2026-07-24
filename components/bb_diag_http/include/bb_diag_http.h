@@ -16,7 +16,7 @@
  *   - CONFIG_BB_DIAG_ROUTES: legacy exact routes -- GET/DELETE
  *     /api/diag/boot, GET/DELETE /api/diag/panic, GET /api/diag/coredump,
  *     GET /api/diag/heap-check, GET /api/diag/tasks, GET /api/diag/sockets.
- *   - CONFIG_BB_DIAG_SECTIONS: the generic GET /api/diag/* wildcard
+ *   - CONFIG_BB_DIAG_SECTIONS: the generic GET /api/diag/<section> wildcard
  *     dispatcher serving whichever section a caller has registered via
  *     bb_diag_register_section() (bb_diag_section.h, stays in bb_diag).
  *
@@ -81,7 +81,7 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server);
 #if CONFIG_BB_DIAG_SECTIONS
 #ifdef ESP_PLATFORM
 
-// Registers the GET /api/diag/* wildcard route on `server`, dispatching to
+// Registers the GET /api/diag/<section> wildcard route on `server`, dispatching to
 // whichever section a request names (platform/espidf/bb_diag_http/
 // bb_diag_http_section_dispatch.c). ESP-IDF only -- there is no host server
 // to register against.
