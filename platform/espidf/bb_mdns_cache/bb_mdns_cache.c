@@ -104,11 +104,11 @@ static void cache_upsert(const char *key, const void *entry)
 // bb_mdns_cache is the current installer of that single-slot hook (see
 // bb_cache_internal.h's contract comment: exactly one composer at a time,
 // never a registry). Fires AFTER free, outside all bb_cache locks, for BOTH
-// the LAZY (read-time) floor and the SWEEP backstop -- this is the reliable
-// "peer genuinely departed" signal that on_bye below is NOT (see its
-// comment): age-out only fires once a peer has stopped being bumped by hello
-// or the re-query worker for evict_age_ms, whereas on_bye also fires on
-// browse-refresh churn for still-present peers.
+// the LAZY (read-time) floor and the SWEEP backstop -- this is the SOLE
+// eviction authority (see on_bye's comment): age-out only fires once a peer
+// has stopped being bumped by hello or the re-query worker for
+// evict_age_ms, so eviction timing stays consistent regardless of whether a
+// goodbye ever arrives.
 static void on_peer_evicted(const char *key)
 {
     bb_log_i(TAG, "peer left: %s", key ? key : "(null)");
@@ -148,22 +148,17 @@ static void on_hello(const bb_mdns_peer_t *peer, void *ctx)
     cache_upsert(key, entry_buf);
 }
 
-// Do NOT delete from the cache here. bb_mdns's browse-refresh workaround
-// (CONFIG_BB_MDNS_BROWSE_REFRESH_INTERVAL_S, still active until B1-604) tears
-// down and recreates the browse subscription every ~60s and fires this
-// callback for STILL-PRESENT peers as documented "normal refresh churn, not a
-// real disconnect" (see bb_mdns.h) -- so on_removed is not a reliable
-// goodbye. Deleting on it would flicker live peers out of the presence
-// cache. Eviction rides AGE_OUT instead: hello + the mdns_query_ptr re-query
-// bump ts_ms; a genuinely departed peer stops being bumped and ages out at
-// evict_age_ms.
-//
-// REVISIT after B1-604 removes browse-refresh -- on_removed then becomes a
-// clean ttl=0 goodbye that could drive an immediate delete.
+// Do NOT delete from the cache here. bb_mdns is persistent-browse only
+// (B1-604): on_removed fires solely on a genuine ttl==0 goodbye, never on
+// refresh churn. Even so, eviction still rides AGE_OUT instead of an
+// immediate delete here: hello + the mdns_query_ptr re-query bump ts_ms; a
+// genuinely departed peer stops being bumped and ages out at evict_age_ms.
+// This keeps a single eviction authority (AGE_OUT) rather than splitting it
+// between an on_bye delete and the age-out sweep.
 static void on_bye(const char *instance_name, void *ctx)
 {
     (void)ctx;
-    bb_log_d(TAG, "on_bye: %s (refresh churn or real goodbye -- AGE_OUT decides)",
+    bb_log_d(TAG, "on_bye: %s (goodbye received -- AGE_OUT still decides eviction)",
              instance_name ? instance_name : "(null)");
 }
 
@@ -172,12 +167,8 @@ static void on_bye(const char *instance_name, void *ctx)
 // to CONFIG_BB_MDNS_CACHE_QUERY_TIMEOUT_MS.
 //
 // This is the benign SSOT refresh: a direct mdns_query_ptr call with no
-// browse teardown, so it does not cause the thundering-herd re-subscribe
-// bb_mdns's browse-refresh workaround does. It will make bb_mdns's
-// browse-refresh (CONFIG_BB_MDNS_BROWSE_REFRESH_INTERVAL_S) redundant once
-// B1-604 removes that workaround. Until then, both run harmlessly in
-// parallel -- both only ever bump ts_ms via cache_upsert, so this is
-// deliberate transitional coexistence, not duplication.
+// browse teardown, so it never causes the thundering-herd re-subscribe
+// bb_mdns's now-removed periodic browse-refresh workaround used to (B1-604).
 static void requery_work_fn(void *arg)
 {
     (void)arg;
