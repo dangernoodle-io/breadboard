@@ -877,6 +877,12 @@ void test_bb_serialize_meta_openapi_occurrence_tagged_field_non_zero_occurrence(
 void test_bb_serialize_meta_openapi_duplicate_key_no_row_falls_back_to_first_occurrence(void);
 void test_bb_serialize_meta_openapi_oneof_null_branches_defensive(void);
 void test_bb_serialize_meta_openapi_max_len_emits(void);
+void test_bb_serialize_meta_openapi_fragment_omits_required_and_additional_properties(void);
+void test_bb_serialize_meta_openapi_fragment_render_cap_zero(void);
+void test_bb_serialize_meta_openapi_fragment_overflow_too_small_cap(void);
+void test_bb_serialize_meta_openapi_fragment_overflow_null_out_len(void);
+void test_bb_serialize_meta_openapi_schema_empty_desc(void);
+void test_bb_serialize_meta_openapi_fragment_empty_desc(void);
 
 // Forward declarations from test_bb_wifi_http_wire_meta_golden.c (B1-1059
 // PR-2a exemplar)
@@ -1006,8 +1012,8 @@ void test_bb_temp_health_meta_golden_matches_hand_fragment(void);
 // Forward declarations from test_bb_health_schema_composite_meta_golden.c
 // (B1-1181b) -- proves the /api/health composite schema assembly splices
 // real producer sections' schema_props (reconstructed via
-// test_meta_fragment.h from each section's real _desc/_meta) in
-// registration order.
+// bb_serialize_meta_openapi_fragment() from each section's real
+// _desc/_meta) in registration order.
 void test_bb_health_schema_composite_meta_golden_mqtt_then_temp(void);
 void test_bb_health_schema_composite_meta_golden_wrong_order_fails_to_match(void);
 
@@ -1023,20 +1029,6 @@ void test_bb_system_reboot_meta_golden_matches_hand_literal(void);
 // descriptor). Genuine oneOf: "namespace" bound as STR + ARR-of-STR.
 void test_bb_storage_http_delete_apply_meta_validates_against_desc(void);
 void test_bb_storage_http_delete_apply_meta_golden_matches_hand_literal(void);
-
-// Forward declarations from test_meta_fragment_selftest.c (B1-1059
-// PR-2b-i-3) -- direct branch coverage of
-// test_meta_fragment_extract_properties() (test_meta_fragment.h/.c)
-void test_meta_fragment_extract_properties_null_schema_returns_false(void);
-void test_meta_fragment_extract_properties_null_out_returns_false(void);
-void test_meta_fragment_extract_properties_zero_out_size_returns_false(void);
-void test_meta_fragment_extract_properties_missing_key_returns_false(void);
-void test_meta_fragment_extract_properties_value_not_object_returns_false(void);
-void test_meta_fragment_extract_properties_unbalanced_braces_returns_false(void);
-void test_meta_fragment_extract_properties_dangling_escape_returns_false(void);
-void test_meta_fragment_extract_properties_escaped_quote_extracts_successfully(void);
-void test_meta_fragment_extract_properties_out_buffer_too_small_returns_false(void);
-void test_meta_fragment_extract_properties_flat_object_succeeds(void);
 
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
@@ -10419,6 +10411,12 @@ int main(void) {
     RUN_TEST(test_bb_serialize_meta_openapi_duplicate_key_no_row_falls_back_to_first_occurrence);
     RUN_TEST(test_bb_serialize_meta_openapi_oneof_null_branches_defensive);
     RUN_TEST(test_bb_serialize_meta_openapi_max_len_emits);
+    RUN_TEST(test_bb_serialize_meta_openapi_fragment_omits_required_and_additional_properties);
+    RUN_TEST(test_bb_serialize_meta_openapi_fragment_render_cap_zero);
+    RUN_TEST(test_bb_serialize_meta_openapi_fragment_overflow_too_small_cap);
+    RUN_TEST(test_bb_serialize_meta_openapi_fragment_overflow_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_schema_empty_desc);
+    RUN_TEST(test_bb_serialize_meta_openapi_fragment_empty_desc);
 
     RUN_TEST(test_bb_wifi_http_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_wifi_http_wire_meta_golden_matches_hand_literal);
@@ -10471,16 +10469,6 @@ int main(void) {
     RUN_TEST(test_bb_system_reboot_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_storage_http_delete_apply_meta_validates_against_desc);
     RUN_TEST(test_bb_storage_http_delete_apply_meta_golden_matches_hand_literal);
-    RUN_TEST(test_meta_fragment_extract_properties_null_schema_returns_false);
-    RUN_TEST(test_meta_fragment_extract_properties_null_out_returns_false);
-    RUN_TEST(test_meta_fragment_extract_properties_zero_out_size_returns_false);
-    RUN_TEST(test_meta_fragment_extract_properties_missing_key_returns_false);
-    RUN_TEST(test_meta_fragment_extract_properties_value_not_object_returns_false);
-    RUN_TEST(test_meta_fragment_extract_properties_unbalanced_braces_returns_false);
-    RUN_TEST(test_meta_fragment_extract_properties_dangling_escape_returns_false);
-    RUN_TEST(test_meta_fragment_extract_properties_escaped_quote_extracts_successfully);
-    RUN_TEST(test_meta_fragment_extract_properties_out_buffer_too_small_returns_false);
-    RUN_TEST(test_meta_fragment_extract_properties_flat_object_succeeds);
 
     // test_bb_lifecycle.c
     RUN_TEST(test_bb_lifecycle_autoinit_returns_ok);

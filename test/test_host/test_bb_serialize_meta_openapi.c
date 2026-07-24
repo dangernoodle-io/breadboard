@@ -3,7 +3,12 @@
 // synthetic widget worked example (test_serialize_fixture.h), plus
 // synthetic fixtures (nested OBJ, ARR-of-OBJ, depth-cap, missing-meta,
 // overflow) exercising every composer branch. The synthetic fixtures are
-// LOCAL to this file -- production tables are never mutated.
+// LOCAL to this file -- production tables are never mutated. Also covers
+// bb_serialize_meta_openapi_fragment() (B1-1059 PR-a, section-fragment
+// engine mode) -- its shared body-writer branches are already exercised
+// via _schema() above, so this only covers the shape difference (no
+// top-level "required"/"additionalProperties") plus its own private
+// overflow-contract branches.
 
 #include "unity.h"
 
@@ -599,5 +604,88 @@ void test_bb_serialize_meta_openapi_max_len_emits(void)
         "\"max_only\":{\"type\":\"string\",\"maxLength\":8},"
         "\"unset\":{\"type\":\"string\"}"
         "},\"required\":[],\"additionalProperties\":false}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
+}
+
+// ---------------------------------------------------------------------------
+// 9. bb_serialize_meta_openapi_fragment() -- section-fragment engine mode
+// (B1-1059 PR-a): same body-writer as _schema(), but suppresses the TOP-
+// level "required"/"additionalProperties" keys. Success-path fidelity is
+// already covered by the production goldens
+// (test_bb_mqtt_client_health_section_meta_golden.c,
+// test_bb_temp_health_meta_golden.c,
+// test_bb_health_schema_composite_meta_golden.c); this section covers the
+// shape difference against _schema() plus the same fail-loud overflow
+// contract (KB 1488) on its own private branches.
+// ---------------------------------------------------------------------------
+
+void test_bb_serialize_meta_openapi_fragment_omits_required_and_additional_properties(void)
+{
+    char   buf[512];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_fragment(&s_lonely_desc, NULL, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{\"lonely\":{\"type\":\"boolean\"}}}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
+}
+
+void test_bb_serialize_meta_openapi_fragment_render_cap_zero(void)
+{
+    char buf[4] = { 'x', 'x', 'x', 'x' };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
+        bb_serialize_meta_openapi_fragment(&bb_fixture_widget_desc, &bb_fixture_widget_meta, buf, 0, NULL));
+}
+
+void test_bb_serialize_meta_openapi_fragment_overflow_too_small_cap(void)
+{
+    char   buf[8];
+    size_t n = 12345;
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
+        bb_serialize_meta_openapi_fragment(&bb_fixture_widget_desc, &bb_fixture_widget_meta, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING("", buf);
+    TEST_ASSERT_EQUAL_UINT(0, n);
+}
+
+void test_bb_serialize_meta_openapi_fragment_overflow_null_out_len(void)
+{
+    char buf[8];
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
+        bb_serialize_meta_openapi_fragment(&bb_fixture_widget_desc, &bb_fixture_widget_meta, buf, sizeof buf, NULL));
+}
+
+// ---------------------------------------------------------------------------
+// 10. n_fields == 0 -- empty-desc edge, both entry points. The composer's
+// field loop never executes, so the rendered shape collapses to its
+// bare skeleton: an empty "properties" object, plus (schema only) an
+// empty "required" array and "additionalProperties":false.
+// ---------------------------------------------------------------------------
+
+static const bb_serialize_desc_t s_empty_desc = {
+    .type_name = "empty", .fields = NULL, .n_fields = 0,
+};
+
+void test_bb_serialize_meta_openapi_schema_empty_desc(void)
+{
+    char   buf[256];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_schema(&s_empty_desc, NULL, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
+}
+
+void test_bb_serialize_meta_openapi_fragment_empty_desc(void)
+{
+    char   buf[256];
+    size_t n = 0;
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_serialize_meta_openapi_fragment(&s_empty_desc, NULL, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_STRING("{\"type\":\"object\",\"properties\":{}}", buf);
     TEST_ASSERT_EQUAL_UINT(strlen(buf), n);
 }

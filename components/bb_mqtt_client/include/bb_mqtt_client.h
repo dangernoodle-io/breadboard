@@ -411,8 +411,8 @@ extern const bb_serialize_desc_t bb_mqtt_client_health_section_desc;
 // its own, because bb_health_section_t.schema_props is spliced verbatim
 // into the /api/health composite's schema, which owns those decisions.
 // See test_bb_mqtt_client_health_section_meta_golden.c (fragment-only
-// assert, test_meta_fragment.h) for the fidelity proof this weaker check
-// implies.
+// assert, bb_serialize_meta_openapi_fragment()) for the fidelity proof this
+// weaker check implies.
 #include "bb_serialize_meta.h"
 #if defined(BB_SERIALIZE_META_SHIP)
 

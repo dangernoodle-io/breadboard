@@ -20,20 +20,18 @@
 // against the bare literal would therefore always fail on structure that
 // has nothing to do with field-content fidelity.
 //
-// So this golden narrows the comparison to what both sides truly share:
-// the "properties":{...} object body, extracted via
-// test_meta_fragment_extract_properties() (test_meta_fragment.h) from both
-// the composer's real output and the hand literal, then byte-compared.
-// Finding: BYTE-IDENTICAL (same field order, same JSON Schema "type" per
-// field: enabled/connected both boolean).
+// So this golden calls bb_serialize_meta_openapi_fragment() directly --
+// the section-fragment engine mode that renders exactly this bare shape
+// ({"type":"object","properties":{...}}, no top-level "required"/
+// "additionalProperties") -- and byte-compares its output against the hand
+// literal. Finding: BYTE-IDENTICAL (same field order, same JSON Schema
+// "type" per field: enabled/connected both boolean).
 #if defined(BB_SERIALIZE_META_HOST)
 
 #include "unity.h"
 
 #include "bb_serialize_meta.h"
 #include "bb_mqtt_client.h"
-
-#include "test_meta_fragment.h"
 
 #include <string.h>
 
@@ -56,28 +54,19 @@ void test_bb_mqtt_client_health_section_meta_validates_against_desc(void)
                                     &bb_mqtt_client_health_section_meta, err, sizeof err));
 }
 
-// The golden itself: the "properties" fragment of
-// bb_serialize_meta_openapi_schema()'s real output over the real production
-// desc + meta table matches the "properties" fragment of the hand literal
-// it will (eventually) replace, byte-for-byte.
+// The golden itself: bb_serialize_meta_openapi_fragment()'s real output
+// over the real production desc + meta table matches the hand literal it
+// will (eventually) replace, byte-for-byte.
 void test_bb_mqtt_client_health_section_meta_golden_matches_hand_fragment(void)
 {
     char   rendered[512];
     size_t n = 0;
     TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_serialize_meta_openapi_schema(&bb_mqtt_client_health_section_desc,
-                                          &bb_mqtt_client_health_section_meta,
-                                          rendered, sizeof rendered, &n));
+        bb_serialize_meta_openapi_fragment(&bb_mqtt_client_health_section_desc,
+                                            &bb_mqtt_client_health_section_meta,
+                                            rendered, sizeof rendered, &n));
 
-    char rendered_props[512];
-    TEST_ASSERT_TRUE(test_meta_fragment_extract_properties(rendered, rendered_props,
-                                                             sizeof rendered_props));
-
-    char hand_props[512];
-    TEST_ASSERT_TRUE(test_meta_fragment_extract_properties(k_hand_schema, hand_props,
-                                                             sizeof hand_props));
-
-    TEST_ASSERT_EQUAL_STRING(hand_props, rendered_props);
+    TEST_ASSERT_EQUAL_STRING(k_hand_schema, rendered);
 }
 
 #endif /* BB_SERIALIZE_META_HOST */
