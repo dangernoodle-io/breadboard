@@ -89,6 +89,46 @@ extern const bb_serialize_desc_t bb_storage_http_delete_wire_desc;
 extern const bb_serialize_desc_meta_t bb_storage_http_delete_wire_meta;
 #endif /* BB_SERIALIZE_META_SHIP */
 
+// ---------------------------------------------------------------------------
+// DELETE /api/diag/storage 200 RESPONSE schema (B1-1059 emit batch C, site
+// C5). Distinct from bb_storage_http_routes.c's
+// BB_STORAGE_HTTP_DELETE_REQUEST_SCHEMA_LITERAL (B1-1059 emit batch A, site
+// 1 -- the request body schema, already merged) -- this is the 200 response
+// body. A #define (not just the accessor below) so BOTH this component's
+// config-OFF bb_storage_http_delete_wire_get_schema() (wire.c) AND
+// platform/espidf/bb_diag_http/bb_storage_http_routes.c's static const
+// s_storage_delete_responses[] table (cross-TU, ESP-IDF-only -- can't call
+// a function from a static initializer) can use the SAME literal text as a
+// genuine compile-time constant expression -- mirrors
+// bb_wifi_http_scan_wire_priv.h's BB_WIFI_HTTP_SCAN_SCHEMA_LITERAL
+// precedent (B1-1059 emit batch B, site B2). Only the 200 response is a
+// runtime-compose candidate -- the 400/412/500/501 responses stay plain
+// literals in routes.c, unaffected by this migration.
+// ---------------------------------------------------------------------------
+#define BB_STORAGE_HTTP_DELETE_RESPONSE_SCHEMA_LITERAL \
+    "{\"type\":\"object\"," \
+    "\"properties\":{" \
+    "\"deleted\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}," \
+    "\"key\":{\"type\":\"string\"}}," \
+    "\"required\":[\"deleted\"]}"
+
+// Composed-schema accessor pair (B1-1059 emit batch C, site C5) -- cross-TU
+// bridge: the register site (platform/espidf/bb_diag_http/
+// bb_storage_http_routes.c) is ESP-IDF-only and cannot host a compose
+// buffer or call the meta engine directly on host, so this portable TU
+// owns the buffer/composer and exposes two accessors -- mirrors
+// bb_wifi_http_scan_wire_priv.h's site-B2 exemplar.
+// bb_storage_http_delete_wire_get_schema() is ALWAYS declared (zero
+// config-OFF footprint beyond the accessor itself: it returns the
+// pre-existing BB_STORAGE_HTTP_DELETE_RESPONSE_SCHEMA_LITERAL, unchanged);
+// bb_storage_http_delete_wire_ensure_schema_patched() exists ONLY under
+// CONFIG_BB_OPENAPI_RUNTIME_META.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_storage_http_delete_wire_ensure_schema_patched(void);
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+const char *bb_storage_http_delete_wire_get_schema(void);
+
 // Pure populate helper: zero-inits `dst`, copies `n` namespace names from
 // `names` into `dst->deleted_names` (bounded strlcpy-style, explicit
 // terminate), wires `dst->deleted_items`/`dst->deleted` to point at that
