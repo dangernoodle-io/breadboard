@@ -2,6 +2,7 @@
 // production code path) against bb_queue_registry's host-backed foreach.
 #include "unity.h"
 #include "bb_ring_diag.h"
+#include "bb_ring_diag_test.h"
 #include "bb_queue.h"
 #include "bb_queue_registry.h"
 
@@ -85,4 +86,23 @@ void test_bb_ring_diag_desc_fits_scratch(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_diag_register_section(&section));
 
     bb_diag_section_test_reset();
+}
+
+/* ---------------------------------------------------------------------------
+ * CONFIG_BB_OPENAPI_RUNTIME_META OFF (this env's default -- undefined) --
+ * proves the describe route's 200-response schema is still the UNCHANGED
+ * const literal path, byte- and pointer-identical to bb_ring_diag_schema
+ * (both assigned from the SAME BB_RING_DIAG_SCHEMA_LITERAL macro
+ * invocation). B1-1059 PR-3 batch 1: config-OFF is a zero-diff no-op.
+ * ---------------------------------------------------------------------------*/
+void test_bb_ring_diag_describe_schema_is_unchanged_const_literal(void)
+{
+    // The for-test assemble is a documented no-op at this config gate (see
+    // bb_ring_diag_test.h) -- still exercised here so the compiled-out
+    // #else arm of bb_ring_diag_assemble_schema_for_test() is covered, not
+    // just the accessor.
+    TEST_ASSERT_EQUAL(BB_OK, bb_ring_diag_assemble_schema_for_test());
+
+    TEST_ASSERT_EQUAL_PTR(bb_ring_diag_schema,
+                           bb_ring_diag_get_describe_schema_for_test());
 }
