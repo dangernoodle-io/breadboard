@@ -3194,6 +3194,15 @@ void test_bb_once_run_second_call_is_noop(void);
 void test_bb_once_run_null_once_is_safe(void);
 void test_bb_once_run_null_fn_is_safe(void);
 void test_bb_once_run_loser_waits_via_sched_yield(void);
+void test_bb_once_run_fallible_retries_after_transient_failure(void);
+void test_bb_once_run_fallible_second_call_after_success_is_noop(void);
+void test_bb_once_run_fallible_null_once_is_safe(void);
+void test_bb_once_run_fallible_null_fn_is_safe(void);
+void test_bb_once_run_fallible_loser_observes_failure_and_returns_false(void);
+void test_bb_once_run_fallible_wifi_ping_infra_shape_retries_on_injected_failure(void);
+void test_bb_once_run_fallible_timer_disp_shape_retries_on_injected_failure(void);
+void test_bb_once_run_fallible_mdns_cascade_shape_resumes_from_failed_step(void);
+void test_bb_once_run_fallible_mdns_cascade_shape_predicate_must_cover_every_resource(void);
 
 // Forward declarations from test_bb_callback_slot.c
 void test_bb_callback_slot_void_null_slot_is_noop(void);
@@ -5649,6 +5658,17 @@ int main(void) {
     RUN_TEST(test_bb_once_run_null_once_is_safe);
     RUN_TEST(test_bb_once_run_null_fn_is_safe);
     RUN_TEST(test_bb_once_run_loser_waits_via_sched_yield);
+
+    // bb_once_run_fallible retry-on-failure primitive (B1-524)
+    RUN_TEST(test_bb_once_run_fallible_retries_after_transient_failure);
+    RUN_TEST(test_bb_once_run_fallible_second_call_after_success_is_noop);
+    RUN_TEST(test_bb_once_run_fallible_null_once_is_safe);
+    RUN_TEST(test_bb_once_run_fallible_null_fn_is_safe);
+    RUN_TEST(test_bb_once_run_fallible_loser_observes_failure_and_returns_false);
+    RUN_TEST(test_bb_once_run_fallible_wifi_ping_infra_shape_retries_on_injected_failure);
+    RUN_TEST(test_bb_once_run_fallible_timer_disp_shape_retries_on_injected_failure);
+    RUN_TEST(test_bb_once_run_fallible_mdns_cascade_shape_resumes_from_failed_step);
+    RUN_TEST(test_bb_once_run_fallible_mdns_cascade_shape_predicate_must_cover_every_resource);
 
     // bb_callback_slot single-slot injected callback idiom (VOID + RET macros)
     RUN_TEST(test_bb_callback_slot_void_null_slot_is_noop);

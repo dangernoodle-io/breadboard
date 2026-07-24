@@ -3,6 +3,7 @@
 #include "bb_wifi_pending.h"
 #include "bb_str.h"
 #include "wifi_reconn.h"
+#include "bb_once.h"
 #include <string.h>
 #include <stdatomic.h>
 #include "esp_wifi.h"
@@ -106,6 +107,43 @@ static SemaphoreHandle_t    s_ping_mutex  = NULL;  // guards s_ping_handle creat
 static volatile bool        s_ping_success = false;
 static SemaphoreHandle_t    s_ping_done   = NULL;  // binary semaphore, given on result
 
+// s_ping_mutex/s_ping_done creation (below) used to be an unguarded
+// check-create-assign race: two concurrent callers (dual-core) could each
+// create+assign different handles, leaving zero mutual exclusion and a
+// leaked semaphore. bb_once_run_fallible() makes ping_infra_init() run
+// exactly once across all callers (blocking any racing caller until that
+// one attempt finishes), but — unlike a plain bb_once_run() — a transient
+// creation failure (heap pressure) is NOT latched permanently: it resets
+// the guard back to IDLE, so the very next bb_wifi_ping() call genuinely
+// retries instead of replaying BB_ERR_NO_MEM forever (B1-524).
+static bb_once_t s_ping_once = BB_ONCE_INIT;
+
+static bool ping_infra_init(void *ctx)
+{
+    (void)ctx;
+    if (!s_ping_mutex) {
+        s_ping_mutex = xSemaphoreCreateMutex();
+    }
+    if (!s_ping_done) {
+        s_ping_done = xSemaphoreCreateBinary();
+    }
+    if (s_ping_mutex && s_ping_done) {
+        return true;
+    }
+    // Partial failure (one of the two creates succeeded, the other didn't):
+    // free whichever succeeded so both sentinels are NULL again for a clean
+    // retry — no leaked handle carried across the next attempt.
+    if (s_ping_mutex) {
+        vSemaphoreDelete(s_ping_mutex);
+        s_ping_mutex = NULL;
+    }
+    if (s_ping_done) {
+        vSemaphoreDelete(s_ping_done);
+        s_ping_done = NULL;
+    }
+    return false;
+}
+
 static void rssi_refresh_work_fn(void *arg)
 {
     (void)arg;
@@ -142,15 +180,12 @@ bb_err_t bb_wifi_ping(uint32_t target_addr, uint32_t timeout_ms, bool *out_reach
 {
     if (!out_reachable) return BB_ERR_INVALID_ARG;
 
-    // Create mutex and done-semaphore lazily (once).
-    if (!s_ping_mutex) {
-        s_ping_mutex = xSemaphoreCreateMutex();
-        if (!s_ping_mutex) return BB_ERR_NO_MEM;
-    }
-    if (!s_ping_done) {
-        s_ping_done = xSemaphoreCreateBinary();
-        if (!s_ping_done) return BB_ERR_NO_MEM;
-    }
+    // Create mutex and done-semaphore, race-free across concurrent callers
+    // and retryable on transient failure (see ping_infra_init() above). The
+    // sentinel re-check below (not bb_once_run_fallible()'s own return
+    // value) is the defense-in-depth guard against BB_ERR_NO_MEM.
+    bb_once_run_fallible(&s_ping_once, ping_infra_init, NULL);
+    if (!s_ping_mutex || !s_ping_done) return BB_ERR_NO_MEM;
 
     xSemaphoreTake(s_ping_mutex, portMAX_DELAY);
 
