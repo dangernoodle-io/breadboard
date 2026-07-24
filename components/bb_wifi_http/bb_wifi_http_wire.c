@@ -81,6 +81,65 @@ const bb_serialize_desc_meta_t bb_wifi_http_info_wire_meta = {
 
 #endif /* BB_SERIALIZE_META_SHIP */
 
+// ---------------------------------------------------------------------------
+// GET /api/wifi response schema (B1-1059 emit batch B, site B1). Config OFF
+// (default) keeps the pre-existing hand-authored literal, byte-identical --
+// RELOCATED here verbatim from platform/espidf/bb_wifi_http/
+// bb_wifi_http_routes.c's k_wifi_info_schema (a pure relocation: same const
+// data, registered identically, no new runtime-compose symbols in this
+// build variant). Config ON composes it at init from
+// bb_wifi_http_info_wire_desc/bb_wifi_http_info_wire_meta via
+// bb_serialize_meta_ensure_composed() -- see
+// bb_wifi_http_info_wire_ensure_schema_patched() below. Accepted config-ON
+// delta (see test_bb_wifi_http_wire_meta_golden.c): the composed body drops
+// the embedded "title" (the meta engine has no descriptor-level title
+// hook -- bb_openapi_register_schema()'s own "WifiInfo" component-name
+// argument already carries that) and gains a trailing
+// "additionalProperties":false (the engine always closes every rendered
+// object) -- config-OFF ships the untouched literal.
+// ---------------------------------------------------------------------------
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+// Sized with headroom over the golden-proven composed body
+// (test_bb_wifi_http_wire_meta_golden.c's k_expected_meta_schema is 398
+// bytes incl. NUL) -- any future desync trips bb_serialize_meta_openapi_
+// schema()'s own bounded-buffer BB_ERR_NO_SPACE contract instead of
+// silently truncating.
+static char s_wifi_info_schema_buf[512];
+#else
+static const char k_wifi_info_schema[] =
+    "{\"title\":\"WifiInfo\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"ssid\":{\"type\":\"string\"},"
+    "\"bssid\":{\"type\":\"string\"},"
+    "\"rssi\":{\"type\":\"integer\"},"
+    "\"ip\":{\"type\":\"string\"},"
+    "\"connected\":{\"type\":\"boolean\"},"
+    "\"disc_reason\":{\"type\":\"string\"},"
+    "\"disc_age_s\":{\"type\":\"integer\"},"
+    "\"retry_count\":{\"type\":\"integer\"},"
+    "\"restart_sta_count\":{\"type\":\"integer\"},"
+    "\"disconnect_rssi\":{\"type\":\"integer\"}},"
+    "\"required\":[\"ssid\",\"connected\"]}";
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_wifi_http_info_wire_ensure_schema_patched(void)
+{
+    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                              &bb_wifi_http_info_wire_desc, &bb_wifi_http_info_wire_meta,
+                                              s_wifi_info_schema_buf, sizeof(s_wifi_info_schema_buf));
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+const char *bb_wifi_http_info_wire_get_schema(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return s_wifi_info_schema_buf;
+#else
+    return k_wifi_info_schema;
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+}
+
 void bb_wifi_http_info_wire_fill(bb_wifi_http_info_wire_t *dst, const bb_wifi_info_t *info)
 {
     bb_wifi_http_fill_common(dst->ssid, sizeof(dst->ssid), dst->bssid,

@@ -81,6 +81,47 @@ const bb_serialize_desc_meta_t bb_wifi_http_scan_wire_meta = {
 
 #endif /* BB_SERIALIZE_META_SHIP */
 
+// ---------------------------------------------------------------------------
+// Config OFF (default) keeps BB_WIFI_HTTP_SCAN_SCHEMA_LITERAL byte-identical
+// -- config ON composes it at init from bb_wifi_http_scan_wire_desc/
+// bb_wifi_http_scan_wire_meta via bb_serialize_meta_ensure_composed() -- see
+// bb_wifi_http_scan_wire_ensure_schema_patched() below. Accepted config-ON
+// delta (see test_bb_wifi_http_scan_wire_meta_golden.c): the composed body
+// DROPS the erroneous per-item "required" list on the "aps" array's object
+// items (the engine never emits "required" on an array-of-object "items"
+// schema, only on a direct object field -- the hand literal's
+// ["ssid","rssi","secure"] there was stale) and gains a trailing
+// "additionalProperties":false at every object depth.
+// ---------------------------------------------------------------------------
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+// Sized with headroom over the golden-proven composed body
+// (test_bb_wifi_http_scan_wire_meta_golden.c's k_expected_meta_schema is
+// 253 bytes incl. NUL) -- any future desync trips bb_serialize_meta_openapi_
+// schema()'s own bounded-buffer BB_ERR_NO_SPACE contract instead of
+// silently truncating.
+static char s_wifi_scan_schema_buf[384];
+#else
+static const char k_wifi_http_scan_schema[] = BB_WIFI_HTTP_SCAN_SCHEMA_LITERAL;
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_wifi_http_scan_wire_ensure_schema_patched(void)
+{
+    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                              &bb_wifi_http_scan_wire_desc, &bb_wifi_http_scan_wire_meta,
+                                              s_wifi_scan_schema_buf, sizeof(s_wifi_scan_schema_buf));
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+const char *bb_wifi_http_scan_wire_get_schema(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return s_wifi_scan_schema_buf;
+#else
+    return k_wifi_http_scan_schema;
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+}
+
 void bb_wifi_http_scan_wire_copy_rows(bb_wifi_http_scan_ap_wire_t *dst,
                                        const bb_wifi_ap_t *src, size_t n)
 {

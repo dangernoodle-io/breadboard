@@ -69,6 +69,40 @@ extern const bb_serialize_desc_t bb_wifi_http_scan_wire_desc;
 extern const bb_serialize_desc_meta_t bb_wifi_http_scan_wire_meta;
 #endif /* BB_SERIALIZE_META_SHIP */
 
+// ---------------------------------------------------------------------------
+// POST /api/wifi/scan RESPONSE schema (B1-1059 emit batch B, site B2). A
+// #define (not just the accessor below) so BOTH this component's config-OFF
+// bb_wifi_http_scan_wire_get_schema() (wire.c) AND platform/espidf/
+// bb_wifi_http/bb_wifi_http_routes.c's static const s_scan_responses[] table
+// (cross-TU, ESP-IDF-only -- can't call a function from a static
+// initializer) can use the SAME literal text as a genuine compile-time
+// constant expression -- mirrors bb_diag_storage_nvs.c's #define precedent,
+// extended cross-TU via this shared private header.
+// ---------------------------------------------------------------------------
+#define BB_WIFI_HTTP_SCAN_SCHEMA_LITERAL \
+    "{\"type\":\"object\"," \
+    "\"properties\":{" \
+    "\"aps\":{\"type\":\"array\"," \
+    "\"items\":{" \
+    "\"type\":\"object\"," \
+    "\"properties\":{" \
+    "\"ssid\":{\"type\":\"string\"}," \
+    "\"rssi\":{\"type\":\"integer\"}," \
+    "\"secure\":{\"type\":\"boolean\"}}," \
+    "\"required\":[\"ssid\",\"rssi\",\"secure\"]}}}," \
+    "\"required\":[\"aps\"]}"
+
+// Composed-schema accessor pair, same cross-TU bridge posture as
+// bb_wifi_http_wire_priv.h's site-B1 exemplar (see that header's own doc
+// comment). bb_wifi_http_scan_wire_get_schema() is ALWAYS declared;
+// bb_wifi_http_scan_wire_ensure_schema_patched() exists ONLY under
+// CONFIG_BB_OPENAPI_RUNTIME_META.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_wifi_http_scan_wire_ensure_schema_patched(void);
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+const char *bb_wifi_http_scan_wire_get_schema(void);
+
 // Pure row-copy helper: copies `n` rows from `src` (a live scan result
 // array) into `dst` (row-count bounded by WIFI_SCAN_MAX by the caller).
 // Host-testable without a live scan -- the sole reason this is factored out
