@@ -2549,6 +2549,20 @@ void test_openapi_emit_components_schemas_present(void);
 void test_openapi_emit_ref_literal_passthrough(void);
 void test_openapi_emit_oom_components_section(void);
 
+// Forward declarations from test_openapi_emit_equivalence.c
+void test_openapi_emit_equivalence_no_routes(void);
+void test_openapi_emit_equivalence_single_get_route(void);
+void test_openapi_emit_equivalence_route_with_parameters(void);
+void test_openapi_emit_equivalence_route_with_request_schema(void);
+void test_openapi_emit_equivalence_multi_method_same_path(void);
+void test_openapi_emit_equivalence_multi_path(void);
+void test_openapi_emit_equivalence_sse_oneof_synthesis(void);
+void test_openapi_emit_equivalence_components_schemas_populated(void);
+void test_openapi_emit_equivalence_components_schemas_empty(void);
+void test_openapi_emit_equivalence_servers_and_description(void);
+void test_openapi_emit_equivalence_null_responses(void);
+void test_openapi_emit_equivalence_deeply_nested_schema(void);
+
 // Forward declarations from test_sse_schema_fidelity.c
 void test_sse_schema_registry_count_zero_initially(void);
 void test_sse_schema_registry_count_after_register(void);
@@ -6945,6 +6959,20 @@ int main(void) {
     RUN_TEST(test_openapi_emit_components_schemas_present);
     RUN_TEST(test_openapi_emit_ref_literal_passthrough);
     RUN_TEST(test_openapi_emit_oom_components_section);
+
+    // test_openapi_emit_equivalence tests
+    RUN_TEST(test_openapi_emit_equivalence_no_routes);
+    RUN_TEST(test_openapi_emit_equivalence_single_get_route);
+    RUN_TEST(test_openapi_emit_equivalence_route_with_parameters);
+    RUN_TEST(test_openapi_emit_equivalence_route_with_request_schema);
+    RUN_TEST(test_openapi_emit_equivalence_multi_method_same_path);
+    RUN_TEST(test_openapi_emit_equivalence_multi_path);
+    RUN_TEST(test_openapi_emit_equivalence_sse_oneof_synthesis);
+    RUN_TEST(test_openapi_emit_equivalence_components_schemas_populated);
+    RUN_TEST(test_openapi_emit_equivalence_components_schemas_empty);
+    RUN_TEST(test_openapi_emit_equivalence_servers_and_description);
+    RUN_TEST(test_openapi_emit_equivalence_null_responses);
+    RUN_TEST(test_openapi_emit_equivalence_deeply_nested_schema);
 
     // test_sse_schema_fidelity tests
     RUN_TEST(test_sse_schema_registry_count_zero_initially);
