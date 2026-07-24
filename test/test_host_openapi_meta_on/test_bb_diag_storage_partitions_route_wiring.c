@@ -8,16 +8,16 @@
 // Dedicated PlatformIO test env (native_openapi_runtime_meta, see
 // platformio.ini) that builds WITH -DCONFIG_BB_OPENAPI_RUNTIME_META=1 --
 // proves bb_diag_storage_partitions's runtime-compose path (B1-1059 PR-3
-// batch 1) actually wires up: the describe route's 200 response starts
-// unpatched (NULL schema), the guarded assemble-and-patch runs exactly
+// batch 1) actually wires up: the guarded assemble-and-patch runs exactly
 // once and composes content byte-identical to the hand-authored literal
 // (reusing PR-1's proven engine==literal golden fact), and re-running it
-// is pointer-stable (idempotent -- never re-assembles once patched).
-
-void test_bb_diag_storage_partitions_describe_schema_starts_null(void)
-{
-    TEST_ASSERT_NULL(bb_diag_storage_partitions_get_describe_schema_for_test());
-}
+// is pointer-stable (idempotent -- never re-assembles once patched). The
+// initial-NULL-state fact now lives once in bb_serialize_meta_ensure_
+// composed()'s own test (B1-1204); the compose-failure test below stays
+// here (B1-1204 review fix) because it exercises THIS site's own
+// `if (rc != BB_OK) return rc;` propagation arm in ensure_schema_patched()
+// (bb_diag_storage_partitions.c) -- a distinct branch from the helper's
+// own error arm, which only the helper's dedicated test covers.
 
 // Exercises the fail-loud `if (rc != BB_OK) return rc;` branch inside
 // ensure_schema_patched() (bb_diag_storage_partitions.c) -- forces the
@@ -25,9 +25,10 @@ void test_bb_diag_storage_partitions_describe_schema_starts_null(void)
 // seam) to return BB_ERR_NO_SPACE and asserts the route is left unpatched
 // (NULL schema) rather than patched with a partial/stale one. MUST run
 // before the success test below: the compose-and-patch step is
-// guarded/idempotent (a NULL `.schema` short-circuits a second real
-// assemble), so once a prior test has successfully patched it this seam
-// can no longer force a re-compose -- see test_main.c's RUN_TEST order.
+// guarded/idempotent (a non-empty schema buffer short-circuits a second
+// real assemble), so once a prior test has successfully patched it this
+// seam can no longer force a re-compose -- see test_main.c's RUN_TEST
+// order.
 void test_bb_diag_storage_partitions_assemble_schema_offline_on_compose_failure(void)
 {
     bb_serialize_meta_openapi_test_set_force_no_space(true);

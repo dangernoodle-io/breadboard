@@ -285,6 +285,46 @@ bb_err_t bb_serialize_meta_openapi_root_close(const bb_serialize_desc_t      *de
                                                const bb_serialize_desc_meta_t *meta,
                                                char *out, size_t out_size, size_t *out_len);
 
+// Composer function signature shared by bb_serialize_meta_openapi_schema()
+// and bb_serialize_meta_openapi_fragment() (and the root open/close pair) --
+// the dispatch type bb_serialize_meta_ensure_composed() accepts, so a
+// compose-at-init call site can plug in whichever composer it needs.
+typedef bb_err_t (*bb_serialize_meta_composer_fn)(const bb_serialize_desc_t      *desc,
+                                                    const bb_serialize_desc_meta_t *meta,
+                                                    char *out, size_t out_size, size_t *out_len);
+
+// Shared "compose once at init, idempotently" helper for the compose-at-init
+// call sites scattered across components (bb_diag_storage_nvs,
+// bb_diag_storage_partitions, bb_diag_meminfo, bb_ring_diag,
+// bb_ws_server_diag, bb_wifi_http_diag, bb_mqtt_client_health_section,
+// bb_temp) that patch a static describe-route response schema (or a health
+// section fragment) in once from this engine. `buf` is CALLER-OWNED
+// (typically a static file-scope char[] sized to the composer's known
+// output) and doubles as the idempotency sentinel: if `buf[0] != '\0'`
+// (i.e. a prior call already composed into it), this is a pointer-stable
+// no-op that returns BB_OK immediately WITHOUT re-invoking `composer` --
+// the caller is expected to (re-)assign its own schema/fragment pointer at
+// `buf` unconditionally after this returns BB_OK, since that assignment is
+// itself idempotent.
+//
+// This engine-layer helper is intentionally type-agnostic: it knows nothing
+// about bb_route_t/bb_route_response_t or any section-fragment "install"
+// step -- installing the composed buffer into a caller's response table or
+// local schema_props variable is the caller's one remaining line.
+//
+// Never allocates or retains `buf` -- purely a caller-owned-buffer, no-heap
+// operation. Fail-loud: on a composer error, returns the composer's
+// bb_err_t UNCHANGED, and per the composer's own bounded-buffer contract
+// `buf` is left with `buf[0] == '\0'` (never a partial write) -- so a
+// failed call leaves the sentinel armed for a legitimate retry. NOT
+// thread-safe: assumes the single-threaded boot-time init-call-site
+// pattern of every adopter (no locking against a concurrent caller
+// mutating the same `buf`).
+bb_err_t bb_serialize_meta_ensure_composed(bb_serialize_meta_composer_fn   composer,
+                                            const bb_serialize_desc_t      *desc,
+                                            const bb_serialize_desc_meta_t *meta,
+                                            char *buf, size_t buf_size);
+
 #ifdef __cplusplus
 }
 #endif

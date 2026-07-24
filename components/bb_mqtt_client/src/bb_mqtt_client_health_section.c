@@ -77,13 +77,11 @@ static char s_mqtt_health_schema_buf[sizeof(k_mqtt_schema)];
 
 static bb_err_t ensure_mqtt_health_schema_patched(void)
 {
-    if (s_mqtt_health_schema_buf[0] != '\0') return BB_OK;
-
-    size_t n = 0;
-    return bb_serialize_meta_openapi_fragment(&bb_mqtt_client_health_section_desc,
-                                               &bb_mqtt_client_health_section_meta,
-                                               s_mqtt_health_schema_buf,
-                                               sizeof(s_mqtt_health_schema_buf), &n);
+    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_fragment,
+                                              &bb_mqtt_client_health_section_desc,
+                                              &bb_mqtt_client_health_section_meta,
+                                              s_mqtt_health_schema_buf,
+                                              sizeof(s_mqtt_health_schema_buf));
 }
 
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */

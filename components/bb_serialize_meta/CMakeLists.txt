@@ -16,7 +16,8 @@ set(_bb_serialize_meta_srcs)
 if(CONFIG_BB_OPENAPI_RUNTIME_META)
     list(APPEND _bb_serialize_meta_srcs
         "${CMAKE_CURRENT_LIST_DIR}/src/bb_serialize_meta_openapi.c"
-        "${CMAKE_CURRENT_LIST_DIR}/src/bb_serialize_meta_validate.c")
+        "${CMAKE_CURRENT_LIST_DIR}/src/bb_serialize_meta_validate.c"
+        "${CMAKE_CURRENT_LIST_DIR}/src/bb_serialize_meta_ensure.c")
 endif()
 
 idf_component_register(

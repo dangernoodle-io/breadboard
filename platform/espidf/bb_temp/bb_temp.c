@@ -78,12 +78,9 @@ static char s_temp_health_schema_buf[sizeof(k_temp_schema)];
 
 static bb_err_t ensure_temp_health_schema_patched(void)
 {
-    if (s_temp_health_schema_buf[0] != '\0') return BB_OK;
-
-    size_t n = 0;
-    return bb_serialize_meta_openapi_fragment(&bb_temp_health_desc, &bb_temp_health_meta,
-                                               s_temp_health_schema_buf,
-                                               sizeof(s_temp_health_schema_buf), &n);
+    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_fragment,
+                                              &bb_temp_health_desc, &bb_temp_health_meta,
+                                              s_temp_health_schema_buf, sizeof(s_temp_health_schema_buf));
 }
 
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */

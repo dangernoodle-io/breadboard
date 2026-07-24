@@ -23,17 +23,20 @@ static const char *const k_hand_schema =
     "\"enabled\":{\"type\":\"boolean\"},"
     "\"connected\":{\"type\":\"boolean\"}}}";
 
-// Exercises the fail-fast `if (ensure_mqtt_health_schema_patched() !=
-// BB_OK) { bb_log_e(...); return; }` branch in
-// bb_mqtt_client_health_register() -- forces the engine (bb_serialize_meta,
-// via BB_SERIALIZE_META_TESTING's fail-injection seam) to return
-// BB_ERR_NO_SPACE and asserts the section is left unregistered (offline)
-// rather than registered with a partial/stale schema. MUST run before the
-// two success tests below: the compose-and-patch step is guarded/idempotent
-// (the file-scope schema buffer's first byte != '\0' short-circuits a
-// second real assemble), so once a prior test has successfully patched it
-// this seam can no longer force a re-compose -- see test_main.c's RUN_TEST
-// order.
+// The helper's own error arm (bb_serialize_meta_ensure_composed()'s
+// composer-error path) is covered once, engine-side, by that helper's own
+// dedicated test (B1-1204). The test below stays here (B1-1204 review fix)
+// because it exercises a DIFFERENT, per-site branch: the fail-fast
+// `if (ensure_mqtt_health_schema_patched() != BB_OK) { ...; return; }`
+// propagation arm in bb_mqtt_client_health_register() itself -- forces the
+// engine (bb_serialize_meta, via BB_SERIALIZE_META_TESTING's fail-injection
+// seam) to return BB_ERR_NO_SPACE and asserts the section is left
+// unregistered (offline) rather than registered with a partial/stale
+// schema. MUST run before the two success tests below: the compose-and-
+// patch step is guarded/idempotent (the file-scope schema buffer's first
+// byte != '\0' short-circuits a second real assemble), so once a prior
+// test has successfully patched it this seam can no longer force a
+// re-compose -- see test_main.c's RUN_TEST order.
 void test_bb_mqtt_client_health_register_offline_on_compose_failure(void)
 {
     bb_health_section_test_reset();
