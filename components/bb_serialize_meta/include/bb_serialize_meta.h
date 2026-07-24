@@ -293,6 +293,32 @@ typedef bb_err_t (*bb_serialize_meta_composer_fn)(const bb_serialize_desc_t     
                                                     const bb_serialize_desc_meta_t *meta,
                                                     char *out, size_t out_size, size_t *out_len);
 
+// SSE topic-schema composer (B1-1059 SSE batch PR-1): engine-only, ZERO
+// callers this PR -- inert until a later PR wires the 5 SSE topic route
+// sites onto it. An SSE topic's advertised schema needs a top-level
+// `{"title":"<title>","x-sse-topic":"<topic>",` prefix that no other
+// composer in this family emits, followed by the SAME composed body
+// `composer` itself would produce (minus its own leading `{`). E.g. for a
+// `composer` output of `{"type":"object","properties":{...},"required":
+// [...],"additionalProperties":false}`, this writes
+// `{"title":"T","x-sse-topic":"S","type":"object","properties":{...},
+// "required":[...],"additionalProperties":false}` -- byte-exact, no
+// duplicated field walk (the passed-in `composer`, typically
+// bb_serialize_meta_openapi_schema(), does the whole body). `title`/`topic`
+// are JSON-string-escaped as written. Same bounded-buffer, no-heap,
+// all-or-nothing overflow idiom as the rest of the family: on ANY error
+// (from either the prefix write or `composer` itself), `out[0]` is '\0' and
+// `*out_len` is 0 -- never a partial fragment. `composer` MUST return a
+// standalone object starting with `{` (bb_serialize_meta_openapi_schema()'s
+// shape) -- a composer that doesn't (e.g. bb_serialize_meta_openapi_
+// open_fragment(), which never closes its `}`) is a mis-wiring caught
+// defensively and rejected with BB_ERR_INVALID_STATE, `out[0]` left `\0`.
+bb_err_t bb_serialize_meta_openapi_topic_schema(bb_serialize_meta_composer_fn   composer,
+                                                 const bb_serialize_desc_t      *desc,
+                                                 const bb_serialize_desc_meta_t *meta,
+                                                 const char *title, const char *topic,
+                                                 char *out, size_t out_size, size_t *out_len);
+
 // Shared "compose once at init, idempotently" helper for the compose-at-init
 // call sites scattered across components (bb_diag_storage_nvs,
 // bb_diag_storage_partitions, bb_diag_meminfo, bb_ring_diag,
@@ -324,6 +350,25 @@ bb_err_t bb_serialize_meta_ensure_composed(bb_serialize_meta_composer_fn   compo
                                             const bb_serialize_desc_t      *desc,
                                             const bb_serialize_desc_meta_t *meta,
                                             char *buf, size_t buf_size);
+
+// Same "compose once at init, idempotently" contract as
+// bb_serialize_meta_ensure_composed() above, dispatching to
+// bb_serialize_meta_openapi_topic_schema() instead -- for the future SSE
+// topic-schema compose-at-init call sites (5 sites, later PR). `buf` is
+// CALLER-OWNED (typically a static file-scope char[] sized to the
+// composer's known output) and doubles as the idempotency sentinel exactly
+// as in the sibling helper: `buf[0] != '\0'` is a pointer-stable no-op that
+// returns BB_OK immediately WITHOUT re-invoking `composer`. NOT
+// thread-safe: assumes the single-threaded boot-time init-call-site pattern
+// of every adopter (no locking against a concurrent caller mutating the
+// same `buf`) -- same convention as the sibling, so `buf`/`composer` are
+// never NULL-checked here either (caller-owns-valid-buf contract, not this
+// helper's job to defend).
+bb_err_t bb_serialize_meta_ensure_topic_schema(bb_serialize_meta_composer_fn   composer,
+                                                const bb_serialize_desc_t      *desc,
+                                                const bb_serialize_desc_meta_t *meta,
+                                                const char *title, const char *topic,
+                                                char *buf, size_t buf_size);
 
 #ifdef __cplusplus
 }
