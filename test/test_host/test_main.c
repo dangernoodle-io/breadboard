@@ -937,6 +937,14 @@ void test_bb_ota_validator_partitions_wire_meta_golden_matches_hand_literal(void
 void test_bb_wifi_http_scan_wire_meta_validates_against_desc(void);
 void test_bb_wifi_http_scan_wire_meta_golden_matches_hand_literal(void);
 
+// Forward declarations from test_bb_wifi_http_wire_schema_default.c /
+// test_bb_wifi_http_scan_wire_schema_default.c (B1-1059 emit batch B, sites
+// B1/B2) -- config-OFF byte-identity: bb_wifi_http_info_wire_get_schema()/
+// bb_wifi_http_scan_wire_get_schema() serve the relocated hand literal
+// unchanged in this plain [env:native] build.
+void test_bb_wifi_http_wire_schema_default_matches_relocated_literal(void);
+void test_bb_wifi_http_scan_wire_schema_default_matches_literal(void);
+
 // Forward declarations from the B1-1180 PR-1 diag-section describe-only
 // meta goldens (test_bb_ws_server_diag_meta_golden.c,
 // test_bb_ring_diag_meta_golden.c, test_bb_meminfo_heap_snap_meta_golden.c,
@@ -10548,6 +10556,8 @@ int main(void) {
     RUN_TEST(test_bb_ota_validator_partitions_wire_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_wifi_http_scan_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_wifi_http_scan_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_wifi_http_wire_schema_default_matches_relocated_literal);
+    RUN_TEST(test_bb_wifi_http_scan_wire_schema_default_matches_literal);
     RUN_TEST(test_bb_ws_server_diag_meta_validates_against_desc);
     RUN_TEST(test_bb_ws_server_diag_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_ring_diag_meta_validates_against_desc);

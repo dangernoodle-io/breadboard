@@ -68,20 +68,11 @@ static bb_err_t scan_handler(bb_http_request_t *req)
 // Route descriptor
 // ---------------------------------------------------------------------------
 
-static const char k_wifi_info_schema[] =
-    "{\"title\":\"WifiInfo\",\"type\":\"object\","
-    "\"properties\":{"
-    "\"ssid\":{\"type\":\"string\"},"
-    "\"bssid\":{\"type\":\"string\"},"
-    "\"rssi\":{\"type\":\"integer\"},"
-    "\"ip\":{\"type\":\"string\"},"
-    "\"connected\":{\"type\":\"boolean\"},"
-    "\"disc_reason\":{\"type\":\"string\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"retry_count\":{\"type\":\"integer\"},"
-    "\"restart_sta_count\":{\"type\":\"integer\"},"
-    "\"disconnect_rssi\":{\"type\":\"integer\"}},"
-    "\"required\":[\"ssid\",\"connected\"]}";
+// GET /api/wifi response schema literal -- RELOCATED (B1-1059 emit batch B,
+// site B1) into components/bb_wifi_http/bb_wifi_http_wire.c as
+// k_wifi_info_schema, served here via bb_wifi_http_info_wire_get_schema()
+// (config OFF returns that same literal unchanged; config ON returns a
+// runtime-composed buffer -- see that fn's own doc comment).
 
 static const bb_route_response_t s_wifi_responses[] = {
     { 200, "application/json",
@@ -99,22 +90,34 @@ static const bb_route_t s_wifi_route = {
     .handler  = wifi_info_handler,
 };
 
-static const bb_route_response_t s_scan_responses[] = {
-    { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"aps\":{\"type\":\"array\","
-      "\"items\":{"
-      "\"type\":\"object\","
-      "\"properties\":{"
-      "\"ssid\":{\"type\":\"string\"},"
-      "\"rssi\":{\"type\":\"integer\"},"
-      "\"secure\":{\"type\":\"boolean\"}},"
-      "\"required\":[\"ssid\",\"rssi\",\"secure\"]}}},"
-      "\"required\":[\"aps\"]}",
+// CONFIG_BB_OPENAPI_RUNTIME_META (B1-1059 emit batch B, site B2) -- gated
+// DIRECTLY on this Kconfig symbol, same posture as every other exemplar
+// (see bb_wifi_routes_init() below). Config OFF (default) is a zero-diff
+// no-op: the `#else` arm below is byte-identical to the pre-batch table,
+// using the SAME BB_WIFI_HTTP_SCAN_SCHEMA_LITERAL text
+// bb_wifi_http_scan_wire.c's config-OFF k_wifi_http_scan_schema uses (see
+// bb_wifi_http_scan_wire_priv.h).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Mutable (`.data`, not `.rodata`) with this config on -- `.schema` starts
+// NULL and is patched in once by bb_wifi_routes_init() before this route is
+// ever registered/served.
+static bb_route_response_t s_scan_responses[] = {
+    { 200, "application/json", NULL /* patched at init */,
       "visible access points, wrapped in an aps array" },
     { 0 },
 };
+
+#else
+
+static const bb_route_response_t s_scan_responses[] = {
+    { 200, "application/json",
+      BB_WIFI_HTTP_SCAN_SCHEMA_LITERAL,
+      "visible access points, wrapped in an aps array" },
+    { 0 },
+};
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 static const bb_route_t s_scan_route = {
     .method   = BB_HTTP_POST,
@@ -317,7 +320,24 @@ static const bb_route_t s_wifi_patch_route = {
 bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
-    bb_openapi_register_schema("WifiInfo", k_wifi_info_schema, NULL);
+
+    // Compose (config ON only) before registering -- never interleave
+    // compose and register (avoids a partial-registration on a
+    // mid-sequence compose failure). Both accessors below are ALWAYS
+    // declared (site B1/B2 wire.c pattern, see bb_wifi_http_wire_priv.h's
+    // doc comment); bb_wifi_http_info_wire_get_schema()/
+    // bb_wifi_http_scan_wire_get_schema() alone already return the right
+    // content for config OFF, so only the *_ensure_schema_patched() calls
+    // and the scan response patch are gated.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t info_schema_rc = bb_wifi_http_info_wire_ensure_schema_patched();
+    if (info_schema_rc != BB_OK) return info_schema_rc;
+    bb_err_t scan_schema_rc = bb_wifi_http_scan_wire_ensure_schema_patched();
+    if (scan_schema_rc != BB_OK) return scan_schema_rc;
+    s_scan_responses[0].schema = bb_wifi_http_scan_wire_get_schema();
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+    bb_openapi_register_schema("WifiInfo", bb_wifi_http_info_wire_get_schema(), NULL);
     bb_err_t rc;
     rc = bb_http_register_described_route(server, &s_wifi_route);
     if (rc != BB_OK) return rc;

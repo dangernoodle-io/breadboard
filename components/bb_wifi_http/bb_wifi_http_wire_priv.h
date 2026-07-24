@@ -59,6 +59,25 @@ extern const bb_serialize_desc_t bb_wifi_http_info_wire_desc;
 extern const bb_serialize_desc_meta_t bb_wifi_http_info_wire_meta;
 #endif /* BB_SERIALIZE_META_SHIP */
 
+// ---------------------------------------------------------------------------
+// Composed-schema accessor pair (B1-1059 emit batch B, site B1) -- cross-TU
+// bridge: the register site (platform/espidf/bb_wifi_http/
+// bb_wifi_http_routes.c) is ESP-IDF-only (includes <esp_wifi.h>
+// unconditionally) and cannot host a compose buffer or call the meta engine
+// directly on host, so this portable TU owns the buffer/composer and
+// exposes two accessors -- mirrors bb_health_stack_wire.h's precedent.
+// bb_wifi_http_info_wire_get_schema() is ALWAYS declared (zero config-OFF
+// footprint beyond the accessor itself: it returns the pre-existing
+// k_wifi_info_schema literal, relocated here verbatim from
+// bb_wifi_http_routes.c); bb_wifi_http_info_wire_ensure_schema_patched()
+// exists ONLY under CONFIG_BB_OPENAPI_RUNTIME_META.
+// ---------------------------------------------------------------------------
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_wifi_http_info_wire_ensure_schema_patched(void);
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+const char *bb_wifi_http_info_wire_get_schema(void);
+
 // Fills `dst` from `info` plus the two global recovery-telemetry getters
 // (bb_wifi_get_restart_sta_count/bb_wifi_get_disconnect_rssi) — same
 // sources bb_wifi_emit_section read. Pure/portable; `dst` is NOT

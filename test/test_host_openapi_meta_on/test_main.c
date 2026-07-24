@@ -177,6 +177,18 @@ void test_bb_display_info_topic_schema_offline_on_compose_failure(void);
 void test_bb_display_info_topic_schema_matches_expected_content(void);
 void test_bb_display_info_topic_schema_idempotent_pointer_stable(void);
 
+// From test_bb_wifi_http_wire_route_wiring.c (B1-1059 emit batch B, site B1)
+void test_bb_wifi_http_wire_schema_offline_on_compose_failure(void);
+void test_bb_wifi_http_wire_schema_matches_expected_content(void);
+void test_bb_wifi_http_wire_schema_idempotent_pointer_stable(void);
+
+// From test_bb_wifi_http_scan_wire_route_wiring.c (B1-1059 emit batch B,
+// site B2) -- a distinct compose buffer from the site-B1 pair above (own
+// wire.c, own sentinel).
+void test_bb_wifi_http_scan_wire_schema_offline_on_compose_failure(void);
+void test_bb_wifi_http_scan_wire_schema_matches_expected_content(void);
+void test_bb_wifi_http_scan_wire_schema_idempotent_pointer_stable(void);
+
 void setUp(void) {}
 
 // Defensive belt-and-suspenders for the BB_SERIALIZE_META_TESTING
@@ -359,6 +371,14 @@ int main(void)
     RUN_TEST(test_bb_display_info_topic_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_display_info_topic_schema_matches_expected_content);
     RUN_TEST(test_bb_display_info_topic_schema_idempotent_pointer_stable);
+
+    RUN_TEST(test_bb_wifi_http_wire_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_wifi_http_wire_schema_matches_expected_content);
+    RUN_TEST(test_bb_wifi_http_wire_schema_idempotent_pointer_stable);
+
+    RUN_TEST(test_bb_wifi_http_scan_wire_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_wifi_http_scan_wire_schema_matches_expected_content);
+    RUN_TEST(test_bb_wifi_http_scan_wire_schema_idempotent_pointer_stable);
 
     return UNITY_END();
 }
