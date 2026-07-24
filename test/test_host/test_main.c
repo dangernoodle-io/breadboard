@@ -4099,6 +4099,7 @@ void test_bb_diag_storage_nvs_describe_schema_is_unchanged_const_literal(void);
 void test_bb_diag_meminfo_fill_rejects_null_dst(void);
 void test_bb_diag_meminfo_fill_host_zeroes_snapshot(void);
 void test_bb_diag_meminfo_desc_fits_scratch(void);
+void test_bb_diag_meminfo_describe_schema_is_unchanged_const_literal(void);
 
 // Forward declarations from test_bb_diag_storage_partitions.c
 void test_bb_diag_storage_partitions_fill_widens_rows(void);
@@ -4107,12 +4108,14 @@ void test_bb_diag_storage_partitions_fill_row_count_and_carrier(void);
 void test_bb_diag_storage_partitions_fill_null_dst_returns_invalid_arg(void);
 void test_bb_diag_storage_partitions_row_field_count_matches_partition_serialize(void);
 void test_bb_diag_storage_partitions_desc_fits_scratch(void);
+void test_bb_diag_storage_partitions_describe_schema_is_unchanged_const_literal(void);
 
 // Forward declarations from test_bb_ws_server_diag.c
 void test_bb_ws_server_diag_fill_null_dst_returns_invalid_arg(void);
 void test_bb_ws_server_diag_fill_zero_by_default(void);
 void test_bb_ws_server_diag_fill_reflects_open_count(void);
 void test_bb_ws_server_diag_desc_fits_scratch(void);
+void test_bb_ws_server_diag_describe_schema_is_unchanged_const_literal(void);
 
 // Forward declarations from test_bb_wifi_http_diag.c
 void test_bb_wifi_http_diag_fill_null_dst_returns_invalid_arg(void);
@@ -4127,6 +4130,7 @@ void test_bb_ring_diag_fill_null_dst_returns_invalid_arg(void);
 void test_bb_ring_diag_fill_empty_registry(void);
 void test_bb_ring_diag_fill_reports_live_rings(void);
 void test_bb_ring_diag_desc_fits_scratch(void);
+void test_bb_ring_diag_describe_schema_is_unchanged_const_literal(void);
 
 // Forward declarations from test_bb_ota_led.c
 void test_ota_led_start_calls_updating(void);
@@ -5880,6 +5884,7 @@ int main(void) {
     RUN_TEST(test_bb_diag_meminfo_fill_rejects_null_dst);
     RUN_TEST(test_bb_diag_meminfo_fill_host_zeroes_snapshot);
     RUN_TEST(test_bb_diag_meminfo_desc_fits_scratch);
+    RUN_TEST(test_bb_diag_meminfo_describe_schema_is_unchanged_const_literal);
 
     // bb_diag_storage_partitions tests
     RUN_TEST(test_bb_diag_storage_partitions_fill_widens_rows);
@@ -5888,10 +5893,12 @@ int main(void) {
     RUN_TEST(test_bb_diag_storage_partitions_fill_null_dst_returns_invalid_arg);
     RUN_TEST(test_bb_diag_storage_partitions_row_field_count_matches_partition_serialize);
     RUN_TEST(test_bb_diag_storage_partitions_desc_fits_scratch);
+    RUN_TEST(test_bb_diag_storage_partitions_describe_schema_is_unchanged_const_literal);
     RUN_TEST(test_bb_ws_server_diag_fill_null_dst_returns_invalid_arg);
     RUN_TEST(test_bb_ws_server_diag_fill_zero_by_default);
     RUN_TEST(test_bb_ws_server_diag_fill_reflects_open_count);
     RUN_TEST(test_bb_ws_server_diag_desc_fits_scratch);
+    RUN_TEST(test_bb_ws_server_diag_describe_schema_is_unchanged_const_literal);
     RUN_TEST(test_bb_wifi_http_diag_fill_null_dst_returns_invalid_arg);
     RUN_TEST(test_bb_wifi_http_diag_fill_empty_histogram_all_buckets_absent);
     RUN_TEST(test_bb_wifi_http_diag_fill_mixed_histogram_and_shared_fields);
@@ -5902,6 +5909,7 @@ int main(void) {
     RUN_TEST(test_bb_ring_diag_fill_empty_registry);
     RUN_TEST(test_bb_ring_diag_fill_reports_live_rings);
     RUN_TEST(test_bb_ring_diag_desc_fits_scratch);
+    RUN_TEST(test_bb_ring_diag_describe_schema_is_unchanged_const_literal);
 
     // bb_ota_led tests
     RUN_TEST(test_ota_led_start_calls_updating);
