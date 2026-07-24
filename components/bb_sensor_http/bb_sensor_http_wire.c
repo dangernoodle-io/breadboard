@@ -324,7 +324,7 @@ const char *const bb_sensor_http_fan_request_schema = BB_SENSOR_HTTP_FAN_REQUEST
 const char *const bb_sensor_http_power_schema       = BB_SENSOR_HTTP_POWER_SCHEMA_LITERAL;
 const char *const bb_sensor_http_thermal_schema     = BB_SENSOR_HTTP_THERMAL_SCHEMA_LITERAL;
 
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 // ---------------------------------------------------------------------------
 // Fan meta/golden layer (B1-1180 PR-2 review fix, HIGH 2 restructure):
@@ -508,7 +508,7 @@ const bb_serialize_desc_meta_t bb_sensor_http_thermal_meta = {
     .n_rows    = sizeof(s_sensors_thermal_meta_rows) / sizeof(s_sensors_thermal_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // ---------------------------------------------------------------------------
 // Describe-only routes (B1-1180 PR-2) -- PRODUCER-OWNED `static const`

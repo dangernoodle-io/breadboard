@@ -226,7 +226,7 @@ const bb_serialize_desc_t bb_wifi_http_diag_desc = {
 
 const char *const bb_wifi_http_diag_schema = BB_WIFI_HTTP_DIAG_SCHEMA_LITERAL;
 
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_wifi_http_diag_hist_meta_rows[] = {
     { .key = "unknown" },
@@ -274,7 +274,7 @@ const bb_serialize_desc_meta_t bb_wifi_http_diag_meta = {
     .n_rows    = sizeof(s_wifi_http_diag_meta_rows) / sizeof(s_wifi_http_diag_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // ---------------------------------------------------------------------------
 // Fill

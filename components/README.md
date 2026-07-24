@@ -70,6 +70,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_serialize_console](./bb_serialize_console/) | Heap-over-serial emit backend -- a bb_serialize_emit_t implementation that renders a snapshot as a single human-readable "key=val key=val" line (no braces, no quoting), plus a one-shot heap-snapshot report helper (bb_serialize_console_heap_report()) built on top of bb_meminfo. |
 | [bb_serialize_json](./bb_serialize_json/) | Hand-rolled, no-heap, bounded-buffer JSON bb_serialize_emit_t backend -- the default wire-format implementation for bb_serialize. |
 | [bb_serialize_logfmt](./bb_serialize_logfmt/) | Hand-rolled, no-heap, bounded-buffer logfmt bb_serialize_emit_t backend -- a second wire-format implementation for bb_serialize, mirroring bb_serialize_json's structure and contract shape. |
+| [bb_serialize_meta](./bb_serialize_meta/) | Device-shippable "cold metadata" companion engine for bb_serialize_desc_t (B1-767 PR-7, B1-1059): validation constraints + JSON-Schema docs for a future runtime OpenAPI schema generator, gated off by default. |
 | [bb_settings](./bb_settings/) | bb's default WiFi-credentials store — a wifi-creds field table over `bb_config`, byte-compatible with the credentials `bb_nv_config` already persists. `bb_settings` is bb's opinionated bb-config authority (KB 805/806); `bb_wifi` reads its accessors directly. |
 | [bb_str](./bb_str/) | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. Pure C, no heap. |
 | [bb_system](./bb_system/) | — |

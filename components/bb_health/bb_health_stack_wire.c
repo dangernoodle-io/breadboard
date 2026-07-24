@@ -34,7 +34,7 @@ const bb_serialize_desc_t bb_health_stack_wire_desc = {
 // (["task","free_bytes","low"]). See
 // test_bb_health_stack_wire_meta_golden.c for the fidelity proof.
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_health_stack_wire_meta_rows[] = {
     { .key = "task",       .required = true },
@@ -48,4 +48,4 @@ const bb_serialize_desc_meta_t bb_health_stack_wire_meta = {
     .n_rows    = sizeof(s_health_stack_wire_meta_rows) / sizeof(s_health_stack_wire_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */

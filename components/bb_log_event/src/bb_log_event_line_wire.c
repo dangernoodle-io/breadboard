@@ -41,7 +41,7 @@ const bb_serialize_desc_t bb_log_event_line_wire_desc = {
 // literal's "enum":["I","W","E","D","V","?"]. See
 // test_bb_log_event_line_wire_meta_golden.c for the fidelity proof.
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const char *const s_log_event_level_enum_vals[] = {
     "I", "W", "E", "D", "V", "?", NULL,
@@ -60,4 +60,4 @@ const bb_serialize_desc_meta_t bb_log_event_line_wire_meta = {
     .n_rows    = sizeof(s_log_event_line_wire_meta_rows) / sizeof(s_log_event_line_wire_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */

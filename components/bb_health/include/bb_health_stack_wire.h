@@ -38,11 +38,11 @@ extern const bb_serialize_desc_t bb_health_stack_wire_desc;
 // env; see platformio.ini) -- NEVER set by the ESP-IDF/device build, so this
 // declaration (and its definition in bb_health_stack_wire.c) compiles to
 // nothing on-device.
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 extern const bb_serialize_desc_meta_t bb_health_stack_wire_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 #ifdef ESP_PLATFORM
 // ESP-IDF only, not host-reproducible: copies the last-published

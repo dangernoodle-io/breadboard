@@ -1,8 +1,8 @@
 // bb_serialize_meta_validate — structural agreement check between a
 // bb_serialize_desc_t (hot wire descriptor) and its bb_serialize_desc_meta_t
-// companion (cold validation+docs metadata). Pure, host-only, no heap.
-// First-error semantics: stops at the first violation found and writes a
-// human-readable path+key reason.
+// companion (cold validation+docs metadata). Pure, device-shippable, no
+// heap. First-error semantics: stops at the first violation found and
+// writes a human-readable path+key reason.
 
 #include "bb_serialize_meta.h"
 

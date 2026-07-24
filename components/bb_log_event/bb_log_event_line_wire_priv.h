@@ -61,11 +61,11 @@ extern const bb_serialize_desc_t bb_log_event_line_wire_desc;
 // env; see platformio.ini) -- NEVER set by the ESP-IDF/device build, so this
 // declaration (and its definition in bb_log_event_line_wire.c) compiles to
 // nothing on-device.
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 extern const bb_serialize_desc_meta_t bb_log_event_line_wire_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // Worst-case rendered JSON byte size (incl. NUL) for
 // bb_log_event_line_wire_desc -- the render-scratch size s_forwarder_task

@@ -62,7 +62,7 @@ const bb_serialize_desc_t bb_display_info_wire_desc = {
 // test_bb_display_info_wire_meta_golden.c for the byte-fidelity proof
 // against the corrected literal.
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_display_info_wire_meta_rows[] = {
     { .key = "present", .required = true },
@@ -78,7 +78,7 @@ const bb_serialize_desc_meta_t bb_display_info_wire_meta = {
     .n_rows    = sizeof(s_display_info_wire_meta_rows) / sizeof(s_display_info_wire_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 bb_err_t bb_display_info_gather(bb_display_info_wire_t *dst)
 {

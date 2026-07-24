@@ -34,7 +34,7 @@ const bb_serialize_desc_t bb_ota_hooks_wire_desc = {
 // "enum":["start","progress","success","fail","unknown"]. See
 // test_bb_ota_hooks_wire_meta_golden.c for the fidelity proof.
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const char *const s_ota_hooks_state_enum_vals[] = {
     "start", "progress", "success", "fail", "unknown", NULL,
@@ -52,4 +52,4 @@ const bb_serialize_desc_meta_t bb_ota_hooks_wire_meta = {
     .n_rows    = sizeof(s_ota_hooks_wire_meta_rows) / sizeof(s_ota_hooks_wire_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */

@@ -67,7 +67,7 @@ const bb_serialize_desc_t bb_temp_health_desc = {
 // array because it's a bare /api/health section fragment (see
 // test_bb_temp_health_meta_golden.c for the fragment-only fidelity proof).
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_temp_health_meta_rows[] = {
     { .key = "present", .required = true },
@@ -80,7 +80,7 @@ const bb_serialize_desc_meta_t bb_temp_health_meta = {
     .n_rows    = sizeof(s_temp_health_meta_rows) / sizeof(s_temp_health_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 bb_err_t bb_temp_health_fill(void *dst, const bb_health_fill_args_t *args)
 {

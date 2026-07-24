@@ -109,11 +109,11 @@ extern const char *const bb_meminfo_heap_snap_schema;
 // bb_meminfo_heap_snap_schema's byte-fidelity. Host-only (see
 // components/bb_ws_server/include/bb_ws_server_diag.h's doc for the
 // BB_SERIALIZE_META_HOST mechanism).
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 extern const bb_serialize_desc_meta_t bb_meminfo_heap_snap_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // Populates `out` from a fresh bb_meminfo_get() snapshot, widening every
 // field to bb_meminfo_heap_snap_t's fixed uint64_t layout. Returns

@@ -84,11 +84,11 @@ extern const char *const bb_diag_storage_nvs_schema;
 // bb_diag_storage_nvs_schema's byte-fidelity. Host-only (see
 // components/bb_ws_server/include/bb_ws_server_diag.h's doc for the
 // BB_SERIALIZE_META_HOST mechanism).
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 extern const bb_serialize_desc_meta_t bb_diag_storage_nvs_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // Two-phase iter hook (bb_diag_iter_fn signature) -- pure/portable,
 // `args->query` is always NULL for this section (no query_keys declared).

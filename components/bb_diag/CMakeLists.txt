@@ -65,10 +65,15 @@ set(_diag_srcs
 # bb_diag_section_t.describe_route; bb_diag_section.h itself stays
 # bb_http-free (describe_route is an opaque `const void *` there) so this
 # is source-file-only, private.
+# bb_serialize_meta: PUBLIC -- include/bb_diag_boot_wire.h includes
+# bb_serialize_meta.h directly (co-located bb_serialize_desc_meta_t table,
+# gated on BB_SERIALIZE_META_SHIP; B1-1059 device-shippable PR, default off
+# via CONFIG_BB_OPENAPI_RUNTIME_META); PRIV_REQUIRES doesn't propagate to a
+# hand-wired external consumer of this public header.
 idf_component_register(
     SRCS ${_diag_srcs}
     INCLUDE_DIRS "include" "."
-    REQUIRES bb_core bb_serialize
+    REQUIRES bb_core bb_serialize bb_serialize_meta
     PRIV_REQUIRES bb_log bb_cache bb_config bb_storage bb_data espcoredump nvs_flash esp_partition esp_app_format bb_str bb_registry bb_partition bb_settings bb_meminfo bb_http
 )
 

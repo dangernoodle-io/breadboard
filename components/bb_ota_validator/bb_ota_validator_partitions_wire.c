@@ -61,7 +61,7 @@ const bb_serialize_desc_t bb_ota_validator_partitions_wire_desc = {
 // and the nested items object's "required" list, which the composer never
 // emits for BB_TYPE_ARR-of-BB_TYPE_OBJ fields).
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_partition_row_wire_meta_rows[] = {
     { .key = "label",   .required = true },
@@ -83,7 +83,7 @@ const bb_serialize_desc_meta_t bb_ota_validator_partitions_wire_meta = {
     .n_rows    = sizeof(s_partitions_wire_meta_rows) / sizeof(s_partitions_wire_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 void bb_ota_validator_partitions_wire_copy_rows(bb_ota_validator_partition_wire_t *dst,
                                                  const bb_ota_validator_partition_src_t *src,

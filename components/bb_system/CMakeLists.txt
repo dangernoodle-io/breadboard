@@ -28,10 +28,15 @@ if(CONFIG_BB_SYSTEM_BOOT_BANNER)
     list(APPEND _sys_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system_boot_banner.c")
 endif()
 
+# bb_serialize_meta: PUBLIC -- include/bb_system.h includes
+# bb_serialize_meta.h directly (co-located bb_serialize_desc_meta_t table,
+# gated on BB_SERIALIZE_META_SHIP; B1-1059 device-shippable PR, default off
+# via CONFIG_BB_OPENAPI_RUNTIME_META); PRIV_REQUIRES doesn't propagate to a
+# hand-wired external consumer of this public header.
 idf_component_register(
     SRCS ${_sys_srcs}
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_http_server bb_serialize
+    REQUIRES bb_core bb_http_server bb_serialize bb_serialize_meta
     PRIV_REQUIRES ${_sys_priv_reqs}
 )
 

@@ -1,15 +1,22 @@
 #pragma once
 
-// Host-only "cold metadata" companion to a bb_serialize_desc_t (B1-767
-// PR-7): validation constraints + JSON-Schema docs authored alongside a
-// wire descriptor's field table, kept structurally SEPARATE from the hot
-// bb_serialize_field_t walked at emit time. Lives entirely under
-// host_tools/bb_serialize_meta/ -- neither the ESP-IDF component build nor
-// bbtool's discovery.py component/board scan (components/ +
-// platform/<plat>/ only) ever walks host_tools/, so this artifact is
-// unreachable from any real-firmware build path by construction
-// (composition, not a Kconfig/#if gate). NOT wired into any live handler or
-// route registry; ADDITIVE only.
+/**
+ * @brief Device-shippable "cold metadata" companion engine for
+ * bb_serialize_desc_t (B1-767 PR-7, B1-1059): validation constraints +
+ * JSON-Schema docs for a future runtime OpenAPI schema generator, gated off
+ * by default.
+ */
+
+// "Cold metadata" companion to a bb_serialize_desc_t (B1-767 PR-7):
+// validation constraints + JSON-Schema docs authored alongside a wire
+// descriptor's field table, kept structurally SEPARATE from the hot
+// bb_serialize_field_t walked at emit time. Originally host-only, unreachable
+// from any real-firmware build path by construction (lived under
+// host_tools/bb_serialize_meta/, outside bbtool's discovery.py component/
+// board scan). Relocated into this real ESP-IDF component (device-shippable
+// PR, B1-1059) so it CAN compile into firmware, gated OFF by default via
+// BB_SERIALIZE_META_SHIP below -- still NOT wired into any live handler or
+// route registry in this PR; ADDITIVE only.
 //
 // A bb_serialize_desc_meta_t is keyed by field `key` against its paired
 // bb_serialize_desc_t -- see bb_serialize_meta_validate() for the exact
@@ -22,6 +29,18 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
+// Ship gate for every co-located bb_serialize_desc_meta_t table in
+// components/<name>/ (guarded on this macro, not on BB_SERIALIZE_META_HOST
+// directly): defined whenever the PlatformIO native host env sets
+// BB_SERIALIZE_META_HOST=1 (unconditional on host, unchanged from this
+// engine's host_tools-era behavior) OR CONFIG_BB_OPENAPI_RUNTIME_META is
+// set (components/bb_openapi/Kconfig, default n -- OFF ships zero bytes of
+// meta tables/engine on-device; ON compiles them in for the future runtime
+// OpenAPI schema generator, not wired up yet in this PR).
+#if defined(BB_SERIALIZE_META_HOST) || defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+#define BB_SERIALIZE_META_SHIP 1
+#endif
 
 #ifdef __cplusplus
 extern "C" {

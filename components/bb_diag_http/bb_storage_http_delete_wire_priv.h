@@ -83,11 +83,11 @@ extern const bb_serialize_desc_t bb_storage_http_delete_wire_desc;
 // PlatformIO native env; see platformio.ini) -- NEVER set by the ESP-IDF/
 // device build, so this declaration (and its definition in
 // bb_storage_http_delete_wire.c) compiles to nothing on-device.
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 extern const bb_serialize_desc_meta_t bb_storage_http_delete_wire_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // Pure populate helper: zero-inits `dst`, copies `n` namespace names from
 // `names` into `dst->deleted_names` (bounded strlcpy-style, explicit

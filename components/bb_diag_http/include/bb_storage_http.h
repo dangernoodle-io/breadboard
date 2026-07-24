@@ -116,12 +116,12 @@ bb_err_t bb_storage_http_delete_bind_for_test(void);
 // itself is file-scope static, so a for-test accessor exposes it rather
 // than an extern -- same "_for_test" naming convention as the
 // BB_STORAGE_HTTP_TESTING-gated fns above.
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 const bb_serialize_desc_t *bb_storage_http_delete_apply_desc_for_test(void);
 extern const bb_serialize_desc_meta_t bb_storage_http_delete_apply_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 #if defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET
 bb_err_t bb_storage_http_factory_reset_handler_for_test(bb_http_request_t *req);
@@ -142,12 +142,12 @@ bb_err_t bb_storage_http_factory_reset_bind_for_test(void);
 // has no companion _wire_priv.h), so a for-test accessor exposes it rather
 // than an extern -- same "_for_test" naming convention as the
 // BB_STORAGE_HTTP_TESTING-gated fns above.
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 const bb_serialize_desc_t *bb_storage_http_factory_reset_desc_for_test(void);
 extern const bb_serialize_desc_meta_t bb_storage_http_factory_reset_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 #endif /* defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET */
 #endif /* BB_STORAGE_HTTP_TESTING */
 

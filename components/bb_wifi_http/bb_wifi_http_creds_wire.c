@@ -40,7 +40,7 @@ const bb_serialize_desc_t bb_wifi_http_creds_wire_desc = {
 // bb_wifi_http_creds_wire_priv.h's buffer-sizing rationale), so the schema
 // documents the real accept/reject boundary, not the padded wire buffer.
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_wifi_http_creds_wire_meta_rows[] = {
     { .key = "ssid", .required = true, .max_len = BB_WIFI_PENDING_SSID_MAX },
@@ -53,4 +53,4 @@ const bb_serialize_desc_meta_t bb_wifi_http_creds_wire_meta = {
     .n_rows    = sizeof(s_wifi_http_creds_wire_meta_rows) / sizeof(s_wifi_http_creds_wire_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */

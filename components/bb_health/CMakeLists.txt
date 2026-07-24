@@ -1,3 +1,8 @@
+# bb_serialize_meta: PUBLIC -- include/bb_health_stack_wire.h includes
+# bb_serialize_meta.h directly (co-located bb_serialize_desc_meta_t table,
+# gated on BB_SERIALIZE_META_SHIP; B1-1059 device-shippable PR, default off
+# via CONFIG_BB_OPENAPI_RUNTIME_META); PRIV_REQUIRES doesn't propagate to a
+# hand-wired external consumer of this public header.
 idf_component_register(
     SRCS
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_health/bb_health.c"
@@ -27,7 +32,7 @@ idf_component_register(
     # (B1-1100), a direct dependency (bb_wifi_http's public header merely
     # transitively includes bb_wifi.h, which does not satisfy REQUIRES'
     # direct-deps-only rule for this symbol usage).
-    REQUIRES bb_core bb_http_server bb_serialize
+    REQUIRES bb_core bb_http_server bb_serialize bb_serialize_meta
     PRIV_REQUIRES bb_http bb_wifi bb_wifi_http bb_mdns bb_openapi bb_log bb_ota_validator
                   bb_data bb_task_registry bb_str bb_registry
 )

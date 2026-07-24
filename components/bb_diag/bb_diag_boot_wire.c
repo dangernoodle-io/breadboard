@@ -144,7 +144,7 @@ const bb_serialize_desc_t bb_diag_boot_wire_desc = {
 // "required" list at all (same engine limitation as the partitions-wire
 // precedent) -- an accepted delta, not a content mismatch.
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_diag_panic_wire_meta_rows[] = {
     { .key = "available", .required = true },
@@ -187,7 +187,7 @@ const bb_serialize_desc_meta_t bb_diag_boot_wire_meta = {
     .n_rows    = sizeof(s_diag_boot_wire_meta_rows) / sizeof(s_diag_boot_wire_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // ---------------------------------------------------------------------------
 // Gather

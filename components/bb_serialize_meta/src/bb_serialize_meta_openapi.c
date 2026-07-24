@@ -3,9 +3,9 @@
 // companion. Bounded-buffer, no heap, all-or-nothing overflow -- the SAME
 // idiom as components/bb_serialize_json/src/bb_serialize_json.c (every
 // byte funnels through a single capacity-checked put(); overflow sets a
-// sticky error and stops writing, never a partial fragment). Host-only
-// artifact (see bb_serialize_meta.h banner) -- NOT wired into bb_openapi's
-// route registry.
+// sticky error and stops writing, never a partial fragment). Device-
+// shippable (see bb_serialize_meta.h banner) but NOT wired into bb_openapi's
+// route registry yet -- inert until a later PR.
 
 #include "bb_serialize_meta.h"
 

@@ -46,7 +46,7 @@ const bb_serialize_desc_t bb_storage_http_delete_wire_desc = {
 // conditionally present, never required). See
 // test_bb_storage_http_delete_wire_meta_golden.c for the fidelity proof.
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_delete_wire_meta_rows[] = {
     { .key = "deleted", .required = true },
@@ -59,7 +59,7 @@ const bb_serialize_desc_meta_t bb_storage_http_delete_wire_meta = {
     .n_rows    = sizeof(s_delete_wire_meta_rows) / sizeof(s_delete_wire_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 void bb_storage_http_delete_wire_fill(bb_storage_http_delete_wire_t *dst,
                                        const char names[][BB_STORAGE_HTTP_DELETE_NS_LEN], size_t n,

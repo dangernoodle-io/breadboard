@@ -1,3 +1,15 @@
 menu "breadboard: bb_openapi"
 
+config BB_OPENAPI_RUNTIME_META
+    bool "Ship OpenAPI runtime meta tables + engine into firmware"
+    default n
+    help
+        Compiles the bb_serialize_meta engine (bb_serialize_meta_openapi_schema/
+        bb_serialize_meta_validate) plus every co-located bb_serialize_desc_meta_t
+        table across the tree (components/bb_serialize_meta) into the device
+        image, for a future runtime OpenAPI schema generator (not wired up
+        yet -- this knob only controls whether the tables/engine build in).
+        Default off ships zero bytes of this code; the PlatformIO native
+        host test env always builds it regardless of this Kconfig.
+
 endmenu

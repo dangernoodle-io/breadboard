@@ -74,8 +74,12 @@ const bb_route_t *bb_ota_check_config_post_route(void);
 // double-gated on BB_OTA_CHECK_TESTING for the same reason (test-only
 // surface, same posture as bb_storage_http.h's analogous factory_reset
 // accessor).
-#if defined(BB_SERIALIZE_META_HOST) && defined(BB_OTA_CHECK_TESTING)
+// Resolve the include before the guard below instead of relying on a
+// transitive include having already defined BB_SERIALIZE_META_SHIP -- the
+// header itself is header-only/zero-code when off, so including it here is
+// inert either way.
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP) && defined(BB_OTA_CHECK_TESTING)
 
 const bb_serialize_desc_t *bb_ota_check_config_desc_for_test(void);
 extern const bb_serialize_desc_meta_t bb_ota_check_config_meta;

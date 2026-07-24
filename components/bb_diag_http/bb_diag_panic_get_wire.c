@@ -109,7 +109,7 @@ const bb_serialize_desc_t bb_diag_panic_get_wire_desc = {
 // is present-gated at runtime, matching this table's non-required rows.
 // See test_bb_diag_panic_get_wire_meta_golden.c for the fidelity proof.
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_diag_panic_get_wire_meta_rows[] = {
     { .key = "available",    .required = true },
@@ -130,7 +130,7 @@ const bb_serialize_desc_meta_t bb_diag_panic_get_wire_meta = {
     .n_rows    = sizeof(s_diag_panic_get_wire_meta_rows) / sizeof(s_diag_panic_get_wire_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // ---------------------------------------------------------------------------
 // Fill

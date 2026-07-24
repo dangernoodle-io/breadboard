@@ -152,7 +152,7 @@ const bb_serialize_desc_t bb_diag_storage_nvs_desc = {
 
 const char *const bb_diag_storage_nvs_schema = BB_DIAG_STORAGE_NVS_SCHEMA_LITERAL;
 
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_diag_storage_nvs_row_meta_rows[] = {
     { .key = "ns_or_dir" },
@@ -184,7 +184,7 @@ const bb_serialize_desc_meta_t bb_diag_storage_nvs_meta = {
     .n_rows    = sizeof(s_diag_storage_nvs_meta_rows) / sizeof(s_diag_storage_nvs_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // ---------------------------------------------------------------------------
 // Fill

@@ -43,7 +43,7 @@ const bb_serialize_desc_t bb_temp_health_desc = {
 // fragment (see test_bb_temp_health_meta_golden.c for the fragment-only
 // fidelity proof).
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_temp_health_meta_rows[] = {
     { .key = "present", .required = true },
@@ -56,7 +56,7 @@ const bb_serialize_desc_meta_t bb_temp_health_meta = {
     .n_rows    = sizeof(s_temp_health_meta_rows) / sizeof(s_temp_health_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 bool bb_temp_read_soc(float *out_celsius)
 {

@@ -67,11 +67,11 @@ bb_err_t bb_ring_diag_fill(void *dst, const bb_diag_fill_args_t *args);
 // Schema docs/validation table for bb_ring_diag_desc above, proving
 // bb_ring_diag_schema's byte-fidelity. Host-only (see bb_ws_server_diag.h's
 // doc for the BB_SERIALIZE_META_HOST mechanism).
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 extern const bb_serialize_desc_meta_t bb_ring_diag_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 #ifdef ESP_PLATFORM
 // Registers this section as "rings" (GET /api/diag/rings) via

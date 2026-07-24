@@ -52,7 +52,7 @@ bb_err_t bb_ws_server_diag_fill(void *dst, const bb_diag_fill_args_t *args)
 
 const char *const bb_ws_server_diag_schema = BB_WS_SERVER_DIAG_SCHEMA_LITERAL;
 
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_ws_server_diag_meta_rows[] = {
     { .key = "open_connections", .required = true },
@@ -64,7 +64,7 @@ const bb_serialize_desc_meta_t bb_ws_server_diag_meta = {
     .n_rows    = sizeof(s_ws_server_diag_meta_rows) / sizeof(s_ws_server_diag_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // ---------------------------------------------------------------------------
 // Describe-only route (B1-1180 PR-1 review fix) -- a PRODUCER-OWNED

@@ -78,11 +78,11 @@ extern const bb_serialize_desc_t bb_temp_health_desc;
 // /api/health composite's schema, which owns those decisions. See
 // test_bb_temp_health_meta_golden.c (fragment-only assert,
 // test_meta_fragment.h) for the fidelity proof this weaker check implies.
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 extern const bb_serialize_desc_meta_t bb_temp_health_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // bb_health_fill_fn adapter: fills `dst` (a bb_temp_health_snap_t) from a
 // live bb_temp_read_soc() call. `args` is unused (this section takes no
