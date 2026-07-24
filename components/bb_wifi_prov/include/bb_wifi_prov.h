@@ -9,7 +9,7 @@ extern "C" {
 /**
  * @brief bb_wifi_prov — Wi-Fi provisioning HTTP routes: parses a POSTed
  * SSID/password form and a captive-portal redirect. Registers POST /save
- * and a captive GET /* wildcard on the shared HTTP server; does not
+ * and a captive GET /<path> wildcard on the shared HTTP server; does not
  * register /api/version, /api/wifi/scan, or /api/reboot (those live in
  * bb_wifi_http / bb_system), and does not itself bring up SoftAP or drive
  * a Wi-Fi lifecycle state machine (see bb_wifi_ap for AP bring-up).
@@ -99,7 +99,7 @@ typedef bb_err_t (*bb_wifi_prov_extra_routes_fn_t)(bb_http_handle_t server);
 bb_err_t bb_wifi_prov_start(const bb_http_asset_t *assets, size_t n,
                        bb_wifi_prov_extra_routes_fn_t extra);
 
-// Stop provisioning mode: unregister POST /save, OPTIONS /*, GET /* captive-portal wildcard,
+// Stop provisioning mode: unregister POST /save, OPTIONS /<path>, GET /<path> captive-portal wildcard,
 // and any assets registered via bb_wifi_prov_start. Caller is responsible for registering app
 // routes afterward.
 void bb_wifi_prov_stop(void);
