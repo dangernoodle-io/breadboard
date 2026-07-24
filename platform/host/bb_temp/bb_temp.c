@@ -1,10 +1,13 @@
 #include "bb_temp.h"
+#include "bb_log.h"
 
 #include <stddef.h>
 
 #ifdef BB_TEMP_TESTING
 #include "bb_temp_test.h"
 #endif
+
+static const char *TAG = "bb_temp_health";
 
 /* JSON-Schema value for the "temp" section contributed to the /api/health 200 schema. */
 static const char k_temp_schema[] =
@@ -82,6 +85,33 @@ const bb_serialize_desc_meta_t bb_temp_health_meta = {
 
 #endif /* BB_SERIALIZE_META_SHIP */
 
+// ---------------------------------------------------------------------------
+// CONFIG_BB_OPENAPI_RUNTIME_META (B1-1059 PR-b) -- gated DIRECTLY on this
+// Kconfig symbol, never on BB_SERIALIZE_META_SHIP: that macro also covers
+// BB_SERIALIZE_META_HOST (unconditionally set by the plain `native` host
+// env, see platformio.ini), which must NOT flip this section onto the
+// runtime-compose path. Config OFF (default) is a zero-diff no-op --
+// k_temp_schema above is used as-is. Composes the section fragment (not the
+// full-document engine mode; see test_bb_temp_health_meta_golden.c for why)
+// once, lazily, from bb_temp_health_desc/_meta -- the same pair the host
+// meta-golden test proves byte-identical to k_temp_schema. PLATFORM TWIN:
+// kept byte-identical with platform/espidf/bb_temp/bb_temp.c's copy.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+static char s_temp_health_schema_buf[sizeof(k_temp_schema)];
+
+static bb_err_t ensure_temp_health_schema_patched(void)
+{
+    if (s_temp_health_schema_buf[0] != '\0') return BB_OK;
+
+    size_t n = 0;
+    return bb_serialize_meta_openapi_fragment(&bb_temp_health_desc, &bb_temp_health_meta,
+                                               s_temp_health_schema_buf,
+                                               sizeof(s_temp_health_schema_buf), &n);
+}
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
 bb_err_t bb_temp_health_fill(void *dst, const bb_health_fill_args_t *args)
 {
     (void)args;
@@ -104,12 +134,19 @@ bb_err_t bb_temp_health_fill(void *dst, const bb_health_fill_args_t *args)
 
 void bb_temp_register_info(void)
 {
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    if (ensure_temp_health_schema_patched() != BB_OK) { bb_log_e(TAG, "temp health schema compose failed, section offline"); return; }
+    const char *schema_props = s_temp_health_schema_buf;
+#else
+    const char *schema_props = k_temp_schema;
+#endif
+
     bb_health_section_t section = {
         .name         = "temp",
         .snap_desc    = &bb_temp_health_desc,
         .fill         = bb_temp_health_fill,
         .ctx          = NULL,
-        .schema_props = k_temp_schema,
+        .schema_props = schema_props,
     };
     bb_health_section_register(&section);
 }

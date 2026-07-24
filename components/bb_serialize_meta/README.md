@@ -8,6 +8,7 @@ Device-shippable "cold metadata" companion engine for bb_serialize_desc_t (B1-76
 
 <!-- BEGIN bbtool:api -->
 - [`bb_serialize_meta.h`](include/bb_serialize_meta.h)
+- [`bb_serialize_meta_test.h`](include/bb_serialize_meta_test.h)
 
 Public symbols use the `bb_` prefix.
 <!-- END bbtool:api -->

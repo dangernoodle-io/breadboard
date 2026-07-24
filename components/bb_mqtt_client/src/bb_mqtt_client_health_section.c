@@ -8,8 +8,11 @@
 // producer onto the bb_health_section composer seam. See bb_mqtt_client.h
 // for the wire-shape contract and the additive-and-inert note.
 #include "bb_mqtt_client.h"
+#include "bb_log.h"
 
 #include <stddef.h>
+
+static const char *TAG = "bb_mqtt_health";
 
 // JSON-Schema value for the "mqtt" section contributed to the /api/health
 // 200 schema -- carried verbatim from bb_mqtt_info's k_mqtt_schema.
@@ -57,6 +60,34 @@ const bb_serialize_desc_meta_t bb_mqtt_client_health_section_meta = {
 
 #endif /* BB_SERIALIZE_META_SHIP */
 
+// ---------------------------------------------------------------------------
+// CONFIG_BB_OPENAPI_RUNTIME_META (B1-1059 PR-b) -- gated DIRECTLY on this
+// Kconfig symbol, never on BB_SERIALIZE_META_SHIP: that macro also covers
+// BB_SERIALIZE_META_HOST (unconditionally set by the plain `native` host
+// env, see platformio.ini), which must NOT flip this section onto the
+// runtime-compose path. Config OFF (default) is a zero-diff no-op --
+// k_mqtt_schema above is used as-is. Composes the section fragment (not the
+// full-document engine mode; see bb_mqtt_client_health_section_meta_golden.c
+// for why) once, lazily, from bb_mqtt_client_health_section_desc/_meta --
+// the same pair the host meta-golden test proves byte-identical to
+// k_mqtt_schema.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+static char s_mqtt_health_schema_buf[sizeof(k_mqtt_schema)];
+
+static bb_err_t ensure_mqtt_health_schema_patched(void)
+{
+    if (s_mqtt_health_schema_buf[0] != '\0') return BB_OK;
+
+    size_t n = 0;
+    return bb_serialize_meta_openapi_fragment(&bb_mqtt_client_health_section_desc,
+                                               &bb_mqtt_client_health_section_meta,
+                                               s_mqtt_health_schema_buf,
+                                               sizeof(s_mqtt_health_schema_buf), &n);
+}
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
 bb_err_t bb_mqtt_client_health_section_fill(void *dst, const bb_health_fill_args_t *args)
 {
     (void)args;
@@ -71,12 +102,19 @@ bb_err_t bb_mqtt_client_health_section_fill(void *dst, const bb_health_fill_args
 
 void bb_mqtt_client_health_register(void)
 {
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    if (ensure_mqtt_health_schema_patched() != BB_OK) { bb_log_e(TAG, "mqtt health schema compose failed, section offline"); return; }
+    const char *schema_props = s_mqtt_health_schema_buf;
+#else
+    const char *schema_props = k_mqtt_schema;
+#endif
+
     bb_health_section_t section = {
         .name         = "mqtt",
         .snap_desc    = &bb_mqtt_client_health_section_desc,
         .fill         = bb_mqtt_client_health_section_fill,
         .ctx          = NULL,
-        .schema_props = k_mqtt_schema,
+        .schema_props = schema_props,
     };
     bb_health_section_register(&section);
 }
