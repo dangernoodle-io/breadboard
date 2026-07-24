@@ -15,8 +15,11 @@
 // host_tools/bb_serialize_meta/, outside bbtool's discovery.py component/
 // board scan). Relocated into this real ESP-IDF component (device-shippable
 // PR, B1-1059) so it CAN compile into firmware, gated OFF by default via
-// BB_SERIALIZE_META_SHIP below -- still NOT wired into any live handler or
-// route registry in this PR; ADDITIVE only.
+// BB_SERIALIZE_META_SHIP below. Adoption has begun (B1-1059 PR-2 pilot):
+// bb_diag_storage_nvs is the first component composing its describe-route
+// schema from this engine at init when CONFIG_BB_OPENAPI_RUNTIME_META is
+// on; other components still source their describe-route schema as a hand
+// literal.
 //
 // A bb_serialize_desc_meta_t is keyed by field `key` against its paired
 // bb_serialize_desc_t -- see bb_serialize_meta_validate() for the exact
@@ -36,8 +39,9 @@
 // BB_SERIALIZE_META_HOST=1 (unconditional on host, unchanged from this
 // engine's host_tools-era behavior) OR CONFIG_BB_OPENAPI_RUNTIME_META is
 // set (components/bb_openapi/Kconfig, default n -- OFF ships zero bytes of
-// meta tables/engine on-device; ON compiles them in for the future runtime
-// OpenAPI schema generator, not wired up yet in this PR).
+// meta tables/engine on-device; ON compiles them in for the runtime OpenAPI
+// schema generator -- bb_diag_storage_nvs is the first adopter, composing
+// its describe-route schema from this engine at init).
 #if defined(BB_SERIALIZE_META_HOST) || defined(CONFIG_BB_OPENAPI_RUNTIME_META)
 #define BB_SERIALIZE_META_SHIP 1
 #endif

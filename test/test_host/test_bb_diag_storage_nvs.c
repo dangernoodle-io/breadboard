@@ -8,6 +8,7 @@
 // bb_diag_section_dispatch.c) drives around one request.
 #include "unity.h"
 #include "bb_diag_storage_nvs.h"
+#include "bb_diag_storage_nvs_test.h"
 #include "bb_mem_test.h"
 #include "bb_storage.h"
 
@@ -502,6 +503,27 @@ void test_bb_diag_storage_nvs_iter_null_row_count_returns_invalid_arg(void)
     register_fake_nvs();
     bb_diag_storage_nvs_snap_t snap;
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_diag_storage_nvs_iter(&snap, NULL, 0, NULL, NULL));
+}
+
+/* ---------------------------------------------------------------------------
+ * CONFIG_BB_OPENAPI_RUNTIME_META OFF (this env's default -- undefined) --
+ * proves the describe route's 200-response schema is still the UNCHANGED
+ * const literal path, byte- and pointer-identical to bb_diag_storage_nvs_
+ * schema (both assigned from the SAME BB_DIAG_STORAGE_NVS_SCHEMA_LITERAL
+ * macro invocation in bb_diag_storage_nvs.c -- see that file's `const
+ * char *const bb_diag_storage_nvs_schema` doc comment for why that
+ * identity holds). B1-1059 PR-2 pilot: config-OFF is a zero-diff no-op.
+ * ---------------------------------------------------------------------------*/
+void test_bb_diag_storage_nvs_describe_schema_is_unchanged_const_literal(void)
+{
+    // The for-test assemble is a documented no-op at this config gate (see
+    // bb_diag_storage_nvs_test.h) -- still exercised here so the compiled-
+    // out #else arm of bb_diag_storage_nvs_assemble_schema_for_test() is
+    // covered, not just the accessor.
+    TEST_ASSERT_EQUAL(BB_OK, bb_diag_storage_nvs_assemble_schema_for_test());
+
+    TEST_ASSERT_EQUAL_PTR(bb_diag_storage_nvs_schema,
+                           bb_diag_storage_nvs_get_describe_schema_for_test());
 }
 
 /* ---------------------------------------------------------------------------
