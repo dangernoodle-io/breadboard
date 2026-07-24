@@ -57,6 +57,18 @@ typedef struct {
 // every other object-shaped route in this component uses.
 extern const bb_serialize_desc_t bb_wifi_http_scan_wire_desc;
 
+// bb_serialize_desc_meta_t companion (B1-1059 PR-3 prework) -- co-located
+// JSON Schema docs/validation table for bb_wifi_http_scan_wire_desc above.
+// BB_SERIALIZE_META_HOST is a host-only define (set by the PlatformIO native
+// env; see platformio.ini) -- NEVER set by the ESP-IDF/device build, so this
+// declaration (and its definition in bb_wifi_http_scan_wire.c) compiles to
+// nothing on-device.
+#include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
+
+extern const bb_serialize_desc_meta_t bb_wifi_http_scan_wire_meta;
+#endif /* BB_SERIALIZE_META_SHIP */
+
 // Pure row-copy helper: copies `n` rows from `src` (a live scan result
 // array) into `dst` (row-count bounded by WIFI_SCAN_MAX by the caller).
 // Host-testable without a live scan -- the sole reason this is factored out

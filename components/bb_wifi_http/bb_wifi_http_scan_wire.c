@@ -45,6 +45,42 @@ const bb_serialize_desc_t bb_wifi_http_scan_wire_desc = {
     .snap_size = sizeof(bb_wifi_http_scan_wire_t),
 };
 
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1059 PR-3 prework) -- co-located JSON Schema
+// companion to bb_wifi_http_scan_wire_desc above, gated behind
+// BB_SERIALIZE_META_HOST (see bb_wifi_http_scan_wire_priv.h's banner for the
+// full mechanism doc). "required" here mirrors the "required" array of
+// platform/espidf/bb_wifi_http/bb_wifi_http_routes.c's hand-authored
+// s_scan_responses[0].schema literal (["aps"] at the top level; the row
+// literal's own ["ssid","rssi","secure"] is NOT reproduced -- the meta
+// engine's bb_oa_write_items() never emits a "required" list on an
+// array-of-object "items" schema, only on a direct object field, so the
+// hand literal is stale on that one point; see
+// test_bb_wifi_http_scan_wire_meta_golden.c for the fidelity proof and the
+// hand-literal correction it documents).
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_SHIP)
+
+static const bb_serialize_field_meta_t s_wifi_http_scan_ap_wire_meta_rows[] = {
+    { .key = "ssid" },
+    { .key = "rssi" },
+    { .key = "secure" },
+};
+
+static const bb_serialize_field_meta_t s_scan_wire_meta_rows[] = {
+    { .key = "aps", .required = true,
+      .children = s_wifi_http_scan_ap_wire_meta_rows,
+      .n_children = sizeof(s_wifi_http_scan_ap_wire_meta_rows) / sizeof(s_wifi_http_scan_ap_wire_meta_rows[0]) },
+};
+
+const bb_serialize_desc_meta_t bb_wifi_http_scan_wire_meta = {
+    .type_name = "bb_wifi_http_scan_wire_t",
+    .rows      = s_scan_wire_meta_rows,
+    .n_rows    = sizeof(s_scan_wire_meta_rows) / sizeof(s_scan_wire_meta_rows[0]),
+};
+
+#endif /* BB_SERIALIZE_META_SHIP */
+
 void bb_wifi_http_scan_wire_copy_rows(bb_wifi_http_scan_ap_wire_t *dst,
                                        const bb_wifi_ap_t *src, size_t n)
 {
