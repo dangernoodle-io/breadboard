@@ -93,3 +93,32 @@ bb_err_t bb_display_info_gather(bb_display_info_wire_t *dst);
 // callable directly by host tests after bb_data_test_reset(). Idempotent:
 // bb_data_bind() re-binding an already-bound key overrides it in place.
 bb_err_t bb_display_info_bind(void);
+
+// ---------------------------------------------------------------------------
+// Served schema for "health.display" (B1-1059 SSE PR-4). Portable (no
+// ESP_PLATFORM dependency) so both bb_display_register_info()'s register
+// call site (platform/espidf/bb_display/bb_display_info.c) and host tests
+// can drive it directly -- the compose-and-patch step itself must live here
+// (not in the platform-only file) to be reachable from the host native_
+// openapi_runtime_meta test env. See bb_display_info_wire.c for the
+// buf-vs-literal storage and the plain-body-vs-topic-schema determination.
+// ---------------------------------------------------------------------------
+
+// Composes the "health.display" served schema into the file-scope buffer
+// the first time it's called (CONFIG_BB_OPENAPI_RUNTIME_META build only) --
+// idempotent (pointer-stable no-op on a subsequent call) and fail-loud
+// (never patches a partial schema in). Declared/defined ONLY when this
+// config is on: the platform register site's own matching `#if` is the
+// only caller, so a config-OFF build carries neither this declaration nor
+// its definition -- zero new runtime-compose symbols in that build.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_display_info_ensure_schema_patched(void);
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+// Returns the "health.display" schema currently served: config-OFF, the
+// hand literal (relocated here from bb_display_info.c, byte-identical);
+// config-ON, the runtime-composed buffer (empty until
+// bb_display_info_ensure_schema_patched() has run successfully). Always
+// declared/defined -- the platform register site needs it in both config
+// states.
+const char *bb_display_info_get_schema(void);

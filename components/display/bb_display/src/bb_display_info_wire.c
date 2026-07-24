@@ -80,6 +80,74 @@ const bb_serialize_desc_meta_t bb_display_info_wire_meta = {
 
 #endif /* BB_SERIALIZE_META_SHIP */
 
+// ---------------------------------------------------------------------------
+// Served schema for "health.display" (B1-1059 SSE PR-4). UNLIKE the SSE
+// topic schemas (update.available/diag.boot/health.stack/log.event/
+// ota.hooks), health.display's served body carries NO top-level "title" or
+// "x-sse-topic" -- it is a plain object body (bb_openapi_register_topic_
+// schema()'s own title argument supplies "DisplayInfo" separately; the
+// serializer's not the source of an "x-sse-topic" key at all here). So this
+// site uses the plain-body helper bb_serialize_meta_ensure_composed(),
+// NOT bb_serialize_meta_ensure_topic_schema() -- no prefix splicing.
+//
+// Config OFF (default) keeps the pre-existing hand-authored literal,
+// RELOCATED here from platform/espidf/bb_display/bb_display_info.c's former
+// k_display_schema (a pure relocation, byte-identical). Config ON composes
+// it at init from bb_display_info_wire_desc/bb_display_info_wire_meta via
+// bb_serialize_meta_ensure_composed() --
+// see bb_display_info_ensure_schema_patched() below. Note the composed body
+// is ALREADY byte-identical to the hand literal in both config states here
+// (unlike every other B1-1059 compose-at-init site): the literal was
+// corrected to carry "required":["present"]+"additionalProperties":false
+// by B1-1179, ahead of this migration, so there is no config-ON tightening
+// delta left to gain -- see test_bb_display_info_wire_meta_golden.c's own
+// byte-fidelity proof against this same literal.
+// ---------------------------------------------------------------------------
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+// Sized with headroom over the measured composed body: test_bb_display_
+// info_wire_meta_golden.c's k_expected_meta_schema (== the relocated
+// k_display_info_schema literal below) is 223 bytes; 320 leaves ~97 bytes
+// of headroom. Any future desync trips bb_serialize_meta_openapi_schema()'s
+// own bounded-buffer BB_ERR_NO_SPACE contract instead of silently
+// truncating.
+static char s_display_info_schema_buf[320];
+
+bb_err_t bb_display_info_ensure_schema_patched(void)
+{
+    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                              &bb_display_info_wire_desc, &bb_display_info_wire_meta,
+                                              s_display_info_schema_buf,
+                                              sizeof(s_display_info_schema_buf));
+}
+#else
+// Config OFF (default): pre-existing hand-authored literal, RELOCATED here
+// verbatim from platform/espidf/bb_display/bb_display_info.c (a pure
+// relocation -- same const data, served identically, no new runtime-compose
+// symbols in this build variant). B1-1179 already corrected it (nested
+// "panel" no longer a spurious nullable union; "required"/
+// "additionalProperties":false added) -- see test_bb_display_info_wire_
+// meta_golden.c for the byte-fidelity proof against bb_display_info_wire_
+// desc/_meta above.
+static const char k_display_info_schema[] =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"present\":{\"type\":\"boolean\"},"
+    "\"panel\":{\"type\":\"string\"},"
+    "\"width\":{\"type\":\"integer\"},"
+    "\"height\":{\"type\":\"integer\"},"
+    "\"enabled\":{\"type\":\"boolean\"}},"
+    "\"required\":[\"present\"],"
+    "\"additionalProperties\":false}";
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+const char *bb_display_info_get_schema(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return s_display_info_schema_buf;
+#else
+    return k_display_info_schema;
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+}
+
 bb_err_t bb_display_info_gather(bb_display_info_wire_t *dst)
 {
     if (!dst) return BB_ERR_INVALID_ARG;

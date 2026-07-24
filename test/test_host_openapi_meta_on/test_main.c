@@ -144,6 +144,11 @@ void test_bb_health_assemble_schema_root_malloc_failure_returns_null(void);
 void test_bb_health_assemble_schema_root_skips_section_with_null_schema_props(void);
 void test_bb_health_assemble_schema_root_close_cap_override_no_shrink_when_larger(void);
 
+// From test_bb_display_info_topic_wiring.c (B1-1059 SSE PR-4)
+void test_bb_display_info_topic_schema_offline_on_compose_failure(void);
+void test_bb_display_info_topic_schema_matches_expected_content(void);
+void test_bb_display_info_topic_schema_idempotent_pointer_stable(void);
+
 void setUp(void) {}
 
 // Defensive belt-and-suspenders for the BB_SERIALIZE_META_TESTING
@@ -289,6 +294,10 @@ int main(void)
     RUN_TEST(test_bb_health_assemble_schema_root_idempotent_same_content);
     RUN_TEST(test_bb_health_assemble_schema_root_skips_section_with_null_schema_props);
     RUN_TEST(test_bb_health_assemble_schema_root_close_cap_override_no_shrink_when_larger);
+
+    RUN_TEST(test_bb_display_info_topic_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_display_info_topic_schema_matches_expected_content);
+    RUN_TEST(test_bb_display_info_topic_schema_idempotent_pointer_stable);
 
     return UNITY_END();
 }
