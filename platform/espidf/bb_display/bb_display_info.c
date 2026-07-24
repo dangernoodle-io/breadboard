@@ -17,29 +17,6 @@
 static const char *TAG = "bb_display";
 static bool s_registered = false;
 
-/* JSON-Schema value for the health.display SSE topic (B1-1179: corrected
- * from a spurious "panel":["string","null"] nullable union -- the
- * bb_display_info_wire_desc serializer never emits a JSON null; "panel"
- * (and every other field but "present") carries a `.present` predicate
- * (display_info_present(), bb_display_info_wire.c) that OMITS the key
- * entirely from the rendered object when no display backend is present
- * -- see bb_serialize_walk.c's `if (f->present && !f->present(snap))
- * continue;`. So "panel" is a plain optional string, matching the
- * "present" field's meta-engine-generated companion below.
- * "required":["present"] + "additionalProperties":false brought into line
- * with the meta engine's fixed object-schema shape (B1-1059 PR-2b-i
- * convention; see bb_display_info_wire.c's co-located
- * bb_display_info_wire_meta banner for the golden byte-fidelity proof). */
-static const char k_display_schema[] =
-    "{\"type\":\"object\",\"properties\":{"
-    "\"present\":{\"type\":\"boolean\"},"
-    "\"panel\":{\"type\":\"string\"},"
-    "\"width\":{\"type\":\"integer\"},"
-    "\"height\":{\"type\":\"integer\"},"
-    "\"enabled\":{\"type\":\"boolean\"}},"
-    "\"required\":[\"present\"],"
-    "\"additionalProperties\":false}";
-
 static bb_display_snap_t make_snap(void)
 {
     bb_display_snap_t snap = {0};
@@ -88,7 +65,20 @@ void bb_display_register_info(void)
         return;
     }
 
-    bb_openapi_register_topic_schema(BB_DISPLAY_INFO_TOPIC, k_display_schema, "DisplayInfo");
+    // Register the OpenAPI schema for the "health.display" bb_cache key.
+    // Compose-then-register (B1-1059 SSE PR-4): the hand literal moved to
+    // bb_display_info_wire.c (relocation, see its own banner) -- config-OFF
+    // this register call serves that literal unchanged; config-ON, ensure
+    // the schema is composed first (fail-loud) before serving the
+    // runtime-composed buffer.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t schema_rc = bb_display_info_ensure_schema_patched();
+    if (schema_rc != BB_OK) {
+        bb_log_w(TAG, "health.display schema compose failed: %d", (int)schema_rc);
+        return;
+    }
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+    bb_openapi_register_topic_schema(BB_DISPLAY_INFO_TOPIC, bb_display_info_get_schema(), "DisplayInfo");
 
     // Bind "health.display" to bb_data (B1-1146a) so a future REST/SSE
     // reader (B1-1119/B1-1150: bb_system's diag endpoint, once
