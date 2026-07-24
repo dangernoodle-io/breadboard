@@ -33,3 +33,37 @@ const bb_serialize_desc_t bb_health_wire_desc = {
     .n_fields  = 2,
     .snap_size = sizeof(bb_health_wire_t),
 };
+
+// ---------------------------------------------------------------------------
+// bb_serialize_desc_meta_t (B1-1059 PR-d) -- co-located JSON Schema
+// companion to bb_health_wire_desc above, gated behind BB_SERIALIZE_META_SHIP
+// (see bb_health_wire_priv.h's banner). Reconstructs the root-level
+// "ok"/"network" slice of k_health_base (bb_health_schema_priv.h) --
+// pinned against the LOCAL synthetic template
+// (test_bb_serialize_meta_openapi.c's s_health_shaped_desc/_meta,
+// PR-c) that already round-tripped this exact shape through
+// open_fragment()/root_close(): "ok" required, "network" required with
+// its own children (ssid/bssid/ip/connected + mdns .nullable=true), none
+// of which are individually required (network's own "required" renders
+// "[]").
+// ---------------------------------------------------------------------------
+#if defined(BB_SERIALIZE_META_SHIP)
+
+static const bb_serialize_field_meta_t s_health_net_wire_meta_rows[] = {
+    { .key = "ssid" }, { .key = "bssid" }, { .key = "ip" },
+    { .key = "connected" }, { .key = "mdns", .nullable = true },
+};
+
+static const bb_serialize_field_meta_t s_health_wire_meta_rows[] = {
+    { .key = "ok", .required = true },
+    { .key = "network", .required = true,
+      .children = s_health_net_wire_meta_rows, .n_children = 5 },
+};
+
+const bb_serialize_desc_meta_t bb_health_wire_meta = {
+    .type_name = "health",
+    .rows      = s_health_wire_meta_rows,
+    .n_rows    = 2,
+};
+
+#endif /* BB_SERIALIZE_META_SHIP */
