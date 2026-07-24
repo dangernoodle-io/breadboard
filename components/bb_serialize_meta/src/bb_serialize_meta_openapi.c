@@ -500,6 +500,76 @@ bb_err_t bb_serialize_meta_openapi_root_close(const bb_serialize_desc_t      *de
     return BB_OK;
 }
 
+bb_err_t bb_serialize_meta_openapi_topic_schema(bb_serialize_meta_composer_fn   composer,
+                                                 const bb_serialize_desc_t      *desc,
+                                                 const bb_serialize_desc_meta_t *meta,
+                                                 const char *title, const char *topic,
+                                                 char *out, size_t out_size, size_t *out_len)
+{
+    if (out_size == 0) return BB_ERR_NO_SPACE;
+
+#ifdef BB_SERIALIZE_META_TESTING
+    if (s_test_force_no_space) {
+        out[0] = '\0';
+        if (out_len) *out_len = 0;
+        return BB_ERR_NO_SPACE;
+    }
+#endif
+
+    bb_oa_ctx_t ctx = { .buf = out, .cap = out_size - 1, .len = 0, .err = BB_OK };
+
+    bb_oa_putc(&ctx, '{');
+    bb_oa_puts(&ctx, "\"title\":");
+    bb_oa_put_qstr(&ctx, title);
+    bb_oa_puts(&ctx, ",\"x-sse-topic\":");
+    bb_oa_put_qstr(&ctx, topic);
+    bb_oa_putc(&ctx, ',');
+
+    if (ctx.err != BB_OK) {
+        out[0] = '\0';
+        if (out_len) *out_len = 0;
+        return ctx.err;
+    }
+
+    // `composer` writes its own full, standalone object (leading '{' through
+    // trailing '}') into the remaining capacity, right after the prefix just
+    // written above -- then the loop below shifts everything after that
+    // leading '{' left by one byte to splice it out, leaving the prefix
+    // immediately followed by the composed body content (byte-exact, see
+    // this function's header doc).
+    size_t body_len = 0;
+    bb_err_t rc = composer(desc, meta, out + ctx.len, out_size - ctx.len, &body_len);
+    if (rc != BB_OK) {
+        out[0] = '\0';
+        if (out_len) *out_len = 0;
+        return rc;
+    }
+
+    size_t prefix_len = ctx.len;
+
+    // Defensive: this function's whole splice trick assumes `composer`
+    // returns a STANDALONE object starting with '{' (bb_serialize_meta_
+    // openapi_schema()'s shape) -- but `composer` is typed as the family-
+    // wide bb_serialize_meta_composer_fn, which ALSO matches _open_fragment()
+    // (no closing brace) or a future non-'{'-leading composer. A `body_len
+    // == 0` success is likewise impossible for a real composer (even an
+    // empty object is at least "{}"), but would underflow `body_len - 1`
+    // into a near-SIZE_MAX memmove length below. Fail loud instead of
+    // silently corrupting `out` or overrunning the buffer on a mis-wired
+    // composer.
+    if (body_len == 0 || out[prefix_len] != '{') {
+        out[0] = '\0';
+        if (out_len) *out_len = 0;
+        return BB_ERR_INVALID_STATE;
+    }
+
+    memmove(out + prefix_len, out + prefix_len + 1, body_len - 1);
+    size_t total_len = prefix_len + body_len - 1;
+    out[total_len] = '\0';
+    if (out_len) *out_len = total_len;
+    return BB_OK;
+}
+
 bb_err_t bb_serialize_meta_openapi_fragment(const bb_serialize_desc_t      *desc,
                                              const bb_serialize_desc_meta_t *meta,
                                              char *out, size_t out_size, size_t *out_len)

@@ -900,6 +900,21 @@ void test_bb_serialize_meta_openapi_root_close_overflow_too_small_cap(void);
 void test_bb_serialize_meta_openapi_root_close_overflow_null_out_len(void);
 void test_bb_serialize_meta_openapi_reconstruct_health_shaped_root(void);
 
+// Forward declarations from test_bb_serialize_meta_openapi_topic_schema.c
+// (B1-1059 SSE batch PR-1)
+void test_bb_serialize_meta_openapi_topic_schema_composes_exact_prefix_and_body(void);
+void test_bb_serialize_meta_openapi_topic_schema_render_cap_zero(void);
+void test_bb_serialize_meta_openapi_topic_schema_prefix_overflow_too_small_cap(void);
+void test_bb_serialize_meta_openapi_topic_schema_prefix_overflow_null_out_len(void);
+void test_bb_serialize_meta_openapi_topic_schema_composer_overflow_too_small_cap(void);
+void test_bb_serialize_meta_openapi_topic_schema_composer_overflow_null_out_len(void);
+void test_bb_serialize_meta_openapi_topic_schema_success_null_out_len(void);
+void test_bb_serialize_meta_openapi_topic_schema_rejects_zero_len_composer_body(void);
+void test_bb_serialize_meta_openapi_topic_schema_rejects_non_brace_composer_body_null_out_len(void);
+void test_bb_serialize_meta_ensure_topic_schema_composes_when_buf_empty(void);
+void test_bb_serialize_meta_ensure_topic_schema_overflow_leaves_buf_empty(void);
+void test_bb_serialize_meta_ensure_topic_schema_idempotent_same_content(void);
+
 // Forward declarations from test_bb_wifi_http_wire_meta_golden.c (B1-1059
 // PR-2a exemplar)
 void test_bb_wifi_http_wire_meta_validates_against_desc(void);
@@ -10483,6 +10498,19 @@ int main(void) {
     RUN_TEST(test_bb_serialize_meta_openapi_root_close_overflow_too_small_cap);
     RUN_TEST(test_bb_serialize_meta_openapi_root_close_overflow_null_out_len);
     RUN_TEST(test_bb_serialize_meta_openapi_reconstruct_health_shaped_root);
+
+    RUN_TEST(test_bb_serialize_meta_openapi_topic_schema_composes_exact_prefix_and_body);
+    RUN_TEST(test_bb_serialize_meta_openapi_topic_schema_render_cap_zero);
+    RUN_TEST(test_bb_serialize_meta_openapi_topic_schema_prefix_overflow_too_small_cap);
+    RUN_TEST(test_bb_serialize_meta_openapi_topic_schema_prefix_overflow_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_topic_schema_composer_overflow_too_small_cap);
+    RUN_TEST(test_bb_serialize_meta_openapi_topic_schema_composer_overflow_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_topic_schema_success_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_topic_schema_rejects_zero_len_composer_body);
+    RUN_TEST(test_bb_serialize_meta_openapi_topic_schema_rejects_non_brace_composer_body_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_ensure_topic_schema_composes_when_buf_empty);
+    RUN_TEST(test_bb_serialize_meta_ensure_topic_schema_overflow_leaves_buf_empty);
+    RUN_TEST(test_bb_serialize_meta_ensure_topic_schema_idempotent_same_content);
 
     RUN_TEST(test_bb_wifi_http_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_wifi_http_wire_meta_golden_matches_hand_literal);

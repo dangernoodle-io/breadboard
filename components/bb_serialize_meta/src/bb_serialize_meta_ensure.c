@@ -16,3 +16,15 @@ bb_err_t bb_serialize_meta_ensure_composed(bb_serialize_meta_composer_fn   compo
     size_t n = 0;
     return composer(desc, meta, buf, buf_size, &n);
 }
+
+bb_err_t bb_serialize_meta_ensure_topic_schema(bb_serialize_meta_composer_fn   composer,
+                                                const bb_serialize_desc_t      *desc,
+                                                const bb_serialize_desc_meta_t *meta,
+                                                const char *title, const char *topic,
+                                                char *buf, size_t buf_size)
+{
+    if (buf[0] != '\0') return BB_OK;  // idempotent sentinel on caller-owned buf
+
+    size_t n = 0;
+    return bb_serialize_meta_openapi_topic_schema(composer, desc, meta, title, topic, buf, buf_size, &n);
+}
