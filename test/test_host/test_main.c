@@ -4863,6 +4863,13 @@ void test_bb_sensor_http_thermal_meta_golden_matches_hand_literal(void);
 // PR-2) -- unconditional (never depended on CONFIG_BB_FAN_AUTOFAN at all).
 void test_bb_sensor_http_openapi_described_paths_present(void);
 
+// Forward declarations from test_bb_sensor_http.c (B1-1059 PR-3 batch 3 --
+// config-OFF #else-arm coverage for the four runtime-compose-at-init sites)
+void test_bb_sensor_http_wire_describe_fan_schema_is_unchanged_const_literal(void);
+void test_bb_sensor_http_wire_describe_fan_request_schema_is_unchanged_const_literal(void);
+void test_bb_sensor_http_wire_describe_power_schema_is_unchanged_const_literal(void);
+void test_bb_sensor_http_wire_describe_thermal_schema_is_unchanged_const_literal(void);
+
 // Forward declarations from test_bb_sensor.c (bb_sensor domain primitive --
 // absorbs bb_thermal_collect() (B1-352, deleted bb_thermal component) plus
 // the fan/power gather + fan apply domain logic formerly unit-tested
@@ -9245,6 +9252,11 @@ int main(void) {
     RUN_TEST(test_bb_sensor_http_thermal_meta_validates_against_desc);
     RUN_TEST(test_bb_sensor_http_thermal_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_sensor_http_openapi_described_paths_present);
+
+    RUN_TEST(test_bb_sensor_http_wire_describe_fan_schema_is_unchanged_const_literal);
+    RUN_TEST(test_bb_sensor_http_wire_describe_fan_request_schema_is_unchanged_const_literal);
+    RUN_TEST(test_bb_sensor_http_wire_describe_power_schema_is_unchanged_const_literal);
+    RUN_TEST(test_bb_sensor_http_wire_describe_thermal_schema_is_unchanged_const_literal);
 
     // bb_sensor domain primitive tests -- bb_sensor_thermal_snapshot absorbs
     // bb_thermal_collect (B1-352); bb_sensor_{fan,power}_snapshot/

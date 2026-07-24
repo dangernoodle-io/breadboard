@@ -523,7 +523,115 @@ const bb_serialize_desc_meta_t bb_sensor_http_thermal_meta = {
 // hook, see bb_sensor_http_bind_and_register()), so PATCH already 405s at
 // the dispatch layer -- describing a PATCH capability that doesn't exist
 // would misrepresent the API, so neither gets one.
+//
+// CONFIG_BB_OPENAPI_RUNTIME_META (B1-1059 PR-3 batch 3) -- gated DIRECTLY on
+// this Kconfig symbol, never on BB_SERIALIZE_META_SHIP: that macro also
+// covers BB_SERIALIZE_META_HOST (unconditionally set by the plain `native`
+// host env, see platformio.ini), which must NOT flip these routes onto the
+// runtime-compose path -- "meta tables compiled in for golden-testing"
+// (SHIP) and "these routes source their schema at runtime" (RUNTIME_META)
+// are deliberately distinct gates. Config OFF (default) is a zero-diff
+// no-op: every `#else` arm below is byte-identical to the pre-batch table.
+//
+// Fan carries TWO independently-composed buffers -- the GET response schema
+// and the PATCH request schema -- since it's the only round-trip CONFIG
+// resource here; power/thermal are GET-only telemetry (a single response
+// schema each).
 // ---------------------------------------------------------------------------
+
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Sized to the golden-tested hand literal
+// (test_bb_sensor_http_wire_meta_golden.c proves the engine's output is
+// byte-identical to BB_SENSOR_HTTP_FAN_SCHEMA_LITERAL) -- not an arbitrary
+// round cap; any future desync trips bb_serialize_meta_openapi_schema()'s
+// own bounded-buffer BB_ERR_NO_SPACE contract instead of silently
+// truncating.
+static char s_sensors_fan_schema_buf[sizeof(BB_SENSOR_HTTP_FAN_SCHEMA_LITERAL)];
+static char s_sensors_fan_request_schema_buf[sizeof(BB_SENSOR_HTTP_FAN_REQUEST_SCHEMA_LITERAL)];
+static char s_sensors_power_schema_buf[sizeof(BB_SENSOR_HTTP_POWER_SCHEMA_LITERAL)];
+static char s_sensors_thermal_schema_buf[sizeof(BB_SENSOR_HTTP_THERMAL_SCHEMA_LITERAL)];
+
+// Mutable (`.data`, not `.rodata`) with this config on -- each `.schema`/
+// `.request_schema` starts NULL and is patched in once by
+// bb_sensor_http_describe_routes() (or the test accessors below) before any
+// route is ever registered/served.
+static bb_route_response_t s_sensors_fan_get_responses[] = {
+    { .status = 200, .content_type = "application/json", .schema = NULL /* patched at init */ },
+    { .status = 0 },
+};
+
+static const bb_route_t s_sensors_fan_get_describe_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/sensors/fan",
+    .tag       = "sensors",
+    .summary   = "fan configuration (autofan targets, or manual duty)",
+    .responses = s_sensors_fan_get_responses,
+    .handler   = NULL,
+};
+
+static const bb_route_response_t s_sensors_fan_patch_responses[] = {
+    { .status = 204, .content_type = NULL, .schema = NULL, .description = "applied" },
+    { .status = 400, .content_type = "application/json", .schema = NULL, .description = "invalid request body" },
+    { .status = 503, .content_type = "application/json", .schema = NULL, .description = "no primary fan present" },
+    { .status = 0 },
+};
+
+// `.request_schema` points DIRECTLY at the compose buffer above (a
+// link-time-constant array address, valid in a static initializer) rather
+// than starting NULL-then-patched like the `.schema` sites above -- the
+// mutating-route-needs-body-schema lint (B1-413) flags a literal
+// `.request_schema = NULL` on any POST/PATCH/PUT route with a JSON body
+// unconditionally (it has no "patched at init" exemption, unlike this
+// engine's own buf[0] idempotency-sentinel idiom), but trusts an identifier
+// reference (can't inspect a runtime-composed schema's content statically)
+// -- exactly this case. The route struct itself stays `static const`: only
+// the BYTES the pointer targets change at runtime (via
+// ensure_fan_request_schema_patched() below), never the pointer value.
+// Before the first compose, the buffer is all-zero (`buf[0] == '\0'`, an
+// empty string, never a NULL pointer) -- ensure_fan_request_schema_patched()
+// and its test accessor treat that empty-string state as "not yet composed",
+// matching bb_serialize_meta_ensure_composed()'s own sentinel contract.
+static const bb_route_t s_sensors_fan_patch_describe_route = {
+    .method               = BB_HTTP_PATCH,
+    .path                 = "/api/sensors/fan",
+    .tag                  = "sensors",
+    .summary              = "update fan configuration (partial update)",
+    .request_content_type = "application/json",
+    .request_schema       = s_sensors_fan_request_schema_buf,
+    .responses            = s_sensors_fan_patch_responses,
+    .handler              = NULL,
+};
+
+static bb_route_response_t s_sensors_power_get_responses[] = {
+    { .status = 200, .content_type = "application/json", .schema = NULL /* patched at init */ },
+    { .status = 0 },
+};
+
+static const bb_route_t s_sensors_power_get_describe_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/sensors/power",
+    .tag       = "sensors",
+    .summary   = "power telemetry (read-only)",
+    .responses = s_sensors_power_get_responses,
+    .handler   = NULL,
+};
+
+static bb_route_response_t s_sensors_thermal_get_responses[] = {
+    { .status = 200, .content_type = "application/json", .schema = NULL /* patched at init */ },
+    { .status = 0 },
+};
+
+static const bb_route_t s_sensors_thermal_get_describe_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/sensors/thermal",
+    .tag       = "sensors",
+    .summary   = "thermal telemetry (read-only)",
+    .responses = s_sensors_thermal_get_responses,
+    .handler   = NULL,
+};
+
+#else
 
 static const bb_route_response_t s_sensors_fan_get_responses[] = {
     { .status = 200, .content_type = "application/json", .schema = BB_SENSOR_HTTP_FAN_SCHEMA_LITERAL },
@@ -585,9 +693,78 @@ static const bb_route_t s_sensors_thermal_get_describe_route = {
     .handler   = NULL,
 };
 
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+// Shared compose-and-patch steps, one per buffer, called from both
+// bb_sensor_http_describe_routes() and the test accessors below: each is
+// idempotent (a second call is a pointer-stable no-op, guarded by
+// bb_serialize_meta_ensure_composed()'s buf[0] sentinel) and fail-loud
+// (propagates the composer's rc without ever patching a partial/NULL
+// schema in).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+static bb_err_t ensure_fan_schema_patched(void)
+{
+    bb_err_t rc = bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                                      &bb_sensor_http_fan_wire_desc, &bb_sensor_http_fan_meta,
+                                                      s_sensors_fan_schema_buf,
+                                                      sizeof(s_sensors_fan_schema_buf));
+    if (rc != BB_OK) return rc;  // fail loud -- never register a NULL/partial schema
+    s_sensors_fan_get_responses[0].schema = s_sensors_fan_schema_buf;
+    return BB_OK;
+}
+
+// No field-patch step here (unlike the three siblings) -- the const
+// s_sensors_fan_patch_describe_route's `.request_schema` already points
+// directly at s_sensors_fan_request_schema_buf (see that route's own doc
+// comment above); composing into the buffer is the only work needed.
+static bb_err_t ensure_fan_request_schema_patched(void)
+{
+    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                              &bb_sensor_http_fan_wire_desc, &bb_sensor_http_fan_request_meta,
+                                              s_sensors_fan_request_schema_buf,
+                                              sizeof(s_sensors_fan_request_schema_buf));
+}
+
+static bb_err_t ensure_power_schema_patched(void)
+{
+    bb_err_t rc = bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                                      &bb_sensor_http_power_wire_desc, &bb_sensor_http_power_meta,
+                                                      s_sensors_power_schema_buf,
+                                                      sizeof(s_sensors_power_schema_buf));
+    if (rc != BB_OK) return rc;  // fail loud -- never register a NULL/partial schema
+    s_sensors_power_get_responses[0].schema = s_sensors_power_schema_buf;
+    return BB_OK;
+}
+
+static bb_err_t ensure_thermal_schema_patched(void)
+{
+    bb_err_t rc = bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                                      &bb_sensor_http_thermal_wire_desc, &bb_sensor_http_thermal_meta,
+                                                      s_sensors_thermal_schema_buf,
+                                                      sizeof(s_sensors_thermal_schema_buf));
+    if (rc != BB_OK) return rc;  // fail loud -- never register a NULL/partial schema
+    s_sensors_thermal_get_responses[0].schema = s_sensors_thermal_schema_buf;
+    return BB_OK;
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
 #ifdef ESP_PLATFORM
 bb_err_t bb_sensor_http_describe_routes(void)
 {
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    // Compose ALL FOUR schemas first, then register all four -- never
+    // interleave (avoids partial-registration on a mid-sequence compose
+    // failure).
+    bb_err_t compose_rc = ensure_fan_schema_patched();
+    if (compose_rc != BB_OK) return compose_rc;
+    compose_rc = ensure_fan_request_schema_patched();
+    if (compose_rc != BB_OK) return compose_rc;
+    compose_rc = ensure_power_schema_patched();
+    if (compose_rc != BB_OK) return compose_rc;
+    compose_rc = ensure_thermal_schema_patched();
+    if (compose_rc != BB_OK) return compose_rc;
+#endif
+
     bb_err_t rc = bb_http_register_route_descriptor_only(&s_sensors_fan_get_describe_route);
     if (rc != BB_OK) return rc;
     rc = bb_http_register_route_descriptor_only(&s_sensors_fan_patch_describe_route);
@@ -597,3 +774,79 @@ bb_err_t bb_sensor_http_describe_routes(void)
     return bb_http_register_route_descriptor_only(&s_sensors_thermal_get_describe_route);
 }
 #endif /* ESP_PLATFORM */
+
+// ---------------------------------------------------------------------------
+// Test-only accessors (BB_SENSOR_HTTP_WIRE_TESTING) -- see
+// bb_sensor_http_wire_test.h. Portable (not ESP_PLATFORM-gated): exercises
+// the same guarded, idempotent compose-and-patch bb_sensor_http_describe_
+// routes() runs, without requiring the ESP-IDF-gated describe_routes()
+// itself.
+// ---------------------------------------------------------------------------
+#ifdef BB_SENSOR_HTTP_WIRE_TESTING
+#include "bb_sensor_http_wire_test.h"
+
+bb_err_t bb_sensor_http_wire_assemble_fan_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return ensure_fan_schema_patched();
+#else
+    return BB_OK;
+#endif
+}
+
+bb_err_t bb_sensor_http_wire_assemble_fan_request_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return ensure_fan_request_schema_patched();
+#else
+    return BB_OK;
+#endif
+}
+
+bb_err_t bb_sensor_http_wire_assemble_power_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return ensure_power_schema_patched();
+#else
+    return BB_OK;
+#endif
+}
+
+bb_err_t bb_sensor_http_wire_assemble_thermal_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return ensure_thermal_schema_patched();
+#else
+    return BB_OK;
+#endif
+}
+
+const char *bb_sensor_http_wire_get_fan_describe_schema_for_test(void)
+{
+    return s_sensors_fan_get_responses[0].schema;
+}
+
+const char *bb_sensor_http_wire_get_fan_describe_request_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    // s_sensors_fan_patch_describe_route.request_schema always points at
+    // s_sensors_fan_request_schema_buf (see that route's own doc comment) --
+    // an empty buffer (buf[0] == '\0') means "not yet composed", the same
+    // sentinel bb_serialize_meta_ensure_composed() itself uses, so report it
+    // as NULL rather than an empty string.
+    return s_sensors_fan_request_schema_buf[0] != '\0' ? s_sensors_fan_request_schema_buf : NULL;
+#else
+    return s_sensors_fan_patch_describe_route.request_schema;
+#endif
+}
+
+const char *bb_sensor_http_wire_get_power_describe_schema_for_test(void)
+{
+    return s_sensors_power_get_responses[0].schema;
+}
+
+const char *bb_sensor_http_wire_get_thermal_describe_schema_for_test(void)
+{
+    return s_sensors_thermal_get_responses[0].schema;
+}
+#endif /* BB_SENSOR_HTTP_WIRE_TESTING */
