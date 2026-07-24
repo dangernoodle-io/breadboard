@@ -59,7 +59,13 @@ Generated regions today:
                README brief when it has one, else "—" — marker-comment lines
                are skipped when hunting for that first prose line, so a
                converted dep's `bbtool:brief` marker text never leaks in.
-  - platform — presence matrix over platform/{host,espidf,arduino}/<name>/
+  - platform — presence matrix over platform/{host,espidf,arduino}/<name>/,
+               PLUS (host column only) whether test/test_host/ has a
+               test_<name>[.c|_*.c] file — a component can be genuinely
+               host-supported (host-tested, Kconfig/define-gated single
+               source) without shipping a platform/host/<name>/
+               backend-dispatch implementation at all (B1-1197); see
+               `_has_host_tests`.
   - links    — merged Links section: the component's own wiki page (derived
                from `[docs].wiki_base` + the wiki `components/` subdir
                convention — see rules/docs.md) + `[docs].links` (global,
@@ -319,8 +325,74 @@ def _render_brief(root: Path, name: str, comp_dir: Optional[Path] = None) -> str
 _PLATFORMS = ("host", "espidf", "arduino")
 
 
-def _platform_matrix(root: Path, name: str) -> Dict[str, bool]:
-    return {p: (root / "platform" / p / name).is_dir() for p in _PLATFORMS}
+def _owning_component(stem: str, known_names: "frozenset[str]") -> Optional[str]:
+    """Given a test_host/*.c filename stem (e.g. 'test_bb_serialize_meta_validate'),
+    return the LONGEST `known_names` entry that is a genuine, underscore-bounded
+    prefix of its body (the part after 'test_') — or None if none matches.
+
+    The longest-match rule is what keeps this attribution correct in a repo
+    where a shorter component name is itself a prefix of a real, differently
+    -named sibling (e.g. `bb_serialize` vs `bb_serialize_meta`, `bb_wifi` vs
+    `bb_wifi_http`, `bb_led` vs `bb_led_anim`, ... — dozens of these pairs
+    exist): a naive per-name boundary check alone would credit BOTH the
+    short and the long component from the long component's own test file,
+    wrongly flipping the short one to host: yes."""
+    if not stem.startswith("test_"):
+        return None
+    body = stem[len("test_"):]
+    best: Optional[str] = None
+    for candidate in known_names:
+        if body == candidate or body.startswith(candidate + "_"):
+            if best is None or len(candidate) > len(best):
+                best = candidate
+    return best
+
+
+def _has_host_tests(root: Path, name: str, known_names: Optional["frozenset[str]"] = None) -> bool:
+    """True when `name` has at least one PlatformIO native host test file
+    under test/test_host/ genuinely attributed to it (see `_owning_component`)
+    — the SSOT signal that a component is actually exercised (and thus
+    genuinely supported) on the host platform, whether or not it also ships
+    a platform/host/<name>/ backend-dispatch implementation (the OTHER,
+    narrower host signal — see `_platform_matrix`). Without this, a
+    component whose host presence is a Kconfig/define-gated single-source
+    build (e.g. `BB_SERIALIZE_META_HOST` unconditionally shipping
+    bb_serialize_meta in the native env) or any other host-tested-but-no
+    -backend-split component reads `host: no` even at 100% host coverage —
+    this was B1-1197, and it affects every similarly-shaped component, not
+    just one.
+
+    `known_names` is the full discovery-SSOT component name set, used for
+    longest-match disambiguation (see `_owning_component`); defaults to a
+    fresh `discovery.build_index(...).names()` lookup for a standalone
+    caller (e.g. a test exercising this function in isolation). `name` is
+    always unioned in regardless of which branch supplies `known_names` —
+    `gen_all`'s pass 1 walks bare/malformed component directories that may
+    not be discovery-indexed at all (see its docstring), so `name` must
+    remain disambiguation-eligible even when absent from the passed-in
+    set."""
+    test_host_dir = root / "test" / "test_host"
+    if not test_host_dir.is_dir():
+        return False
+    if known_names is None:
+        known_names = frozenset(build_index(normalize_roots(root)).names())
+    known_names = known_names | {name}
+    for path in test_host_dir.glob("test_*.c"):
+        if _owning_component(path.stem, known_names) == name:
+            return True
+    return False
+
+
+def _platform_matrix(root: Path, name: str,
+                      known_names: Optional["frozenset[str]"] = None) -> Dict[str, bool]:
+    """`known_names`, when given, is the caller's already-built discovery-SSOT
+    component name set — threaded straight through to `_has_host_tests` so it
+    skips its own fresh `discovery.build_index` tree-walk (see `gen_all`,
+    which builds this set ONCE up front rather than once per component)."""
+    matrix = {p: (root / "platform" / p / name).is_dir() for p in _PLATFORMS}
+    if _has_host_tests(root, name, known_names):
+        matrix["host"] = True
+    return matrix
 
 
 def _render_platform(matrix: Dict[str, bool]) -> str:
@@ -526,7 +598,8 @@ def _rewrite_markers(content: str, generators: Dict[str, Callable[[], str]],
 
 
 def _gen_component_readme(root: Path, name: str, config: Optional[dict] = None,
-                           comp_dir: Optional[Path] = None) -> Tuple[Path, bool]:
+                           comp_dir: Optional[Path] = None,
+                           known_names: Optional["frozenset[str]"] = None) -> Tuple[Path, bool]:
     """Regenerate marker regions in components/<name>/README.md in place.
     `config` is the parsed bbtool.toml dict (only its `[docs]` block matters
     here, for the links region); defaults to {} when omitted. `comp_dir`,
@@ -535,7 +608,12 @@ def _gen_component_readme(root: Path, name: str, config: Optional[dict] = None,
     NAME is never re-resolved through discovery mid-pipeline — see
     `_header_for_dir`'s docstring for why that matters for `gen_all`'s
     two-pass walk); defaults to `_resolve_component_dir(root, name)` for a
-    standalone caller (e.g. `scaffold_component`). Returns (path, changed)."""
+    standalone caller (e.g. `scaffold_component`). `known_names`, when
+    given, is `gen_all`'s ONE-TIME discovery-SSOT name set, threaded through
+    to `_platform_matrix`/`_has_host_tests` to avoid a fresh full-tree
+    `discovery.build_index` walk per component (O(N^2) otherwise); defaults
+    to None so `_has_host_tests` falls back to its own single lookup for a
+    standalone caller. Returns (path, changed)."""
     config = config or {}
     if comp_dir is None:
         comp_dir = _resolve_component_dir(root, name)
@@ -545,7 +623,7 @@ def _gen_component_readme(root: Path, name: str, config: Optional[dict] = None,
     cmake_path = comp_dir / "CMakeLists.txt"
     cmake_text = cmake_path.read_text(encoding="utf-8") if cmake_path.is_file() else ""
     requires, priv_requires = _parse_requires(cmake_text, component=name)
-    matrix = _platform_matrix(root, name)
+    matrix = _platform_matrix(root, name, known_names)
 
     generators: Dict[str, Callable[[], str]] = {
         "brief": lambda: _render_brief(root, name, comp_dir),
@@ -612,16 +690,23 @@ def gen_all(root: str, config: Optional[dict] = None) -> List[Tuple[Path, bool]]
     if not comp_root.is_dir():
         return results
 
+    # Built ONCE up front (not per-component) and threaded through every
+    # `_gen_component_readme` call below — avoids an O(N^2) re-walk of the
+    # whole tree for each component's `_platform_matrix`/`_has_host_tests`
+    # host-detection check (see those functions' docstrings).
+    index = build_index(normalize_roots(root_p))
+    known_names = frozenset(index.names())
+
     processed_dirs: set = set()
     for child in sorted(comp_root.iterdir()):
         if not child.is_dir():
             continue
         readme = child / "README.md"
         if readme.is_file():
-            results.append(_gen_component_readme(root_p, child.name, config, comp_dir=child))
+            results.append(_gen_component_readme(root_p, child.name, config, comp_dir=child,
+                                                   known_names=known_names))
         processed_dirs.add(Path(os.path.realpath(str(child))))
 
-    index = build_index(normalize_roots(root_p))
     for name in sorted(index.names()):
         comp_dir = index.component_dir(name)
         if comp_dir is None or comp_dir in processed_dirs:
@@ -629,7 +714,8 @@ def gen_all(root: str, config: Optional[dict] = None) -> List[Tuple[Path, bool]]
         readme = comp_dir / "README.md"
         if not readme.is_file():
             continue
-        results.append(_gen_component_readme(root_p, name, config, comp_dir=comp_dir))
+        results.append(_gen_component_readme(root_p, name, config, comp_dir=comp_dir,
+                                               known_names=known_names))
     return results
 
 
