@@ -112,6 +112,47 @@ extern const bb_serialize_desc_t bb_ota_validator_partitions_wire_desc;
 extern const bb_serialize_desc_meta_t bb_ota_validator_partitions_wire_meta;
 #endif /* BB_SERIALIZE_META_SHIP */
 
+// ---------------------------------------------------------------------------
+// GET /api/update/partitions response schema (B1-1059 emit batch D, site D1).
+// A #define (not just the accessor below) so BOTH this component's
+// config-OFF bb_ota_validator_partitions_wire_get_schema() (wire.c) AND
+// platform/espidf/bb_ota_validator/bb_ota_validator.c's function-local
+// `static const` s_partitions_responses[] table (cross-TU, ESP-IDF-only --
+// can't call a function from a static initializer) can use the SAME literal
+// text as a genuine compile-time constant expression -- mirrors
+// bb_diag_sockets_get_wire_priv.h's BB_DIAG_SOCKETS_GET_SCHEMA_LITERAL
+// precedent (B1-1059 emit batch C, site C4).
+// ---------------------------------------------------------------------------
+#define BB_OTA_VALIDATOR_PARTITIONS_SCHEMA_LITERAL \
+    "{\"type\":\"object\"," \
+    "\"properties\":{\"partitions\":{\"type\":\"array\"," \
+    "\"items\":{\"type\":\"object\"," \
+    "\"properties\":{" \
+    "\"label\":{\"type\":\"string\"}," \
+    "\"address\":{\"type\":\"integer\"}," \
+    "\"size\":{\"type\":\"integer\"}," \
+    "\"running\":{\"type\":\"boolean\"}," \
+    "\"state\":{\"type\":\"string\"}}," \
+    "\"required\":[\"label\",\"address\",\"size\",\"running\",\"state\"]}}}," \
+    "\"required\":[\"partitions\"]}"
+
+// Composed-schema accessor pair (B1-1059 emit batch D, site D1) -- cross-TU
+// bridge: the register site (platform/espidf/bb_ota_validator/
+// bb_ota_validator.c) is ESP-IDF-only and cannot host a compose buffer or
+// call the meta engine directly on host, so this portable TU owns the
+// buffer/composer and exposes two accessors -- mirrors
+// bb_diag_sockets_get_wire_priv.h's site-C4 exemplar.
+// bb_ota_validator_partitions_wire_get_schema() is ALWAYS declared (zero
+// config-OFF footprint beyond the accessor itself: it returns the
+// pre-existing BB_OTA_VALIDATOR_PARTITIONS_SCHEMA_LITERAL, unchanged);
+// bb_ota_validator_partitions_wire_ensure_schema_patched() exists ONLY under
+// CONFIG_BB_OPENAPI_RUNTIME_META.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_ota_validator_partitions_wire_ensure_schema_patched(void);
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+const char *bb_ota_validator_partitions_wire_get_schema(void);
+
 // Pure row-copy helper: copies `n` rows from `src` into `dst` (row-count
 // bounded by BB_OTA_VALIDATOR_PARTITIONS_ROW_CAP by the caller). Copies
 // `label` into the fixed buffer (strncpy + explicit terminate) and wires
