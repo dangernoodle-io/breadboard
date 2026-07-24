@@ -90,6 +90,34 @@ extern const bb_serialize_desc_meta_t bb_log_event_line_wire_meta;
 // as a belt-and-suspenders guard against drift.
 #define BB_LOG_EVENT_LINE_JSON_MAX 1431
 
+// ---------------------------------------------------------------------------
+// SSE topic schema for "log" (B1-1059 SSE batch PR-3). Portable (no
+// ESP_PLATFORM dependency) so both bb_log_event_init()'s register call site
+// (platform/espidf/bb_log_event/bb_log_event.c) and host tests can drive it
+// directly -- the compose-and-patch step itself must live here (not in the
+// platform-only file) to be reachable from the host native_openapi_
+// runtime_meta test env. See bb_log_event_line_wire.c for the buf-vs-
+// literal storage.
+// ---------------------------------------------------------------------------
+
+// Composes the "log" SSE topic schema into the file-scope buffer the first
+// time it's called (CONFIG_BB_OPENAPI_RUNTIME_META build only) --
+// idempotent (pointer-stable no-op on a subsequent call) and fail-loud
+// (never patches a partial schema in). Declared/defined ONLY when this
+// config is on: the platform register site's own matching `#if` is the
+// only caller, so a config-OFF build carries neither this declaration nor
+// its definition -- zero new runtime-compose symbols in that build.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_log_event_line_ensure_schema_patched(void);
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+// Returns the "log" SSE topic schema currently served: config-OFF, the hand
+// literal (relocated here from bb_log_event.c, byte-identical); config-ON,
+// the runtime-composed buffer (empty until bb_log_event_line_ensure_
+// schema_patched() has run successfully). Always declared/defined -- the
+// platform register site needs it in both config states.
+const char *bb_log_event_line_get_schema(void);
+
 #ifdef __cplusplus
 }
 #endif

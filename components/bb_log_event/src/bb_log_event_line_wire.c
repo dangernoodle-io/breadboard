@@ -61,3 +61,55 @@ const bb_serialize_desc_meta_t bb_log_event_line_wire_meta = {
 };
 
 #endif /* BB_SERIALIZE_META_SHIP */
+
+// ---------------------------------------------------------------------------
+// SSE topic schema for "log" (B1-1059 SSE batch PR-3). Config OFF (default)
+// keeps the pre-existing hand-authored literal, byte-identical -- RELOCATED
+// here verbatim from platform/espidf/bb_log_event/bb_log_event.c (a pure
+// relocation: same const data, served identically, no new runtime-compose
+// symbols in this build variant). Config ON composes it at init from
+// bb_log_event_line_wire_desc/bb_log_event_line_wire_meta via bb_
+// serialize_meta_ensure_topic_schema() -- see bb_log_event_line_ensure_
+// schema_patched() below. The composed body picks up a top-level
+// "additionalProperties":false the hand literal never had (the meta engine
+// always closes every rendered object) -- a genuine config-ON tightening,
+// consistent with every other B1-1059 compose-at-init site; config-OFF
+// ships the untouched literal.
+// ---------------------------------------------------------------------------
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+// Sized with headroom over the golden-proven composed body (test_bb_log_
+// event_line_wire_meta_golden.c's expected body is well under 300 bytes;
+// the "LogEvent"/"log" title+topic prefix adds another ~40 bytes) -- any
+// future desync trips bb_serialize_meta_openapi_schema()'s own bounded-
+// buffer BB_ERR_NO_SPACE contract instead of silently truncating.
+static char s_log_event_schema_buf[512];
+#else
+static const char k_log_event_schema[] =
+    "{\"title\":\"LogEvent\",\"x-sse-topic\":\"log\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"ts\":{\"type\":\"integer\"},"
+    "\"level\":{\"type\":\"string\",\"enum\":[\"I\",\"W\",\"E\",\"D\",\"V\",\"?\"]},"
+    "\"tag\":{\"type\":\"string\"},"
+    "\"msg\":{\"type\":\"string\"}},"
+    "\"required\":[\"ts\",\"level\",\"tag\",\"msg\"]}";
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_log_event_line_ensure_schema_patched(void)
+{
+    return bb_serialize_meta_ensure_topic_schema(bb_serialize_meta_openapi_schema,
+                                                  &bb_log_event_line_wire_desc, &bb_log_event_line_wire_meta,
+                                                  "LogEvent", "log",
+                                                  s_log_event_schema_buf,
+                                                  sizeof(s_log_event_schema_buf));
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+const char *bb_log_event_line_get_schema(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return s_log_event_schema_buf;
+#else
+    return k_log_event_schema;
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+}

@@ -147,3 +147,32 @@ bb_err_t bb_diag_boot_bind(void);
 
 // bb_diag_boot_render_envelope() -- see components/bb_diag_http/include/
 // bb_diag_http.h (B1-1153, KB 1477).
+
+// ---------------------------------------------------------------------------
+// SSE topic schema for "diag.boot" (B1-1059 SSE batch PR-3). Portable (no
+// ESP_PLATFORM dependency) so both bb_diag_routes_init()'s register call
+// site (platform/espidf/bb_diag_http/bb_diag_http_routes.c) and host tests
+// can drive it directly -- the compose-and-patch step itself must live here
+// (not in the platform-only route file) to be reachable from the host
+// native_openapi_runtime_meta test env. See bb_diag_boot_wire.c for the
+// buf-vs-literal storage and the four documented golden deltas.
+// ---------------------------------------------------------------------------
+
+// Composes the "diag.boot" SSE topic schema into the file-scope buffer the
+// first time it's called (CONFIG_BB_OPENAPI_RUNTIME_META build only) --
+// idempotent (pointer-stable no-op on a subsequent call) and fail-loud
+// (never patches a partial schema in). Declared/defined ONLY when this
+// config is on: the platform register site's own matching `#if` is the
+// only caller, so a config-OFF build carries neither this declaration nor
+// its definition -- zero new runtime-compose symbols in that build.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_diag_boot_ensure_schema_patched(void);
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+// Returns the "diag.boot" SSE topic schema currently served: config-OFF,
+// the hand literal (relocated here from bb_diag_http_routes.c, byte-
+// identical); config-ON, the runtime-composed buffer (empty until
+// bb_diag_boot_ensure_schema_patched() has run successfully). Always
+// declared/defined -- the platform register site needs it in both config
+// states.
+const char *bb_diag_boot_get_schema(void);

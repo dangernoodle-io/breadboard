@@ -49,3 +49,31 @@ extern const bb_serialize_desc_meta_t bb_ota_hooks_wire_meta;
 // bb_ota_emit_progress() call (reads the stash's BB_OTA_PHASE_FAIL/0/""
 // initial state).
 bb_err_t bb_ota_hooks_gather(bb_ota_hooks_wire_t *dst);
+
+// ---------------------------------------------------------------------------
+// SSE topic schema for "ota.progress" (B1-1059 SSE batch PR-3). Portable (no
+// ESP_PLATFORM dependency) so both bb_ota_hooks_init()'s register call site
+// (platform/espidf/bb_ota_hooks/bb_ota_hooks.c, ESP_PLATFORM-gated) and host
+// tests can drive it directly -- the compose-and-patch step itself must
+// live here (not inside that file's #ifdef ESP_PLATFORM block) to be
+// reachable from the host native_openapi_runtime_meta test env. See
+// bb_ota_hooks_wire.c for the buf-vs-literal storage.
+// ---------------------------------------------------------------------------
+
+// Composes the "ota.progress" SSE topic schema into the file-scope buffer
+// the first time it's called (CONFIG_BB_OPENAPI_RUNTIME_META build only) --
+// idempotent (pointer-stable no-op on a subsequent call) and fail-loud
+// (never patches a partial schema in). Declared/defined ONLY when this
+// config is on: the platform register site's own matching `#if` is the
+// only caller, so a config-OFF build carries neither this declaration nor
+// its definition -- zero new runtime-compose symbols in that build.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_ota_hooks_ensure_schema_patched(void);
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+// Returns the "ota.progress" SSE topic schema currently served: config-OFF,
+// the hand literal (relocated here from bb_ota_hooks.c, byte-identical);
+// config-ON, the runtime-composed buffer (empty until bb_ota_hooks_ensure_
+// schema_patched() has run successfully). Always declared/defined -- the
+// platform register site needs it in both config states.
+const char *bb_ota_hooks_get_schema(void);

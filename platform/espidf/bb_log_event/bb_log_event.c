@@ -143,15 +143,11 @@ bb_err_t bb_log_event_gather(bb_log_event_wire_t *dst)
 // composition-root concerns now, see examples/floor/main/floor_app.c)
 // ---------------------------------------------------------------------------
 
-static const char k_log_event_schema[] =
-    "{\"title\":\"LogEvent\",\"x-sse-topic\":\"log\",\"type\":\"object\","
-    "\"properties\":{"
-    "\"ts\":{\"type\":\"integer\"},"
-    "\"level\":{\"type\":\"string\",\"enum\":[\"I\",\"W\",\"E\",\"D\",\"V\",\"?\"]},"
-    "\"tag\":{\"type\":\"string\"},"
-    "\"msg\":{\"type\":\"string\"}},"
-    "\"required\":[\"ts\",\"level\",\"tag\",\"msg\"]}";
-
+// SSE topic schema for "log" (B1-1059 SSE batch PR-3): the hand literal
+// moved to bb_log_event_line_wire.c (relocation, see its own banner) --
+// config-OFF this register call serves that literal unchanged; config-ON,
+// ensure the schema is composed first (fail-loud) before serving the
+// runtime-composed buffer.
 bb_err_t bb_log_event_init(bb_http_handle_t server)
 {
     (void)server;
@@ -163,7 +159,14 @@ bb_err_t bb_log_event_init(bb_http_handle_t server)
     // descriptor's fields at runtime, not a compile-time constant.
     assert(sizeof(s_render_buf) >= bb_serialize_json_bound(&bb_log_event_line_wire_desc));
 
-    bb_openapi_register_topic_schema("log", k_log_event_schema, "LogEvent");
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t schema_rc = bb_log_event_line_ensure_schema_patched();
+    if (schema_rc != BB_OK) {
+        bb_log_w(TAG, "log schema compose failed: %d", (int)schema_rc);
+        return schema_rc;
+    }
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+    bb_openapi_register_topic_schema("log", bb_log_event_line_get_schema(), "LogEvent");
 
     s_q = xQueueCreate(BB_LOG_EVENT_QUEUE_LEN, sizeof(log_event_msg_t));
     if (!s_q) {
