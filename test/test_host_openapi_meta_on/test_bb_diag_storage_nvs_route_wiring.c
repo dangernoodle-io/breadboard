@@ -13,9 +13,6 @@
 // PR-1's proven engine==literal golden fact), and re-running it is
 // pointer-stable (idempotent -- never re-assembles once patched).
 
-void setUp(void) {}
-void tearDown(void) {}
-
 void test_bb_diag_storage_nvs_describe_schema_starts_null(void)
 {
     TEST_ASSERT_NULL(bb_diag_storage_nvs_get_describe_schema_for_test());
@@ -39,13 +36,4 @@ void test_bb_diag_storage_nvs_assemble_schema_idempotent_pointer_stable(void)
     const char *second = bb_diag_storage_nvs_get_describe_schema_for_test();
 
     TEST_ASSERT_EQUAL_PTR(first, second);
-}
-
-int main(void)
-{
-    UNITY_BEGIN();
-    RUN_TEST(test_bb_diag_storage_nvs_describe_schema_starts_null);
-    RUN_TEST(test_bb_diag_storage_nvs_assemble_schema_patches_matching_content);
-    RUN_TEST(test_bb_diag_storage_nvs_assemble_schema_idempotent_pointer_stable);
-    return UNITY_END();
 }

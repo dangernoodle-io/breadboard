@@ -9,8 +9,25 @@
 
 #include "bb_serialize_meta.h"
 
+#ifdef BB_SERIALIZE_META_TESTING
+#include "bb_serialize_meta_test.h"
+#endif
+
 #include <stdio.h>
 #include <string.h>
+
+#ifdef BB_SERIALIZE_META_TESTING
+// See bb_serialize_meta_test.h -- host-only fail-injection seam shared by
+// every composer entry point below, so a wiring test can exercise a
+// compose-at-init fail-fast branch without an artificially undersized
+// buffer.
+static bool s_test_force_no_space = false;
+
+void bb_serialize_meta_openapi_test_set_force_no_space(bool force)
+{
+    s_test_force_no_space = force;
+}
+#endif
 
 // ---------------------------------------------------------------------------
 // Bounded writer state + low-level put()/putc() -- every byte funnels
@@ -365,6 +382,14 @@ bb_err_t bb_serialize_meta_openapi_schema(const bb_serialize_desc_t      *desc,
 {
     if (out_size == 0) return BB_ERR_NO_SPACE;
 
+#ifdef BB_SERIALIZE_META_TESTING
+    if (s_test_force_no_space) {
+        out[0] = '\0';
+        if (out_len) *out_len = 0;
+        return BB_ERR_NO_SPACE;
+    }
+#endif
+
     bb_oa_ctx_t ctx = { .buf = out, .cap = out_size - 1, .len = 0, .err = BB_OK };
 
     bb_oa_puts(&ctx, "{\"type\":\"object\",");
@@ -387,6 +412,14 @@ bb_err_t bb_serialize_meta_openapi_fragment(const bb_serialize_desc_t      *desc
                                              char *out, size_t out_size, size_t *out_len)
 {
     if (out_size == 0) return BB_ERR_NO_SPACE;
+
+#ifdef BB_SERIALIZE_META_TESTING
+    if (s_test_force_no_space) {
+        out[0] = '\0';
+        if (out_len) *out_len = 0;
+        return BB_ERR_NO_SPACE;
+    }
+#endif
 
     bb_oa_ctx_t ctx = { .buf = out, .cap = out_size - 1, .len = 0, .err = BB_OK };
 
