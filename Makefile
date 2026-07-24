@@ -52,10 +52,10 @@ test-py: smoke-gen floor-gen ## Python tooling tests (bbtool + bbdevice + covera
 	python3 -m unittest discover -s scripts/bbdevice/tests -t scripts
 	python3 -m unittest discover -s scripts/tests -t scripts
 
-test: ## Run host unit tests (both compile-time BB_LOCK_STATS_ENABLE states) under a verified, matched, genuinely-GNU gcc/gcov toolchain -- any major version (B1-642 -- PlatformIO strips CC/CXX, so scripts/coverage_toolchain.sh PATH-shims instead). Verdict comes from a direct run of the compiled binary, not pio's own test reader (B1-1137 -- see scripts/run_host_tests.py)
-	./scripts/coverage_toolchain.sh python3 scripts/run_host_tests.py --pio '$(PIO)' native native_lock_stats_off
+test: ## Run host unit tests (both compile-time BB_LOCK_STATS_ENABLE states, plus the CONFIG_BB_OPENAPI_RUNTIME_META=1 wiring env) under a verified, matched, genuinely-GNU gcc/gcov toolchain -- any major version (B1-642 -- PlatformIO strips CC/CXX, so scripts/coverage_toolchain.sh PATH-shims instead). Verdict comes from a direct run of the compiled binary, not pio's own test reader (B1-1137 -- see scripts/run_host_tests.py)
+	./scripts/coverage_toolchain.sh python3 scripts/run_host_tests.py --pio '$(PIO)' native native_lock_stats_off native_openapi_runtime_meta
 
-coverage: test ## Coverage report (gcovr), gated on the committed coverage baseline (B1-764 shrink-only per-LINE-only ratchet, branch% measured/reported but not ratcheted -- see scripts/coverage_baseline.py); verified-toolchain-gated (B1-642 matched-major + B1-867 genuinely-GNU gcc/gcov enforced -- no specific major version required; aborts loudly instead of silently reporting 0%)
+coverage: test ## Coverage report (gcovr merges .gcda across every env `test` above just built -- including native_openapi_runtime_meta, B1-1093, so non-default-Kconfig-gated arms are measured, not silently compiled-out-and-invisible), gated on the committed coverage baseline (B1-764 shrink-only per-LINE-only ratchet, branch% measured/reported but not ratcheted -- see scripts/coverage_baseline.py); verified-toolchain-gated (B1-642 matched-major + B1-867 genuinely-GNU gcc/gcov enforced -- no specific major version required; aborts loudly instead of silently reporting 0%)
 	./scripts/coverage_toolchain.sh python3 scripts/coverage_gate.py --root .
 
 coverage-update-baseline: test ## Shrink-only: prune coverage baseline entries no longer uncovered (never blesses a net-new gap)
