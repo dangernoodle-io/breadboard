@@ -226,6 +226,21 @@ bb_err_t bb_serialize_meta_openapi_schema(const bb_serialize_desc_t      *desc,
                                            const bb_serialize_desc_meta_t *meta,
                                            char *out, size_t out_size, size_t *out_len);
 
+// Same composer as bb_serialize_meta_openapi_schema(), but suppresses the
+// TOP-level "required" and "additionalProperties":false keys -- emits
+// {"type":"object","properties":{...}} only. Nested objects (properties
+// whose type is BB_TYPE_OBJ / ARR-of-OBJ, and each duplicate-key oneOf
+// branch) keep their normal full shape; only the outermost object is
+// loosened. Intended for a section fragment that gets spliced VERBATIM and
+// BARE into a larger composite schema (e.g. an /api/health section), where
+// "required"/"additionalProperties" are decisions the composite makes, not
+// the section. Same bounded-buffer, no-heap, all-or-nothing overflow idiom
+// as bb_serialize_meta_openapi_schema(): on BB_ERR_NO_SPACE, `*out_len` is
+// 0 and `out[0]` is '\0', never a partial fragment.
+bb_err_t bb_serialize_meta_openapi_fragment(const bb_serialize_desc_t      *desc,
+                                             const bb_serialize_desc_meta_t *meta,
+                                             char *out, size_t out_size, size_t *out_len);
+
 #ifdef __cplusplus
 }
 #endif

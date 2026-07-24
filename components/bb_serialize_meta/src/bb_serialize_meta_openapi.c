@@ -278,15 +278,19 @@ static void bb_oa_write_field_schema(bb_oa_ctx_t *ctx, const bb_serialize_field_
     bb_oa_putc(ctx, '}');
 }
 
-bb_err_t bb_serialize_meta_openapi_schema(const bb_serialize_desc_t      *desc,
-                                           const bb_serialize_desc_meta_t *meta,
-                                           char *out, size_t out_size, size_t *out_len)
+// Shared body-writer for both the standalone-schema and section-fragment
+// entry points -- writes "properties":{...}[,"required":[...]]
+// [,"additionalProperties":false]. Caller writes the leading
+// {"type":"object", and the trailing }; this never touches either brace.
+// emit_required and emit_additional_properties are deliberately independent
+// flags -- combination-safe for future callers (PR-c will add open-fragment
+// / root-close variants), even though today only (true,true) via _schema
+// and (false,false) via _fragment are exercised.
+static void bb_oa_write_body(bb_oa_ctx_t *ctx, const bb_serialize_desc_t *desc,
+                              const bb_serialize_desc_meta_t *meta,
+                              bool emit_required, bool emit_additional_properties)
 {
-    if (out_size == 0) return BB_ERR_NO_SPACE;
-
-    bb_oa_ctx_t ctx = { .buf = out, .cap = out_size - 1, .len = 0, .err = BB_OK };
-
-    bb_oa_puts(&ctx, "{\"type\":\"object\",\"properties\":{");
+    bb_oa_puts(ctx, "\"properties\":{");
     bool first = true;
     for (uint16_t i = 0; i < desc->n_fields; i++) {
         const bb_serialize_field_t      *f = &desc->fields[i];
@@ -306,11 +310,11 @@ bb_err_t bb_serialize_meta_openapi_schema(const bb_serialize_desc_t      *desc,
         if (occ_count > 1) {
             if (row && row->kind == BB_SERIALIZE_META_KIND_ONEOF) {
                 if (occ_idx != 0) continue;
-                if (!first) bb_oa_putc(&ctx, ',');
+                if (!first) bb_oa_putc(ctx, ',');
                 first = false;
-                bb_oa_put_qstr(&ctx, f->key);
-                bb_oa_putc(&ctx, ':');
-                bb_oa_write_oneof(&ctx, desc, i, row, 0);
+                bb_oa_put_qstr(ctx, f->key);
+                bb_oa_putc(ctx, ':');
+                bb_oa_write_oneof(ctx, desc, i, row, 0);
                 continue;
             }
             if (row && row->kind == BB_SERIALIZE_META_KIND_FIELD) {
@@ -320,32 +324,75 @@ bb_err_t bb_serialize_meta_openapi_schema(const bb_serialize_desc_t      *desc,
             }
         }
 
-        if (!first) bb_oa_putc(&ctx, ',');
+        if (!first) bb_oa_putc(ctx, ',');
         first = false;
-        bb_oa_put_qstr(&ctx, f->key);
-        bb_oa_putc(&ctx, ':');
-        bb_oa_write_field_schema(&ctx, f, row, 0);
+        bb_oa_put_qstr(ctx, f->key);
+        bb_oa_putc(ctx, ':');
+        bb_oa_write_field_schema(ctx, f, row, 0);
     }
-    bb_oa_puts(&ctx, "},\"required\":[");
+    bb_oa_putc(ctx, '}');
 
-    bool first_req = true;
-    for (uint16_t i = 0; i < desc->n_fields; i++) {
-        const bb_serialize_field_t *f = &desc->fields[i];
-        // Only the key's first physical occurrence governs "required" --
-        // for an ordinary (non-duplicated) key this is every field; for a
-        // duplicate-key group `.required` lives on the ONE meta row for
-        // that key regardless of which occurrence it documents, so
-        // checking it once (at occurrence 0) is both sufficient and
-        // correct.
-        if (bb_serialize_meta_occurrence_index(desc->fields, i) != 0) continue;
-        const bb_serialize_field_meta_t *row =
-            meta ? bb_oa_find_row(meta->rows, meta->n_rows, f->key) : NULL;
-        if (!row || !row->required) continue;
-        if (!first_req) bb_oa_putc(&ctx, ',');
-        first_req = false;
-        bb_oa_put_qstr(&ctx, f->key);
+    if (emit_required) {
+        bb_oa_puts(ctx, ",\"required\":[");
+        bool first_req = true;
+        for (uint16_t i = 0; i < desc->n_fields; i++) {
+            const bb_serialize_field_t *f = &desc->fields[i];
+            // Only the key's first physical occurrence governs "required" --
+            // for an ordinary (non-duplicated) key this is every field; for a
+            // duplicate-key group `.required` lives on the ONE meta row for
+            // that key regardless of which occurrence it documents, so
+            // checking it once (at occurrence 0) is both sufficient and
+            // correct.
+            if (bb_serialize_meta_occurrence_index(desc->fields, i) != 0) continue;
+            const bb_serialize_field_meta_t *row =
+                meta ? bb_oa_find_row(meta->rows, meta->n_rows, f->key) : NULL;
+            if (!row || !row->required) continue;
+            if (!first_req) bb_oa_putc(ctx, ',');
+            first_req = false;
+            bb_oa_put_qstr(ctx, f->key);
+        }
+        bb_oa_putc(ctx, ']');
     }
-    bb_oa_puts(&ctx, "],\"additionalProperties\":false}");
+
+    if (emit_additional_properties) {
+        bb_oa_puts(ctx, ",\"additionalProperties\":false");
+    }
+}
+
+bb_err_t bb_serialize_meta_openapi_schema(const bb_serialize_desc_t      *desc,
+                                           const bb_serialize_desc_meta_t *meta,
+                                           char *out, size_t out_size, size_t *out_len)
+{
+    if (out_size == 0) return BB_ERR_NO_SPACE;
+
+    bb_oa_ctx_t ctx = { .buf = out, .cap = out_size - 1, .len = 0, .err = BB_OK };
+
+    bb_oa_puts(&ctx, "{\"type\":\"object\",");
+    bb_oa_write_body(&ctx, desc, meta, true, true);
+    bb_oa_putc(&ctx, '}');
+
+    if (ctx.err != BB_OK) {
+        out[0] = '\0';
+        if (out_len) *out_len = 0;
+        return ctx.err;
+    }
+
+    out[ctx.len] = '\0';
+    if (out_len) *out_len = ctx.len;
+    return BB_OK;
+}
+
+bb_err_t bb_serialize_meta_openapi_fragment(const bb_serialize_desc_t      *desc,
+                                             const bb_serialize_desc_meta_t *meta,
+                                             char *out, size_t out_size, size_t *out_len)
+{
+    if (out_size == 0) return BB_ERR_NO_SPACE;
+
+    bb_oa_ctx_t ctx = { .buf = out, .cap = out_size - 1, .len = 0, .err = BB_OK };
+
+    bb_oa_puts(&ctx, "{\"type\":\"object\",");
+    bb_oa_write_body(&ctx, desc, meta, false, false);
+    bb_oa_putc(&ctx, '}');
 
     if (ctx.err != BB_OK) {
         out[0] = '\0';

@@ -3,8 +3,9 @@
 // components/bb_health/bb_health_schema_priv.h) correctly splices real
 // producer sections' schema_props in registration order, where each
 // section's schema_props is itself reconstructed from its co-located
-// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-3) via test_meta_fragment.h --
-// never a hand-copied fragment literal.
+// bb_serialize_desc_meta_t (B1-1059 PR-2b-i-3) via
+// bb_serialize_meta_openapi_fragment() -- never a hand-copied fragment
+// literal.
 //
 // SCOPE (narrow, per B1-1181b design): this test registers exactly two real
 // producers (bb_mqtt_client_health_register(), bb_temp_register_info()) in a
@@ -17,17 +18,9 @@
 //
 // Golden construction: each section's schema_props ("{"type":"object",
 // "properties":{...}}") is reconstructed, not hand-copied, by rendering the
-// section's real _desc/_meta pair through bb_serialize_meta_openapi_schema()
-// (the same host meta engine every other B1-1059 golden uses), extracting
-// just the "properties":{...} fragment via
-// test_meta_fragment_extract_properties() (the section-fragment shape-(c)
-// exception, same helper test_bb_mqtt_client_health_section_meta_golden.c
-// and test_bb_temp_health_meta_golden.c already use), and wrapping that
-// fragment back into the bare object shape a bb_health_section_t.schema_props
-// literal actually is (no top-level "required"/"additionalProperties" --
-// those belong to the composite, not the section). Only the wrapping
-// boilerplate ("{"type":"object"," + fragment + "}") is hand-typed here;
-// no field name/type content is duplicated.
+// section's real _desc/_meta pair through bb_serialize_meta_openapi_fragment()
+// (the section-fragment engine mode; same host meta engine every other
+// B1-1059 golden uses). No field name/type content is duplicated.
 #if defined(BB_HEALTH_SECTION_TESTING) && defined(BB_SERIALIZE_META_HOST)
 
 #include "unity.h"
@@ -40,31 +33,21 @@
 
 #include "../../components/bb_health/bb_health_schema_priv.h"
 
-#include "test_meta_fragment.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 // Reconstructs the bare section-object form of a schema_props literal
 // ("{"type":"object","properties":{...}}", no required/additionalProperties)
-// from a section's real desc+meta pair, via the shape-(c) fragment helper.
-// Never hand-copies field content -- only the wrapping literal.
+// from a section's real desc+meta pair, via the section-fragment engine
+// mode. Never hand-copies field content.
 static void build_bare_section_schema(const bb_serialize_desc_t      *desc,
                                        const bb_serialize_desc_meta_t *meta,
                                        char *out, size_t out_size)
 {
-    char   rendered[512];
     size_t n = 0;
     TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_serialize_meta_openapi_schema(desc, meta, rendered, sizeof rendered, &n));
-
-    char props_fragment[512];
-    TEST_ASSERT_TRUE(test_meta_fragment_extract_properties(rendered, props_fragment,
-                                                             sizeof props_fragment));
-
-    int written = snprintf(out, out_size, "{\"type\":\"object\",%s}", props_fragment);
-    TEST_ASSERT_TRUE(written > 0 && (size_t)written < out_size);
+        bb_serialize_meta_openapi_fragment(desc, meta, out, out_size, &n));
 }
 
 // ---------------------------------------------------------------------------
