@@ -202,14 +202,6 @@ const bb_serialize_desc_meta_t bb_ring_diag_meta = {
 // bounded-buffer BB_ERR_NO_SPACE contract instead of silently truncating.
 static char s_ring_diag_schema_buf[sizeof(BB_RING_DIAG_SCHEMA_LITERAL)];
 
-static bb_err_t assemble_schema(void)
-{
-    size_t n = 0;
-    return bb_serialize_meta_openapi_schema(&bb_ring_diag_desc, &bb_ring_diag_meta,
-                                             s_ring_diag_schema_buf,
-                                             sizeof(s_ring_diag_schema_buf), &n);
-}
-
 // Mutable (`.data`, not `.rodata`) with this config on -- `.schema` starts
 // NULL and is patched in once by bb_ring_diag_register() (or the test
 // accessor below) before the route is ever registered/served.
@@ -229,16 +221,18 @@ static const bb_route_response_t s_ring_diag_describe_responses[] = {
 
 // Shared compose-and-patch step, called from both bb_ring_diag_register()
 // and the test accessor below: idempotent (a second call is a
-// pointer-stable no-op once `.schema` is set) and fail-loud (propagates
-// assemble_schema()'s rc without ever patching a partial/NULL schema in).
+// pointer-stable no-op, guarded by bb_serialize_meta_ensure_composed()'s
+// buf[0] sentinel) and fail-loud (propagates the composer's rc without
+// ever patching a partial/NULL schema in).
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
 static bb_err_t ensure_schema_patched(void)
 {
-    if (!s_ring_diag_describe_responses[0].schema) {
-        bb_err_t rc = assemble_schema();
-        if (rc != BB_OK) return rc;  // fail loud -- never register a NULL/partial schema
-        s_ring_diag_describe_responses[0].schema = s_ring_diag_schema_buf;
-    }
+    bb_err_t rc = bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                                      &bb_ring_diag_desc, &bb_ring_diag_meta,
+                                                      s_ring_diag_schema_buf,
+                                                      sizeof(s_ring_diag_schema_buf));
+    if (rc != BB_OK) return rc;  // fail loud -- never register a NULL/partial schema
+    s_ring_diag_describe_responses[0].schema = s_ring_diag_schema_buf;
     return BB_OK;
 }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
