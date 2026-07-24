@@ -4074,6 +4074,7 @@ void test_bb_diag_storage_nvs_iter_enc_name_out_of_range_falls_back_to_blob(void
 void test_bb_diag_storage_nvs_iter_null_dst_returns_invalid_arg(void);
 void test_bb_diag_storage_nvs_iter_null_row_count_returns_invalid_arg(void);
 void test_bb_diag_storage_nvs_desc_fits_scratch(void);
+void test_bb_diag_storage_nvs_describe_schema_is_unchanged_const_literal(void);
 
 // Forward declarations from test_bb_diag_meminfo.c
 void test_bb_diag_meminfo_fill_rejects_null_dst(void);
@@ -5843,6 +5844,7 @@ int main(void) {
     RUN_TEST(test_bb_diag_storage_nvs_iter_null_dst_returns_invalid_arg);
     RUN_TEST(test_bb_diag_storage_nvs_iter_null_row_count_returns_invalid_arg);
     RUN_TEST(test_bb_diag_storage_nvs_desc_fits_scratch);
+    RUN_TEST(test_bb_diag_storage_nvs_describe_schema_is_unchanged_const_literal);
 
     // bb_diag_meminfo tests
     RUN_TEST(test_bb_diag_meminfo_fill_rejects_null_dst);

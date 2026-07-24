@@ -107,7 +107,9 @@ typedef struct {
     // void *` here because bb_diag stays bb_http-free (B1-1153's HTTP-free
     // split; see this component's CMakeLists.txt). PRODUCER-OWNED
     // static-const describe-only route (handler=NULL, .rodata/flash, never
-    // DRAM) -- makes GET /api/diag/<name> visible to bb_openapi_emit()
+    // DRAM) -- except a producer opting into CONFIG_BB_OPENAPI_RUNTIME_META,
+    // which patches .schema once at init (mutable .data) before serving --
+    // makes GET /api/diag/<name> visible to bb_openapi_emit()
     // without registering a live handler. The ESP-IDF dispatcher
     // (bb_diag_sections_init(), platform/espidf/bb_diag_http/
     // bb_diag_http_section_dispatch.c, which DOES see bb_http_server.h)
