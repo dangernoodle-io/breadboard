@@ -421,26 +421,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "191",
-      "path": "platform/host/bb_mdns/bb_mdns_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "192",
-      "path": "platform/host/bb_mdns/bb_mdns_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "193",
-      "path": "platform/host/bb_mdns/bb_mdns_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "194",
-      "path": "platform/host/bb_mdns/bb_mdns_host.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "210",
       "path": "platform/host/bb_mdns/bb_mdns_host.c",
       "type": "uncovered_line"

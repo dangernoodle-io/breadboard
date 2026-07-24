@@ -114,19 +114,15 @@ typedef struct {
  * duration of the callback — consumers that need to retain TXT records
  * must copy them. on_removed fires with the inlined instance_name only.
  *
- * Freshness: IDF's mDNS browser only invokes its notify callback on PTR
- * state changes (initial discovery, removal). Active advertisers
- * re-announcing with the same TTL are silently absorbed by IDF's cache,
- * so on_peer would NEVER fire again for stable peers without
- * intervention. To surface "still alive", bb_mdns periodically deletes +
- * re-creates each browse subscription (interval set by
- * CONFIG_BB_MDNS_BROWSE_REFRESH_INTERVAL_S, default 60s, 0 disables);
- * each refresh reissues a PTR query and produces fresh on_peer
- * notifications for any responder. Peers that don't reply within the
- * new query window fire on_removed before any subsequent on_peer; this
- * is normal refresh churn, not a real disconnect. Consumers needing
- * finer freshness can layer their own bb_mdns_query_txt / per-peer
- * probe on top. */
+ * Freshness: bb_mdns uses a persistent browse only — mDNS delivers on_peer
+ * solely on a genuine PTR join and on_removed solely on a goodbye (TTL==0).
+ * A peer that silently disappears without sending a goodbye is invisible to
+ * mDNS; there is no periodic refresh to surface "still alive" or expire a
+ * stale peer. bb_cache's ts_ms age-out is the SOLE liveness/expiration
+ * mechanism for peers tracked from these callbacks — consumers must not
+ * rely on mDNS itself to detect a silently-vanished peer. Consumers needing
+ * finer freshness can layer their own bb_mdns_query_txt / per-peer probe
+ * on top. */
 typedef void (*bb_mdns_peer_cb)(const bb_mdns_peer_t *peer, void *ctx);
 typedef void (*bb_mdns_peer_removed_cb)(const char *instance_name, void *ctx);
 

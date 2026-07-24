@@ -8,9 +8,11 @@
 //
 // Keying: entries are keyed "<key_prefix><instance_name>" (prefix default
 // "miner."). instance_name is bb_mdns's stable browse identity, but the
-// bye/on_removed callback does NOT drive a delete -- see the on_bye comment
-// in the ESP-IDF glue for why (browse-refresh churn, not a reliable
-// goodbye). hostname/ip4/port live in the PAYLOAD (bb_mdns_cache_entry_t)
+// bye/on_removed callback does NOT drive a delete -- on_removed fires on a
+// genuine ttl==0 goodbye (reliable), but eviction rides the single AGE_OUT
+// authority (bb_cache ts_ms age-out) rather than deletion-on-goodbye. That
+// model was never architecturally adopted — not because goodbye is unreliable.
+// hostname/ip4/port live in the PAYLOAD (bb_mdns_cache_entry_t)
 // for display, not in the key.
 //
 // Concurrency: no locks of its own -- bb_cache's per-entry lock serializes

@@ -189,6 +189,39 @@ void test_bb_mdns_dispatch_removed_null_cb_no_crash(void)
     bb_mdns_browse_stop("_acme", "_tcp");
 }
 
+/* browse_start is documented as idempotent: re-registering for the same
+ * service/proto must update the existing slot's callbacks/ctx in place
+ * (not allocate a second slot) — verified by dispatching after the second
+ * registration and confirming the NEW callback fires. */
+void test_bb_mdns_browse_start_updates_existing_subscription(void)
+{
+    s_peer_fired = 0;
+    s_last_port  = 0;
+
+    bb_err_t first = bb_mdns_browse_start("_acme", "_tcp", NULL, NULL, NULL);
+    TEST_ASSERT_EQUAL(BB_OK, first);
+
+    bb_err_t second = bb_mdns_browse_start("_acme", "_tcp", test_peer_cb, NULL, NULL);
+    TEST_ASSERT_EQUAL(BB_OK, second);
+
+    bb_mdns_peer_t peer = {
+        .id = {
+            .instance_name = "acme-device-02",
+            .hostname      = "acme2.local",
+            .ip4           = "192.168.1.11",
+            .port          = 4243,
+        },
+        .txt       = NULL,
+        .txt_count = 0,
+    };
+    bb_err_t err = bb_mdns_host_dispatch_peer("_acme", "_tcp", &peer);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(1, s_peer_fired);
+    TEST_ASSERT_EQUAL(4243, s_last_port);
+
+    bb_mdns_browse_stop("_acme", "_tcp");
+}
+
 void test_bb_mdns_dispatch_no_subscription_returns_ok(void)
 {
     bb_mdns_peer_t peer = {0};

@@ -23,23 +23,6 @@ config BB_MDNS_HOSTNAME_MAX
         ≤17 chars (e.g. "tdongles3-1.local"); the default of 32 is
         sufficient.  Raise to 64 only if your hostnames exceed 31 chars.
 
-config BB_MDNS_BROWSE_REFRESH_INTERVAL_S
-    int "Periodic browse-refresh interval (seconds, 0 disables)"
-    default 60
-    range 0 3600
-    help
-        IDF's mDNS browser only fires the notify callback on PTR
-        state changes (add / remove). Active advertisers re-announcing
-        with the same TTL are silently refreshed in IDF's cache, so
-        consumers never see a "still alive" event for stable peers and
-        their last-seen timestamps stagnate.
-
-        At this interval, bb_mdns deletes and re-creates each active
-        browse subscription, forcing a fresh PTR scan. Any responder
-        produces a fresh add notification; any peer that doesn't reply
-        in the new query window fires its removal callback first.
-        Set to 0 to disable the periodic refresh.
-
 config BB_MDNS_EVT_POOL_SIZE
     int "Notifier event pool size"
     default 8
@@ -76,8 +59,7 @@ config BB_MDNS_BATCH_MAX
 
         Lowering this on small-heap boards reclaims BSS and heap at the cost
         of more frequent flushes into the ring — any peers that overflow both
-        the batch and the ring within a single refresh burst are dropped and
-        recovered on the next periodic browse refresh (~60 s).
+        the batch and the ring within a single burst are dropped.
 
 config BB_MDNS_BATCH_RING_DEPTH
     int "mDNS dispatch ring capacity (bb_queue drop-new)"
@@ -101,7 +83,7 @@ config BB_MDNS_BATCH_RING_DEPTH
         The ring uses BB_QUEUE_REJECT_NEW: when full the 50 ms flush timer
         re-arms and retries the SAME batch on the next tick (the batch is
         not cleared on a failed push).  Raise if your network produces more
-        than BB_MDNS_BATCH_RING_DEPTH burst-separated refresh cycles before
+        than BB_MDNS_BATCH_RING_DEPTH burst-separated discovery/PTR-scan cycles before
         the dispatch task can drain.
 
         PSRAM-axis DERIVE (B1-435): default 4 on SPIRAM boards (ring lives

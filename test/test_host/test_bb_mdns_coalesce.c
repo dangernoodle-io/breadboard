@@ -76,7 +76,7 @@ void test_coalesce_n_peers_single_flush(void)
     coalesce_setUp();
     bb_mdns_browse_start("_acme", "_tcp", capture_peer_cb, NULL, NULL);
 
-    /* Append 6 peers (simulating a browse-refresh burst). */
+    /* Append 6 peers (simulating a burst of peers from a single browse scan). */
     for (int i = 0; i < 6; i++) {
         char name[BB_MDNS_INSTANCE_NAME_MAX];
         char ip[BB_MDNS_IP4_MAX];
