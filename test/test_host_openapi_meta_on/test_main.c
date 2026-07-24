@@ -227,6 +227,17 @@ void test_bb_ota_validator_partitions_wire_schema_offline_on_compose_failure(voi
 void test_bb_ota_validator_partitions_wire_schema_matches_expected_content(void);
 void test_bb_ota_validator_partitions_wire_schema_idempotent_pointer_stable(void);
 
+// From test_bb_diag_http_boot_wire_route_wiring.c (B1-1059 emit boot) --
+// GET /api/diag/boot's REST envelope compose site, distinct buffer/symbols
+// from the "diag.boot" SSE topic-schema compose site
+// (test_bb_diag_boot_topic_schema_* above, components/bb_diag/
+// bb_diag_boot_wire.c).
+void test_bb_diag_http_boot_wire_schema_offline_on_compose_failure(void);
+void test_bb_diag_http_boot_wire_schema_offline_on_prefix_too_small(void);
+void test_bb_diag_http_boot_wire_schema_offline_on_suffix_too_small(void);
+void test_bb_diag_http_boot_wire_schema_matches_expected_content(void);
+void test_bb_diag_http_boot_wire_schema_idempotent_pointer_stable(void);
+
 void setUp(void) {}
 
 // Defensive belt-and-suspenders for the BB_SERIALIZE_META_TESTING
@@ -436,6 +447,11 @@ int main(void)
     RUN_TEST(test_bb_ota_validator_partitions_wire_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_ota_validator_partitions_wire_schema_matches_expected_content);
     RUN_TEST(test_bb_ota_validator_partitions_wire_schema_idempotent_pointer_stable);
+    RUN_TEST(test_bb_diag_http_boot_wire_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_diag_http_boot_wire_schema_offline_on_prefix_too_small);
+    RUN_TEST(test_bb_diag_http_boot_wire_schema_offline_on_suffix_too_small);
+    RUN_TEST(test_bb_diag_http_boot_wire_schema_matches_expected_content);
+    RUN_TEST(test_bb_diag_http_boot_wire_schema_idempotent_pointer_stable);
 
     return UNITY_END();
 }

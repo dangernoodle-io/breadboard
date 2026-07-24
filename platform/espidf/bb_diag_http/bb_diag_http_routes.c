@@ -13,6 +13,7 @@
 #include "bb_cache.h"
 #include "bb_diag_boot_wire.h"
 #include "bb_diag_event_priv.h"
+#include "../../../components/bb_diag_http/bb_diag_http_boot_wire_priv.h"
 #include "../../../components/bb_diag_http/bb_diag_heap_check_wire_priv.h"
 #include "../../../components/bb_diag_http/bb_diag_panic_get_wire_priv.h"
 #include "../../../components/bb_diag_http/bb_diag_sockets_get_wire_priv.h"
@@ -298,39 +299,19 @@ static bb_err_t boot_delete_handler(bb_http_request_t *req)
     return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
-static const bb_route_response_t s_boot_get_responses[] = {
-    { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"ts_ms\":{\"type\":\"integer\"},"
-      "\"data\":{\"type\":\"object\","
-      "\"properties\":{"
-      "\"reset_reason\":{\"type\":\"string\"},"
-      "\"wdt_resets\":{\"type\":\"integer\"},"
-      "\"panic\":{\"type\":\"object\","
-      "\"properties\":{"
-      "\"available\":{\"type\":\"boolean\"},"
-      "\"boots_since\":{\"type\":\"integer\"}},"
-      "\"required\":[\"available\"]},"
-      "\"pending_verify\":{\"type\":\"boolean\"},"
-      "\"rolled_back\":{\"type\":\"boolean\"},"
-      "\"reboot_reason\":{\"type\":\"object\","
-      "\"properties\":{"
-      "\"source\":{\"type\":\"string\"},"
-      "\"detail\":{\"type\":\"string\"},"
-      "\"uptime_s\":{\"type\":\"integer\"},"
-      "\"epoch_s\":{\"type\":\"integer\"},"
-      "\"age_s\":{\"type\":\"integer\"}},"
-      "\"required\":[\"source\",\"uptime_s\",\"epoch_s\"]},"
-      "\"reboot_history\":{\"type\":\"array\",\"items\":{\"type\":\"object\","
-      "\"properties\":{"
-      "\"source\":{\"type\":\"string\"},"
-      "\"epoch_s\":{\"type\":\"integer\"},"
-      "\"uptime_s\":{\"type\":\"integer\"}},"
-      "\"required\":[\"source\",\"epoch_s\",\"uptime_s\"]}}},"
-      "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\",\"pending_verify\",\"rolled_back\","
-      "\"reboot_reason\",\"reboot_history\"]}},"
-      "\"required\":[\"ts_ms\",\"data\"]}",
+// GET /api/diag/boot response schema literal -- shared via
+// BB_DIAG_BOOT_GET_SCHEMA_LITERAL (bb_diag_http_boot_wire_priv.h, B1-1059
+// emit boot) so this config-OFF table and bb_diag_http_boot_wire.c's
+// config-OFF accessor can never desync (config OFF returns that same
+// literal unchanged; config ON returns a runtime-composed buffer -- see
+// bb_diag_http_boot_wire_get_schema()'s own doc comment).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Mutable (`.data`, not `.rodata`) with this config on -- `.schema` starts
+// NULL and is patched in once by bb_diag_routes_init() before this route is
+// ever registered/served.
+static bb_route_response_t s_boot_get_responses[] = {
+    { 200, "application/json", NULL /* patched at init */,
       "BREAKING (B1-1053 PR1): response root changed from a bare object to the "
       "{ts_ms,data} envelope -- \\\"data\\\" carries exactly the fields this route "
       "used to emit at the root. ts_ms is the wall-clock time (ms) this response "
@@ -347,6 +328,30 @@ static const bb_route_response_t s_boot_get_responses[] = {
       "(source=\\\"unknown\\\"); unlike reboot_reason it is NOT cleared on read." },
     { 0 },
 };
+
+#else
+
+static const bb_route_response_t s_boot_get_responses[] = {
+    { 200, "application/json",
+      BB_DIAG_BOOT_GET_SCHEMA_LITERAL,
+      "BREAKING (B1-1053 PR1): response root changed from a bare object to the "
+      "{ts_ms,data} envelope -- \\\"data\\\" carries exactly the fields this route "
+      "used to emit at the root. ts_ms is the wall-clock time (ms) this response "
+      "was rendered, NOT a sample time (bb_data has no notion of one for this key). "
+      "data.reset_reason/wdt_resets/panic/pending_verify/rolled_back: current boot "
+      "reset reason, WDT-reset count, panic availability, OTA state summary. "
+      "data.reboot_reason is the semantic reboot_reason SSOT (may disagree with "
+      "hardware reset_reason — e.g. an app-requested reboot still reports "
+      "reset_reason=\\\"software\\\" at the hardware level while reboot_reason.source "
+      "names the app-level cause; source=\\\"unknown\\\" when no semantic record was "
+      "captured for this boot). age_s is omitted when epoch_s is 0 or the current "
+      "wall clock is not NTP-synced. data.reboot_history is a rolling ring of the "
+      "last 8 reboots, newest-first, including untagged/hardware resets "
+      "(source=\\\"unknown\\\"); unlike reboot_reason it is NOT cleared on read." },
+    { 0 },
+};
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 static const bb_route_t s_boot_get_route = {
     .method    = BB_HTTP_GET,
@@ -957,6 +962,14 @@ static const bb_route_t s_sockets_get_route = {
 bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
+
+    // Compose (config ON only) before registering -- see the panic-get site
+    // below for the full rationale (mirrored here).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t boot_get_schema_rc = bb_diag_http_boot_wire_ensure_schema_patched();
+    if (boot_get_schema_rc != BB_OK) return boot_get_schema_rc;
+    s_boot_get_responses[0].schema = bb_diag_http_boot_wire_get_schema();
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     bb_err_t err = bb_http_register_described_route(server, &s_boot_get_route);
     if (err != BB_OK) return err;
