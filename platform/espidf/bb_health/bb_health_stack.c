@@ -89,17 +89,21 @@ bb_err_t bb_health_stack_monitor_start(void)
 // Public init (called by bb_health_init after the HTTP server is up)
 // ---------------------------------------------------------------------------
 
-static const char k_health_stack_schema[] =
-    "{\"title\":\"HealthStack\",\"x-sse-topic\":\"health.stack\",\"type\":\"object\","
-    "\"properties\":{"
-    "\"task\":{\"type\":\"string\"},"
-    "\"free_bytes\":{\"type\":\"integer\"},"
-    "\"low\":{\"type\":\"boolean\"}},"
-    "\"required\":[\"task\",\"free_bytes\",\"low\"]}";
-
+// SSE topic schema for "health.stack" (B1-1059 SSE batch PR-3): the hand
+// literal moved to bb_health_stack_wire.c (relocation, see its own banner)
+// -- config-OFF this register call serves that literal unchanged; config-ON,
+// ensure the schema is composed first (fail-loud) before serving the
+// runtime-composed buffer.
 bb_err_t bb_health_stack_monitor_init(void)
 {
-    bb_openapi_register_topic_schema(BB_HEALTH_STACK_TOPIC, k_health_stack_schema, "HealthStack");
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t schema_rc = bb_health_stack_ensure_schema_patched();
+    if (schema_rc != BB_OK) {
+        bb_log_w(TAG, "health.stack schema compose failed: %d", (int)schema_rc);
+        return schema_rc;
+    }
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+    bb_openapi_register_topic_schema(BB_HEALTH_STACK_TOPIC, bb_health_stack_get_schema(), "HealthStack");
 
     // Publish initial retained snapshot so a bb_data consumer reading before
     // the first low-stack transition sees a sane baseline state (no low

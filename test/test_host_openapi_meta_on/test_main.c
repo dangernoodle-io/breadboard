@@ -82,6 +82,26 @@ void test_bb_sensor_http_wire_assemble_thermal_schema_offline_on_compose_failure
 void test_bb_sensor_http_wire_assemble_thermal_schema_patches_matching_content(void);
 void test_bb_sensor_http_wire_assemble_thermal_schema_idempotent_pointer_stable(void);
 
+// From test_bb_diag_boot_topic_wiring.c (B1-1059 SSE batch PR-3)
+void test_bb_diag_boot_topic_schema_offline_on_compose_failure(void);
+void test_bb_diag_boot_topic_schema_matches_expected_content(void);
+void test_bb_diag_boot_topic_schema_idempotent_pointer_stable(void);
+
+// From test_bb_health_stack_topic_wiring.c (B1-1059 SSE batch PR-3)
+void test_bb_health_stack_topic_schema_offline_on_compose_failure(void);
+void test_bb_health_stack_topic_schema_matches_expected_content(void);
+void test_bb_health_stack_topic_schema_idempotent_pointer_stable(void);
+
+// From test_bb_log_event_line_topic_wiring.c (B1-1059 SSE batch PR-3)
+void test_bb_log_event_line_topic_schema_offline_on_compose_failure(void);
+void test_bb_log_event_line_topic_schema_matches_expected_content(void);
+void test_bb_log_event_line_topic_schema_idempotent_pointer_stable(void);
+
+// From test_bb_ota_hooks_topic_wiring.c (B1-1059 SSE batch PR-3)
+void test_bb_ota_hooks_topic_schema_offline_on_compose_failure(void);
+void test_bb_ota_hooks_topic_schema_matches_expected_content(void);
+void test_bb_ota_hooks_topic_schema_idempotent_pointer_stable(void);
+
 // From test_bb_serialize_meta_openapi_test_seam.c
 void test_bb_serialize_meta_openapi_schema_force_no_space(void);
 void test_bb_serialize_meta_openapi_fragment_force_no_space(void);
@@ -211,6 +231,22 @@ int main(void)
     RUN_TEST(test_bb_sensor_http_wire_assemble_thermal_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_sensor_http_wire_assemble_thermal_schema_patches_matching_content);
     RUN_TEST(test_bb_sensor_http_wire_assemble_thermal_schema_idempotent_pointer_stable);
+
+    RUN_TEST(test_bb_diag_boot_topic_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_diag_boot_topic_schema_matches_expected_content);
+    RUN_TEST(test_bb_diag_boot_topic_schema_idempotent_pointer_stable);
+
+    RUN_TEST(test_bb_health_stack_topic_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_health_stack_topic_schema_matches_expected_content);
+    RUN_TEST(test_bb_health_stack_topic_schema_idempotent_pointer_stable);
+
+    RUN_TEST(test_bb_log_event_line_topic_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_log_event_line_topic_schema_matches_expected_content);
+    RUN_TEST(test_bb_log_event_line_topic_schema_idempotent_pointer_stable);
+
+    RUN_TEST(test_bb_ota_hooks_topic_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_ota_hooks_topic_schema_matches_expected_content);
+    RUN_TEST(test_bb_ota_hooks_topic_schema_idempotent_pointer_stable);
 
     RUN_TEST(test_bb_serialize_meta_openapi_schema_force_no_space);
     RUN_TEST(test_bb_serialize_meta_openapi_fragment_force_no_space);

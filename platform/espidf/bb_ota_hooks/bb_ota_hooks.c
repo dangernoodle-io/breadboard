@@ -251,19 +251,22 @@ void bb_ota_hooks_test_reset(void)
 
 #ifdef ESP_PLATFORM
 
-static const char k_ota_progress_schema[] =
-    "{\"title\":\"OtaProgress\",\"x-sse-topic\":\"ota.progress\",\"type\":\"object\","
-    "\"properties\":{"
-    "\"via\":{\"type\":\"string\"},"
-    "\"state\":{\"type\":\"string\","
-    "\"enum\":[\"start\",\"progress\",\"success\",\"fail\",\"unknown\"]},"
-    "\"pct\":{\"type\":\"integer\"}},"
-    "\"required\":[\"via\",\"state\",\"pct\"]}";
-
+// SSE topic schema for "ota.progress" (B1-1059 SSE batch PR-3): the hand
+// literal moved to bb_ota_hooks_wire.c (relocation, see its own banner) --
+// config-OFF this register call serves that literal unchanged; config-ON,
+// ensure the schema is composed first (fail-loud) before serving the
+// runtime-composed buffer.
 bb_err_t bb_ota_hooks_init(bb_http_handle_t server)
 {
     (void)server;
-    bb_openapi_register_topic_schema("ota.progress", k_ota_progress_schema, "OtaProgress");
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t schema_rc = bb_ota_hooks_ensure_schema_patched();
+    if (schema_rc != BB_OK) {
+        bb_log_w(TAG, "ota.progress schema compose failed: %d", (int)schema_rc);
+        return schema_rc;
+    }
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+    bb_openapi_register_topic_schema("ota.progress", bb_ota_hooks_get_schema(), "OtaProgress");
     return BB_OK;
 }
 

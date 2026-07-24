@@ -53,3 +53,54 @@ const bb_serialize_desc_meta_t bb_ota_hooks_wire_meta = {
 };
 
 #endif /* BB_SERIALIZE_META_SHIP */
+
+// ---------------------------------------------------------------------------
+// SSE topic schema for "ota.progress" (B1-1059 SSE batch PR-3). Config OFF
+// (default) keeps the pre-existing hand-authored literal, byte-identical --
+// RELOCATED here verbatim from platform/espidf/bb_ota_hooks/bb_ota_hooks.c
+// (a pure relocation: same const data, served identically, no new runtime-
+// compose symbols in this build variant). Config ON composes it at init
+// from bb_ota_hooks_wire_desc/bb_ota_hooks_wire_meta via bb_serialize_meta_
+// ensure_topic_schema() -- see bb_ota_hooks_ensure_schema_patched() below.
+// The composed body picks up a top-level "additionalProperties":false the
+// hand literal never had (the meta engine always closes every rendered
+// object) -- a genuine config-ON tightening, consistent with every other
+// B1-1059 compose-at-init site; config-OFF ships the untouched literal.
+// ---------------------------------------------------------------------------
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+// Sized with headroom over the golden-proven composed body (test_bb_ota_
+// hooks_wire_meta_golden.c's expected body is well under 300 bytes; the
+// "OtaProgress"/"ota.progress" title+topic prefix adds another ~50 bytes)
+// -- any future desync trips bb_serialize_meta_openapi_schema()'s own
+// bounded-buffer BB_ERR_NO_SPACE contract instead of silently truncating.
+static char s_ota_hooks_schema_buf[512];
+#else
+static const char k_ota_progress_schema[] =
+    "{\"title\":\"OtaProgress\",\"x-sse-topic\":\"ota.progress\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"via\":{\"type\":\"string\"},"
+    "\"state\":{\"type\":\"string\","
+    "\"enum\":[\"start\",\"progress\",\"success\",\"fail\",\"unknown\"]},"
+    "\"pct\":{\"type\":\"integer\"}},"
+    "\"required\":[\"via\",\"state\",\"pct\"]}";
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_ota_hooks_ensure_schema_patched(void)
+{
+    return bb_serialize_meta_ensure_topic_schema(bb_serialize_meta_openapi_schema,
+                                                  &bb_ota_hooks_wire_desc, &bb_ota_hooks_wire_meta,
+                                                  "OtaProgress", "ota.progress",
+                                                  s_ota_hooks_schema_buf,
+                                                  sizeof(s_ota_hooks_schema_buf));
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+const char *bb_ota_hooks_get_schema(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return s_ota_hooks_schema_buf;
+#else
+    return k_ota_progress_schema;
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+}

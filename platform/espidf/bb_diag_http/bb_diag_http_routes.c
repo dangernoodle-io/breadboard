@@ -978,33 +978,21 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
         }
     }
 
-    // Publish the initial snapshot and register the OpenAPI schema for the
-    // "diag.boot" bb_data key.
+    // Register the OpenAPI schema for the "diag.boot" bb_data key, then
+    // publish the initial snapshot. Compose-then-register (B1-1059 SSE batch
+    // PR-3): the hand literal moved to bb_diag_boot_wire.c (relocation, see
+    // its own banner) -- config-OFF this register call serves that literal
+    // unchanged; config-ON, ensure the schema is composed first (fail-loud)
+    // before serving the runtime-composed buffer.
     {
-        static const char k_diag_boot_schema[] =
-            "{\"title\":\"DiagBoot\",\"x-sse-topic\":\"diag.boot\",\"type\":\"object\","
-            "\"properties\":{"
-            "\"reset_reason\":{\"type\":\"string\"},"
-            "\"wdt_resets\":{\"type\":\"integer\"},"
-            "\"panic\":{\"type\":\"object\",\"properties\":{"
-            "\"available\":{\"type\":\"boolean\"},"
-            "\"boots_since\":{\"type\":\"integer\"}}},"
-            "\"pending_verify\":{\"type\":\"boolean\"},"
-            "\"rolled_back\":{\"type\":\"boolean\"},"
-            "\"reboot_reason\":{\"type\":\"object\",\"properties\":{"
-            "\"source\":{\"type\":\"string\"},"
-            "\"detail\":{\"type\":\"string\"},"
-            "\"uptime_s\":{\"type\":\"integer\"},"
-            "\"epoch_s\":{\"type\":\"integer\"},"
-            "\"age_s\":{\"type\":\"integer\"}}},"
-            "\"reboot_history\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{"
-            "\"source\":{\"type\":\"string\"},"
-            "\"epoch_s\":{\"type\":\"integer\"},"
-            "\"uptime_s\":{\"type\":\"integer\"}}}}},"
-            "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\","
-            "\"pending_verify\",\"rolled_back\",\"reboot_reason\",\"reboot_history\"]}";
-
-        bb_openapi_register_topic_schema(BB_DIAG_BOOT_TOPIC, k_diag_boot_schema, "DiagBoot");
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+        bb_err_t schema_rc = bb_diag_boot_ensure_schema_patched();
+        if (schema_rc != BB_OK) {
+            bb_log_w(TAG, "diag.boot schema compose failed: %d", (int)schema_rc);
+            return schema_rc;
+        }
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+        bb_openapi_register_topic_schema(BB_DIAG_BOOT_TOPIC, bb_diag_boot_get_schema(), "DiagBoot");
 
         // Publish initial retained snapshot and wire the on_validated callback
         // so the snapshot re-touches when the image self-validates.

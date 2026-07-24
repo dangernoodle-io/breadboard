@@ -190,6 +190,74 @@ const bb_serialize_desc_meta_t bb_diag_boot_wire_meta = {
 #endif /* BB_SERIALIZE_META_SHIP */
 
 // ---------------------------------------------------------------------------
+// SSE topic schema for "diag.boot" (B1-1059 SSE batch PR-3). Config OFF
+// (default) keeps the pre-existing hand-authored literal, byte-identical --
+// RELOCATED here verbatim from platform/espidf/bb_diag_http/bb_diag_http_
+// routes.c (a pure relocation: same const data, served identically, no new
+// runtime-compose symbols in this build variant). Config ON composes it at
+// init from bb_diag_boot_wire_desc/bb_diag_boot_wire_meta via bb_serialize_
+// meta_ensure_topic_schema() -- see bb_diag_boot_ensure_schema_patched()
+// below. The composed body picks up nested "required"/"additionalProperties
+// ":false on panic/reboot_reason/reboot_history.items the hand literal
+// never had (the meta engine always closes every rendered object) -- a
+// genuine config-ON tightening, consistent with every other B1-1059
+// compose-at-init site; config-OFF ships the untouched literal. See
+// bb_diag_boot_wire_meta_golden.c for the full documented-delta accounting.
+// ---------------------------------------------------------------------------
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+// Sized with headroom over the measured composed body: test_bb_diag_boot_
+// topic_wiring.c's k_expected_diag_boot_schema (the full title+topic-
+// prefixed, required-runtime-composed schema) is 963 bytes -- 1280 leaves
+// ~317 bytes of headroom. Any future desync trips bb_serialize_meta_
+// openapi_schema()'s own bounded-buffer BB_ERR_NO_SPACE contract instead
+// of silently truncating.
+static char s_diag_boot_schema_buf[1280];
+#else
+static const char k_diag_boot_schema[] =
+    "{\"title\":\"DiagBoot\",\"x-sse-topic\":\"diag.boot\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"reset_reason\":{\"type\":\"string\"},"
+    "\"wdt_resets\":{\"type\":\"integer\"},"
+    "\"panic\":{\"type\":\"object\",\"properties\":{"
+    "\"available\":{\"type\":\"boolean\"},"
+    "\"boots_since\":{\"type\":\"integer\"}}},"
+    "\"pending_verify\":{\"type\":\"boolean\"},"
+    "\"rolled_back\":{\"type\":\"boolean\"},"
+    "\"reboot_reason\":{\"type\":\"object\",\"properties\":{"
+    "\"source\":{\"type\":\"string\"},"
+    "\"detail\":{\"type\":\"string\"},"
+    "\"uptime_s\":{\"type\":\"integer\"},"
+    "\"epoch_s\":{\"type\":\"integer\"},"
+    "\"age_s\":{\"type\":\"integer\"}}},"
+    "\"reboot_history\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{"
+    "\"source\":{\"type\":\"string\"},"
+    "\"epoch_s\":{\"type\":\"integer\"},"
+    "\"uptime_s\":{\"type\":\"integer\"}}}}},"
+    "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\","
+    "\"pending_verify\",\"rolled_back\",\"reboot_reason\",\"reboot_history\"]}";
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_diag_boot_ensure_schema_patched(void)
+{
+    return bb_serialize_meta_ensure_topic_schema(bb_serialize_meta_openapi_schema,
+                                                  &bb_diag_boot_wire_desc, &bb_diag_boot_wire_meta,
+                                                  "DiagBoot", BB_DIAG_BOOT_TOPIC,
+                                                  s_diag_boot_schema_buf,
+                                                  sizeof(s_diag_boot_schema_buf));
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+const char *bb_diag_boot_get_schema(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return s_diag_boot_schema_buf;
+#else
+    return k_diag_boot_schema;
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+}
+
+// ---------------------------------------------------------------------------
 // Gather
 // ---------------------------------------------------------------------------
 
