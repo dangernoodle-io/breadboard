@@ -6,6 +6,7 @@
 // present, some not) to exercise every present predicate's both branches.
 #include "unity.h"
 #include "bb_wifi_http_diag.h"
+#include "bb_wifi_http_diag_test.h"
 #include "bb_wifi.h"
 #include "bb_wifi_test.h"
 
@@ -254,4 +255,27 @@ void test_bb_wifi_http_diag_desc_fits_scratch(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_diag_register_section(&section));
 
     bb_diag_section_test_reset();
+}
+
+/* ---------------------------------------------------------------------------
+ * CONFIG_BB_OPENAPI_RUNTIME_META OFF (this env's default -- undefined) --
+ * proves the describe route's 200-response schema is still the UNCHANGED
+ * const literal path, byte- AND pointer-identical to bb_wifi_http_diag_schema
+ * (both assigned from the SAME BB_WIFI_HTTP_DIAG_SCHEMA_LITERAL macro
+ * invocation in this SAME translation unit, bb_wifi_http_diag.c -- unlike
+ * bb_diag_meminfo's cross-TU literal, GCC pools identical string literals
+ * WITHIN a single TU, so pointer identity is a stable, toolchain-independent
+ * proof here, same as the storage/nvs pilot). B1-1059 PR-3 batch 2:
+ * config-OFF is a zero-diff no-op.
+ * ---------------------------------------------------------------------------*/
+void test_bb_wifi_http_diag_describe_schema_is_unchanged_const_literal(void)
+{
+    // The for-test assemble is a documented no-op at this config gate (see
+    // bb_wifi_http_diag_test.h) -- still exercised here so the compiled-out
+    // #else arm of bb_wifi_http_diag_assemble_schema_for_test() is covered,
+    // not just the accessor.
+    TEST_ASSERT_EQUAL(BB_OK, bb_wifi_http_diag_assemble_schema_for_test());
+
+    TEST_ASSERT_EQUAL_PTR(bb_wifi_http_diag_schema,
+                           bb_wifi_http_diag_get_describe_schema_for_test());
 }

@@ -38,6 +38,12 @@ void test_bb_ws_server_diag_assemble_schema_offline_on_compose_failure(void);
 void test_bb_ws_server_diag_assemble_schema_patches_matching_content(void);
 void test_bb_ws_server_diag_assemble_schema_idempotent_pointer_stable(void);
 
+// From test_bb_wifi_http_diag_route_wiring.c (B1-1059 PR-3 batch 2)
+void test_bb_wifi_http_diag_describe_schema_starts_null(void);
+void test_bb_wifi_http_diag_assemble_schema_offline_on_compose_failure(void);
+void test_bb_wifi_http_diag_assemble_schema_patches_matching_content(void);
+void test_bb_wifi_http_diag_assemble_schema_idempotent_pointer_stable(void);
+
 // From test_bb_serialize_meta_openapi_test_seam.c
 void test_bb_serialize_meta_openapi_schema_force_no_space(void);
 void test_bb_serialize_meta_openapi_fragment_force_no_space(void);
@@ -104,6 +110,11 @@ int main(void)
     RUN_TEST(test_bb_ws_server_diag_assemble_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_ws_server_diag_assemble_schema_patches_matching_content);
     RUN_TEST(test_bb_ws_server_diag_assemble_schema_idempotent_pointer_stable);
+
+    RUN_TEST(test_bb_wifi_http_diag_describe_schema_starts_null);
+    RUN_TEST(test_bb_wifi_http_diag_assemble_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_wifi_http_diag_assemble_schema_patches_matching_content);
+    RUN_TEST(test_bb_wifi_http_diag_assemble_schema_idempotent_pointer_stable);
 
     RUN_TEST(test_bb_serialize_meta_openapi_schema_force_no_space);
     RUN_TEST(test_bb_serialize_meta_openapi_fragment_force_no_space);
