@@ -18,6 +18,7 @@
 #include "bb_mem.h"
 #include "bb_task.h"
 #include "bb_str.h"
+#include "bb_once.h"
 #include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
@@ -50,11 +51,14 @@ static uint32_t         s_evt_drop_count = 0;
 // exactly once from the single-threaded early-init composition root
 // (bb_mdns_init) and never mutated from mdns_wifi_observer's dispatch
 // context, so (unlike s_pending_start in bb_mqtt_client_espidf.c) they need
-// no atomic/lock. Outlive WiFi cycles. Assumption: single-caller,
-// single-thread-at-init -- the composition root calls bb_mdns_init()
-// exactly once from app_main, never concurrently from multiple tasks (see
-// examples/floor/main/floor_app.c). If that ever changes, this guard needs
-// a lock.
+// no atomic of their own. Outlive WiFi cycles. bb_mdns_init() is documented
+// (composition root calls it exactly once from app_main, see
+// examples/floor/main/floor_app.c) to have a single caller, but as of
+// B1-524 the whole bb_mdns_init() body -- including this block -- now also
+// runs behind bb_once_run_fallible() (see mdns_init_bootstrap()/s_mdns_init_once
+// below, and disp_ensure_started's bb_timer sibling for the identical
+// pattern) for defense-in-depth, so this stays correct even if that
+// single-caller assumption is ever violated.
 static bb_lifecycle_svc_t s_wifi_svc              = BB_LIFECYCLE_SVC_INVALID;
 static bool                s_wifi_observer_attached = false;
 
@@ -252,6 +256,13 @@ static void flush_work_fn(void *arg)
     xSemaphoreGive(s_evt_pool_lock);
 }
 
+// This function itself never surfaces a failure to its caller (logs and
+// returns) -- s_flush_timer staying NULL is a valid transient failure
+// state on its own, but bb_mdns_init()'s mdns_init_bootstrap() predicate
+// (B1-524 review) includes s_flush_timer in its success check specifically
+// so this being-NULL is NOT silently accepted as "mDNS init done": a
+// failed create here now makes the whole bb_mdns_init() bootstrap retry on
+// the next call, same as every other resource in the cascade.
 static void flush_timer_ensure_created(void)
 {
     if (s_flush_timer) return;
@@ -954,7 +965,33 @@ static void mdns_wifi_observer(const bb_lifecycle_event_t *evt, void *user)
     }
 }
 
-void bb_mdns_init(void)
+// bb_mdns_init() bootstrap gate (B1-524) -- serializes the whole init body
+// below for defense-in-depth against a concurrent caller, on top of (not
+// replacing) the documented single-caller contract noted at s_wifi_svc's
+// declaration above.
+//
+// An earlier revision of this fix guarded a separate bb_lock_t here via a
+// plain bb_once_run() (mirroring bb_lifecycle_async.c's pattern). That
+// reproduces the exact same permanent-latch bug one level down: bb_lock_init()
+// itself heap-allocates (xSemaphoreCreateMutex()) and can fail, and
+// bb_once_run() has no failure channel -- it would mark that bootstrap
+// "done" even when bb_lock_init() failed, so every later bb_mdns_init()
+// call would then call bb_lock_lock() on an uninitialized bb_lock_t
+// (dereferences a NULL semaphore -- hard fault) forever. bb_once_run_fallible()
+// (B1-524) replaces that whole layer: no bb_lock_t at all. mdns_init_bootstrap()
+// below runs the (unchanged) bb_mdns_init_locked() cascade directly inside
+// the fallible-once body and reports success only if every critical
+// resource ended up non-NULL; on failure the guard resets to IDLE so the
+// next bb_mdns_init() call genuinely retries. bb_mdns_init_locked() itself
+// is untouched: it is already written as a sequence of independently-
+// guarded `if (!s_X)` lazy-creates, each its own "not done yet" sentinel,
+// so a transient failure partway through (any one step's create call
+// failing) already leaves every later step's sentinel NULL/false and the
+// retry resumes from the failed step, not a cached replay of the old
+// failure.
+static bb_once_t s_mdns_init_once = BB_ONCE_INIT;
+
+static void bb_mdns_init_locked(void)
 {
     // Create mutex and dispatch infrastructure once (outlives WiFi cycles)
     if (!s_subs_mutex) {
@@ -1027,6 +1064,24 @@ void bb_mdns_init(void)
     }
 
     // Create the coalescing flush timer (one-shot, 50 ms window).
+    //
+    // Liveness note (B1-524 review, declined): this call chain
+    // (bb_timer_deferred_oneshot_create -> disp_ensure_started) enters
+    // bb_timer's OWN independent bb_once_run_fallible gate (s_disp_once)
+    // while this function is still running inside bb_mdns's gate
+    // (s_mdns_init_once/mdns_init_bootstrap) -- a new cross-gate coupling
+    // that didn't exist before this migration. Declining to add bounded
+    // trylock+backoff for it: both gates are boot-time, documented-single-
+    // caller composition-root code (bb_mdns_init() -- see s_wifi_svc's
+    // declaration comment above; bb_timer's disp_ensure_started() is first
+    // reached from here or from bb_wifi's own autoinit, both pre-scheduler-
+    // steady-state). The coupling is real (a losing racer on bb_mdns_init()
+    // would wait out both gates back-to-back) but inert in practice --
+    // there is no concurrent caller at boot to observe it, and bb_once_run_
+    // fallible's wait loop is a bounded yield/vTaskDelay(1) spin, not an
+    // unbounded portMAX_DELAY block, so it cannot deadlock even if that
+    // assumption is ever violated. Not worth the added complexity on
+    // boot-only code.
     flush_timer_ensure_created();
 
     // Observe the "wifi" bb_lifecycle service — register FIRST, then check
@@ -1048,6 +1103,80 @@ void bb_mdns_init(void)
         s_wifi_observer_attached = true;
     }
     esp_register_shutdown_handler(bb_mdns_shutdown);
+}
+
+// Number of entries mdns_init_bootstrap()'s `resources[]` predicate array
+// below is expected to hold. Kept as its own named constant (rather than a
+// bare array-length literal) purely for self-documentation; the
+// _Static_assert in mdns_init_bootstrap() below only catches ARRAY-VS-
+// CONSTANT drift (someone bumps this count without adding/removing the
+// matching array entry, or vice versa) -- it is NOT a cascade/predicate
+// arity guard: it has no visibility into bb_mdns_init_locked()'s create
+// steps, so a future resource added there with no matching predicate entry
+// would leave both this constant and the array at their old (now
+// incomplete) count and the assert would still pass. Whoever adds a new
+// lazily-created resource to bb_mdns_init_locked() MUST manually add it to
+// `resources[]` below (and bump this constant) -- this is a reminder, not
+// an enforcement mechanism.
+//
+// This gap is exactly how s_flush_timer fell out of this predicate the
+// first time (B1-524 review): flush_timer_ensure_created() only logs a
+// warning on failure and never surfaces an error, so a transient
+// flush-timer create failure alongside 9 otherwise-successful creates used
+// to make mdns_init_bootstrap() report success anyway, permanently
+// latching DONE with coalescing silently disabled forever
+// (batch_append_locked()'s `if (s_flush_timer)` arm never true again) --
+// exactly the permanent-latch-of-transient-failure bug class B1-524 exists
+// to fix, one resource below the fix's own boundary. There is no valid
+// config where s_flush_timer is intentionally absent (coalescing has no
+// disable knob); it is now included below.
+#define BB_MDNS_INIT_BOOTSTRAP_RESOURCE_COUNT 10
+
+// bb_once_run_fallible() body for bb_mdns_init() (see s_mdns_init_once's
+// declaration comment above). Runs the unchanged bb_mdns_init_locked()
+// cascade, then reports success only if every CRITICAL dispatch/query/
+// flush resource it creates ended up non-NULL -- the same per-resource
+// sentinels bb_mdns_init_locked() already checks internally, re-checked
+// here as the fallible-once's defense-in-depth success signal.
+// s_wifi_observer_attached (the lifecycle-observer registration) is
+// deliberately excluded: it is not a heap resource, already has its own
+// always-latches-true semantics by design (see its declaration comment),
+// and a lifecycle_find()/observe_async() failure there only degrades
+// wifi-driven mDNS start/stop, it does not leave the dispatch/query/flush
+// infra unusable -- gating a full bootstrap retry on it would re-run the
+// whole cascade for a condition that's already permanent by its own
+// contract.
+static bool mdns_init_bootstrap(void *ctx)
+{
+    (void)ctx;
+    bb_mdns_init_locked();
+
+    void *const resources[] = {
+        s_subs_mutex, s_lifecycle_mutex, s_evt_pool_lock, s_ring_sem,
+        s_batch_ring, s_dispatch_item, s_dispatch_task, s_query_queue,
+        s_query_task, s_flush_timer,
+    };
+    // Array/constant self-consistency ONLY (see BB_MDNS_INIT_BOOTSTRAP_
+    // RESOURCE_COUNT's declaration comment above for what this does NOT
+    // catch): fails if resources[]'s element count and the constant are
+    // edited out of lockstep with each other.
+    _Static_assert(sizeof(resources) / sizeof(resources[0]) ==
+                       BB_MDNS_INIT_BOOTSTRAP_RESOURCE_COUNT,
+                   "resources[]'s entry count must match "
+                   "BB_MDNS_INIT_BOOTSTRAP_RESOURCE_COUNT -- update both "
+                   "together (see the comment above "
+                   "BB_MDNS_INIT_BOOTSTRAP_RESOURCE_COUNT; note this "
+                   "assert does NOT verify every bb_mdns_init_locked() "
+                   "resource is actually present in resources[])");
+    for (size_t i = 0; i < sizeof(resources) / sizeof(resources[0]); i++) {
+        if (!resources[i]) return false;
+    }
+    return true;
+}
+
+void bb_mdns_init(void)
+{
+    bb_once_run_fallible(&s_mdns_init_once, mdns_init_bootstrap, NULL);
 }
 
 void bb_mdns_set_hostname(const char *hostname)

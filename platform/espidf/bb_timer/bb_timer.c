@@ -3,6 +3,7 @@
 #include "bb_mem.h"
 #include "bb_task.h"
 #include "bb_wdt.h"
+#include "bb_once.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -71,6 +72,27 @@ typedef struct {
 static QueueHandle_t s_disp_queue = NULL;
 static TaskHandle_t  s_disp_task  = NULL;
 
+// s_disp_queue/s_disp_task bootstrap (disp_ensure_started(), below) used to
+// be an unguarded check-create-assign race: two concurrent callers (dual-
+// core) could each pass the s_disp_queue==NULL check and each create+assign
+// a queue/task, leaking one pair and racing the assignment itself.
+//
+// This bootstrap CAN fail (queue/task create), so it cannot be a plain
+// bb_once_run() body -- a failed run must stay retryable on the next call,
+// not permanently latch. It ALSO must not guard a separate bb_lock_t via a
+// plain bb_once_run() (an earlier revision of this fix did exactly that,
+// and reproduced the same permanent-latch bug one level down: bb_lock_init()
+// itself heap-allocates and can fail, so bb_once_run() would mark that
+// bootstrap "done" even on a failed lock init, and every later
+// disp_ensure_started() call would then dereference an uninitialized
+// bb_lock_t forever). bb_once_run_fallible() (B1-524) is built for exactly
+// this shape: the fallible queue/task creation runs directly inside its fn,
+// gated on s_disp_queue == NULL as its own "not done yet" sentinel (defense
+// in depth, re-checked by disp_ensure_started() below); a failed attempt
+// resets the guard to IDLE so the very next caller genuinely retries
+// instead of replaying a cached failure or crashing on a half-built lock.
+static bb_once_t s_disp_once = BB_ONCE_INIT;
+
 static void disp_task_fn(void *unused)
 {
     (void)unused;
@@ -102,12 +124,18 @@ static void disp_task_fn(void *unused)
 #endif
 }
 
-static bb_err_t disp_ensure_started(void)
+// bb_once_run_fallible() body: returns true only on a fully successful
+// queue+task bootstrap. s_disp_queue == NULL both gates re-entry (a caller
+// that raced in after DONE skips straight past, matching the old
+// early-return) and marks a failed attempt for retry -- it is left NULL on
+// every failure path below.
+static bool disp_bootstrap(void *ctx)
 {
-    if (s_disp_queue != NULL) return BB_OK;
+    (void)ctx;
+    if (s_disp_queue != NULL) return true;
 
     s_disp_queue = xQueueCreate(BB_TIMER_DISP_QUEUE_DEPTH, sizeof(bb_disp_msg_t));
-    if (s_disp_queue == NULL) return BB_ERR_NO_SPACE;
+    if (s_disp_queue == NULL) return false;
 
     bb_task_config_t cfg = {
         .entry       = disp_task_fn,
@@ -129,9 +157,22 @@ static bb_err_t disp_ensure_started(void)
     if (err != BB_OK) {
         vQueueDelete(s_disp_queue);
         s_disp_queue = NULL;
-        return BB_ERR_NO_SPACE;
+        return false;
     }
-    return BB_OK;
+    return true;
+}
+
+// Retry-safe bootstrap (see s_disp_once's declaration comment above) --
+// bb_once_run_fallible() serializes every caller through disp_bootstrap()
+// so exactly one caller ever runs the create path at a time (real
+// blocking/yielding wait, no busy-spin), and the s_disp_queue == NULL
+// re-check below (not the fallible-once's own return value) is the
+// defense-in-depth guard: a transient failure leaves it NULL so the next
+// caller genuinely retries rather than replaying a cached failure.
+static bb_err_t disp_ensure_started(void)
+{
+    bb_once_run_fallible(&s_disp_once, disp_bootstrap, NULL);
+    return (s_disp_queue != NULL) ? BB_OK : BB_ERR_NO_SPACE;
 }
 
 /* Low-level generic timer */
