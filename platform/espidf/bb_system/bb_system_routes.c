@@ -143,7 +143,16 @@ static const bb_serialize_desc_t s_reboot_desc = {
 // all -- see the composer's documented "always-emits-required" delta,
 // same as every other exemplar).
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+// bb_system.h only pulls in bb_serialize_meta.h nested inside its own
+// BB_SYSTEM_TESTING guard (the test-accessor declarations below) -- not
+// defined on a real device build with CONFIG_BB_OPENAPI_RUNTIME_META=y, so
+// this TU needs its own direct, UNCONDITIONAL include here: BB_SERIALIZE_
+// META_SHIP is itself defined INSIDE bb_serialize_meta.h, so checking it
+// before ever including that header (the only way to actually get the
+// #define) would always read false regardless of the true condition.
+#include "bb_serialize_meta.h"
+
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_reboot_meta_rows[] = {
     { .key = "ts", .occurrence = 0 },
@@ -163,7 +172,7 @@ const bb_serialize_desc_t *bb_system_reboot_desc_for_test(void)
 }
 #endif /* BB_SYSTEM_TESTING */
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // Egress hook: exists only to satisfy bb_data_bind()'s non-NULL-gather
 // invariant (a binding with no gather is rejected outright) -- this route is

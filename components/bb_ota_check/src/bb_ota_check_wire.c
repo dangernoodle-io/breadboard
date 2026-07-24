@@ -62,7 +62,7 @@ const bb_serialize_desc_t bb_ota_check_wire_desc = {
 // is NOT marked required here either. See
 // test_bb_ota_check_wire_meta_golden.c for the fidelity proof.
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_ota_check_wire_meta_rows[] = {
     { .key = "current",       .required = true },
@@ -82,7 +82,7 @@ const bb_serialize_desc_meta_t bb_ota_check_wire_meta = {
     .n_rows    = sizeof(s_ota_check_wire_meta_rows) / sizeof(s_ota_check_wire_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 bb_err_t bb_ota_check_gather(bb_ota_check_snap_t *dst)
 {

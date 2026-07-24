@@ -218,7 +218,16 @@ static const bb_serialize_desc_t s_storage_delete_desc = {
 // request_schema's "required":["namespace","confirm"]). See
 // test_bb_storage_http_delete_apply_meta_golden.c for the fidelity proof.
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+// bb_storage_http.h only pulls in bb_serialize_meta.h nested inside its own
+// BB_STORAGE_HTTP_TESTING guard (the test-accessor declarations) -- not
+// defined on a real device build with CONFIG_BB_OPENAPI_RUNTIME_META=y, so
+// this TU needs its own direct, UNCONDITIONAL include here: BB_SERIALIZE_
+// META_SHIP is itself defined INSIDE bb_serialize_meta.h, so checking it
+// before ever including that header (the only way to actually get the
+// #define) would always read false regardless of the true condition.
+#include "bb_serialize_meta.h"
+
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_storage_delete_ns_branches_rows[] = {
     { .key = "namespace" },  // branch 0: BB_TYPE_STR occurrence
@@ -253,7 +262,7 @@ const bb_serialize_desc_t *bb_storage_http_delete_apply_desc_for_test(void)
 }
 #endif /* BB_STORAGE_HTTP_TESTING */
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // Seed hook -- NOT a stub, and NOT egress-only despite the "gather" name
 // (unlike every other binding in this file/its siblings): this route drives
@@ -658,7 +667,7 @@ static const bb_serialize_desc_t s_factory_reset_desc = {
 // request_schema literal below (["confirm"]). See
 // test_bb_storage_http_factory_reset_meta_golden.c for the fidelity proof.
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_factory_reset_meta_rows[] = {
     { .key = "confirm", .required = true },
@@ -677,7 +686,7 @@ const bb_serialize_desc_t *bb_storage_http_factory_reset_desc_for_test(void)
 }
 #endif /* BB_STORAGE_HTTP_TESTING */
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // Egress hook: exists only to satisfy bb_data_bind()'s non-NULL-gather
 // invariant (a binding with no gather is rejected outright) -- this route is

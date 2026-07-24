@@ -124,11 +124,11 @@ extern const bb_serialize_desc_t bb_diag_boot_wire_desc;
 // env; see platformio.ini) -- NEVER set by the ESP-IDF/device build, so this
 // declaration (and its definition in bb_diag_boot_wire.c) compiles to
 // nothing on-device.
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 extern const bb_serialize_desc_meta_t bb_diag_boot_wire_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // Portable (no ESP-IDF dep): reads the diag.boot bb_cache entry via
 // bb_cache_get_raw() and widens/materializes it into `dst` -- see the

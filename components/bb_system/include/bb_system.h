@@ -533,12 +533,12 @@ bb_err_t bb_system_reboot_bind_for_test(void);
 // file-scope static, so a for-test accessor exposes it rather than an
 // extern -- same "_for_test" naming convention as the BB_SYSTEM_TESTING-
 // gated fns above.
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 const bb_serialize_desc_t *bb_system_reboot_desc_for_test(void);
 extern const bb_serialize_desc_meta_t bb_system_reboot_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 #endif /* BB_SYSTEM_TESTING */
 
 #ifdef __cplusplus

@@ -85,7 +85,7 @@ const bb_serialize_desc_t bb_meminfo_heap_snap_desc = {
 
 const char *const bb_meminfo_heap_snap_schema = BB_MEMINFO_HEAP_SNAP_SCHEMA_LITERAL;
 
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_meminfo_region_heap_snap_meta_rows[] = {
     { .key = "free",               .required = true },
@@ -123,7 +123,7 @@ const bb_serialize_desc_meta_t bb_meminfo_heap_snap_meta = {
     .n_rows    = sizeof(s_meminfo_heap_snap_meta_rows) / sizeof(s_meminfo_heap_snap_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 bb_err_t bb_meminfo_heap_snap_fill(bb_meminfo_heap_snap_t *out)
 {

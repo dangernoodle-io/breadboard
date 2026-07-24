@@ -42,7 +42,7 @@ const bb_serialize_desc_t bb_mqtt_client_health_section_desc = {
 // /api/health section fragment (see test_bb_mqtt_client_health_section_meta_
 // golden.c for the fragment-only fidelity proof).
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_mqtt_health_section_meta_rows[] = {
     { .key = "enabled",   .required = true },
@@ -55,7 +55,7 @@ const bb_serialize_desc_meta_t bb_mqtt_client_health_section_meta = {
     .n_rows    = sizeof(s_mqtt_health_section_meta_rows) / sizeof(s_mqtt_health_section_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 bb_err_t bb_mqtt_client_health_section_fill(void *dst, const bb_health_fill_args_t *args)
 {

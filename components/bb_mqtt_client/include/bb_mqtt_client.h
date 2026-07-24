@@ -413,11 +413,11 @@ extern const bb_serialize_desc_t bb_mqtt_client_health_section_desc;
 // See test_bb_mqtt_client_health_section_meta_golden.c (fragment-only
 // assert, test_meta_fragment.h) for the fidelity proof this weaker check
 // implies.
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 extern const bb_serialize_desc_meta_t bb_mqtt_client_health_section_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // bb_health_fill_fn adapter: fills `dst` (a
 // bb_mqtt_client_health_section_snap_t) from bb_mqtt_client_default() +

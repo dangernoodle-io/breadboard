@@ -72,6 +72,7 @@ line is just heap + bss.
 | `bb_mem_arena` | public | — | [bb_mem_arena](../README.md) |
 | `bb_registry` | private | — | [bb_registry](../README.md) |
 | `bb_serialize` | public | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
+| `bb_serialize_meta` | public | Device-shippable "cold metadata" companion engine for bb_serialize_desc_t (B1-767 PR-7, B1-1059): validation constraints + JSON-Schema docs for a future runtime OpenAPI schema generator, gated off by default. | [bb_serialize_meta](../bb_serialize_meta/README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support

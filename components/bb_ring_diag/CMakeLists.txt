@@ -10,8 +10,13 @@
 # wired into the "rings" section's bb_diag_section_t.describe_route;
 # bb_diag_section.h itself stays bb_http-free (describe_route is an opaque
 # `const void *` there) so this is source-file-only, private.
+# bb_serialize_meta: PUBLIC -- include/bb_ring_diag.h includes
+# bb_serialize_meta.h directly (co-located bb_serialize_desc_meta_t table,
+# gated on BB_SERIALIZE_META_SHIP; B1-1059 device-shippable PR, default off
+# via CONFIG_BB_OPENAPI_RUNTIME_META); PRIV_REQUIRES doesn't propagate to a
+# hand-wired external consumer of this public header.
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/bb_ring_diag.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_queue bb_core bb_diag bb_serialize
+    REQUIRES bb_queue bb_core bb_diag bb_serialize bb_serialize_meta
     PRIV_REQUIRES bb_str bb_http)

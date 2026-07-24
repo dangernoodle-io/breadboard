@@ -51,6 +51,7 @@ component's forwarder task.
 | `bb_openapi` | public | — | [bb_openapi](../README.md) |
 | `bb_serialize` | public | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
 | `bb_serialize_json` | private | Hand-rolled, no-heap, bounded-buffer JSON bb_serialize_emit_t backend -- the default wire-format implementation for bb_serialize. | [bb_serialize_json](../bb_serialize_json/README.md) |
+| `bb_serialize_meta` | private | Device-shippable "cold metadata" companion engine for bb_serialize_desc_t (B1-767 PR-7, B1-1059): validation constraints + JSON-Schema docs for a future runtime OpenAPI schema generator, gated off by default. | [bb_serialize_meta](../bb_serialize_meta/README.md) |
 | `bb_str` | private | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. | [bb_str](../bb_str/README.md) |
 | `bb_task` | public | — | [bb_task](../README.md) |
 <!-- END bbtool:deps -->

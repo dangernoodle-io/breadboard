@@ -1,3 +1,4 @@
+# bb_serialize_meta: PRIV_REQUIRES -- co-located bb_serialize_desc_meta_t table(s) in this component's own .c files, gated on BB_SERIALIZE_META_SHIP (B1-1059 device-shippable PR; default off via CONFIG_BB_OPENAPI_RUNTIME_META).
 idf_component_register(
     SRCS
         "${CMAKE_CURRENT_LIST_DIR}/bb_sensor_http_wire.c"
@@ -5,7 +6,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_sensor_http/bb_sensor_http.c"
     INCLUDE_DIRS "include" "."
     REQUIRES bb_core bb_http_server
-    PRIV_REQUIRES bb_log bb_sensor bb_data bb_serialize bb_http
+    PRIV_REQUIRES bb_log bb_sensor bb_data bb_serialize bb_http bb_serialize_meta
 )
 
 # bb_http: PRIVATE, added (B1-1180 PR-2) -- bb_sensor_http_wire.c defines

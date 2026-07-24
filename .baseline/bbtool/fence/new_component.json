@@ -356,6 +356,11 @@
       "type": "component"
     },
     {
+      "id": "bb_serialize_meta",
+      "path": "components/bb_serialize_meta",
+      "type": "component"
+    },
+    {
       "id": "bb_settings",
       "path": "components/bb_settings",
       "type": "component"

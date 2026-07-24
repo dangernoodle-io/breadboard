@@ -45,11 +45,11 @@ bb_err_t bb_ws_server_diag_fill(void *dst, const bb_diag_fill_args_t *args);
 // bb_ws_server_diag_schema's byte-fidelity. BB_SERIALIZE_META_HOST is a
 // host-only define (set by the PlatformIO native env; see platformio.ini)
 // -- NEVER set by the ESP-IDF/device build.
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 extern const bb_serialize_desc_meta_t bb_ws_server_diag_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 #ifdef ESP_PLATFORM
 // Registers this section as "websocket" (GET /api/diag/websocket) via

@@ -28,7 +28,7 @@ const bb_serialize_desc_t bb_diag_heap_check_wire_desc = {
 // s_heap_check_get_responses[] 200 literal (["integrity_ok"]). See
 // test_bb_diag_heap_check_wire_meta_golden.c for the fidelity proof.
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_heap_check_wire_meta_rows[] = {
     { .key = "integrity_ok", .required = true },
@@ -40,7 +40,7 @@ const bb_serialize_desc_meta_t bb_diag_heap_check_wire_meta = {
     .n_rows    = sizeof(s_heap_check_wire_meta_rows) / sizeof(s_heap_check_wire_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 void bb_diag_heap_check_wire_fill(bb_diag_heap_check_wire_t *dst, bool integrity_ok)
 {

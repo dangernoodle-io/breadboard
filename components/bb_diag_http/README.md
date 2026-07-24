@@ -31,6 +31,7 @@ Public symbols use the `bb_` prefix.
 | `bb_openapi` | private | — | [bb_openapi](../README.md) |
 | `bb_ota_validator` | private | — | [bb_ota_validator](../README.md) |
 | `bb_serialize` | public | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
+| `bb_serialize_meta` | public | Device-shippable "cold metadata" companion engine for bb_serialize_desc_t (B1-767 PR-7, B1-1059): validation constraints + JSON-Schema docs for a future runtime OpenAPI schema generator, gated off by default. | [bb_serialize_meta](../bb_serialize_meta/README.md) |
 | `bb_settings` | private | bb's default WiFi-credentials store — a wifi-creds field table over `bb_config`, byte-compatible with the credentials `bb_nv_config` already persists. `bb_settings` is bb's opinionated bb-config authority (KB 805/806); `bb_wifi` reads its accessors directly. | [bb_settings](../bb_settings/README.md) |
 | `bb_storage` | public | Portable storage facade + backend registry: one `bb_storage_get/set/erase/exists` API dispatching by `bb_storage_addr_t.backend` to whichever backend has registered itself. | [bb_storage](../storage/bb_storage/README.md) |
 | `bb_str` | private | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. | [bb_str](../bb_str/README.md) |

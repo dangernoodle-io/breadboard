@@ -58,7 +58,7 @@ const bb_serialize_desc_t bb_wifi_http_info_wire_desc = {
 // test_bb_wifi_http_wire_meta_golden.c for the fidelity proof this table
 // is meant to (eventually) replace that literal with.
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_wifi_info_wire_meta_rows[] = {
     { .key = "ssid",              .required = true },
@@ -79,7 +79,7 @@ const bb_serialize_desc_meta_t bb_wifi_http_info_wire_meta = {
     .n_rows    = sizeof(s_wifi_info_wire_meta_rows) / sizeof(s_wifi_info_wire_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 void bb_wifi_http_info_wire_fill(bb_wifi_http_info_wire_t *dst, const bb_wifi_info_t *info)
 {

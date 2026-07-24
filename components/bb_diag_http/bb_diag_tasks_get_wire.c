@@ -135,7 +135,7 @@ const bb_serialize_desc_t bb_diag_tasks_get_wire_desc = {
 // engine gap, same precedent as bb_ota_validator_partitions_wire.c/
 // bb_diag_sockets_get_wire.c).
 // ---------------------------------------------------------------------------
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_diag_tasks_get_wire_row_meta_rows[] = {
     { .key = "name",       .required = true },
@@ -174,7 +174,7 @@ const bb_serialize_desc_meta_t bb_diag_tasks_get_wire_meta = {
     .n_rows    = sizeof(s_diag_tasks_get_wire_meta_rows) / sizeof(s_diag_tasks_get_wire_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // ---------------------------------------------------------------------------
 // Fill

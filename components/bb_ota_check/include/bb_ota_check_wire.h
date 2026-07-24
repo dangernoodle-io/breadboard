@@ -63,11 +63,11 @@ extern const bb_serialize_desc_t bb_ota_check_wire_desc;
 // env; see platformio.ini) -- NEVER set by the ESP-IDF/device build, so this
 // declaration (and its definition in bb_ota_check_wire.c) compiles to
 // nothing on-device.
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 extern const bb_serialize_desc_meta_t bb_ota_check_wire_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // Portable (no ESP-IDF dep): reads the update.available bb_cache entry via
 // bb_cache_get_raw() into `dst` -- a plain copy, no widening needed. Returns

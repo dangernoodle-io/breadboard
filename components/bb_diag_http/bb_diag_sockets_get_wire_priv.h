@@ -181,11 +181,11 @@ extern const bb_serialize_desc_t bb_diag_sockets_get_wire_desc;
 // host-only define (set by the PlatformIO native env; see platformio.ini) --
 // NEVER set by the ESP-IDF/device build, so this declaration (and its
 // definition in bb_diag_sockets_get_wire.c) compiles to nothing on-device.
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 extern const bb_serialize_desc_meta_t bb_diag_sockets_get_wire_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 // Pure row-copy helper: copies `n` rows from `src` into `dst` (row-count
 // bounded by BB_DIAG_SOCKETS_ROW_CAP by the caller). Copies `remote_ip` into

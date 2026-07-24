@@ -115,10 +115,15 @@ endif()
 # CMakeLists.txt PRIV_REQUIREd); bb_log itself gains no edge back onto
 # bb_diag_http/bb_http_server, preserving the cycle-break this component
 # existed to provide.
+# bb_serialize_meta: PUBLIC -- include/bb_storage_http.h includes
+# bb_serialize_meta.h directly (co-located bb_serialize_desc_meta_t table,
+# gated on BB_SERIALIZE_META_SHIP; B1-1059 device-shippable PR, default off
+# via CONFIG_BB_OPENAPI_RUNTIME_META); PRIV_REQUIRES doesn't propagate to a
+# hand-wired external consumer of this public header.
 idf_component_register(
     SRCS ${_diag_http_srcs}
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_diag bb_http_server bb_serialize bb_storage
+    REQUIRES bb_core bb_diag bb_http_server bb_serialize bb_storage bb_serialize_meta
     PRIV_REQUIRES bb_log bb_http bb_cache bb_config bb_ntp bb_openapi bb_system bb_ota_validator bb_data bb_task_registry bb_task espcoredump lwip esp_partition bb_str bb_settings bb_timer
 )
 

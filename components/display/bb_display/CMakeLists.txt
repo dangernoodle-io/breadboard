@@ -4,7 +4,7 @@ set(SRCS
     "${CMAKE_CURRENT_LIST_DIR}/../../../platform/espidf/bb_display/bb_display_info.c")
 # bb_serialize: PUBLIC -- include/bb_display_info_wire.h (the
 # "health.display" wire descriptor, B1-1045 PR-2) includes bb_serialize.h.
-set(_display_reqs bb_core bb_http_server bb_serialize)
+set(_display_reqs bb_core bb_http_server bb_serialize bb_serialize_meta)
 # B1-893: bb_cache/bb_openapi/bb_str re-homed here from the deleted
 # bb_display_info satellite (health.display cache registration -- see
 # src/bb_display_info_event_priv.h banner). bb_data (B1-1045): PRIV --
@@ -28,6 +28,11 @@ if(CONFIG_BB_DISPLAY_FONT_5X8)
     list(APPEND SRCS "${CMAKE_CURRENT_LIST_DIR}/src/bb_display_font_5x8.c")
 endif()
 
+# bb_serialize_meta: PUBLIC -- include/bb_display_info_wire.h includes
+# bb_serialize_meta.h directly (co-located bb_serialize_desc_meta_t table,
+# gated on BB_SERIALIZE_META_SHIP; B1-1059 device-shippable PR, default off
+# via CONFIG_BB_OPENAPI_RUNTIME_META); PRIV_REQUIRES doesn't propagate to a
+# hand-wired external consumer of this public header.
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS "include"

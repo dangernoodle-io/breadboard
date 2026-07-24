@@ -73,7 +73,7 @@ const bb_serialize_desc_t bb_diag_storage_partitions_desc = {
 
 const char *const bb_diag_storage_partitions_schema = BB_DIAG_STORAGE_PARTITIONS_SCHEMA_LITERAL;
 
-#if defined(BB_SERIALIZE_META_HOST)
+#if defined(BB_SERIALIZE_META_SHIP)
 
 static const bb_serialize_field_meta_t s_diag_storage_partitions_row_meta_rows[] = {
     { .key = "label" },
@@ -98,7 +98,7 @@ const bb_serialize_desc_meta_t bb_diag_storage_partitions_meta = {
     .n_rows    = sizeof(s_diag_storage_partitions_meta_rows) / sizeof(s_diag_storage_partitions_meta_rows[0]),
 };
 
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 bb_err_t bb_diag_storage_partitions_fill(void *dst, const bb_diag_fill_args_t *args)
 {

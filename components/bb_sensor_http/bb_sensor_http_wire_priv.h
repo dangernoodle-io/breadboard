@@ -121,8 +121,8 @@ extern const char *const bb_sensor_http_thermal_schema;      // GET /api/sensors
 bb_err_t bb_sensor_http_describe_routes(void);
 #endif /* ESP_PLATFORM */
 
-#if defined(BB_SERIALIZE_META_HOST)
 #include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
 
 // Fan meta/golden layer (B1-1180 PR-2 review fix, HIGH 2 restructure):
 //
@@ -156,7 +156,7 @@ extern const bb_serialize_desc_meta_t bb_sensor_http_fan_manual_meta;
 
 extern const bb_serialize_desc_meta_t bb_sensor_http_power_meta;
 extern const bb_serialize_desc_meta_t bb_sensor_http_thermal_meta;
-#endif /* BB_SERIALIZE_META_HOST */
+#endif /* BB_SERIALIZE_META_SHIP */
 
 #ifdef __cplusplus
 }
