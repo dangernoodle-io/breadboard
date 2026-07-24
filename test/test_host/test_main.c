@@ -4701,6 +4701,7 @@ void test_bb_http_client_host_set_session_calloc_null_reverts_to_real_calloc(voi
 // Forward declarations from test_bb_ota_check.c
 void test_bb_ota_check_init_idempotent(void);
 void test_bb_ota_check_init_with_cfg_uses_overrides(void);
+void test_bb_ota_check_update_available_schema_is_unchanged_hand_literal(void);
 void test_bb_ota_check_is_initialized_reflects_init_state(void);
 void test_bb_ota_check_get_status_before_init_returns_invalid_state(void);
 void test_bb_ota_check_get_status_null_out_returns_invalid_arg(void);
@@ -8518,6 +8519,7 @@ int main(void) {
     // bb_ota_check tests
     RUN_TEST(test_bb_ota_check_init_idempotent);
     RUN_TEST(test_bb_ota_check_init_with_cfg_uses_overrides);
+    RUN_TEST(test_bb_ota_check_update_available_schema_is_unchanged_hand_literal);
     RUN_TEST(test_bb_ota_check_is_initialized_reflects_init_state);
     RUN_TEST(test_bb_ota_check_get_status_before_init_returns_invalid_state);
     RUN_TEST(test_bb_ota_check_get_status_null_out_returns_invalid_arg);

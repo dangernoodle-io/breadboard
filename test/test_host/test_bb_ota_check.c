@@ -135,6 +135,44 @@ void test_bb_ota_check_init_with_cfg_uses_overrides(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(&cfg));
 }
 
+/* ---------------------------------------------------------------------------
+ * CONFIG_BB_OPENAPI_RUNTIME_META OFF (this env's default -- undefined,
+ * B1-1059 SSE batch PR-2) -- proves the "update.available" SSE topic
+ * schema registered at init is still the UNCHANGED hand literal
+ * (k_update_available_schema is file-static in bb_ota_check_common.c, so a
+ * cross-TU host test can only reach it by value via the for-test accessor,
+ * not by address -- TEST_ASSERT_EQUAL_STRING, not EQUAL_PTR). Config-OFF is
+ * a zero-diff no-op: bb_ota_check_assemble_update_available_schema_for_test()
+ * is a documented no-op at this config gate, still exercised here so the
+ * compiled-out #else arm is covered, not just the accessor.
+ * ---------------------------------------------------------------------------*/
+void test_bb_ota_check_update_available_schema_is_unchanged_hand_literal(void)
+{
+    reset_world();
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_assemble_update_available_schema_for_test());
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
+
+    const char *schema = bb_ota_check_get_update_available_schema_for_test();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"title\":\"UpdateAvailable\",\"x-sse-topic\":\"update.available\","
+        "\"type\":\"object\","
+        "\"properties\":{"
+        "\"current\":{\"type\":\"string\"},"
+        "\"latest\":{\"type\":\"string\"},"
+        "\"download_url\":{\"type\":\"string\"},"
+        "\"available\":{\"type\":\"boolean\"},"
+        "\"ts\":{\"type\":\"integer\"},"
+        "\"last_check_ok\":{\"type\":\"boolean\"},"
+        "\"enabled\":{\"type\":\"boolean\"},"
+        "\"outcome\":{\"type\":\"string\"},"
+        "\"last_check_ts\":{\"type\":\"integer\"}},"
+        "\"required\":[\"current\",\"latest\",\"download_url\",\"available\","
+        "\"ts\",\"last_check_ok\",\"enabled\",\"outcome\"]}",
+        schema);
+}
+
 void test_bb_ota_check_is_initialized_reflects_init_state(void)
 {
     reset_world();
