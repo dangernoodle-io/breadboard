@@ -79,6 +79,69 @@ void test_bb_serialize_meta_openapi_fragment_force_no_space_null_out_len(void)
     TEST_ASSERT_EQUAL_STRING("", buf);
 }
 
+// ---------------------------------------------------------------------------
+// open_fragment()/root_close() (B1-1059 PR-d) -- SAME seam, newly extended
+// onto these two composer entry points (previously only _schema()/
+// _fragment() had it) so bb_health_assemble_schema()'s ROOT compose-at-init
+// (platform/host/bb_health/bb_health_schema.c) can force its own fail-fast
+// branch without an artificially undersized buffer. Direct primitive-level
+// tests here (mirroring the schema()/fragment() pair above) so the new
+// `if (s_test_force_no_space)` block in EACH function is independently
+// covered regardless of any one call site's own reachable-failure ordering.
+// ---------------------------------------------------------------------------
+
+void test_bb_serialize_meta_openapi_open_fragment_force_no_space(void)
+{
+    char buf[64] = "unwritten";
+    size_t len = 99;
+
+    bb_serialize_meta_openapi_test_set_force_no_space(true);
+    bb_err_t rc = bb_serialize_meta_openapi_open_fragment(NULL, NULL, buf, sizeof(buf), &len);
+    bb_serialize_meta_openapi_test_set_force_no_space(false);
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL_STRING("", buf);
+    TEST_ASSERT_EQUAL(0, len);
+}
+
+void test_bb_serialize_meta_openapi_open_fragment_force_no_space_null_out_len(void)
+{
+    char buf[64] = "unwritten";
+
+    bb_serialize_meta_openapi_test_set_force_no_space(true);
+    bb_err_t rc = bb_serialize_meta_openapi_open_fragment(NULL, NULL, buf, sizeof(buf), NULL);
+    bb_serialize_meta_openapi_test_set_force_no_space(false);
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL_STRING("", buf);
+}
+
+void test_bb_serialize_meta_openapi_root_close_force_no_space(void)
+{
+    char buf[64] = "unwritten";
+    size_t len = 99;
+
+    bb_serialize_meta_openapi_test_set_force_no_space(true);
+    bb_err_t rc = bb_serialize_meta_openapi_root_close(NULL, NULL, buf, sizeof(buf), &len);
+    bb_serialize_meta_openapi_test_set_force_no_space(false);
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL_STRING("", buf);
+    TEST_ASSERT_EQUAL(0, len);
+}
+
+void test_bb_serialize_meta_openapi_root_close_force_no_space_null_out_len(void)
+{
+    char buf[64] = "unwritten";
+
+    bb_serialize_meta_openapi_test_set_force_no_space(true);
+    bb_err_t rc = bb_serialize_meta_openapi_root_close(NULL, NULL, buf, sizeof(buf), NULL);
+    bb_serialize_meta_openapi_test_set_force_no_space(false);
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL_STRING("", buf);
+}
+
 // force=false is the seam's default/reset state -- proven incidentally by
 // every OTHER test in this test_filter dir (each composes real content with
 // the seam off), so no dedicated "force=false is a no-op" test is added
@@ -192,6 +255,93 @@ void test_bb_serialize_meta_openapi_fragment_success_null_out_len(void)
     bb_err_t rc = bb_serialize_meta_openapi_fragment(&bb_mqtt_client_health_section_desc,
                                                        &bb_mqtt_client_health_section_meta,
                                                        buf, sizeof(buf), NULL);
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+}
+
+// ---------------------------------------------------------------------------
+// open_fragment()/root_close() real (non-forced) success/overflow calls,
+// THIS env's own compiled variant -- SAME reasoning as the schema()/
+// fragment() block above (B1-1059 PR-d): the `ctx.err != BB_OK` check and
+// its nested `if (out_len)` guards in BOTH functions are a different
+// compiled block-graph in this env than in test/test_host's (which never
+// sets BB_SERIALIZE_META_TESTING). test_bb_health_root_schema_wiring.c's
+// wiring tests already exercise each function's real success path with a
+// non-NULL out_len (real bb_health_wire_desc/_meta, correctly-sized
+// buffers), so only the overflow arms and the NULL-out_len success arm are
+// added here.
+// ---------------------------------------------------------------------------
+
+void test_bb_serialize_meta_openapi_open_fragment_overflow_too_small_cap(void)
+{
+    char   buf[4];
+    size_t n = 12345;
+
+    bb_err_t rc = bb_serialize_meta_openapi_open_fragment(&bb_mqtt_client_health_section_desc,
+                                                            &bb_mqtt_client_health_section_meta,
+                                                            buf, sizeof(buf), &n);
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL_STRING("", buf);
+    TEST_ASSERT_EQUAL_UINT(0, n);
+}
+
+void test_bb_serialize_meta_openapi_open_fragment_overflow_null_out_len(void)
+{
+    char buf[4];
+
+    bb_err_t rc = bb_serialize_meta_openapi_open_fragment(&bb_mqtt_client_health_section_desc,
+                                                            &bb_mqtt_client_health_section_meta,
+                                                            buf, sizeof(buf), NULL);
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL_STRING("", buf);
+}
+
+void test_bb_serialize_meta_openapi_open_fragment_success_null_out_len(void)
+{
+    char buf[256];
+
+    bb_err_t rc = bb_serialize_meta_openapi_open_fragment(&bb_mqtt_client_health_section_desc,
+                                                            &bb_mqtt_client_health_section_meta,
+                                                            buf, sizeof(buf), NULL);
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+}
+
+void test_bb_serialize_meta_openapi_root_close_overflow_too_small_cap(void)
+{
+    char   buf[4];
+    size_t n = 12345;
+
+    bb_err_t rc = bb_serialize_meta_openapi_root_close(&bb_mqtt_client_health_section_desc,
+                                                         &bb_mqtt_client_health_section_meta,
+                                                         buf, sizeof(buf), &n);
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL_STRING("", buf);
+    TEST_ASSERT_EQUAL_UINT(0, n);
+}
+
+void test_bb_serialize_meta_openapi_root_close_overflow_null_out_len(void)
+{
+    char buf[4];
+
+    bb_err_t rc = bb_serialize_meta_openapi_root_close(&bb_mqtt_client_health_section_desc,
+                                                         &bb_mqtt_client_health_section_meta,
+                                                         buf, sizeof(buf), NULL);
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL_STRING("", buf);
+}
+
+void test_bb_serialize_meta_openapi_root_close_success_null_out_len(void)
+{
+    char buf[256];
+
+    bb_err_t rc = bb_serialize_meta_openapi_root_close(&bb_mqtt_client_health_section_desc,
+                                                         &bb_mqtt_client_health_section_meta,
+                                                         buf, sizeof(buf), NULL);
 
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 }

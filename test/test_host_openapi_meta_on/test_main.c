@@ -56,6 +56,16 @@ void test_bb_serialize_meta_openapi_schema_success_null_out_len(void);
 void test_bb_serialize_meta_openapi_fragment_overflow_too_small_cap(void);
 void test_bb_serialize_meta_openapi_fragment_overflow_null_out_len(void);
 void test_bb_serialize_meta_openapi_fragment_success_null_out_len(void);
+void test_bb_serialize_meta_openapi_open_fragment_force_no_space(void);
+void test_bb_serialize_meta_openapi_open_fragment_force_no_space_null_out_len(void);
+void test_bb_serialize_meta_openapi_root_close_force_no_space(void);
+void test_bb_serialize_meta_openapi_root_close_force_no_space_null_out_len(void);
+void test_bb_serialize_meta_openapi_open_fragment_overflow_too_small_cap(void);
+void test_bb_serialize_meta_openapi_open_fragment_overflow_null_out_len(void);
+void test_bb_serialize_meta_openapi_open_fragment_success_null_out_len(void);
+void test_bb_serialize_meta_openapi_root_close_overflow_too_small_cap(void);
+void test_bb_serialize_meta_openapi_root_close_overflow_null_out_len(void);
+void test_bb_serialize_meta_openapi_root_close_success_null_out_len(void);
 
 // From test_bb_mqtt_client_health_schema_wiring.c
 void test_bb_mqtt_client_health_register_offline_on_compose_failure(void);
@@ -66,6 +76,15 @@ void test_bb_mqtt_client_health_register_idempotent_same_content(void);
 void test_bb_temp_register_info_offline_on_compose_failure(void);
 void test_bb_temp_register_info_composes_matching_schema(void);
 void test_bb_temp_register_info_idempotent_same_content(void);
+
+// From test_bb_health_root_schema_wiring.c (B1-1059 PR-d)
+void test_bb_health_assemble_schema_root_offline_on_compose_failure(void);
+void test_bb_health_assemble_schema_root_composes_matching_schema(void);
+void test_bb_health_assemble_schema_root_idempotent_same_content(void);
+void test_bb_health_assemble_schema_root_close_failure_returns_null(void);
+void test_bb_health_assemble_schema_root_malloc_failure_returns_null(void);
+void test_bb_health_assemble_schema_root_skips_section_with_null_schema_props(void);
+void test_bb_health_assemble_schema_root_close_cap_override_no_shrink_when_larger(void);
 
 void setUp(void) {}
 
@@ -127,6 +146,16 @@ int main(void)
     RUN_TEST(test_bb_serialize_meta_openapi_fragment_overflow_too_small_cap);
     RUN_TEST(test_bb_serialize_meta_openapi_fragment_overflow_null_out_len);
     RUN_TEST(test_bb_serialize_meta_openapi_fragment_success_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_open_fragment_force_no_space);
+    RUN_TEST(test_bb_serialize_meta_openapi_open_fragment_force_no_space_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_root_close_force_no_space);
+    RUN_TEST(test_bb_serialize_meta_openapi_root_close_force_no_space_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_open_fragment_overflow_too_small_cap);
+    RUN_TEST(test_bb_serialize_meta_openapi_open_fragment_overflow_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_open_fragment_success_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_root_close_overflow_too_small_cap);
+    RUN_TEST(test_bb_serialize_meta_openapi_root_close_overflow_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_root_close_success_null_out_len);
 
     // Fail-fast (offline-on-compose-failure) tests MUST run before their
     // component's success tests -- see each test's own comment (the
@@ -139,6 +168,14 @@ int main(void)
     RUN_TEST(test_bb_temp_register_info_offline_on_compose_failure);
     RUN_TEST(test_bb_temp_register_info_composes_matching_schema);
     RUN_TEST(test_bb_temp_register_info_idempotent_same_content);
+
+    RUN_TEST(test_bb_health_assemble_schema_root_offline_on_compose_failure);
+    RUN_TEST(test_bb_health_assemble_schema_root_close_failure_returns_null);
+    RUN_TEST(test_bb_health_assemble_schema_root_malloc_failure_returns_null);
+    RUN_TEST(test_bb_health_assemble_schema_root_composes_matching_schema);
+    RUN_TEST(test_bb_health_assemble_schema_root_idempotent_same_content);
+    RUN_TEST(test_bb_health_assemble_schema_root_skips_section_with_null_schema_props);
+    RUN_TEST(test_bb_health_assemble_schema_root_close_cap_override_no_shrink_when_larger);
 
     return UNITY_END();
 }

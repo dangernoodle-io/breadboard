@@ -42,3 +42,13 @@ typedef struct {
 } bb_health_wire_t;
 
 extern const bb_serialize_desc_t bb_health_wire_desc;
+
+// JSON Schema companion to bb_health_wire_desc above (B1-1059 PR-d), gated
+// behind BB_SERIALIZE_META_SHIP (see bb_serialize_meta.h's banner) --
+// device-shippable but only compiled in when a host build or
+// CONFIG_BB_OPENAPI_RUNTIME_META flips it on. See bb_health_wire.c for the
+// row definitions.
+#include "bb_serialize_meta.h"
+#if defined(BB_SERIALIZE_META_SHIP)
+extern const bb_serialize_desc_meta_t bb_health_wire_meta;
+#endif /* BB_SERIALIZE_META_SHIP */

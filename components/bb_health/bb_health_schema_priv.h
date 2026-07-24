@@ -52,4 +52,13 @@ char *bb_health_assemble_schema(void);
 // bb_response_set_malloc()) -- lets a host test force the OOM path. Pass
 // NULL to restore the real malloc().
 void bb_health_schema_set_malloc(void *(*m)(size_t));
+
+// Test-only (B1-1059 PR-d, config-ON fork only): shrinks the effective
+// out_size bb_health_assemble_schema() passes to
+// bb_serialize_meta_openapi_root_close(), forcing a genuine BB_ERR_NO_SPACE
+// from that call independent of the BB_SERIALIZE_META_TESTING seam (which
+// can't isolate root_close() from the earlier open_fragment() call -- see
+// bb_health_schema.c's own comment on this override). Pass 0 to restore the
+// real buffer size. No-op under CONFIG_BB_OPENAPI_RUNTIME_META off.
+void bb_health_schema_set_root_close_cap_for_test(size_t cap);
 #endif

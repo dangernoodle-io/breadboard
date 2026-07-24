@@ -444,6 +444,14 @@ bb_err_t bb_serialize_meta_openapi_open_fragment(const bb_serialize_desc_t      
 {
     if (out_size == 0) return BB_ERR_NO_SPACE;
 
+#ifdef BB_SERIALIZE_META_TESTING
+    if (s_test_force_no_space) {
+        out[0] = '\0';
+        if (out_len) *out_len = 0;
+        return BB_ERR_NO_SPACE;
+    }
+#endif
+
     bb_oa_ctx_t ctx = { .buf = out, .cap = out_size - 1, .len = 0, .err = BB_OK };
 
     bb_oa_puts(&ctx, "{\"type\":\"object\",");
@@ -467,6 +475,14 @@ bb_err_t bb_serialize_meta_openapi_root_close(const bb_serialize_desc_t      *de
                                                char *out, size_t out_size, size_t *out_len)
 {
     if (out_size == 0) return BB_ERR_NO_SPACE;
+
+#ifdef BB_SERIALIZE_META_TESTING
+    if (s_test_force_no_space) {
+        out[0] = '\0';
+        if (out_len) *out_len = 0;
+        return BB_ERR_NO_SPACE;
+    }
+#endif
 
     bb_oa_ctx_t ctx = { .buf = out, .cap = out_size - 1, .len = 0, .err = BB_OK };
 
