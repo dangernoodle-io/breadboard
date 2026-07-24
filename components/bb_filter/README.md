@@ -30,12 +30,12 @@ A generated C API reference site (Doxygen+MkDocs) is future work — tracked as 
 <!-- BEGIN bbtool:platform -->
 | host | espidf | arduino |
 |------|--------|---------|
-| no | no | no |
+| yes | no | no |
 <!-- END bbtool:platform -->
 
 `bb_filter` is a portable projection component with no platform-specific
-implementation directory — the table above reflects
-`platform/{host,espidf,arduino}/bb_filter/` directory presence, not language
+implementation directory — the table above reflects `platform/<plat>/bb_filter/`
+directory presence OR host unit tests under `test/test_host/`, not language
 portability (it compiles unchanged everywhere).
 
 ## Use in your project

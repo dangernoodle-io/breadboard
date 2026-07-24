@@ -29,12 +29,13 @@ None.
 <!-- BEGIN bbtool:platform -->
 | host | espidf | arduino |
 |------|--------|---------|
-| no | no | no |
+| yes | no | no |
 <!-- END bbtool:platform -->
 
 `bb_attrs` is a portable intrusive header with no platform-specific implementation
-directory — the table above reflects `platform/{host,espidf,arduino}/bb_attrs/`
-directory presence, not language portability (it compiles unchanged everywhere).
+directory — the table above reflects `platform/<plat>/bb_attrs/` directory presence
+OR host unit tests under `test/test_host/`, not language portability (it compiles
+unchanged everywhere).
 
 ## See also
 

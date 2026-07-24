@@ -29,7 +29,7 @@ Public symbols use the `bb_` prefix.
 <!-- BEGIN bbtool:platform -->
 | host | espidf | arduino |
 |------|--------|---------|
-| no | yes | no |
+| yes | yes | no |
 <!-- END bbtool:platform -->
 
 ## Footprint

@@ -22,6 +22,8 @@ from commands.docs import (
     _render_brief,
     DocsGenError,
     _platform_matrix,
+    _has_host_tests,
+    _owning_component,
     _render_platform,
     _render_links,
     _self_wiki_link,
@@ -510,6 +512,118 @@ class TestPlatformMatrix(unittest.TestCase):
     def test_render_platform_matrix(self):
         text = _render_platform({"host": True, "espidf": False, "arduino": True})
         self.assertIn("| yes | no | yes |", text)
+
+    def test_matrix_host_true_via_host_test_file_no_backend_split(self):
+        """B1-1197: a component with no platform/host/<name>/ backend-
+        dispatch directory at all (e.g. a Kconfig/define-gated single-source
+        component) must still read host: yes when it has a matching
+        test/test_host/test_<name>*.c file."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            test_host = root / "test" / "test_host"
+            test_host.mkdir(parents=True)
+            (test_host / "test_bb_fake_validate.c").write_text("", encoding="utf-8")
+            matrix = _platform_matrix(root, "bb_fake")
+            self.assertEqual(matrix, {"host": True, "espidf": False, "arduino": False})
+
+    def test_matrix_host_false_with_no_backend_split_and_no_host_tests(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            matrix = _platform_matrix(root, "bb_fake")
+            self.assertEqual(matrix, {"host": False, "espidf": False, "arduino": False})
+
+    def test_matrix_host_test_prefix_does_not_false_positive_on_sibling(self):
+        """A test file belonging to a real, more specific sibling component
+        (`bb_fake_meta`) must never credit a shorter, differently-named
+        component (`bb_fake`) with host support merely because its name is
+        a string prefix of the sibling's — the longest-match rule in
+        `_owning_component` attributes the file to `bb_fake_meta` only, and
+        `bb_fake` itself (having no host test file of its own) stays
+        host: no."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "components" / "bb_fake" / "CMakeLists.txt").parent.mkdir(parents=True)
+            (root / "components" / "bb_fake" / "CMakeLists.txt").write_text("", encoding="utf-8")
+            (root / "components" / "bb_fake_meta" / "CMakeLists.txt").parent.mkdir(parents=True)
+            (root / "components" / "bb_fake_meta" / "CMakeLists.txt").write_text("", encoding="utf-8")
+            test_host = root / "test" / "test_host"
+            test_host.mkdir(parents=True)
+            (test_host / "test_bb_fake_meta_validate.c").write_text("", encoding="utf-8")
+            self.assertFalse(_platform_matrix(root, "bb_fake")["host"])
+            self.assertTrue(_platform_matrix(root, "bb_fake_meta")["host"])
+
+
+class TestHasHostTests(unittest.TestCase):
+    def test_no_test_host_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.assertFalse(_has_host_tests(root, "bb_fake"))
+
+    def test_exact_name_match(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            test_host = root / "test" / "test_host"
+            test_host.mkdir(parents=True)
+            (test_host / "test_bb_fake.c").write_text("", encoding="utf-8")
+            self.assertTrue(_has_host_tests(root, "bb_fake"))
+
+    def test_underscore_suffix_match(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            test_host = root / "test" / "test_host"
+            test_host.mkdir(parents=True)
+            (test_host / "test_bb_fake_validate.c").write_text("", encoding="utf-8")
+            self.assertTrue(_has_host_tests(root, "bb_fake"))
+
+    def test_no_match_for_unrelated_component(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            test_host = root / "test" / "test_host"
+            test_host.mkdir(parents=True)
+            (test_host / "test_bb_other.c").write_text("", encoding="utf-8")
+            self.assertFalse(_has_host_tests(root, "bb_fake"))
+
+    def test_longest_match_wins_over_shorter_sibling_name(self):
+        """`known_names` disambiguates by longest match: a test file whose
+        stem is `test_<longer>_<desc>` belongs to `<longer>`, never to a
+        shorter sibling name that also happens to be a string prefix."""
+        known_names = frozenset({"bb_fake", "bb_fake_meta"})
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            test_host = root / "test" / "test_host"
+            test_host.mkdir(parents=True)
+            (test_host / "test_bb_fake_meta_validate.c").write_text("", encoding="utf-8")
+            self.assertFalse(_has_host_tests(root, "bb_fake", known_names))
+            self.assertTrue(_has_host_tests(root, "bb_fake_meta", known_names))
+
+
+class TestOwningComponent(unittest.TestCase):
+    def test_exact_match(self):
+        self.assertEqual(_owning_component("test_bb_fake", {"bb_fake"}), "bb_fake")
+
+    def test_underscore_suffix_match(self):
+        self.assertEqual(
+            _owning_component("test_bb_fake_validate", {"bb_fake"}), "bb_fake"
+        )
+
+    def test_no_match(self):
+        self.assertIsNone(_owning_component("test_bb_other", {"bb_fake"}))
+
+    def test_stem_without_test_prefix_returns_none(self):
+        self.assertIsNone(_owning_component("bb_fake", {"bb_fake"}))
+
+    def test_longest_match_preferred(self):
+        self.assertEqual(
+            _owning_component(
+                "test_bb_fake_meta_validate", {"bb_fake", "bb_fake_meta"}
+            ),
+            "bb_fake_meta",
+        )
+
+    def test_bare_prefix_without_boundary_does_not_match(self):
+        """`bb_fake` must not match a stem body like `bb_fakex...` — only an
+        exact or underscore-bounded prefix counts."""
+        self.assertIsNone(_owning_component("test_bb_fakex_thing", {"bb_fake"}))
 
 
 class TestSelfWikiLink(unittest.TestCase):
