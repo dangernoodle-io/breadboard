@@ -86,6 +86,14 @@ extern const bb_serialize_desc_meta_t bb_ota_check_config_meta;
 #endif /* defined(BB_SERIALIZE_META_HOST) && defined(BB_OTA_CHECK_TESTING) */
 
 #ifdef BB_OTA_CHECK_TESTING
+// Test-only accessors for the "update.available" SSE topic schema
+// compose-at-init site (B1-1059 SSE batch PR-2, bb_ota_check_common.c) --
+// declared for both config states (assemble is a documented no-op when
+// CONFIG_BB_OPENAPI_RUNTIME_META is off), same "_for_test" convention as
+// bb_diag_storage_nvs's assemble/get pair.
+bb_err_t bb_ota_check_assemble_update_available_schema_for_test(void);
+const char *bb_ota_check_get_update_available_schema_for_test(void);
+
 // Reset all state so a test can start clean. Does NOT touch bb_data or
 // bb_mdns global state (callers reset those separately).
 void bb_ota_check_reset_for_test(void);

@@ -27,6 +27,24 @@
 
 static const char *TAG = "bb_ota_check";
 
+// SSE topic schema for "update.available" (B1-1059 SSE batch PR-2). Config
+// OFF (default) keeps the pre-existing hand-authored literal, byte-
+// identical. Config ON composes it at init from bb_ota_check_wire_desc/
+// bb_ota_check_wire_meta via bb_serialize_meta_ensure_topic_schema() --
+// see ensure_update_available_schema_patched() below. The composed body
+// picks up a top-level "additionalProperties":false the hand literal never
+// had (the meta engine always closes every rendered object) -- a genuine
+// config-ON tightening, consistent with every other B1-1059 compose-at-init
+// site; config-OFF ships the untouched literal.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+// Sized with headroom over the golden-proven composed body (test_bb_ota_
+// check_wire_meta_golden.c's k_expected_meta_schema is 439 bytes; the
+// "UpdateAvailable"/"update.available" title+topic prefix adds another
+// ~50 bytes) -- any future desync trips bb_serialize_meta_openapi_schema()'s
+// own bounded-buffer BB_ERR_NO_SPACE contract instead of silently
+// truncating.
+static char s_update_available_schema_buf[512];
+#else
 static const char k_update_available_schema[] =
     "{\"title\":\"UpdateAvailable\",\"x-sse-topic\":\"update.available\","
     "\"type\":\"object\","
@@ -42,6 +60,7 @@ static const char k_update_available_schema[] =
     "\"last_check_ts\":{\"type\":\"integer\"}},"
     "\"required\":[\"current\",\"latest\",\"download_url\",\"available\","
     "\"ts\",\"last_check_ok\",\"enabled\",\"outcome\"]}";
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 
 #ifndef CONFIG_BB_OTA_CHECK_INTERVAL_S
@@ -144,6 +163,24 @@ static void publish_state(const bb_ota_check_status_t *st, const char *txt_value
 }
 
 // ---------------------------------------------------------------------------
+// SSE topic schema compose-at-init (B1-1059 SSE batch PR-2). Guarded/
+// idempotent (bb_serialize_meta_ensure_topic_schema()'s buf[0] sentinel) and
+// fail-loud (propagates the composer's rc without ever patching a partial
+// schema in). Portable -- no ESP_PLATFORM dependency, so both bb_ota_check_
+// init()'s call site below and host tests can drive it directly.
+// ---------------------------------------------------------------------------
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+static bb_err_t ensure_update_available_schema_patched(void)
+{
+    return bb_serialize_meta_ensure_topic_schema(bb_serialize_meta_openapi_schema,
+                                                  &bb_ota_check_wire_desc, &bb_ota_check_wire_meta,
+                                                  "UpdateAvailable", BB_OTA_CHECK_TOPIC,
+                                                  s_update_available_schema_buf,
+                                                  sizeof(s_update_available_schema_buf));
+}
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -206,8 +243,15 @@ bb_err_t bb_ota_check_init(const bb_ota_check_cfg_t *cfg)
 
     bb_mdns_set_txt("update", "unknown");
 
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t schema_rc = ensure_update_available_schema_patched();
+    if (schema_rc != BB_OK) return schema_rc;  // fail loud -- never register a partial schema
+    bb_openapi_register_topic_schema(BB_OTA_CHECK_TOPIC, s_update_available_schema_buf,
+                                     "UpdateAvailable");
+#else
     bb_openapi_register_topic_schema(BB_OTA_CHECK_TOPIC, k_update_available_schema,
                                      "UpdateAvailable");
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     s_initialized = true;
 
@@ -1058,6 +1102,31 @@ bb_err_t bb_ota_check_emit_status_json(bb_http_request_t *req)
 // ---------------------------------------------------------------------------
 
 #ifdef BB_OTA_CHECK_TESTING
+// Test-only accessors for the SSE topic schema compose-at-init site above
+// (B1-1059 SSE batch PR-2) -- same "_for_test" convention as bb_diag_
+// storage_nvs's assemble/get pair (components/bb_diag/bb_diag_storage_nvs.c).
+// Declared unconditionally (both config states) so config-OFF tests can
+// assert the served schema is still the untouched hand literal
+// (k_update_available_schema is file-static -- no other way for a
+// cross-TU host test to reach it).
+bb_err_t bb_ota_check_assemble_update_available_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return ensure_update_available_schema_patched();
+#else
+    return BB_OK;
+#endif
+}
+
+const char *bb_ota_check_get_update_available_schema_for_test(void)
+{
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    return s_update_available_schema_buf;
+#else
+    return k_update_available_schema;
+#endif
+}
+
 void bb_ota_check_reset_for_test(void)
 {
     pthread_mutex_lock(&s_lock);

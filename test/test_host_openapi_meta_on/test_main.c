@@ -33,6 +33,11 @@ void test_bb_serialize_meta_ensure_topic_schema_overflow_leaves_buf_empty(void);
 void test_bb_serialize_meta_ensure_topic_schema_idempotent_second_call_is_noop(void);
 void test_bb_serialize_meta_ensure_topic_schema_dispatches_schema_composer(void);
 
+// From test_bb_ota_check_update_available_wiring.c (B1-1059 SSE batch PR-2)
+void test_bb_ota_check_update_available_schema_offline_on_compose_failure(void);
+void test_bb_ota_check_update_available_schema_matches_expected_content(void);
+void test_bb_ota_check_update_available_schema_idempotent_pointer_stable(void);
+
 // From test_bb_diag_storage_nvs_route_wiring.c
 void test_bb_diag_storage_nvs_assemble_schema_offline_on_compose_failure(void);
 void test_bb_diag_storage_nvs_assemble_schema_patches_matching_content(void);
@@ -134,6 +139,12 @@ void tearDown(void)
 int main(void)
 {
     UNITY_BEGIN();
+
+    // Fail-fast (offline-on-compose-failure) MUST run before the two
+    // success tests below -- see each test's own comment.
+    RUN_TEST(test_bb_ota_check_update_available_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_ota_check_update_available_schema_matches_expected_content);
+    RUN_TEST(test_bb_ota_check_update_available_schema_idempotent_pointer_stable);
 
     RUN_TEST(test_bb_serialize_meta_ensure_composed_composes_when_buf_empty);
     RUN_TEST(test_bb_serialize_meta_ensure_composed_overflow_leaves_buf_empty);
