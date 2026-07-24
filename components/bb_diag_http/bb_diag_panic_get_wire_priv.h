@@ -132,6 +132,48 @@ extern const bb_serialize_desc_t bb_diag_panic_get_wire_desc;
 extern const bb_serialize_desc_meta_t bb_diag_panic_get_wire_meta;
 #endif /* BB_SERIALIZE_META_SHIP */
 
+// ---------------------------------------------------------------------------
+// GET /api/diag/panic RESPONSE schema (B1-1059 emit batch C, site C1). A
+// #define (not just the accessor below) so BOTH this component's config-OFF
+// bb_diag_panic_get_wire_get_schema() (wire.c) AND platform/espidf/
+// bb_diag_http/bb_diag_http_routes.c's static const s_panic_get_responses[]
+// table (cross-TU, ESP-IDF-only -- can't call a function from a static
+// initializer) can use the SAME literal text as a genuine compile-time
+// constant expression -- mirrors bb_wifi_http_scan_wire_priv.h's
+// BB_WIFI_HTTP_SCAN_SCHEMA_LITERAL precedent (B1-1059 emit batch B, site B2).
+// ---------------------------------------------------------------------------
+#define BB_DIAG_PANIC_GET_SCHEMA_LITERAL \
+    "{\"type\":\"object\"," \
+    "\"properties\":{" \
+    "\"available\":{\"type\":\"boolean\"}," \
+    "\"boots_since\":{\"type\":\"integer\"}," \
+    "\"reset_reason\":{\"type\":\"string\"}," \
+    "\"log_tail\":{\"type\":\"string\"}," \
+    "\"task\":{\"type\":\"string\"}," \
+    "\"exc_pc\":{\"type\":\"integer\"}," \
+    "\"exc_cause\":{\"type\":\"integer\"}," \
+    "\"backtrace\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}}," \
+    "\"panic_reason\":{\"type\":\"string\"}," \
+    "\"app_sha256\":{\"type\":\"string\"}}," \
+    "\"required\":[\"available\"]}"
+
+// Composed-schema accessor pair (B1-1059 emit batch C, site C1) -- cross-TU
+// bridge: the register site (platform/espidf/bb_diag_http/
+// bb_diag_http_routes.c) is ESP-IDF-only and cannot host a compose buffer or
+// call the meta engine directly on host, so this portable TU owns the
+// buffer/composer and exposes two accessors -- mirrors
+// bb_wifi_http_scan_wire_priv.h's site-B2 exemplar.
+// bb_diag_panic_get_wire_get_schema() is ALWAYS declared (zero config-OFF
+// footprint beyond the accessor itself: it returns the pre-existing
+// BB_DIAG_PANIC_GET_SCHEMA_LITERAL, unchanged);
+// bb_diag_panic_get_wire_ensure_schema_patched() exists ONLY under
+// CONFIG_BB_OPENAPI_RUNTIME_META.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_diag_panic_get_wire_ensure_schema_patched(void);
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+const char *bb_diag_panic_get_wire_get_schema(void);
+
 // Pure populate helper: zero-inits `dst`, widens/copies the already-
 // gathered scalar values, materializes the backtrace array from `summary`,
 // and computes every precomputed present-flag (including

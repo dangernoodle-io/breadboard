@@ -381,24 +381,34 @@ static const bb_route_t s_boot_delete_route = {
 // worth keeping as a stub. A key's canonical value is reachable via
 // bb_data-rendered endpoints instead.
 
-static const bb_route_response_t s_panic_get_responses[] = {
-    { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"available\":{\"type\":\"boolean\"},"
-      "\"boots_since\":{\"type\":\"integer\"},"
-      "\"reset_reason\":{\"type\":\"string\"},"
-      "\"log_tail\":{\"type\":\"string\"},"
-      "\"task\":{\"type\":\"string\"},"
-      "\"exc_pc\":{\"type\":\"integer\"},"
-      "\"exc_cause\":{\"type\":\"integer\"},"
-      "\"backtrace\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}},"
-      "\"panic_reason\":{\"type\":\"string\"},"
-      "\"app_sha256\":{\"type\":\"string\"}},"
-      "\"required\":[\"available\"]}",
+// GET /api/diag/panic response schema literal -- shared via
+// BB_DIAG_PANIC_GET_SCHEMA_LITERAL (bb_diag_panic_get_wire_priv.h, B1-1059
+// emit batch C, site C1) so this config-OFF table and
+// bb_diag_panic_get_wire.c's config-OFF accessor can never desync (config
+// OFF returns that same literal unchanged; config ON returns a
+// runtime-composed buffer -- see bb_diag_panic_get_wire_get_schema()'s own
+// doc comment).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Mutable (`.data`, not `.rodata`) with this config on -- `.schema` starts
+// NULL and is patched in once by bb_diag_routes_init() before this route is
+// ever registered/served.
+static bb_route_response_t s_panic_get_responses[] = {
+    { 200, "application/json", NULL /* patched at init */,
       "panic log status, log tail, coredump backtrace, and panic reason text (when available)" },
     { 0 },
 };
+
+#else
+
+static const bb_route_response_t s_panic_get_responses[] = {
+    { 200, "application/json",
+      BB_DIAG_PANIC_GET_SCHEMA_LITERAL,
+      "panic log status, log tail, coredump backtrace, and panic reason text (when available)" },
+    { 0 },
+};
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 static const bb_route_t s_panic_get_route = {
     .method   = BB_HTTP_GET,
@@ -595,15 +605,34 @@ static bb_err_t heap_check_get_handler(bb_http_request_t *req)
     return bb_http_serialize_stream(req, &bb_diag_heap_check_wire_desc, &snap);
 }
 
-static const bb_route_response_t s_heap_check_get_responses[] = {
-    { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"integrity_ok\":{\"type\":\"boolean\"}},"
-      "\"required\":[\"integrity_ok\"]}",
+// GET /api/diag/heap-check response schema literal -- shared via
+// BB_DIAG_HEAP_CHECK_SCHEMA_LITERAL (bb_diag_heap_check_wire_priv.h, B1-1059
+// emit batch C, site C2) so this config-OFF table and
+// bb_diag_heap_check_wire.c's config-OFF accessor can never desync (config
+// OFF returns that same literal unchanged; config ON returns a
+// runtime-composed buffer -- see bb_diag_heap_check_wire_get_schema()'s own
+// doc comment).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Mutable (`.data`, not `.rodata`) with this config on -- `.schema` starts
+// NULL and is patched in once by bb_diag_routes_init() before this route is
+// ever registered/served.
+static bb_route_response_t s_heap_check_get_responses[] = {
+    { 200, "application/json", NULL /* patched at init */,
       "result of an on-demand heap_caps_check_integrity_all() walk" },
     { 0 },
 };
+
+#else
+
+static const bb_route_response_t s_heap_check_get_responses[] = {
+    { 200, "application/json",
+      BB_DIAG_HEAP_CHECK_SCHEMA_LITERAL,
+      "result of an on-demand heap_caps_check_integrity_all() walk" },
+    { 0 },
+};
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 static const bb_route_t s_heap_check_get_route = {
     .method    = BB_HTTP_GET,
@@ -730,33 +759,21 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
     return err;
 }
 
-static const bb_route_response_t s_tasks_get_responses[] = {
-    { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"tasks\":{\"type\":\"array\","
-      "\"items\":{\"type\":\"object\","
-      "\"properties\":{"
-      "\"name\":{\"type\":\"string\"},"
-      "\"prio\":{\"type\":\"integer\"},"
-      "\"base_prio\":{\"type\":\"integer\"},"
-      "\"stack_hwm\":{\"type\":\"integer\"},"
-      "\"state\":{\"type\":\"string\"},"
-      "\"core\":{\"type\":\"integer\"},"
-      "\"runtime\":{\"type\":\"integer\"},"
-      "\"stack_budget_bytes\":{\"type\":\"integer\"},"
-      "\"wdt_subscribed\":{\"type\":\"boolean\"},"
-      "\"sw_wdt_timeout_ms\":{\"type\":\"integer\"},"
-      "\"sw_wdt_last_feed_age_ms\":{\"type\":\"integer\"},"
-      "\"sw_wdt_miss_count\":{\"type\":\"integer\"},"
-      "\"sw_wdt_last_miss_age_ms\":{\"type\":\"integer\"}}}},"
-      "\"registry\":{\"type\":\"object\","
-      "\"properties\":{"
-      "\"count\":{\"type\":\"integer\"},"
-      "\"capacity\":{\"type\":\"integer\"},"
-      "\"dropped\":{\"type\":\"integer\"}},"
-      "\"required\":[\"count\",\"capacity\",\"dropped\"]}},"
-      "\"required\":[\"tasks\",\"registry\"]}",
+// GET /api/diag/tasks 200-response schema literal -- shared via
+// BB_DIAG_TASKS_GET_SCHEMA_LITERAL (bb_diag_tasks_get_wire_priv.h, B1-1059
+// emit batch C, site C3) so this config-OFF table and
+// bb_diag_tasks_get_wire.c's config-OFF accessor can never desync (config
+// OFF returns that same literal unchanged; config ON returns a
+// runtime-composed buffer -- see bb_diag_tasks_get_wire_get_schema()'s own
+// doc comment). The 500 response stays a plain literal, untouched by this
+// migration.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Mutable (`.data`, not `.rodata`) with this config on -- the 200 entry's
+// `.schema` starts NULL and is patched in once by bb_diag_routes_init()
+// before this route is ever registered/served.
+static bb_route_response_t s_tasks_get_responses[] = {
+    { 200, "application/json", NULL /* patched at init */,
       "task list + bb_task_base occupancy (BREAKING B1-471: response root "
       "changed from a bare array to an object with a \\\"tasks\\\" array field; "
       "B1-601 re-scope: registry.{count,capacity,dropped} moved from "
@@ -776,6 +793,33 @@ static const bb_route_response_t s_tasks_get_responses[] = {
       "allocation failure (malloc for TaskStatus_t array failed)" },
     { 0 },
 };
+
+#else
+
+static const bb_route_response_t s_tasks_get_responses[] = {
+    { 200, "application/json",
+      BB_DIAG_TASKS_GET_SCHEMA_LITERAL,
+      "task list + bb_task_base occupancy (BREAKING B1-471: response root "
+      "changed from a bare array to an object with a \\\"tasks\\\" array field; "
+      "B1-601 re-scope: registry.{count,capacity,dropped} moved from "
+      "bb_task_registry to bb_task_base); "
+      "core requires CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID; "
+      "runtime requires CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS; "
+      "stack_budget_bytes/wdt_subscribed present only for tasks self-registered "
+      "via bb_task_registry; sw_wdt_* present only when that task's "
+      "opts->sw_wdt_timeout_ms > 0; registry.{count,capacity,dropped} come from "
+      "bb_task_base_{count,capacity,dropped}() -- the fixed task-creation pool "
+      "every bb_task_create() call hits -- and are independent of the "
+      "live FreeRTOS task list above" },
+    { 500, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "allocation failure (malloc for TaskStatus_t array failed)" },
+    { 0 },
+};
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 static const bb_route_t s_tasks_get_route = {
     .method    = BB_HTTP_GET,
@@ -866,39 +910,40 @@ static bb_err_t sockets_get_handler(bb_http_request_t *req)
     return err;
 }
 
-static const bb_route_response_t s_sockets_get_responses[] = {
-    { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"lwip_max_sockets\":{\"type\":\"integer\"},"
-      "\"in_use\":{\"type\":\"integer\"},"
-      "\"by_state\":{\"type\":\"object\",\"properties\":{"
-      "\"CLOSED\":{\"type\":\"integer\"},"
-      "\"LISTEN\":{\"type\":\"integer\"},"
-      "\"SYN_SENT\":{\"type\":\"integer\"},"
-      "\"SYN_RCVD\":{\"type\":\"integer\"},"
-      "\"ESTABLISHED\":{\"type\":\"integer\"},"
-      "\"FIN_WAIT_1\":{\"type\":\"integer\"},"
-      "\"FIN_WAIT_2\":{\"type\":\"integer\"},"
-      "\"CLOSE_WAIT\":{\"type\":\"integer\"},"
-      "\"CLOSING\":{\"type\":\"integer\"},"
-      "\"LAST_ACK\":{\"type\":\"integer\"},"
-      "\"TIME_WAIT\":{\"type\":\"integer\"}},"
-      "\"required\":[\"CLOSED\",\"LISTEN\",\"SYN_SENT\",\"SYN_RCVD\",\"ESTABLISHED\","
-      "\"FIN_WAIT_1\",\"FIN_WAIT_2\",\"CLOSE_WAIT\",\"CLOSING\",\"LAST_ACK\",\"TIME_WAIT\"]},"
-      "\"pcbs\":{\"type\":\"array\",\"items\":{"
-      "\"type\":\"object\","
-      "\"properties\":{"
-      "\"local_port\":{\"type\":\"integer\"},"
-      "\"remote_ip\":{\"type\":\"string\"},"
-      "\"remote_port\":{\"type\":\"integer\"},"
-      "\"state\":{\"type\":\"string\"}}}}}}",
+// GET /api/diag/sockets response schema literal -- shared via
+// BB_DIAG_SOCKETS_GET_SCHEMA_LITERAL (bb_diag_sockets_get_wire_priv.h,
+// B1-1059 emit batch C, site C4) so this config-OFF table and
+// bb_diag_sockets_get_wire.c's config-OFF accessor can never desync (config
+// OFF returns that same literal unchanged; config ON returns a
+// runtime-composed buffer -- see bb_diag_sockets_get_wire_get_schema()'s own
+// doc comment).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Mutable (`.data`, not `.rodata`) with this config on -- `.schema` starts
+// NULL and is patched in once by bb_diag_routes_init() before this route is
+// ever registered/served.
+static bb_route_response_t s_sockets_get_responses[] = {
+    { 200, "application/json", NULL /* patched at init */,
       "LWIP TCP socket state distribution: per-state counts and per-PCB detail "
       "(B1-1190: by_state schema tightened from additionalProperties to the 11 "
       "named required integer fields this route always emits -- runtime JSON "
       "is unchanged)" },
     { 0 },
 };
+
+#else
+
+static const bb_route_response_t s_sockets_get_responses[] = {
+    { 200, "application/json",
+      BB_DIAG_SOCKETS_GET_SCHEMA_LITERAL,
+      "LWIP TCP socket state distribution: per-state counts and per-PCB detail "
+      "(B1-1190: by_state schema tightened from additionalProperties to the 11 "
+      "named required integer fields this route always emits -- runtime JSON "
+      "is unchanged)" },
+    { 0 },
+};
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 static const bb_route_t s_sockets_get_route = {
     .method    = BB_HTTP_GET,
@@ -919,6 +964,18 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     err = bb_http_register_described_route(server, &s_boot_delete_route);
     if (err != BB_OK) return err;
 
+    // Compose (config ON only) before registering -- never interleave
+    // compose and register (avoids a partial-registration on a
+    // mid-sequence compose failure). bb_diag_panic_get_wire_get_schema() is
+    // ALWAYS declared (B1-1059 emit batch C, site C1 wire.c pattern) and
+    // already returns the right content for config OFF, so only the
+    // ensure_schema_patched() call and the response patch are gated.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t panic_schema_rc = bb_diag_panic_get_wire_ensure_schema_patched();
+    if (panic_schema_rc != BB_OK) return panic_schema_rc;
+    s_panic_get_responses[0].schema = bb_diag_panic_get_wire_get_schema();
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
     err = bb_http_register_described_route(server, &s_panic_get_route);
     if (err != BB_OK) return err;
 
@@ -933,13 +990,37 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
 #endif
 
+    // Compose (config ON only) before registering -- see the panic-get site
+    // above for the full rationale (mirrored here).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t heap_check_schema_rc = bb_diag_heap_check_wire_ensure_schema_patched();
+    if (heap_check_schema_rc != BB_OK) return heap_check_schema_rc;
+    s_heap_check_get_responses[0].schema = bb_diag_heap_check_wire_get_schema();
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
     err = bb_http_register_described_route(server, &s_heap_check_get_route);
     if (err != BB_OK) return err;
 
 #if CONFIG_FREERTOS_USE_TRACE_FACILITY
+    // Compose (config ON only) before registering -- see the panic-get site
+    // above for the full rationale (mirrored here).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t tasks_schema_rc = bb_diag_tasks_get_wire_ensure_schema_patched();
+    if (tasks_schema_rc != BB_OK) return tasks_schema_rc;
+    s_tasks_get_responses[0].schema = bb_diag_tasks_get_wire_get_schema();
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
     err = bb_http_register_described_route(server, &s_tasks_get_route);
     if (err != BB_OK) return err;
 #endif
+
+    // Compose (config ON only) before registering -- see the panic-get site
+    // above for the full rationale (mirrored here).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t sockets_schema_rc = bb_diag_sockets_get_wire_ensure_schema_patched();
+    if (sockets_schema_rc != BB_OK) return sockets_schema_rc;
+    s_sockets_get_responses[0].schema = bb_diag_sockets_get_wire_get_schema();
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     err = bb_http_register_described_route(server, &s_sockets_get_route);
     if (err != BB_OK) return err;

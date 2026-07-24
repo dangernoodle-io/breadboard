@@ -187,6 +187,61 @@ extern const bb_serialize_desc_t bb_diag_sockets_get_wire_desc;
 extern const bb_serialize_desc_meta_t bb_diag_sockets_get_wire_meta;
 #endif /* BB_SERIALIZE_META_SHIP */
 
+// ---------------------------------------------------------------------------
+// GET /api/diag/sockets RESPONSE schema (B1-1059 emit batch C, site C4). A
+// #define (not just the accessor below) so BOTH this component's config-OFF
+// bb_diag_sockets_get_wire_get_schema() (wire.c) AND platform/espidf/
+// bb_diag_http/bb_diag_http_routes.c's static const
+// s_sockets_get_responses[] table (cross-TU, ESP-IDF-only -- can't call a
+// function from a static initializer) can use the SAME literal text as a
+// genuine compile-time constant expression -- mirrors
+// bb_wifi_http_scan_wire_priv.h's BB_WIFI_HTTP_SCAN_SCHEMA_LITERAL
+// precedent (B1-1059 emit batch B, site B2).
+// ---------------------------------------------------------------------------
+#define BB_DIAG_SOCKETS_GET_SCHEMA_LITERAL \
+    "{\"type\":\"object\"," \
+    "\"properties\":{" \
+    "\"lwip_max_sockets\":{\"type\":\"integer\"}," \
+    "\"in_use\":{\"type\":\"integer\"}," \
+    "\"by_state\":{\"type\":\"object\",\"properties\":{" \
+    "\"CLOSED\":{\"type\":\"integer\"}," \
+    "\"LISTEN\":{\"type\":\"integer\"}," \
+    "\"SYN_SENT\":{\"type\":\"integer\"}," \
+    "\"SYN_RCVD\":{\"type\":\"integer\"}," \
+    "\"ESTABLISHED\":{\"type\":\"integer\"}," \
+    "\"FIN_WAIT_1\":{\"type\":\"integer\"}," \
+    "\"FIN_WAIT_2\":{\"type\":\"integer\"}," \
+    "\"CLOSE_WAIT\":{\"type\":\"integer\"}," \
+    "\"CLOSING\":{\"type\":\"integer\"}," \
+    "\"LAST_ACK\":{\"type\":\"integer\"}," \
+    "\"TIME_WAIT\":{\"type\":\"integer\"}}," \
+    "\"required\":[\"CLOSED\",\"LISTEN\",\"SYN_SENT\",\"SYN_RCVD\",\"ESTABLISHED\"," \
+    "\"FIN_WAIT_1\",\"FIN_WAIT_2\",\"CLOSE_WAIT\",\"CLOSING\",\"LAST_ACK\",\"TIME_WAIT\"]}," \
+    "\"pcbs\":{\"type\":\"array\",\"items\":{" \
+    "\"type\":\"object\"," \
+    "\"properties\":{" \
+    "\"local_port\":{\"type\":\"integer\"}," \
+    "\"remote_ip\":{\"type\":\"string\"}," \
+    "\"remote_port\":{\"type\":\"integer\"}," \
+    "\"state\":{\"type\":\"string\"}}}}}}"
+
+// Composed-schema accessor pair (B1-1059 emit batch C, site C4) -- cross-TU
+// bridge: the register site (platform/espidf/bb_diag_http/
+// bb_diag_http_routes.c) is ESP-IDF-only and cannot host a compose buffer or
+// call the meta engine directly on host, so this portable TU owns the
+// buffer/composer and exposes two accessors -- mirrors
+// bb_wifi_http_scan_wire_priv.h's site-B2 exemplar.
+// bb_diag_sockets_get_wire_get_schema() is ALWAYS declared (zero config-OFF
+// footprint beyond the accessor itself: it returns the pre-existing
+// BB_DIAG_SOCKETS_GET_SCHEMA_LITERAL, unchanged);
+// bb_diag_sockets_get_wire_ensure_schema_patched() exists ONLY under
+// CONFIG_BB_OPENAPI_RUNTIME_META.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+bb_err_t bb_diag_sockets_get_wire_ensure_schema_patched(void);
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+const char *bb_diag_sockets_get_wire_get_schema(void);
+
 // Pure row-copy helper: copies `n` rows from `src` into `dst` (row-count
 // bounded by BB_DIAG_SOCKETS_ROW_CAP by the caller). Copies `remote_ip` into
 // the fixed buffer (bb_strlcpy, always NUL-terminated) and wires `state`'s

@@ -189,6 +189,38 @@ void test_bb_wifi_http_scan_wire_schema_offline_on_compose_failure(void);
 void test_bb_wifi_http_scan_wire_schema_matches_expected_content(void);
 void test_bb_wifi_http_scan_wire_schema_idempotent_pointer_stable(void);
 
+// From test_bb_diag_panic_get_wire_route_wiring.c (B1-1059 emit batch C,
+// site C1)
+void test_bb_diag_panic_get_wire_schema_offline_on_compose_failure(void);
+void test_bb_diag_panic_get_wire_schema_matches_expected_content(void);
+void test_bb_diag_panic_get_wire_schema_idempotent_pointer_stable(void);
+
+// From test_bb_diag_heap_check_wire_route_wiring.c (B1-1059 emit batch C,
+// site C2)
+void test_bb_diag_heap_check_wire_schema_offline_on_compose_failure(void);
+void test_bb_diag_heap_check_wire_schema_matches_expected_content(void);
+void test_bb_diag_heap_check_wire_schema_idempotent_pointer_stable(void);
+
+// From test_bb_diag_tasks_get_wire_route_wiring.c (B1-1059 emit batch C,
+// site C3)
+void test_bb_diag_tasks_get_wire_schema_offline_on_compose_failure(void);
+void test_bb_diag_tasks_get_wire_schema_matches_expected_content(void);
+void test_bb_diag_tasks_get_wire_schema_idempotent_pointer_stable(void);
+
+// From test_bb_diag_sockets_get_wire_route_wiring.c (B1-1059 emit batch C,
+// site C4)
+void test_bb_diag_sockets_get_wire_schema_offline_on_compose_failure(void);
+void test_bb_diag_sockets_get_wire_schema_matches_expected_content(void);
+void test_bb_diag_sockets_get_wire_schema_idempotent_pointer_stable(void);
+
+// From test_bb_storage_http_delete_response_route_wiring.c (B1-1059 emit
+// batch C, site C5) -- distinct from test_bb_storage_http_delete_route_
+// wiring.c's REQUEST-schema pair above (own wire.c, own sentinel; this is
+// the 200 RESPONSE schema).
+void test_bb_storage_http_delete_response_schema_offline_on_compose_failure(void);
+void test_bb_storage_http_delete_response_schema_matches_expected_content(void);
+void test_bb_storage_http_delete_response_schema_idempotent_pointer_stable(void);
+
 void setUp(void) {}
 
 // Defensive belt-and-suspenders for the BB_SERIALIZE_META_TESTING
@@ -379,6 +411,22 @@ int main(void)
     RUN_TEST(test_bb_wifi_http_scan_wire_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_wifi_http_scan_wire_schema_matches_expected_content);
     RUN_TEST(test_bb_wifi_http_scan_wire_schema_idempotent_pointer_stable);
+
+    RUN_TEST(test_bb_diag_panic_get_wire_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_diag_panic_get_wire_schema_matches_expected_content);
+    RUN_TEST(test_bb_diag_panic_get_wire_schema_idempotent_pointer_stable);
+    RUN_TEST(test_bb_diag_heap_check_wire_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_diag_heap_check_wire_schema_matches_expected_content);
+    RUN_TEST(test_bb_diag_heap_check_wire_schema_idempotent_pointer_stable);
+    RUN_TEST(test_bb_diag_tasks_get_wire_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_diag_tasks_get_wire_schema_matches_expected_content);
+    RUN_TEST(test_bb_diag_tasks_get_wire_schema_idempotent_pointer_stable);
+    RUN_TEST(test_bb_diag_sockets_get_wire_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_diag_sockets_get_wire_schema_matches_expected_content);
+    RUN_TEST(test_bb_diag_sockets_get_wire_schema_idempotent_pointer_stable);
+    RUN_TEST(test_bb_storage_http_delete_response_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_storage_http_delete_response_schema_matches_expected_content);
+    RUN_TEST(test_bb_storage_http_delete_response_schema_idempotent_pointer_stable);
 
     return UNITY_END();
 }

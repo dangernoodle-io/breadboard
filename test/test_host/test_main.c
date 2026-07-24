@@ -998,6 +998,19 @@ void test_bb_diag_tasks_get_wire_meta_golden_matches_hand_literal(void);
 void test_bb_storage_http_factory_reset_meta_validates_against_desc(void);
 void test_bb_storage_http_factory_reset_meta_golden_matches_hand_literal(void);
 
+// Forward declarations from test_bb_diag_panic_get_wire_schema_default.c /
+// test_bb_diag_heap_check_wire_schema_default.c /
+// test_bb_diag_tasks_get_wire_schema_default.c /
+// test_bb_diag_sockets_get_wire_schema_default.c /
+// test_bb_storage_http_delete_wire_schema_default.c (B1-1059 emit batch C,
+// sites C1-C5) -- config-OFF byte-identity: each *_get_schema() serves its
+// relocated hand literal unchanged in this plain [env:native] build.
+void test_bb_diag_panic_get_wire_schema_default_matches_literal(void);
+void test_bb_diag_heap_check_wire_schema_default_matches_literal(void);
+void test_bb_diag_tasks_get_wire_schema_default_matches_literal(void);
+void test_bb_diag_sockets_get_wire_schema_default_matches_literal(void);
+void test_bb_storage_http_delete_wire_schema_default_matches_literal(void);
+
 // Forward declarations from test_bb_ota_check_config_meta_golden.c
 // (B1-1059 PR-2b-i-1)
 void test_bb_ota_check_config_meta_validates_against_desc(void);
@@ -6424,6 +6437,7 @@ int main(void) {
     RUN_TEST(test_bb_diag_heap_check_wire_fill_zero_inits);
     RUN_TEST(test_bb_diag_heap_check_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_diag_heap_check_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_diag_heap_check_wire_schema_default_matches_literal);
     RUN_TEST(test_bb_diag_panic_get_wire_nothing_available);
     RUN_TEST(test_bb_diag_panic_get_wire_available_only);
     RUN_TEST(test_bb_diag_panic_get_wire_available_with_log_tail);
@@ -6437,6 +6451,7 @@ int main(void) {
     RUN_TEST(test_bb_diag_panic_get_wire_coredump_backtrace_count_clamped);
     RUN_TEST(test_bb_diag_panic_get_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_diag_panic_get_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_diag_panic_get_wire_schema_default_matches_literal);
     RUN_TEST(test_bb_diag_sockets_get_wire_zero_pcbs);
     RUN_TEST(test_bb_diag_sockets_get_wire_n_pcbs_distinct_states);
     RUN_TEST(test_bb_diag_sockets_get_wire_all_states_nonzero);
@@ -6446,6 +6461,7 @@ int main(void) {
     RUN_TEST(test_bb_diag_sockets_get_wire_fill_zero_inits);
     RUN_TEST(test_bb_diag_sockets_get_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_diag_sockets_get_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_diag_sockets_get_wire_schema_default_matches_literal);
     RUN_TEST(test_bb_diag_tasks_get_wire_zero_tasks);
     RUN_TEST(test_bb_diag_tasks_get_wire_one_task_no_optional_fields);
     RUN_TEST(test_bb_diag_tasks_get_wire_one_task_all_optional_fields_present);
@@ -6457,6 +6473,7 @@ int main(void) {
     RUN_TEST(test_bb_diag_tasks_get_wire_all_16_present_combinations);
     RUN_TEST(test_bb_diag_tasks_get_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_diag_tasks_get_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_diag_tasks_get_wire_schema_default_matches_literal);
 
     // POST /api/diag/factory-reset route tests (B1-960, rehomed off bb_nv)
     RUN_TEST(test_storage_http_factory_reset_no_body_returns_400);
@@ -10573,6 +10590,7 @@ int main(void) {
     RUN_TEST(test_bb_diag_sections_openapi_described_paths_present);
     RUN_TEST(test_bb_storage_http_delete_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_storage_http_delete_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_storage_http_delete_wire_schema_default_matches_literal);
     RUN_TEST(test_bb_storage_http_factory_reset_meta_validates_against_desc);
     RUN_TEST(test_bb_storage_http_factory_reset_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_ota_check_config_meta_validates_against_desc);

@@ -564,13 +564,23 @@ static bb_err_t storage_delete_handler(bb_http_request_t *req)
 // Route descriptor
 // ---------------------------------------------------------------------------
 
-static const bb_route_response_t s_storage_delete_responses[] = {
-    { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"deleted\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},"
-      "\"key\":{\"type\":\"string\"}},"
-      "\"required\":[\"deleted\"]}",
+// DELETE /api/diag/storage 200-response schema literal -- shared via
+// BB_STORAGE_HTTP_DELETE_RESPONSE_SCHEMA_LITERAL
+// (bb_storage_http_delete_wire_priv.h, B1-1059 emit batch C, site C5) so
+// this config-OFF table and bb_storage_http_delete_wire.c's config-OFF
+// accessor can never desync (config OFF returns that same literal
+// unchanged; config ON returns a runtime-composed buffer -- see
+// bb_storage_http_delete_wire_get_schema()'s own doc comment). The
+// 400/412/500/501 responses stay plain literals, untouched by this
+// migration.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+// Mutable (`.data`, not `.rodata`) with this config on -- the 200 entry's
+// `.schema` starts NULL and is patched in once by
+// bb_storage_http_routes_init() before this route is ever
+// registered/served.
+static bb_route_response_t s_storage_delete_responses[] = {
+    { 200, "application/json", NULL /* patched at init */,
       "deletion successful; 'key' present only when a single key was erased" },
     { 400, "application/json",
       "{\"type\":\"object\","
@@ -594,6 +604,37 @@ static const bb_route_response_t s_storage_delete_responses[] = {
       "backend does not support namespace-level erase" },
     { 0 },
 };
+
+#else
+
+static const bb_route_response_t s_storage_delete_responses[] = {
+    { 200, "application/json",
+      BB_STORAGE_HTTP_DELETE_RESPONSE_SCHEMA_LITERAL,
+      "deletion successful; 'key' present only when a single key was erased" },
+    { 400, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "missing/invalid namespace, or key+array-namespace combo" },
+    { 412, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "missing confirm:true / missing wipe_wifi:true for the wifi-creds namespace" },
+    { 500, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "storage erase operation failed" },
+    { 501, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "backend does not support namespace-level erase" },
+    { 0 },
+};
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 // A #define (not just used inline) so the runtime-compose buffer below and
 // the config-OFF route table can both use the SAME literal text as a
@@ -1134,6 +1175,14 @@ bb_err_t bb_storage_http_routes_init(bb_http_handle_t server)
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t schema_rc = ensure_storage_delete_request_schema_patched();
     if (schema_rc != BB_OK) return schema_rc;  // fail loud
+
+    // Compose (config ON only) before registering -- see
+    // bb_wifi_routes_init()'s own doc comment for the full rationale
+    // (mirrored here). This is the 200 RESPONSE schema (B1-1059 emit batch
+    // C, site C5) -- distinct from the request schema composed just above.
+    bb_err_t response_schema_rc = bb_storage_http_delete_wire_ensure_schema_patched();
+    if (response_schema_rc != BB_OK) return response_schema_rc;
+    s_storage_delete_responses[0].schema = bb_storage_http_delete_wire_get_schema();
 #endif
 
     bb_data_binding_t storage_delete_binding = {
