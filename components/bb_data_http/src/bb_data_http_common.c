@@ -136,6 +136,62 @@ size_t bb_data_http_attach_count(void)
     return bb_registry_count(&s_attach_registry);
 }
 
+// ---------------------------------------------------------------------------
+// Describe table (B1-1220). Deliberately independent of the attach table
+// above -- see bb_data_http.h's doc comment for the rationale. A plain
+// linear array + dedup scan (mirrors bb_openapi's own
+// s_schema_registry/bb_openapi_register_schema() shape) rather than
+// bb_registry: this table is never looked up by key at runtime (only walked
+// in full via foreach), so a name-keyed lookup structure buys nothing here.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    const char *key;
+    const char *topic;
+    const char *component_name;
+    const char *schema_literal;
+} describe_entry_t;
+
+static describe_entry_t s_describe[BB_DATA_HTTP_MAX_DESCRIBE];
+static size_t           s_describe_count;
+
+bb_err_t bb_data_http_describe(const char *key, const char *topic,
+                               const char *component_name,
+                               const char *schema_literal)
+{
+    if (!key || !key[0] || !topic || !topic[0] ||
+        !component_name || !component_name[0] ||
+        !schema_literal || !schema_literal[0]) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    for (size_t i = 0; i < s_describe_count; i++) {
+        if (strcmp(s_describe[i].key, key) == 0) return BB_OK;  // dedup first-wins
+    }
+
+    if (s_describe_count >= BB_DATA_HTTP_MAX_DESCRIBE) {
+        bb_log_e(TAG, "describe table full (cap=%d); dropping descriptor for key '%s'",
+                 BB_DATA_HTTP_MAX_DESCRIBE, key);
+        return BB_ERR_NO_SPACE;
+    }
+
+    s_describe[s_describe_count].key            = key;
+    s_describe[s_describe_count].topic          = topic;
+    s_describe[s_describe_count].component_name = component_name;
+    s_describe[s_describe_count].schema_literal = schema_literal;
+    s_describe_count++;
+    return BB_OK;
+}
+
+void bb_data_http_describe_foreach(bb_data_http_describe_cb_t cb, void *ctx)
+{
+    if (!cb) return;
+    for (size_t i = 0; i < s_describe_count; i++) {
+        cb(s_describe[i].key, s_describe[i].topic,
+           s_describe[i].component_name, s_describe[i].schema_literal, ctx);
+    }
+}
+
 // True when client `c` should receive updates for a key attached under
 // `topic`: an empty topic_filter subscribes to everything; otherwise exact
 // match only.
@@ -626,6 +682,8 @@ void bb_data_http_reset_for_test(void)
     }
     memset(s_attach, 0, sizeof(s_attach));
     bb_registry_reset(&s_attach_registry);
+    memset(s_describe, 0, sizeof(s_describe));
+    s_describe_count = 0;
     memset(&s_cfg, 0, sizeof(s_cfg));
     s_render_fn = NULL; s_render_ctx = NULL;
     s_gen_fn    = NULL; s_gen_ctx    = NULL;

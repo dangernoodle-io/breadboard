@@ -1,3 +1,15 @@
+# B1-1220 PR2: bb_openapi_emit_shared.c's SSE oneOf synthesis
+# (sse_schema_count() / build_sse_oneof_fragment()) can union an EXTERNAL
+# topic-schema source (e.g. bb_data_http's describe table) alongside its own
+# legacy schema registry -- but reaches it entirely through the injected
+# bb_openapi_set_topic_source_fn() seam (bb_openapi.h), never a link-time
+# dependency. bb_data_http itself never links bb_data/bb_ws_server for the
+# exact same reason (its own render/generation/send seams) -- breadboard
+# ships primitives, composition is the consumer's job (CLAUDE.md's
+# composition-only banner). No new REQUIRES/PRIV_REQUIRES edge here as a
+# result; no in-tree example wires this seam yet (tracked as B1-1222) --
+# see test_sse_schema_fidelity.c's unwired-vs-wired test pair for the only
+# in-tree exercise of it.
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/src/bb_openapi_emit.c"
          "${CMAKE_CURRENT_LIST_DIR}/src/bb_openapi_emit_shared.c"

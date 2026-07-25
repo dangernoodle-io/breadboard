@@ -351,6 +351,13 @@ void test_bb_data_http_attach_capacity_full_returns_no_space(void);
 void test_bb_data_http_attach_sized_oversized_snap_size_returns_no_space_and_does_not_attach(void);
 void test_bb_data_http_attach_sized_log_sized_snap_size_attaches_successfully(void);
 void test_bb_data_http_attach_sized_exact_scratch_size_attaches_successfully(void);
+void test_bb_data_http_describe_round_trip_via_foreach(void);
+void test_bb_data_http_describe_dedup_first_wins(void);
+void test_bb_data_http_describe_null_or_empty_args_return_invalid_arg(void);
+void test_bb_data_http_describe_capacity_full_returns_no_space(void);
+void test_bb_data_http_describe_foreach_null_cb_is_noop(void);
+void test_bb_data_http_describe_foreach_empty_table_calls_nothing(void);
+void test_bb_data_http_describe_independent_of_attach_table(void);
 void test_bb_data_http_client_acquire_release_round_trip(void);
 void test_bb_data_http_client_release_null_is_noop(void);
 void test_bb_data_http_client_acquire_before_init_returns_invalid_state(void);
@@ -2539,6 +2546,10 @@ void test_sse_schema_oneof_fragment_max_cap_topics(void);
 void test_sse_schema_oneof_fragment_mixed_sse_and_rest_only(void);
 void test_sse_schema_oneof_fragment_overflow_omits_content_stream(void);
 void test_sse_schema_oneof_fragment_long_name_truncation_omits_content_stream(void);
+void test_sse_schema_union_seam_unwired_matches_legacy_only_output(void);
+void test_sse_schema_union_seam_unwired_describe_entry_does_not_appear(void);
+void test_sse_schema_union_seam_wired_describe_entry_counts_toward_sse_schema_count(void);
+void test_sse_schema_union_seam_wired_describe_entry_appears_in_oneof(void);
 void test_sse_schema_oneof_fragment_opener_overflow(void);
 void test_sse_schema_oneof_fragment_closing_overflow(void);
 void test_sse_schema_wifi_telemetry_payload_valid(void);
@@ -5181,6 +5192,7 @@ void setUp(void) {
     bb_health_reset_for_test();
     bb_wdt_test_reset();
     bb_openapi_schema_registry_clear();
+    bb_openapi_set_topic_source_fn(NULL);
     bb_mem_reset_stats();
     // Several consumers (bb_diag_section, bb_http_section, bb_sensor_http, ...)
     // dispatch through the format-dispatch registry rather than a hardcoded
@@ -6911,6 +6923,10 @@ int main(void) {
     RUN_TEST(test_sse_schema_oneof_fragment_mixed_sse_and_rest_only);
     RUN_TEST(test_sse_schema_oneof_fragment_overflow_omits_content_stream);
     RUN_TEST(test_sse_schema_oneof_fragment_long_name_truncation_omits_content_stream);
+    RUN_TEST(test_sse_schema_union_seam_unwired_matches_legacy_only_output);
+    RUN_TEST(test_sse_schema_union_seam_unwired_describe_entry_does_not_appear);
+    RUN_TEST(test_sse_schema_union_seam_wired_describe_entry_counts_toward_sse_schema_count);
+    RUN_TEST(test_sse_schema_union_seam_wired_describe_entry_appears_in_oneof);
     RUN_TEST(test_sse_schema_oneof_fragment_opener_overflow);
     RUN_TEST(test_sse_schema_oneof_fragment_closing_overflow);
     RUN_TEST(test_sse_schema_wifi_telemetry_payload_valid);
@@ -10861,6 +10877,13 @@ int main(void) {
     RUN_TEST(test_bb_data_http_attach_sized_oversized_snap_size_returns_no_space_and_does_not_attach);
     RUN_TEST(test_bb_data_http_attach_sized_log_sized_snap_size_attaches_successfully);
     RUN_TEST(test_bb_data_http_attach_sized_exact_scratch_size_attaches_successfully);
+    RUN_TEST(test_bb_data_http_describe_round_trip_via_foreach);
+    RUN_TEST(test_bb_data_http_describe_dedup_first_wins);
+    RUN_TEST(test_bb_data_http_describe_null_or_empty_args_return_invalid_arg);
+    RUN_TEST(test_bb_data_http_describe_capacity_full_returns_no_space);
+    RUN_TEST(test_bb_data_http_describe_foreach_null_cb_is_noop);
+    RUN_TEST(test_bb_data_http_describe_foreach_empty_table_calls_nothing);
+    RUN_TEST(test_bb_data_http_describe_independent_of_attach_table);
     RUN_TEST(test_bb_data_http_client_acquire_release_round_trip);
     RUN_TEST(test_bb_data_http_client_release_null_is_noop);
     RUN_TEST(test_bb_data_http_client_acquire_before_init_returns_invalid_state);

@@ -5,6 +5,7 @@
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_http_host.h"
+#include "bb_data_http.h"
 #include "test_openapi_capture.h"
 
 #include <cJSON.h>
@@ -1077,4 +1078,105 @@ void test_sse_schema_oneof_fragment_long_name_truncation_omits_content_stream(vo
     TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(r200, "content"));
 
     test_openapi_capture_free(&r);
+}
+
+// ---------------------------------------------------------------------------
+// External topic-source seam union (B1-1220 PR2) -- sse_schema_count() /
+// build_sse_oneof_fragment() can union an EXTERNAL topic-schema source
+// (bb_data_http's describe table, via bb_data_http_describe_foreach()) into
+// the legacy registry above, but ONLY when bb_openapi_set_topic_source_fn()
+// has actually wired it -- bb_openapi never links bb_data_http directly (see
+// bb_openapi.h's doc comment). Default (unwired, NULL) behaves byte-
+// identically to pre-B1-1220. These tests also cover the silent-failure mode
+// the seam trades for the dependency: a populated describe table with the
+// seam left UNWIRED must produce NO trace of its entries in the emitted
+// document (exactly the mistake a composition root could make by forgetting
+// to pair bb_data_http_describe() calls with
+// bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach)).
+// ---------------------------------------------------------------------------
+
+void test_sse_schema_union_seam_unwired_matches_legacy_only_output(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+    bb_openapi_register_schema("LogEvent", k_log_schema, "log");
+
+    // Seam untouched (NULL, the default) -- this pins the exact same byte-
+    // identical output the pre-B1-1220 legacy-only path produced.
+    TEST_ASSERT_EQUAL_size_t(1, sse_schema_count());
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body,
+        "\"oneOf\":[{\"$ref\":\"#/components/schemas/LogEvent\"}]"));
+
+    test_openapi_capture_free(&r);
+}
+
+// Silent-failure demonstration: a producer calls bb_data_http_describe()
+// (populating the table) but the composition root never wires the seam --
+// the entry must NOT appear anywhere in the emitted document, same as if
+// bb_data_http didn't exist at all.
+void test_sse_schema_union_seam_unwired_describe_entry_does_not_appear(void)
+{
+    bb_data_http_reset_for_test();
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+    bb_openapi_register_schema("LogEvent", k_log_schema, "log");
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_data_http_describe("k1", "topic.a", "DescribedThing", "{\"type\":\"object\"}"));
+
+    // Seam intentionally left unwired.
+    TEST_ASSERT_EQUAL_size_t(1, sse_schema_count());
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body,
+        "\"oneOf\":[{\"$ref\":\"#/components/schemas/LogEvent\"}]"));
+    TEST_ASSERT_NULL(strstr(r.cap.body, "DescribedThing"));
+
+    test_openapi_capture_free(&r);
+    bb_data_http_reset_for_test();
+}
+
+void test_sse_schema_union_seam_wired_describe_entry_counts_toward_sse_schema_count(void)
+{
+    bb_data_http_reset_for_test();
+    bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach);
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_data_http_describe("k1", "topic.a", "DescribedThing", "{\"type\":\"object\"}"));
+
+    TEST_ASSERT_EQUAL_size_t(1, sse_schema_count());
+
+    bb_openapi_set_topic_source_fn(NULL);
+    bb_data_http_reset_for_test();
+}
+
+void test_sse_schema_union_seam_wired_describe_entry_appears_in_oneof(void)
+{
+    bb_data_http_reset_for_test();
+    bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach);
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+    bb_openapi_register_schema("LogEvent", k_log_schema, "log");
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_data_http_describe("k1", "topic.a", "DescribedThing", "{\"type\":\"object\"}"));
+
+    // Legacy-first-then-external-source ordering: LogEvent's $ref precedes
+    // DescribedThing's in the emitted oneOf array.
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body,
+        "\"oneOf\":[{\"$ref\":\"#/components/schemas/LogEvent\"},"
+        "{\"$ref\":\"#/components/schemas/DescribedThing\"}]"));
+
+    test_openapi_capture_free(&r);
+    bb_openapi_set_topic_source_fn(NULL);
+    bb_data_http_reset_for_test();
 }

@@ -181,6 +181,52 @@ bb_err_t bb_data_http_attach_sized(const char *key, const char *topic,
 size_t bb_data_http_attach_count(void);
 
 // ---------------------------------------------------------------------------
+// Describe table (B1-1220) -- topic-schema seam for bb_openapi's SSE oneOf
+// synthesis. DELIBERATELY INDEPENDENT of the attach table above: many topic
+// producers push a schema for OpenAPI documentation purposes without ever
+// being bb_data_http_attach()-ed (a composition root can attach a subset of
+// bb_data-bound topics while still documenting every schema a client might
+// see over some OTHER delivery path) -- coupling schema registration to
+// attach would silently start/stop SSE delivery as a side effect of a
+// documentation-only call, which is exactly backwards. bb_openapi walks this
+// table (bb_openapi_emit_shared.c) in addition to its own legacy
+// bb_openapi_register_topic_schema() registry; see that component's header
+// for the union's ordering contract.
+// ---------------------------------------------------------------------------
+
+// Max number of describe-table entries. Own cap, NOT shared with
+// BB_DATA_HTTP_MAX_ATTACH -- the two tables serve different producers and
+// have no reason to move in lockstep.
+#define BB_DATA_HTTP_MAX_DESCRIBE 8
+
+// Callback invoked once per described entry by bb_data_http_describe_foreach().
+// All four string pointers are the exact static-storage pointers passed to
+// bb_data_http_describe() -- never copied, never NUL by contract.
+typedef void (*bb_data_http_describe_cb_t)(const char *key, const char *topic,
+                                           const char *component_name,
+                                           const char *schema_literal, void *ctx);
+
+// Registers `key`'s OpenAPI topic schema. All four string arguments must be
+// static/persistent storage (pointers are stored, never copied) -- mirrors
+// bb_openapi_register_schema()'s own pointer-storage contract.
+//
+// Dedup first-wins: re-describing an already-described `key` is a no-op that
+// returns BB_OK without updating the stored topic/component_name/
+// schema_literal.
+//
+// Returns BB_ERR_INVALID_ARG if any argument is NULL or empty.
+// Returns BB_ERR_NO_SPACE if the describe table is full
+// (BB_DATA_HTTP_MAX_DESCRIBE distinct keys already described) and `key` is
+// not already described.
+bb_err_t bb_data_http_describe(const char *key, const char *topic,
+                               const char *component_name,
+                               const char *schema_literal);
+
+// Walks every described entry in registration order, calling `cb` once per
+// entry with `ctx`. No-op if `cb` is NULL.
+void bb_data_http_describe_foreach(bb_data_http_describe_cb_t cb, void *ctx);
+
+// ---------------------------------------------------------------------------
 // Client lifecycle
 // ---------------------------------------------------------------------------
 
@@ -284,7 +330,8 @@ uint32_t bb_data_http_client_dropped_count(const bb_data_http_client_t *c);
 
 #ifdef BB_DATA_HTTP_TESTING
 // Test-only: releases every client, clears the attach table, clears the
-// installed seams, and resets init state to uninitialized.
+// describe table, clears the installed seams, and resets init state to
+// uninitialized.
 void bb_data_http_reset_for_test(void);
 #endif
 
