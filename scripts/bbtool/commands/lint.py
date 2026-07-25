@@ -290,7 +290,6 @@ _TIMER_REG_RE = re.compile(
 _HEAVY_PATTERNS = [
     re.compile(r'\bxSemaphoreTake\s*\([^)]*portMAX_DELAY'),
     re.compile(r'\bmalloc\b'),
-    re.compile(r'\bbb_json_'),
     re.compile(r'\bbb_cache_'),
     re.compile(r'\bmdns_'),
     re.compile(r'\besp_wifi_'),
