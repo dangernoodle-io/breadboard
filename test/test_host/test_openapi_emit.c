@@ -795,7 +795,7 @@ void test_openapi_emit_response_without_schema(void)
 // Meta field null handling
 // ---------------------------------------------------------------------------
 
-void test_openapi_emit_null_title_defaults_to_empty(void)
+void test_openapi_emit_null_title_defaults_to_breadboard_device(void)
 {
     register_fixtures();
 
@@ -811,7 +811,7 @@ void test_openapi_emit_null_title_defaults_to_empty(void)
     char title[64];
     bool ok = bb_json_obj_get_string(info, "title", title, sizeof(title));
     TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("", title);
+    TEST_ASSERT_EQUAL_STRING("breadboard device", title);
 
     bb_json_free(doc);
 }

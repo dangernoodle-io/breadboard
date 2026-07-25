@@ -2502,7 +2502,7 @@ void test_openapi_emit_derives_operation_id_with_consecutive_slashes(void);
 void test_openapi_emit_multiple_methods_same_path(void);
 void test_openapi_emit_multiple_response_codes(void);
 void test_openapi_emit_response_without_schema(void);
-void test_openapi_emit_null_title_defaults_to_empty(void);
+void test_openapi_emit_null_title_defaults_to_breadboard_device(void);
 void test_openapi_emit_null_version_defaults_to_0_0_0(void);
 void test_openapi_emit_null_description_omitted(void);
 void test_openapi_emit_description_present_when_provided(void);
@@ -2562,6 +2562,8 @@ void test_openapi_emit_equivalence_components_schemas_empty(void);
 void test_openapi_emit_equivalence_servers_and_description(void);
 void test_openapi_emit_equivalence_null_responses(void);
 void test_openapi_emit_equivalence_deeply_nested_schema(void);
+void test_openapi_emit_equivalence_null_title_defaults_agree(void);
+void test_openapi_emit_equivalence_null_version_defaults_agree(void);
 
 // Forward declarations from test_sse_schema_fidelity.c
 void test_sse_schema_registry_count_zero_initially(void);
@@ -6913,7 +6915,7 @@ int main(void) {
     RUN_TEST(test_openapi_emit_multiple_methods_same_path);
     RUN_TEST(test_openapi_emit_multiple_response_codes);
     RUN_TEST(test_openapi_emit_response_without_schema);
-    RUN_TEST(test_openapi_emit_null_title_defaults_to_empty);
+    RUN_TEST(test_openapi_emit_null_title_defaults_to_breadboard_device);
     RUN_TEST(test_openapi_emit_null_version_defaults_to_0_0_0);
     RUN_TEST(test_openapi_emit_null_description_omitted);
     RUN_TEST(test_openapi_emit_description_present_when_provided);
@@ -6973,6 +6975,8 @@ int main(void) {
     RUN_TEST(test_openapi_emit_equivalence_servers_and_description);
     RUN_TEST(test_openapi_emit_equivalence_null_responses);
     RUN_TEST(test_openapi_emit_equivalence_deeply_nested_schema);
+    RUN_TEST(test_openapi_emit_equivalence_null_title_defaults_agree);
+    RUN_TEST(test_openapi_emit_equivalence_null_version_defaults_agree);
 
     // test_sse_schema_fidelity tests
     RUN_TEST(test_sse_schema_registry_count_zero_initially);
