@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "bb_openapi.h"
+#include "bb_openapi_emit_internal.h"
 #include "bb_openapi_validate_priv.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
@@ -7,6 +8,7 @@
 #include "bb_json.h"
 #include "bb_json_test_hooks.h"
 
+#include <stdio.h>
 #include <string.h>
 
 // ---------------------------------------------------------------------------
@@ -379,14 +381,15 @@ void test_sse_schema_stream_two_schemas_has_comma_separator(void)
 }
 
 // ---------------------------------------------------------------------------
-// OOM: oneOf block — content/media/schema/one_of alloc failures (line 305)
-// Line 309: ref alloc failure in oneOf loop
+// OOM: oneOf block — content/media alloc failures
 // Line 424: components alloc failure
 //
 // Alloc sequence for s_sse_route (tag="events") + 1 LogEvent SSE schema:
 //   root=0, info=1, paths_obj=2, path_item=3, op=4, tags=5, responses=6,
-//   resp_obj=7, content=8, media=9, schema_obj=10, one_of=11, ref=12,
-//   components=13, schemas=14.
+//   resp_obj=7, content=8, media=9, components=10, schemas=11.
+// The oneOf fragment itself is a plain string (build_sse_oneof_fragment +
+// bb_json_obj_set_raw) — no separate schema/one_of/ref bb_json_t allocations
+// remain to fail independently.
 // ---------------------------------------------------------------------------
 
 // content=NULL → if(NULL && ...) → else cleanup (line 305 branch 1)
@@ -438,76 +441,6 @@ void test_sse_schema_oom_oneof_media_skips_block(void)
     bb_json_free(doc);
 }
 
-// schema_obj=NULL → if(content && media && NULL && ...) → else (line 305 branch 5)
-void test_sse_schema_oom_oneof_schema_obj_skips_block(void)
-{
-    bb_http_route_registry_clear();
-    bb_http_register_described_route(NULL, &s_sse_route);
-    bb_openapi_register_schema("LogEvent", k_log_schema, "log");
-
-    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_host_force_alloc_fail_after(10);
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-    bb_json_host_force_alloc_fail_after(-1);
-
-    bb_json_t paths  = bb_json_obj_get_item(doc, "paths");
-    bb_json_t pi     = bb_json_obj_get_item(paths, "/api/events");
-    bb_json_t get_op = bb_json_obj_get_item(pi, "get");
-    bb_json_t resps  = bb_json_obj_get_item(get_op, "responses");
-    bb_json_t r200   = bb_json_obj_get_item(resps, "200");
-    TEST_ASSERT_NOT_NULL(r200);
-    TEST_ASSERT_NULL(bb_json_obj_get_item(r200, "content"));
-
-    bb_json_free(doc);
-}
-
-// one_of=NULL → if(content && media && schema && NULL) → else (line 305 branch 6)
-void test_sse_schema_oom_oneof_arr_skips_block(void)
-{
-    bb_http_route_registry_clear();
-    bb_http_register_described_route(NULL, &s_sse_route);
-    bb_openapi_register_schema("LogEvent", k_log_schema, "log");
-
-    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_host_force_alloc_fail_after(11);
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-    bb_json_host_force_alloc_fail_after(-1);
-
-    bb_json_t paths  = bb_json_obj_get_item(doc, "paths");
-    bb_json_t pi     = bb_json_obj_get_item(paths, "/api/events");
-    bb_json_t get_op = bb_json_obj_get_item(pi, "get");
-    bb_json_t resps  = bb_json_obj_get_item(get_op, "responses");
-    bb_json_t r200   = bb_json_obj_get_item(resps, "200");
-    TEST_ASSERT_NOT_NULL(r200);
-    TEST_ASSERT_NULL(bb_json_obj_get_item(r200, "content"));
-
-    bb_json_free(doc);
-}
-
-// ref=NULL → if(ref) false → skip ref entry (line 309 branch)
-void test_sse_schema_oom_oneof_ref_skips_entry(void)
-{
-    bb_http_route_registry_clear();
-    bb_http_register_described_route(NULL, &s_sse_route);
-    bb_openapi_register_schema("LogEvent", k_log_schema, "log");
-
-    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    // content=8, media=9, schema_obj=10, one_of=11 all succeed; ref=12 fails
-    bb_json_host_force_alloc_fail_after(12);
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-    bb_json_host_force_alloc_fail_after(-1);
-
-    char *s = bb_json_serialize(doc);
-    bb_json_free(doc);
-    TEST_ASSERT_NOT_NULL(s);
-    // oneOf block was built but ref alloc failed → oneOf array is empty
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"oneOf\":[]"));
-    bb_json_free_str(s);
-}
-
 // components=NULL → if(NULL && schemas) short-circuits (line 424 branch 1)
 void test_sse_schema_oom_components_obj_skips_section(void)
 {
@@ -516,8 +449,8 @@ void test_sse_schema_oom_components_obj_skips_section(void)
     bb_openapi_register_schema("LogEvent", k_log_schema, "log");
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    // all oneOf + ref allocs succeed (8-12); components=13 fails
-    bb_json_host_force_alloc_fail_after(13);
+    // content=8, media=9 succeed; components=10 fails
+    bb_json_host_force_alloc_fail_after(10);
     bb_json_t doc = bb_openapi_emit(&meta);
     TEST_ASSERT_NOT_NULL(doc);
     bb_json_host_force_alloc_fail_after(-1);
@@ -1076,4 +1009,184 @@ void test_sse_schema_sse_oneof_count_and_topics(void)
     TEST_ASSERT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/WifiInfo\""));
 
     bb_json_free_str(s);
+}
+
+// ---------------------------------------------------------------------------
+// build_sse_oneof_fragment (bounded string splice) — B1-1116 PR2
+// ---------------------------------------------------------------------------
+
+void test_sse_schema_oneof_fragment_single_topic(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+    bb_openapi_register_schema("LogEvent", k_log_schema, "log");
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    char *s = bb_json_serialize(doc);
+    bb_json_free(doc);
+    TEST_ASSERT_NOT_NULL(s);
+
+    TEST_ASSERT_NOT_NULL(strstr(s,
+        "\"oneOf\":[{\"$ref\":\"#/components/schemas/LogEvent\"}]"));
+
+    bb_json_free_str(s);
+}
+
+void test_sse_schema_oneof_fragment_max_cap_topics(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+
+    // Registry stores raw pointers — names must outlive the emit call.
+    static char names[BB_OPENAPI_SCHEMA_REGISTRY_CAP][8];
+    for (size_t i = 0; i < BB_OPENAPI_SCHEMA_REGISTRY_CAP; i++) {
+        snprintf(names[i], sizeof(names[i]), "S%zu", i);
+        TEST_ASSERT_EQUAL(BB_OK,
+            bb_openapi_register_schema(names[i], k_log_schema, names[i]));
+    }
+    TEST_ASSERT_EQUAL_size_t(BB_OPENAPI_SCHEMA_REGISTRY_CAP, bb_openapi_schema_count());
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    char *s = bb_json_serialize(doc);
+    bb_json_free(doc);
+    TEST_ASSERT_NOT_NULL(s);
+
+    // Realistic component-name lengths at the full registry cap fit within
+    // BB_OPENAPI_SSE_ONEOF_BUF_SIZE — content block is present, all present.
+    TEST_ASSERT_NOT_NULL(strstr(s, "\"oneOf\":["));
+    for (size_t i = 0; i < BB_OPENAPI_SCHEMA_REGISTRY_CAP; i++) {
+        char needle[64];
+        snprintf(needle, sizeof(needle), "\"$ref\":\"#/components/schemas/%s\"", names[i]);
+        TEST_ASSERT_NOT_NULL(strstr(s, needle));
+    }
+
+    bb_json_free_str(s);
+}
+
+void test_sse_schema_oneof_fragment_mixed_sse_and_rest_only(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+    bb_openapi_register_schema("LogEvent", k_log_schema, "log");
+    // REST-only (NULL sse_topic) — must be excluded from oneOf.
+    bb_openapi_register_schema("WifiInfo", k_wifi_schema, NULL);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    char *s = bb_json_serialize(doc);
+    bb_json_free(doc);
+    TEST_ASSERT_NOT_NULL(s);
+
+    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/LogEvent\""));
+    TEST_ASSERT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/WifiInfo\""));
+    // REST-only schema still appears in components/schemas, just not oneOf.
+    TEST_ASSERT_NOT_NULL(strstr(s, "\"WifiInfo\":"));
+
+    bb_json_free_str(s);
+}
+
+// 24 registry-cap entries, each with a component name at the widest length
+// that still fits ref_val's own 80-byte budget untruncated (58 chars): the
+// resulting fragment (~2195 bytes) exceeds BB_OPENAPI_SSE_ONEOF_BUF_SIZE
+// (~1933 bytes) — the pathological case the buffer is NOT sized for. Content
+// must be omitted, never emitted as truncated (malformed) JSON.
+void test_sse_schema_oneof_fragment_overflow_omits_content(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+
+    static char names[BB_OPENAPI_SCHEMA_REGISTRY_CAP][64];
+    for (size_t i = 0; i < BB_OPENAPI_SCHEMA_REGISTRY_CAP; i++) {
+        // 2-digit index + 56 zero-padded digits = 58 chars.
+        snprintf(names[i], sizeof(names[i]), "%02zu%056d", i, 0);
+        TEST_ASSERT_EQUAL(BB_OK,
+            bb_openapi_register_schema(names[i], k_log_schema, names[i]));
+    }
+    TEST_ASSERT_EQUAL_size_t(BB_OPENAPI_SCHEMA_REGISTRY_CAP, bb_openapi_schema_count());
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths  = bb_json_obj_get_item(doc, "paths");
+    bb_json_t pi     = bb_json_obj_get_item(paths, "/api/events");
+    bb_json_t get_op = bb_json_obj_get_item(pi, "get");
+    bb_json_t resps  = bb_json_obj_get_item(get_op, "responses");
+    bb_json_t r200   = bb_json_obj_get_item(resps, "200");
+    TEST_ASSERT_NOT_NULL(r200);
+    // Fragment overflowed the bounded buffer — content omitted, not truncated.
+    TEST_ASSERT_NULL(bb_json_obj_get_item(r200, "content"));
+
+    bb_json_free(doc);
+}
+
+// A component name long enough that "#/components/schemas/<name>" truncates
+// inside ref_val's own 80-byte budget (name > 58 chars) must not silently
+// splice a truncated (wrong-but-valid-looking) $ref into the fragment —
+// that would be worse than the overflow case above, since the output reads
+// as valid JSON while pointing at the wrong schema. Content must be omitted.
+void test_sse_schema_oneof_fragment_long_name_truncation_omits_content(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+
+    static char long_name[70];
+    memset(long_name, 'A', sizeof(long_name) - 1);
+    long_name[sizeof(long_name) - 1] = '\0';
+
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_openapi_register_schema(long_name, k_log_schema, "log"));
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths  = bb_json_obj_get_item(doc, "paths");
+    bb_json_t pi     = bb_json_obj_get_item(paths, "/api/events");
+    bb_json_t get_op = bb_json_obj_get_item(pi, "get");
+    bb_json_t resps  = bb_json_obj_get_item(get_op, "responses");
+    bb_json_t r200   = bb_json_obj_get_item(resps, "200");
+    TEST_ASSERT_NOT_NULL(r200);
+    TEST_ASSERT_NULL(bb_json_obj_get_item(r200, "content"));
+
+    bb_json_free(doc);
+}
+
+// ---------------------------------------------------------------------------
+// build_sse_oneof_fragment() branch coverage via the direct test seam
+// (bb_openapi_build_sse_oneof_fragment_for_test) — driving out_size directly
+// is far cheaper than approaching BB_OPENAPI_SCHEMA_REGISTRY_CAP-sized real
+// data for edges the route-level tests above don't happen to trip.
+// ---------------------------------------------------------------------------
+
+// out_size too small even for the "{\"oneOf\":[" opener — trips before the
+// registry loop runs at all (registry state is irrelevant).
+void test_sse_schema_oneof_fragment_opener_overflow(void)
+{
+    char tiny[4];
+    TEST_ASSERT_FALSE(bb_openapi_build_sse_oneof_fragment_for_test(tiny, sizeof(tiny)));
+}
+
+// out_size exactly one byte short of the true fragment length: the opener
+// and the (single) entry both fit, but there is no room left for the
+// closing "]}" — the branch distinct from the opener/per-entry overflows
+// covered above and by the route-level 24-entry overflow test.
+void test_sse_schema_oneof_fragment_closing_overflow(void)
+{
+    bb_openapi_register_schema("S", k_log_schema, "log");
+
+    char full[BB_OPENAPI_SSE_ONEOF_BUF_SIZE];
+    TEST_ASSERT_TRUE(bb_openapi_build_sse_oneof_fragment_for_test(full, sizeof(full)));
+    size_t full_len = strlen(full);
+
+    char tight[BB_OPENAPI_SSE_ONEOF_BUF_SIZE];
+    TEST_ASSERT_FALSE(bb_openapi_build_sse_oneof_fragment_for_test(tight, full_len));
 }
