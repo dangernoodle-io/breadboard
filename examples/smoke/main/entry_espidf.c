@@ -32,6 +32,8 @@
 #include "bb_app_init.h"
 #include "bb_wifi.h"
 #include "bb_ota_validator.h"
+#include "bb_openapi.h"
+#include "bb_data_http.h"
 #include "smoke_app.h"
 #include "storage_typed_selftest.h"
 #include "freertos/FreeRTOS.h"
@@ -63,6 +65,15 @@ void app_main(void)
 #ifdef BB_HAVE_DISPLAY_INFO
     bb_display_register_info();
 #endif
+    // B1-1220 PR2 seam: any producer describing via bb_data_http_describe()
+    // (bb_log_event's "log" topic, migrated off the legacy
+    // bb_openapi_register_topic_schema() path) only reaches /api/openapi.json
+    // if this is wired. The slot is read lazily, per-request, inside
+    // openapi_handler() -> bb_openapi_emit_stream() -- bb_openapi_init()
+    // never snapshots it -- so this only needs to land before the first
+    // GET /api/openapi.json, not strictly before bb_app_init_rest() below;
+    // placing it here is simply the earliest, safest spot.
+    bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach);
     bb_app_init_rest();
     smoke_app_setup();
     bb_log_i(TAG, "smoke boot ok");

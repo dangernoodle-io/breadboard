@@ -2557,6 +2557,7 @@ void test_sse_schema_dangling_ref_oracle_detects_missing_schema_body(void);
 void test_sse_schema_dangling_ref_oracle_null_doc_returns_invalid_arg(void);
 void test_sse_schema_dangling_ref_oracle_depth_guard(void);
 void test_sse_schema_union_seam_external_dedup_cap_overflow_logs_once_and_degrades(void);
+void test_sse_schema_log_event_describe_matches_legacy_register_topic_schema_output(void);
 void test_sse_schema_oneof_fragment_opener_overflow(void);
 void test_sse_schema_oneof_fragment_closing_overflow(void);
 void test_sse_schema_wifi_telemetry_payload_valid(void);
@@ -6971,6 +6972,7 @@ int main(void) {
     RUN_TEST(test_sse_schema_dangling_ref_oracle_null_doc_returns_invalid_arg);
     RUN_TEST(test_sse_schema_dangling_ref_oracle_depth_guard);
     RUN_TEST(test_sse_schema_union_seam_external_dedup_cap_overflow_logs_once_and_degrades);
+    RUN_TEST(test_sse_schema_log_event_describe_matches_legacy_register_topic_schema_output);
     RUN_TEST(test_sse_schema_oneof_fragment_opener_overflow);
     RUN_TEST(test_sse_schema_oneof_fragment_closing_overflow);
     RUN_TEST(test_sse_schema_wifi_telemetry_payload_valid);

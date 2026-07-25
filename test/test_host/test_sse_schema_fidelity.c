@@ -1508,3 +1508,50 @@ void test_sse_schema_union_seam_external_dedup_cap_overflow_logs_once_and_degrad
 
     bb_openapi_set_topic_source_fn(NULL);
 }
+
+// B1-1220 PR2 (the pilot migration): bb_log_event.c's real call-site shape --
+// bb_data_http_describe("log", "log", "LogEvent", schema) with the seam
+// wired -- must emit a document byte-identical to what the legacy
+// bb_openapi_register_topic_schema("log", schema, "LogEvent") call it
+// replaced would have produced. Proves the argument mapping (key==topic==
+// "log", component_name=="LogEvent") is correct, using the SAME schema
+// literal content bb_log_event_line_wire.c actually serves (k_log_schema
+// above), not a synthetic fixture.
+void test_sse_schema_log_event_describe_matches_legacy_register_topic_schema_output(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+    bb_openapi_register_topic_schema("log", k_log_schema, "LogEvent");
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    test_openapi_capture_result_t legacy = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, legacy.status);
+    TEST_ASSERT_NOT_NULL(legacy.cap.body);
+    // Single-slot capture invariant (test_openapi_capture.h): must free
+    // before driving a second capture, so snapshot the body first.
+    char legacy_body[2048];
+    strncpy(legacy_body, legacy.cap.body, sizeof(legacy_body) - 1);
+    legacy_body[sizeof(legacy_body) - 1] = '\0';
+    test_openapi_capture_free(&legacy);
+
+    bb_openapi_schema_registry_clear();
+    bb_data_http_reset_for_test();
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+    bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach);
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_data_http_describe("log", "log", "LogEvent", k_log_schema));
+    test_openapi_capture_result_t via_describe = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, via_describe.status);
+    TEST_ASSERT_NOT_NULL(via_describe.cap.body);
+
+    TEST_ASSERT_EQUAL_STRING(legacy_body, via_describe.cap.body);
+
+    // The migrated call-site's $ref must resolve to a real components/schemas
+    // body -- exactly the B1-1220 dangling-ref defect this test would have
+    // caught pre-#1081.
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate_no_dangling_refs(via_describe.doc, NULL));
+
+    test_openapi_capture_free(&via_describe);
+    bb_openapi_set_topic_source_fn(NULL);
+    bb_data_http_reset_for_test();
+}
