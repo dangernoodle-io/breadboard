@@ -1190,3 +1190,47 @@ void test_sse_schema_oneof_fragment_closing_overflow(void)
     char tight[BB_OPENAPI_SSE_ONEOF_BUF_SIZE];
     TEST_ASSERT_FALSE(bb_openapi_build_sse_oneof_fragment_for_test(tight, full_len));
 }
+
+// Stream-path counterpart to test_sse_schema_oneof_fragment_overflow_omits_content
+// — same oversized registry, but through bb_openapi_emit_stream()'s
+// emit_operation() (B1-1116 PR4), pinning that the overflow-omit branch
+// behaves identically on both emitters.
+void test_sse_schema_oneof_fragment_overflow_omits_content_stream(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+
+    static char names[BB_OPENAPI_SCHEMA_REGISTRY_CAP][64];
+    for (size_t i = 0; i < BB_OPENAPI_SCHEMA_REGISTRY_CAP; i++) {
+        // 2-digit index + 56 zero-padded digits = 58 chars.
+        snprintf(names[i], sizeof(names[i]), "%02zu%056d", i, 0);
+        TEST_ASSERT_EQUAL(BB_OK,
+            bb_openapi_register_schema(names[i], k_log_schema, names[i]));
+    }
+    TEST_ASSERT_EQUAL_size_t(BB_OPENAPI_SCHEMA_REGISTRY_CAP, bb_openapi_schema_count());
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_openapi_meta_t meta2 = { .title = "T", .version = "1.0" };
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta2));
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    bb_json_t stream_doc = bb_json_parse(cap.body, cap.body_len);
+    TEST_ASSERT_NOT_NULL(stream_doc);
+
+    bb_json_t s_paths  = bb_json_obj_get_item(stream_doc, "paths");
+    bb_json_t s_pi     = bb_json_obj_get_item(s_paths, "/api/events");
+    bb_json_t s_get_op = bb_json_obj_get_item(s_pi, "get");
+    bb_json_t s_resps  = bb_json_obj_get_item(s_get_op, "responses");
+    bb_json_t s_r200   = bb_json_obj_get_item(s_resps, "200");
+    TEST_ASSERT_NOT_NULL(s_r200);
+    // Fragment overflowed the bounded buffer — content omitted, not truncated.
+    TEST_ASSERT_NULL(bb_json_obj_get_item(s_r200, "content"));
+
+    bb_json_free(stream_doc);
+    bb_http_host_capture_free(&cap);
+}

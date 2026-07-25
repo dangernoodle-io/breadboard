@@ -2144,6 +2144,240 @@ void test_openapi_emit_stream_handles_multiple_methods_per_path(void)
 }
 
 // ---------------------------------------------------------------------------
+// Stream-path null-field/branch coverage — mirrors the tree-path fixtures
+// above (s_route_no_summary, s_route_params_count_zero, etc.) through
+// emit_operation()/bb_openapi_emit_stream() (B1-1116 PR4). The equivalence
+// harness only proves the two emitters agree on populated fixtures; it does
+// not exercise emit_operation()'s own null/absent-field arms, so those need
+// their own stream-path fixtures here.
+// ---------------------------------------------------------------------------
+
+void test_openapi_emit_stream_route_null_summary_omitted(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_no_summary);
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    TEST_ASSERT_NULL(strstr(cap.body, "\"summary\""));
+
+    bb_http_host_capture_free(&cap);
+}
+
+void test_openapi_emit_stream_param_count_zero_omits_parameters(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_params_count_zero);
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    // parameters != NULL but count == 0 -> no "parameters" key emitted
+    TEST_ASSERT_NULL(strstr(cap.body, "\"parameters\""));
+
+    bb_http_host_capture_free(&cap);
+}
+
+void test_openapi_emit_stream_param_null_description_and_schema_type_omitted(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_param_minimal);
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    bb_json_t doc = bb_json_parse(cap.body, cap.body_len);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
+    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/param-minimal");
+    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    bb_json_t params    = bb_json_obj_get_item(get_op, "parameters");
+    TEST_ASSERT_NOT_NULL(params);
+    bb_json_t p0 = bb_json_arr_get_item(params, 0);
+    TEST_ASSERT_NOT_NULL(p0);
+
+    // description NULL -> key not emitted; schema_type NULL -> schema not emitted
+    TEST_ASSERT_NULL(bb_json_obj_get_item(p0, "description"));
+    TEST_ASSERT_NULL(bb_json_obj_get_item(p0, "schema"));
+
+    bb_json_free(doc);
+    bb_http_host_capture_free(&cap);
+}
+
+void test_openapi_emit_stream_param_null_name_and_in_default(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_param_null_name_in);
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    // NULL name -> "", NULL in -> "query" (falls back, not omitted)
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"name\":\"\""));
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"in\":\"query\""));
+
+    bb_http_host_capture_free(&cap);
+}
+
+void test_openapi_emit_stream_request_schema_without_content_type_defaults_to_json(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_request_schema_only);
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"requestBody\":{\"content\":{\"application/json\""));
+
+    bb_http_host_capture_free(&cap);
+}
+
+void test_openapi_emit_stream_response_null_description_defaults_to_empty(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_null_desc);
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"description\":\"\""));
+
+    bb_http_host_capture_free(&cap);
+}
+
+void test_openapi_emit_stream_response_null_content_type_defaults_to_json(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_null_ct);
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"application/json\""));
+
+    bb_http_host_capture_free(&cap);
+}
+
+// SSE route with zero registered SSE-topic schemas — the sse_count == 0 arm
+// through the stream path specifically (the tree-path equivalent is covered
+// by test_sse_schema_no_sse_topic_no_oneof in test_sse_schema_fidelity.c).
+static const bb_route_response_t s_stream_sse_responses[] = {
+    { .status = 200, .content_type = "text/event-stream", .schema = NULL,
+      .description = "SSE stream" },
+    { .status = 0 },
+};
+static const bb_route_t s_stream_route_sse = {
+    .method = BB_HTTP_GET, .path = "/api/stream-events", .tag = "events",
+    .summary = "SSE stream", .responses = s_stream_sse_responses, .handler = stub_handler,
+};
+
+void test_openapi_emit_stream_sse_zero_topics_omits_content(void)
+{
+    bb_http_route_registry_clear();
+    bb_openapi_schema_registry_clear();
+    bb_http_register_described_route(NULL, &s_stream_route_sse);
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    bb_json_t doc = bb_json_parse(cap.body, cap.body_len);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
+    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/stream-events");
+    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    bb_json_t resps     = bb_json_obj_get_item(get_op, "responses");
+    bb_json_t r200      = bb_json_obj_get_item(resps, "200");
+    TEST_ASSERT_NOT_NULL(r200);
+    TEST_ASSERT_NULL(bb_json_obj_get_item(r200, "content"));
+
+    bb_json_free(doc);
+    bb_http_host_capture_free(&cap);
+}
+
+// bb_http_resp_json_obj_begin() itself fails (e.g. Content-Type can't be
+// set) -- exercises the `if (err != BB_OK) return err;` guard right after
+// begin(), mirrors test_diag_boot_render_envelope_obj_begin_fails.
+void test_openapi_emit_stream_obj_begin_fails_returns_err(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_foo);
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_force_set_type_fail(true);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    bb_err_t err = bb_openapi_emit_stream(req, &meta);
+
+    bb_http_host_force_set_type_fail(false);
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    bb_http_host_capture_free(&cap);
+}
+
+// ---------------------------------------------------------------------------
 // components/schemas — tree path
 // ---------------------------------------------------------------------------
 

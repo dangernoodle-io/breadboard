@@ -515,67 +515,153 @@ bb_json_t bb_openapi_emit(const bb_openapi_meta_t *meta)
 }
 
 // ---------------------------------------------------------------------------
-// Streaming emitter — sends the OpenAPI document chunk-by-chunk so peak memory
-// is bounded to one operation's JSON tree at a time. Avoids the heap+stack
-// pressure of materializing the full document on a board with many routes.
+// Streaming emitter — writes the OpenAPI document field-by-field directly
+// via bb_http_resp_json_obj_* (bb_http_server's streaming JSON object
+// primitive), never through bb_json / a bb_json_t tree. Peak memory is
+// bounded to that primitive's ~1KB internal buffer plus whichever single
+// schema literal is being spliced, instead of the heap+stack pressure of
+// materializing the full document (bb_openapi_emit(), the tree path above,
+// crashed httpd workers on tight-stack boards once route count grew past
+// ~50 — B1-222).
+//
+// emit_operation() mirrors build_operation() field-for-field and must be
+// kept in sync with it manually — test_openapi_emit_equivalence.c is the
+// structural lock that catches drift between the two.
 // ---------------------------------------------------------------------------
 
+static void emit_operation(bb_http_json_obj_stream_t *s, const bb_route_t *route)
+{
+    // operationId
+    if (route->operation_id) {
+        bb_http_resp_json_obj_set_str(s, "operationId", route->operation_id);
+    } else {
+        char op_id[128];
+        derive_operation_id(route->method, route->path, op_id, sizeof(op_id));
+        bb_http_resp_json_obj_set_str(s, "operationId", op_id);
+    }
+
+    // summary
+    if (route->summary) {
+        bb_http_resp_json_obj_set_str(s, "summary", route->summary);
+    }
+
+    // tags (single-element array)
+    if (route->tag) {
+        bb_http_resp_json_obj_set_arr_begin(s, "tags");
+        bb_http_resp_json_obj_set_str(s, NULL, route->tag);
+        bb_http_resp_json_obj_set_arr_end(s);
+    }
+
+    // parameters array (query / path / header)
+    if (route->parameters && route->parameters_count > 0) {
+        bb_http_resp_json_obj_set_arr_begin(s, "parameters");
+        for (size_t i = 0; i < route->parameters_count; i++) {
+            const bb_route_param_t *p = &route->parameters[i];
+            bb_http_resp_json_obj_set_obj_begin(s, NULL);  // array element: no key
+            bb_http_resp_json_obj_set_str(s, "name", p->name ? p->name : "");
+            bb_http_resp_json_obj_set_str(s, "in",   p->in   ? p->in   : "query");
+            if (p->description) {
+                bb_http_resp_json_obj_set_str(s, "description", p->description);
+            }
+            bb_http_resp_json_obj_set_bool(s, "required", p->required);
+            if (p->schema_type) {
+                bb_http_resp_json_obj_set_obj_begin(s, "schema");
+                bb_http_resp_json_obj_set_str(s, "type", p->schema_type);
+                bb_http_resp_json_obj_set_obj_end(s);
+            }
+            bb_http_resp_json_obj_set_obj_end(s);
+        }
+        bb_http_resp_json_obj_set_arr_end(s);
+    }
+
+    // requestBody — gated on request_schema; request_content_type without schema is ignored
+    if (route->request_schema) {
+        bb_http_resp_json_obj_set_obj_begin(s, "requestBody");
+        bb_http_resp_json_obj_set_obj_begin(s, "content");
+        const char *ct = route->request_content_type
+                         ? route->request_content_type
+                         : "application/json";
+        bb_http_resp_json_obj_set_obj_begin(s, ct);
+        // request_schema is a non-NULL JSON Schema literal by route-table
+        // convention (never ""); _set_raw rejects a zero-length raw value.
+        bb_http_resp_json_obj_set_raw(s, "schema", route->request_schema,
+                                      strlen(route->request_schema));
+        bb_http_resp_json_obj_set_obj_end(s);  // media
+        bb_http_resp_json_obj_set_obj_end(s);  // content
+        bb_http_resp_json_obj_set_bool(s, "required", true);
+        bb_http_resp_json_obj_set_obj_end(s);  // requestBody
+    }
+
+    // responses
+    bb_http_resp_json_obj_set_obj_begin(s, "responses");
+    if (route->responses) {
+        for (const bb_route_response_t *r = route->responses; r->status != 0; r++) {
+            char status_key[8];
+            snprintf(status_key, sizeof(status_key), "%d", r->status);
+
+            bb_http_resp_json_obj_set_obj_begin(s, status_key);
+
+            // OpenAPI requires response.description; emit empty string when absent.
+            bb_http_resp_json_obj_set_str(s, "description",
+                                          r->description ? r->description : "");
+
+            if (r->schema) {
+                bb_http_resp_json_obj_set_obj_begin(s, "content");
+                const char *ct = r->content_type ? r->content_type : "application/json";
+                bb_http_resp_json_obj_set_obj_begin(s, ct);
+                // r->schema is a non-NULL JSON Schema literal by route-table
+                // convention (never ""); _set_raw rejects a zero-length raw value.
+                bb_http_resp_json_obj_set_raw(s, "schema", r->schema, strlen(r->schema));
+                bb_http_resp_json_obj_set_obj_end(s);  // media
+                bb_http_resp_json_obj_set_obj_end(s);  // content
+            } else if (r->content_type &&
+                       strcmp(r->content_type, "text/event-stream") == 0) {
+                // SSE route with no schema: synthesize oneOf from registered SSE
+                // topics, spliced as one bounded raw fragment — see
+                // build_sse_oneof_fragment()'s doc comment for why this can't
+                // be a nested object here (depth-cap headroom).
+                size_t sse_count = 0;
+                for (size_t k = 0; k < s_schema_count; k++) {
+                    if (s_schema_registry[k].sse_topic) sse_count++;
+                }
+                if (sse_count > 0) {
+                    static char oneof_buf[BB_OPENAPI_SSE_ONEOF_BUF_SIZE];
+                    if (build_sse_oneof_fragment(oneof_buf, sizeof(oneof_buf))) {
+                        bb_http_resp_json_obj_set_obj_begin(s, "content");
+                        bb_http_resp_json_obj_set_obj_begin(s, "text/event-stream");
+                        bb_http_resp_json_obj_set_raw(s, "schema", oneof_buf, strlen(oneof_buf));
+                        bb_http_resp_json_obj_set_obj_end(s);  // media
+                        bb_http_resp_json_obj_set_obj_end(s);  // content
+                    } else {
+                        // Fragment would not fit the bounded buffer — omit the
+                        // content block rather than emit truncated JSON,
+                        // matching the sse_count == 0 path.
+                        bb_log_e(TAG, "SSE oneOf fragment overflow — omitting content");
+                    }
+                }
+            }
+
+            bb_http_resp_json_obj_set_obj_end(s);  // status
+        }
+    }
+    bb_http_resp_json_obj_set_obj_end(s);  // responses
+}
+
+// Pass-2 walker: emits one method's operation object into the currently-open
+// path-item object.
 typedef struct {
-    bb_http_request_t *req;
-    const char        *path;
-    bool               first_method;
-    bb_err_t           err;
+    const char                *path;
+    bb_http_json_obj_stream_t *stream;
 } stream_path_ctx_t;
 
 static void stream_operations_walker(const bb_route_t *route, void *ctx)
 {
-    stream_path_ctx_t *sc = (stream_path_ctx_t *)ctx;
-    if (sc->err != BB_OK) return;  // LCOV_EXCL_BR_LINE — short-circuit after prior chunk failure
-    if (strcmp(route->path, sc->path) != 0) return;
+    stream_path_ctx_t *pc = (stream_path_ctx_t *)ctx;
+    if (strcmp(route->path, pc->path) != 0) return;
 
-    if (!sc->first_method) {
-        sc->err = bb_http_resp_send_chunk(sc->req, ",", -1);
-        if (sc->err != BB_OK) return;  // LCOV_EXCL_BR_LINE — send_chunk always BB_OK on host
-    }
-    sc->first_method = false;
-
-    // Emit "method": — method names are HTTP verbs (lowercase a-z), JSON-safe.
-    const char *m = method_str(route->method);
-    sc->err = bb_http_resp_send_chunk(sc->req, "\"", -1);
-    if (sc->err == BB_OK) sc->err = bb_http_resp_send_chunk(sc->req, m, -1);  // LCOV_EXCL_BR_LINE
-    if (sc->err == BB_OK) sc->err = bb_http_resp_send_chunk(sc->req, "\":", -1);  // LCOV_EXCL_BR_LINE
-    if (sc->err != BB_OK) return;  // LCOV_EXCL_BR_LINE
-
-    bb_json_t op = build_operation(route);
-    // LCOV_EXCL_START — host bb_json_obj_new + bb_json_item_serialize never
-    // fail, so the {} fallback paths are unreachable from the host harness.
-    if (!op) {
-        sc->err = bb_http_resp_send_chunk(sc->req, "{}", -1);
-        return;
-    }
-    // LCOV_EXCL_STOP
-
-    char *op_str = bb_json_item_serialize(op);
-    bb_json_free(op);
-    if (op_str) {  // LCOV_EXCL_BR_LINE — host serialize never returns NULL
-        sc->err = bb_http_resp_send_chunk(sc->req, op_str, -1);
-        bb_json_free_str(op_str);
-    } else {
-        sc->err = bb_http_resp_send_chunk(sc->req, "{}", -1);  // LCOV_EXCL_LINE
-    }
-}
-
-// Stream a small bb_json subtree (info, servers) by building it, serializing
-// it, sending the result, and freeing. Returns BB_OK or first error.
-static bb_err_t stream_subtree(bb_http_request_t *req, bb_json_t subtree)
-{
-    if (!subtree) return BB_ERR_NO_SPACE;  // LCOV_EXCL_BR_LINE — caller passes live subtree
-    char *s = bb_json_item_serialize(subtree);
-    bb_json_free(subtree);
-    if (!s) return BB_ERR_NO_SPACE;  // LCOV_EXCL_BR_LINE — serialize never fails on host
-    bb_err_t err = bb_http_resp_send_chunk(req, s, -1);
-    bb_json_free_str(s);
-    return err;
+    bb_http_resp_json_obj_set_obj_begin(pc->stream, method_str(route->method));
+    emit_operation(pc->stream, route);
+    bb_http_resp_json_obj_set_obj_end(pc->stream);
 }
 
 bb_err_t bb_openapi_emit_stream(bb_http_request_t *req,
@@ -587,96 +673,59 @@ bb_err_t bb_openapi_emit_stream(bb_http_request_t *req,
     if (!effective.title)   effective.title   = "breadboard device";
     if (!effective.version) effective.version = "0.0.0";
 
-    bb_err_t err = bb_http_resp_send_chunk(req,
-        "{\"openapi\":\"3.1.0\",\"info\":", -1);
-    if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE — host send_chunk always BB_OK
+    bb_http_json_obj_stream_t s;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &s);
+    if (err != BB_OK) return err;
 
-    // info — small fixed-size subtree.
-    bb_json_t info = bb_json_obj_new();
-    if (!info) return BB_ERR_NO_SPACE;  // LCOV_EXCL_BR_LINE — alloc failure path
-    bb_json_obj_set_string(info, "title",   effective.title);
-    bb_json_obj_set_string(info, "version", effective.version);
+    bb_http_resp_json_obj_set_str(&s, "openapi", "3.1.0");
+
+    // info
+    bb_http_resp_json_obj_set_obj_begin(&s, "info");
+    bb_http_resp_json_obj_set_str(&s, "title",   effective.title);
+    bb_http_resp_json_obj_set_str(&s, "version", effective.version);
     if (effective.description) {
-        bb_json_obj_set_string(info, "description", effective.description);
+        bb_http_resp_json_obj_set_str(&s, "description", effective.description);
     }
-    err = stream_subtree(req, info);
-    if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
+    bb_http_resp_json_obj_set_obj_end(&s);
 
     // servers — optional, single-element array.
     if (effective.server_url) {
-        err = bb_http_resp_send_chunk(req, ",\"servers\":", -1);
-        if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
-        bb_json_t servers = bb_json_arr_new();
-        bb_json_t server_e = bb_json_obj_new();
-        // LCOV_EXCL_START — host bb_json_*_new never returns NULL, so the
-        // partial-alloc rollback path is unreachable from host tests.
-        if (!servers || !server_e) {
-            if (servers)  bb_json_free(servers);
-            if (server_e) bb_json_free(server_e);
-            return BB_ERR_NO_SPACE;
-        }
-        // LCOV_EXCL_STOP
-        bb_json_obj_set_string(server_e, "url", effective.server_url);
-        bb_json_arr_append_obj(servers, server_e);
-        err = stream_subtree(req, servers);
-        if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
+        bb_http_resp_json_obj_set_arr_begin(&s, "servers");
+        bb_http_resp_json_obj_set_obj_begin(&s, NULL);  // array element: no key
+        bb_http_resp_json_obj_set_str(&s, "url", effective.server_url);
+        bb_http_resp_json_obj_set_obj_end(&s);
+        bb_http_resp_json_obj_set_arr_end(&s);
     }
 
-    err = bb_http_resp_send_chunk(req, ",\"paths\":{", -1);
-    if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
-
+    // paths — two-pass, same as bb_openapi_emit() above.
     path_set_t ps;
     memset(&ps, 0, sizeof(ps));
     bb_http_route_registry_foreach(collect_paths_walker, &ps);
 
+    bb_http_resp_json_obj_set_obj_begin(&s, "paths");
     for (size_t i = 0; i < ps.count; i++) {
-        if (i > 0) {
-            err = bb_http_resp_send_chunk(req, ",", -1);
-            if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
-        }
         // Paths in the bb_http registry are static const char * literals
-        // composed of /[a-zA-Z0-9_/-]+/ — JSON-safe without escaping.
-        err = bb_http_resp_send_chunk(req, "\"", -1);
-        if (err == BB_OK) err = bb_http_resp_send_chunk(req, ps.paths[i], -1);  // LCOV_EXCL_BR_LINE
-        if (err == BB_OK) err = bb_http_resp_send_chunk(req, "\":{", -1);  // LCOV_EXCL_BR_LINE
-        if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
-
-        stream_path_ctx_t sc = {
-            .req = req, .path = ps.paths[i],
-            .first_method = true, .err = BB_OK,
-        };
-        bb_http_route_registry_foreach(stream_operations_walker, &sc);
-        if (sc.err != BB_OK) return sc.err;  // LCOV_EXCL_BR_LINE
-
-        err = bb_http_resp_send_chunk(req, "}", -1);
-        if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
+        // composed of /[a-zA-Z0-9_/-]+/ — JSON-safe without escaping, and used
+        // directly as the key here (no risk of colliding with a NULL key).
+        bb_http_resp_json_obj_set_obj_begin(&s, ps.paths[i]);
+        stream_path_ctx_t pc = { .path = ps.paths[i], .stream = &s };
+        bb_http_route_registry_foreach(stream_operations_walker, &pc);
+        bb_http_resp_json_obj_set_obj_end(&s);
     }
+    bb_http_resp_json_obj_set_obj_end(&s);  // paths
 
-    // Close paths object.
-    bb_err_t ferr = bb_http_resp_send_chunk(req, "}", -1);
-    if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
-
-    // components/schemas section — one schema literal streamed at a time.
+    // components/schemas section (if registry non-empty)
     if (s_schema_count > 0) {
-        ferr = bb_http_resp_send_chunk(req, ",\"components\":{\"schemas\":{", -1);
-        if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
+        bb_http_resp_json_obj_set_obj_begin(&s, "components");
+        bb_http_resp_json_obj_set_obj_begin(&s, "schemas");
         for (size_t i = 0; i < s_schema_count; i++) {
-            if (i > 0) {
-                ferr = bb_http_resp_send_chunk(req, ",", -1);
-                if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
-            }
-            ferr = bb_http_resp_send_chunk(req, "\"", -1);
-            if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
-            ferr = bb_http_resp_send_chunk(req, s_schema_registry[i].component_name, -1);
-            if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
-            ferr = bb_http_resp_send_chunk(req, "\":", -1);
-            if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
-            ferr = bb_http_resp_send_chunk(req, s_schema_registry[i].schema_literal, -1);
-            if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
+            bb_http_resp_json_obj_set_raw(&s, s_schema_registry[i].component_name,
+                                          s_schema_registry[i].schema_literal,
+                                          strlen(s_schema_registry[i].schema_literal));
         }
-        ferr = bb_http_resp_send_chunk(req, "}}", -1);  // closes schemas + components
-        if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
+        bb_http_resp_json_obj_set_obj_end(&s);  // schemas
+        bb_http_resp_json_obj_set_obj_end(&s);  // components
     }
 
-    return bb_http_resp_send_chunk(req, "}", -1);  // closes root
+    return bb_http_resp_json_obj_end(&s);
 }
