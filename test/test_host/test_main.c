@@ -2574,6 +2574,13 @@ void test_openapi_emit_equivalence_deeply_nested_schema(void);
 void test_openapi_emit_equivalence_null_title_defaults_agree(void);
 void test_openapi_emit_equivalence_null_version_defaults_agree(void);
 
+// Forward declarations from test_openapi_capture_selftest.c
+void test_openapi_capture_returns_parsed_doc_on_success(void);
+void test_openapi_capture_signals_emitter_failure_via_status(void);
+void test_openapi_capture_signals_parse_failure_on_malformed_body(void);
+void test_openapi_capture_free_is_idempotent(void);
+void test_openapi_capture_free_handles_null_result(void);
+
 // Forward declarations from test_sse_schema_fidelity.c
 void test_sse_schema_registry_count_zero_initially(void);
 void test_sse_schema_registry_count_after_register(void);
@@ -7000,6 +7007,13 @@ int main(void) {
     RUN_TEST(test_openapi_emit_equivalence_deeply_nested_schema);
     RUN_TEST(test_openapi_emit_equivalence_null_title_defaults_agree);
     RUN_TEST(test_openapi_emit_equivalence_null_version_defaults_agree);
+
+    // test_openapi_capture_selftest tests
+    RUN_TEST(test_openapi_capture_returns_parsed_doc_on_success);
+    RUN_TEST(test_openapi_capture_signals_emitter_failure_via_status);
+    RUN_TEST(test_openapi_capture_signals_parse_failure_on_malformed_body);
+    RUN_TEST(test_openapi_capture_free_is_idempotent);
+    RUN_TEST(test_openapi_capture_free_handles_null_result);
 
     // test_sse_schema_fidelity tests
     RUN_TEST(test_sse_schema_registry_count_zero_initially);
