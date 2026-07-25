@@ -15,6 +15,7 @@
 #include "unity.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
+#include "test_route_schema_walk_common.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -132,32 +133,17 @@ static const char k_telemetry_patch_200_schema[] =
 // Walker
 // ---------------------------------------------------------------------------
 
+// schema/failures/first_failure accounting is the shared
+// test_route_schema_walk_ctx_t (test_route_schema_walk_common.h; B1-1211
+// review). route_count is unused here -- this file's walker adds an
+// additional mutating-bare-body guard the shared per-route convenience
+// wrapper doesn't do, so it calls test_route_schema_walk_check_one()
+// directly rather than test_route_schema_walk().
 typedef struct {
-    int  total_schemas;
-    int  failures;
+    test_route_schema_walk_ctx_t schema;
     int  mutating_bare_body;      // POST/PATCH/PUT with request_schema but no properties
-    char first_failure[256];
     char first_bare_body[128];
 } schema_check_ctx_t;
-
-static void check_schema_string(const char *path, const char *which,
-                                const char *schema, schema_check_ctx_t *ctx)
-{
-    if (!schema) return;
-    ctx->total_schemas++;
-    cJSON *parsed = cJSON_Parse(schema);
-    if (!parsed) {
-        if (ctx->failures == 0) {
-            const char *err = cJSON_GetErrorPtr();
-            long off = err ? (long)(err - schema) : -1;
-            snprintf(ctx->first_failure, sizeof(ctx->first_failure),
-                     "%s [%s]: malformed JSON at offset %ld", path, which, off);
-        }
-        ctx->failures++;
-        return;
-    }
-    cJSON_Delete(parsed);
-}
 
 // Returns true iff the JSON-Schema string has a non-empty "properties" object.
 static bool check_request_schema_has_properties(const char *schema)
@@ -175,10 +161,10 @@ static void route_schema_walker(const bb_route_t *route, void *ctx_)
 {
     schema_check_ctx_t *ctx = (schema_check_ctx_t *)ctx_;
     if (!route) return;
-    check_schema_string(route->path, "request", route->request_schema, ctx);
+    test_route_schema_walk_check_one(route->path, "request", route->request_schema, &ctx->schema);
     if (route->responses) {
         for (const bb_route_response_t *r = route->responses; r->status != 0; r++) {
-            check_schema_string(route->path, "response", r->schema, ctx);
+            test_route_schema_walk_check_one(route->path, "response", r->schema, &ctx->schema);
         }
     }
     // Guard: mutating routes with a request_schema must declare properties.
@@ -237,9 +223,9 @@ void test_route_schemas_registry_all_valid(void)
     schema_check_ctx_t ctx = { 0 };
     bb_http_route_registry_foreach(route_schema_walker, &ctx);
 
-    TEST_ASSERT_GREATER_THAN_INT(0, ctx.total_schemas);
-    if (ctx.failures > 0) {
-        TEST_FAIL_MESSAGE(ctx.first_failure);
+    TEST_ASSERT_GREATER_THAN_INT(0, ctx.schema.schema_count);
+    if (ctx.schema.failures > 0) {
+        TEST_FAIL_MESSAGE(ctx.schema.first_failure);
     }
     if (ctx.mutating_bare_body > 0) {
         TEST_FAIL_MESSAGE(ctx.first_bare_body);
@@ -267,8 +253,8 @@ void test_route_schemas_walker_flags_malformed(void)
     schema_check_ctx_t ctx = { 0 };
     bb_http_route_registry_foreach(route_schema_walker, &ctx);
 
-    TEST_ASSERT_EQUAL_INT(1, ctx.total_schemas);
-    TEST_ASSERT_EQUAL_INT(1, ctx.failures);
+    TEST_ASSERT_EQUAL_INT(1, ctx.schema.schema_count);
+    TEST_ASSERT_EQUAL_INT(1, ctx.schema.failures);
 
     bb_http_route_registry_clear();
 }
