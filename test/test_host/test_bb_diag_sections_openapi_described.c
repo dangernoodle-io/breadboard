@@ -3,7 +3,7 @@
 // bb_diag_storage_nvs_schema, bb_diag_storage_partitions_schema,
 // bb_ring_diag_schema, bb_wifi_http_diag_schema, bb_ws_server_diag_schema --
 // each portable/on-device, defined alongside its owning bb_serialize_desc_t)
-// make their GET routes VISIBLE to bb_openapi_emit() once described via
+// make their GET routes VISIBLE to bb_openapi_emit_stream() once described via
 // bb_http_register_route_descriptor_only() (handler=NULL, describe-only --
 // the SAME mechanism platform/espidf/bb_diag_http/
 // bb_diag_http_section_dispatch.c's diag_sections_describe() drives at
@@ -12,17 +12,17 @@
 // (it's ESP-IDF-only glue over bb_http_request_t, unreachable from a host
 // build) -- instead it builds the SAME six bb_route_t descriptors by hand,
 // referencing the real production schema constants (not test-local copies),
-// and proves bb_openapi_emit() surfaces all six paths -- the one thing
+// and proves bb_openapi_emit_stream() surfaces all six paths -- the one thing
 // diag_sections_describe() itself guarantees for any section whose
-// `describe_route` is non-NULL.
+// `describe_route` is non-NULL. Ported off the tree emitter onto the stream
+// emitter via test_openapi_capture() (B1-1054 PR-3).
 
 #include "unity.h"
 
 #include "bb_openapi.h"
-#include "bb_openapi_emit_tree_priv.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
-#include "bb_json.h"
+#include "test_openapi_capture.h"
 
 #include "bb_diag_storage_nvs.h"
 #include "bb_diag_storage_partitions.h"
@@ -31,6 +31,7 @@
 #include "bb_wifi_http_diag.h"
 #include "bb_ws_server_diag.h"
 
+#include <cJSON.h>
 #include <stddef.h>
 
 // ---------------------------------------------------------------------------
@@ -97,7 +98,7 @@ static void register_all_diag_section_routes(void)
 }
 
 // The core assertion: every one of the six describe-only routes appears in
-// bb_openapi_emit()'s "paths", each carrying its section's real
+// bb_openapi_emit_stream()'s "paths", each carrying its section's real
 // bb_diag_section_t.describe_route's response schema as an injected JSON
 // object (never a string) -- bb_http_register_route_descriptor_only()
 // (handler=NULL) never touches
@@ -109,10 +110,11 @@ void test_bb_diag_sections_openapi_described_paths_present(void)
     register_all_diag_section_routes();
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths = bb_json_obj_get_item(doc, "paths");
+    cJSON *paths = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
     TEST_ASSERT_NOT_NULL(paths);
 
     static const char *const k_paths[] = {
@@ -125,21 +127,21 @@ void test_bb_diag_sections_openapi_described_paths_present(void)
     };
 
     for (size_t i = 0; i < sizeof(k_paths) / sizeof(k_paths[0]); i++) {
-        bb_json_t path_item = bb_json_obj_get_item(paths, k_paths[i]);
+        cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, k_paths[i]);
         TEST_ASSERT_NOT_NULL(path_item);
 
-        bb_json_t get_op = bb_json_obj_get_item(path_item, "get");
+        cJSON *get_op = cJSON_GetObjectItemCaseSensitive(path_item, "get");
         TEST_ASSERT_NOT_NULL(get_op);
 
-        bb_json_t resps   = bb_json_obj_get_item(get_op, "responses");
-        bb_json_t r200    = bb_json_obj_get_item(resps, "200");
-        bb_json_t content = bb_json_obj_get_item(r200, "content");
-        bb_json_t media   = bb_json_obj_get_item(content, "application/json");
-        bb_json_t schema  = bb_json_obj_get_item(media, "schema");
+        cJSON *resps   = cJSON_GetObjectItemCaseSensitive(get_op, "responses");
+        cJSON *r200    = cJSON_GetObjectItemCaseSensitive(resps, "200");
+        cJSON *content = cJSON_GetObjectItemCaseSensitive(r200, "content");
+        cJSON *media   = cJSON_GetObjectItemCaseSensitive(content, "application/json");
+        cJSON *schema  = cJSON_GetObjectItemCaseSensitive(media, "schema");
 
         TEST_ASSERT_NOT_NULL(schema);
-        TEST_ASSERT_TRUE(bb_json_item_is_object(schema));
+        TEST_ASSERT_TRUE(cJSON_IsObject(schema));
     }
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
