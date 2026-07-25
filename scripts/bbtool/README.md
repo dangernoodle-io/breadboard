@@ -102,6 +102,18 @@ fenced marker can never be blessed by accident.
 starting baseline, refusing to run if a baseline already exists (use
 `--update-baseline` for maintenance after that point).
 
+**A component relocation is identity-stable, but sync its path metadata
+in the same PR.** Because ratchet-diff identity is `(marker_type, symbol)`,
+not path-keyed, moving a fenced marker's file to a new location (e.g. a
+component relocating under a group subdir) never trips the fence — no
+spurious remove+add, no baseline edit required for the fence to keep
+passing. The baseline's recorded `path` field, however, IS just
+informational metadata and goes stale on a move; fence-correctness never
+requires updating it, but leaving it stale is a hygiene debt (a future
+reader diffing the baseline sees a path that no longer exists). Sync the
+`path` fields for any markers you touch in the same PR as the relocation,
+rather than leaving the drift to a later, unrelated cleanup.
+
 ### `di_legacy` family
 
 The original ratchet fence, unchanged: freezes breadboard's legacy
