@@ -111,6 +111,75 @@ size_t bb_openapi_schema_count(void);
 bool bb_openapi_schema_get(size_t idx, bb_openapi_schema_entry_t *out);
 
 // ---------------------------------------------------------------------------
+// External topic-schema source seam (B1-1220 PR2)
+// ---------------------------------------------------------------------------
+// bb_openapi never links bb_data_http (or any other topic-schema producer
+// component) directly -- breadboard ships primitives, composition is the
+// consumer's job (see CLAUDE.md's composition-only banner). Instead, the SSE
+// oneOf synthesis below (sse_schema_count() / build_sse_oneof_fragment(),
+// bb_openapi_emit_shared.c) can be pointed at an EXTERNAL topic-schema table
+// through this injected seam -- the exact same shape bb_data_http itself uses
+// for its own render/generation-read/send seams (bb_data_http.h): an
+// installable function pointer, NULL default, degrades gracefully rather than
+// requiring a link-time dependency.
+
+// Callback invoked once per external topic-schema entry by a
+// bb_openapi_topic_source_fn_t. Shape matches bb_data_http_describe_cb_t
+// (components/bb_data_http/include/bb_data_http.h) EXACTLY -- bb_openapi
+// keeps its own copy of the typedef rather than including that header, so a
+// composition root can pass bb_data_http_describe_foreach() directly as
+// `fn` below with no adapter, no cast.
+typedef void (*bb_openapi_topic_cb_t)(const char *key, const char *topic,
+                                      const char *component_name,
+                                      const char *schema_literal, void *ctx);
+
+// A foreach-style walker over some external topic-schema table: calls `cb`
+// once per entry, passing `ctx` through unchanged (the CALLER's own
+// accumulator, supplied fresh per call -- see bb_openapi_emit_shared.c's
+// use). Shape matches bb_data_http_describe_foreach() exactly, by design.
+//
+// Unlike bb_data_http's own render/generation-read/send seams (which wrap a
+// call needing a BOUND opaque handle, hence their `void *ctx` stored
+// alongside `fn` at wiring time), the function wired here is itself a
+// foreach walker whose (cb, ctx) signature already carries per-call context
+// supplied by bb_openapi at each emit -- there is no separate wiring-time
+// state to bind, so bb_openapi_set_topic_source_fn() below takes no `ctx`
+// parameter. A source needing its own bound state is expected to close over
+// it as a file-scope static in its own TU, exactly like
+// bb_data_http_describe_foreach() does over its describe table.
+typedef void (*bb_openapi_topic_source_fn_t)(bb_openapi_topic_cb_t cb, void *ctx);
+
+// Install/replace the external topic-schema source seam. `fn` is called
+// alongside (after) the legacy schema registry above whenever
+// sse_schema_count() / build_sse_oneof_fragment() run, so its entries are
+// unioned into the SSE oneOf synthesis with stable ordering (legacy first).
+// Passing fn=NULL (the default -- no bb_openapi_set_topic_source_fn() call
+// at all is equivalent) disables this source entirely: documents synthesize
+// from the legacy bb_openapi_register_topic_schema() registry alone, byte-
+// identical to pre-B1-1220 behavior.
+//
+// Single-slot, last-write-wins: a second bb_openapi_set_topic_source_fn()
+// call replaces the first outright, it does NOT chain both. A composition
+// root that needs to union TWO external sources is responsible for writing
+// its own small combinator TU (a `fn` that calls both real sources' foreach
+// functions in turn) and installing that single combinator here -- bb_openapi
+// does not provide multi-source fan-out itself.
+//
+// IMPORTANT: a composition root with ANY producer that calls
+// bb_data_http_describe() (rather than the legacy
+// bb_openapi_register_topic_schema()) MUST wire this seam --
+// bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach) is the
+// intended pairing -- or those producers' topic schemas silently never
+// appear in /api/openapi.json. bb_openapi has no way to detect a populated-
+// but-unwired describe table without a dependency on bb_data_http, which
+// this seam exists specifically to avoid; no in-tree example wires it yet
+// (tracked as B1-1222) -- see test_sse_schema_fidelity.c's
+// test_sse_schema_union_seam_unwired_describe_entry_does_not_appear /
+// test_sse_schema_union_seam_wired_describe_entry_appears_in_oneof pair for
+// the unwired-vs-wired coverage.
+void bb_openapi_set_topic_source_fn(bb_openapi_topic_source_fn_t fn);
+
+// ---------------------------------------------------------------------------
 // Registry hooks
 // ---------------------------------------------------------------------------
 

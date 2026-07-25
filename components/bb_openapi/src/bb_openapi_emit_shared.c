@@ -8,6 +8,7 @@
 // See bb_openapi_emit_internal.h for the shared declarations.
 #include "bb_openapi.h"
 #include "bb_openapi_emit_internal.h"
+#include "bb_callback_slot.h"
 
 #include <string.h>
 #include <ctype.h>
@@ -70,12 +71,60 @@ bool bb_openapi_schema_get(size_t idx, bb_openapi_schema_entry_t *out)
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// External topic-schema source seam (B1-1220 PR2, bb_openapi.h). bb_openapi
+// never links bb_data_http (or any other producer component) directly --
+// this installable fn pointer is how a composition root points the union
+// below at an external topic-schema table (e.g. bb_data_http's describe
+// table, via bb_data_http_describe_foreach()) without bb_openapi taking a
+// dependency on it. NULL default (bb_openapi_topic_source_invoke() below is
+// a null-safe no-op): sse_schema_count()/build_sse_oneof_fragment() below
+// fall back to the legacy registry alone, byte-identical to pre-B1-1220
+// behavior -- same "degrades gracefully when unset" contract bb_data_http's
+// own render/generation/send seams use.
+//
+// BB_CALLBACK_SLOT_VOID (bb_callback_slot.h, the consolidated "single-slot
+// injected callback" idiom -- see its own header for the fence this is
+// draining) rather than a hand-rolled static+setter: this is a void-return,
+// args-carrying seam, exactly the shape that macro covers. `entry_cb` (not
+// `cb`) names decl_args'/call_args' own callback parameter to avoid shadowing
+// the macro-generated invoke's internal `cb_type cb` local. bb_openapi_set_
+// topic_source_fn is declared in bb_openapi.h (public API); the generated
+// invoke, bb_openapi_topic_source_invoke, is used only within this file
+// (below) and needs no separate prototype -- mirrors platform/host/bb_wifi/
+// bb_wifi_emit.c's BB_CALLBACK_SLOT_RET/VOID_CTX instantiations.
+// ---------------------------------------------------------------------------
+BB_CALLBACK_SLOT_VOID(topic_source, bb_openapi_topic_source_fn_t,
+                      bb_openapi_set_topic_source_fn, bb_openapi_topic_source_invoke,
+                      (bb_openapi_topic_cb_t entry_cb, void *ctx), (entry_cb, ctx))
+
+// bb_openapi_topic_source_invoke() callback for sse_schema_count() below -- every entry
+// the external source walks counts as an SSE-facing schema (unlike the
+// legacy registry, an external source has no REST-only/NULL-topic member:
+// every entry it walks names a topic by construction -- see
+// bb_data_http_describe()'s own argument validation).
+static void count_topic_source_entry(const char *key, const char *topic,
+                                     const char *component_name,
+                                     const char *schema_literal, void *ctx)
+{
+    (void)key; (void)topic; (void)component_name; (void)schema_literal;
+    (*(size_t *)ctx)++;
+}
+
+// Count of registered schemas with a non-NULL sse_topic, PLUS every entry
+// the external topic-source seam (if wired) walks -- the two sources are
+// unioned here and in build_sse_oneof_fragment() below (legacy registry
+// walked first, external source second, so ordering stays stable as
+// producers migrate from bb_openapi_register_topic_schema() to an external
+// source one at a time). Unset (the default) is a no-op union: behavior is
+// byte-identical to pre-B1-1220.
 size_t sse_schema_count(void)
 {
     size_t n = 0;
     for (size_t k = 0; k < s_schema_count; k++) {
         if (s_schema_registry[k].sse_topic) n++;
     }
+    bb_openapi_topic_source_invoke(count_topic_source_entry, &n);
     return n;
 }
 
@@ -183,34 +232,71 @@ void collect_paths_walker(const bb_route_t *route, void *ctx)
 // size_t wraps it to a huge value, which trivially satisfies `>= size`
 // anyway, so the single comparison is both correct and branch-free for
 // that case (nothing to exclude because there is no separate edge).
+
+// Shared mutable cursor for the two ref-appending call sites below (the
+// legacy-registry loop and the bb_data_http describe-table foreach) — one
+// idiom, one place it can overflow, rather than duplicating the same
+// snprintf/bounds-check pair per source (B1-1220 second use of this exact
+// idiom; consolidation convention says extract on the second instance).
+typedef struct {
+    char   *out;
+    size_t  out_size;
+    size_t  pos;
+    bool    first;
+    bool    overflow;  // sticky — once true, append_ref() is a no-op
+} oneof_cursor_t;
+
+static void append_ref(oneof_cursor_t *cur, const char *component_name)
+{
+    if (cur->overflow) return;
+
+    char ref_val[BB_OPENAPI_SSE_REF_BUF_SIZE];
+    int ref_n = snprintf(ref_val, sizeof(ref_val), "#/components/schemas/%s",
+                         component_name);
+    // A silently truncated $ref would splice a WRONG (but well-formed)
+    // component reference into otherwise-valid JSON — worse than the
+    // malformed-JSON case the outer overflow guard exists to prevent.
+    // Treat it the same way: omit the whole fragment rather than emit it.
+    if ((size_t)ref_n >= sizeof(ref_val)) { cur->overflow = true; return; }
+
+    int written = snprintf(cur->out + cur->pos, cur->out_size - cur->pos,
+                           "%s{\"$ref\":\"%s\"}", cur->first ? "" : ",", ref_val);
+    if ((size_t)written >= cur->out_size - cur->pos) { cur->overflow = true; return; }
+    cur->pos += (size_t)written;
+    cur->first = false;
+}
+
+// bb_openapi_topic_source_invoke() callback: appends one $ref per
+// external-source entry onto the same cursor the legacy-registry loop below
+// uses — see sse_schema_count()'s doc comment for the union/ordering
+// rationale (legacy first, external source second).
+static void append_topic_source_ref(const char *key, const char *topic,
+                                    const char *component_name,
+                                    const char *schema_literal, void *ctx)
+{
+    (void)key; (void)topic; (void)schema_literal;
+    append_ref((oneof_cursor_t *)ctx, component_name);
+}
+
 bool build_sse_oneof_fragment(char *out, size_t out_size)
 {
     int n = snprintf(out, out_size, "{\"oneOf\":[");
     if ((size_t)n >= out_size) return false;
-    size_t pos = (size_t)n;
 
-    bool first = true;
+    oneof_cursor_t cur = { .out = out, .out_size = out_size, .pos = (size_t)n,
+                          .first = true, .overflow = false };
+
     for (size_t k = 0; k < s_schema_count; k++) {
         if (!s_schema_registry[k].sse_topic) continue;
-
-        char ref_val[BB_OPENAPI_SSE_REF_BUF_SIZE];
-        int ref_n = snprintf(ref_val, sizeof(ref_val), "#/components/schemas/%s",
-                             s_schema_registry[k].component_name);
-        // A silently truncated $ref would splice a WRONG (but well-formed)
-        // component reference into otherwise-valid JSON — worse than the
-        // malformed-JSON case the outer overflow guard exists to prevent.
-        // Treat it the same way: omit the whole fragment rather than emit it.
-        if ((size_t)ref_n >= sizeof(ref_val)) return false;
-
-        int written = snprintf(out + pos, out_size - pos,
-                               "%s{\"$ref\":\"%s\"}", first ? "" : ",", ref_val);
-        if ((size_t)written >= out_size - pos) return false;
-        pos += (size_t)written;
-        first = false;
+        append_ref(&cur, s_schema_registry[k].component_name);
+        if (cur.overflow) return false;
     }
 
-    int closing = snprintf(out + pos, out_size - pos, "]}");
-    if ((size_t)closing >= out_size - pos) return false;
+    bb_openapi_topic_source_invoke(append_topic_source_ref, &cur);
+    if (cur.overflow) return false;
+
+    int closing = snprintf(out + cur.pos, out_size - cur.pos, "]}");
+    if ((size_t)closing >= out_size - cur.pos) return false;
 
     return true;
 }

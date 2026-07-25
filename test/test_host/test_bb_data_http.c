@@ -320,6 +320,146 @@ void test_bb_data_http_attach_sized_exact_scratch_size_attaches_successfully(voi
 }
 
 // ---------------------------------------------------------------------------
+// Describe table (B1-1220) -- deliberately independent of the attach table
+// above; see bb_data_http.h's doc comment. Nothing in this component's own
+// logic reads component_name/schema_literal back -- bb_openapi is the sole
+// consumer (test_sse_schema_fidelity.c covers the emission side), so these
+// tests exercise storage/dedup/overflow/foreach directly via
+// bb_data_http_describe_foreach() capturing into a local fixture.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    const char *key;
+    const char *topic;
+    const char *component_name;
+    const char *schema_literal;
+} describe_capture_t;
+
+#define DESCRIBE_CAPTURE_MAX (BB_DATA_HTTP_MAX_DESCRIBE + 1)
+
+static describe_capture_t s_describe_capture[DESCRIBE_CAPTURE_MAX];
+static size_t             s_describe_capture_count;
+
+static void describe_capture_reset(void)
+{
+    s_describe_capture_count = 0;
+    memset(s_describe_capture, 0, sizeof(s_describe_capture));
+}
+
+static void describe_capture_cb(const char *key, const char *topic,
+                                const char *component_name,
+                                const char *schema_literal, void *ctx)
+{
+    size_t *count = (size_t *)ctx;
+    if (*count >= DESCRIBE_CAPTURE_MAX) return;  // LCOV_EXCL_LINE -- fixture never sees more than the table's own cap
+    s_describe_capture[*count].key            = key;
+    s_describe_capture[*count].topic          = topic;
+    s_describe_capture[*count].component_name = component_name;
+    s_describe_capture[*count].schema_literal = schema_literal;
+    (*count)++;
+}
+
+void test_bb_data_http_describe_round_trip_via_foreach(void)
+{
+    reset_all();
+    describe_capture_reset();
+
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_data_http_describe("k1", "topic.a", "Comp1", "{\"type\":\"object\"}"));
+
+    bb_data_http_describe_foreach(describe_capture_cb, &s_describe_capture_count);
+    TEST_ASSERT_EQUAL_UINT(1, s_describe_capture_count);
+    TEST_ASSERT_EQUAL_STRING("k1", s_describe_capture[0].key);
+    TEST_ASSERT_EQUAL_STRING("topic.a", s_describe_capture[0].topic);
+    TEST_ASSERT_EQUAL_STRING("Comp1", s_describe_capture[0].component_name);
+    TEST_ASSERT_EQUAL_STRING("{\"type\":\"object\"}", s_describe_capture[0].schema_literal);
+}
+
+// Dedup first-wins: re-describing an already-described key is a no-op --
+// the FIRST registration's topic/component_name/schema_literal survive.
+void test_bb_data_http_describe_dedup_first_wins(void)
+{
+    reset_all();
+    describe_capture_reset();
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_describe("k1", "topic.a", "Comp1", "{}"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_describe("k1", "topic.b", "Comp2", "{\"x\":1}"));
+
+    bb_data_http_describe_foreach(describe_capture_cb, &s_describe_capture_count);
+    TEST_ASSERT_EQUAL_UINT(1, s_describe_capture_count);
+    TEST_ASSERT_EQUAL_STRING("topic.a", s_describe_capture[0].topic);
+    TEST_ASSERT_EQUAL_STRING("Comp1", s_describe_capture[0].component_name);
+}
+
+void test_bb_data_http_describe_null_or_empty_args_return_invalid_arg(void)
+{
+    reset_all();
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_describe(NULL, "t", "C", "{}"));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_describe("k", NULL, "C", "{}"));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_describe("k", "t", NULL, "{}"));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_describe("k", "t", "C", NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_describe("", "t", "C", "{}"));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_describe("k", "", "C", "{}"));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_describe("k", "t", "", "{}"));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_describe("k", "t", "C", ""));
+}
+
+void test_bb_data_http_describe_capacity_full_returns_no_space(void)
+{
+    reset_all();
+
+    char keys[BB_DATA_HTTP_MAX_DESCRIBE + 1][16];
+    for (int i = 0; i < BB_DATA_HTTP_MAX_DESCRIBE; i++) {
+        snprintf(keys[i], sizeof(keys[i]), "k.%d", i);
+        TEST_ASSERT_EQUAL(BB_OK, bb_data_http_describe(keys[i], "t", "C", "{}"));
+    }
+
+    snprintf(keys[BB_DATA_HTTP_MAX_DESCRIBE], sizeof(keys[BB_DATA_HTTP_MAX_DESCRIBE]),
+             "k.%d", BB_DATA_HTTP_MAX_DESCRIBE);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
+        bb_data_http_describe(keys[BB_DATA_HTTP_MAX_DESCRIBE], "t", "C", "{}"));
+
+    // Re-describing an already-described key still succeeds even with the
+    // table full.
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_describe(keys[0], "t2", "C2", "{\"y\":2}"));
+}
+
+void test_bb_data_http_describe_foreach_null_cb_is_noop(void)
+{
+    reset_all();
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_describe("k1", "t", "C", "{}"));
+    bb_data_http_describe_foreach(NULL, NULL);  // must not crash
+}
+
+void test_bb_data_http_describe_foreach_empty_table_calls_nothing(void)
+{
+    reset_all();
+    describe_capture_reset();
+
+    bb_data_http_describe_foreach(describe_capture_cb, &s_describe_capture_count);
+    TEST_ASSERT_EQUAL_UINT(0, s_describe_capture_count);
+}
+
+// The attach table and describe table are independent: describing a key
+// never attaches it, and attaching a key never describes it.
+void test_bb_data_http_describe_independent_of_attach_table(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    describe_capture_reset();
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_describe("k1", "t", "C", "{}"));
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_attach_count());
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach("k2", "t2"));
+    bb_data_http_describe_foreach(describe_capture_cb, &s_describe_capture_count);
+    TEST_ASSERT_EQUAL_UINT(1, s_describe_capture_count);
+    TEST_ASSERT_EQUAL_STRING("k1", s_describe_capture[0].key);
+}
+
+// ---------------------------------------------------------------------------
 // Client lifecycle (fd-table)
 // ---------------------------------------------------------------------------
 

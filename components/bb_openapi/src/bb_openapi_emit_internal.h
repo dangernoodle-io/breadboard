@@ -76,6 +76,27 @@ void collect_paths_walker(const bb_route_t *route, void *ctx);
 // build_sse_oneof_fragment() (bb_openapi_emit.c) detects and rejects the
 // pathological case (many near-maximum-length component names at full
 // registry cap) rather than truncate into malformed JSON.
+//
+// B1-1220 PR2: an external topic-schema source, if wired via
+// bb_openapi_set_topic_source_fn() (bb_openapi.h) -- e.g. bb_data_http's
+// describe table, BB_DATA_HTTP_MAX_DESCRIBE, up to 8 entries -- is now
+// unioned into the same oneOf fragment (see sse_schema_count() /
+// build_sse_oneof_fragment() in bb_openapi_emit_shared.c). This constant is
+// DELIBERATELY left sized for BB_OPENAPI_SCHEMA_REGISTRY_CAP alone rather
+// than bumped to cover a hypothetical combined worst case (bb_openapi has
+// no visibility into any external source's own cap -- it is reached
+// entirely through the injected seam, never a #include): test_sse_schema_
+// oneof_fragment_overflow_omits_content_stream (test/test_host/
+// test_sse_schema_fidelity.c) pins the existing 24-entry-at-58-chars
+// overflow/omit behavior, and widening this buffer to cover more entries
+// would flip that test's expected omission to a successful emit. A
+// combined total that exceeds this buffer already degrades safely (the
+// overflow guard above returns false and the content block is omitted,
+// exactly the graceful-degrade path this buffer exists to trigger) — this
+// PR keeps that behavior rather than widen the buffer, since no seam is
+// wired to a non-empty source by default (no PR migrates a real producer
+// yet). Revisit this sizing if/when a wired source's combined
+// registrations approach the 24-legacy-entry threshold in practice.
 #define BB_OPENAPI_SSE_ONEOF_BUF_SIZE \
     (sizeof("{\"oneOf\":[]}") + (BB_OPENAPI_SCHEMA_REGISTRY_CAP * BB_OPENAPI_SSE_REF_BUF_SIZE))
 
@@ -85,12 +106,14 @@ void collect_paths_walker(const bb_route_t *route, void *ctx);
 // unspecified) if the fragment would not fit — caller must not splice out.
 bool build_sse_oneof_fragment(char *out, size_t out_size);
 
-// Count of registered schemas with a non-NULL sse_topic, needed to decide
-// whether to synthesize an SSE oneOf content block; a shared helper avoids
-// re-deriving it via bb_openapi_schema_get() in a loop already bounded by
+// Count of registered schemas with a non-NULL sse_topic, PLUS every entry
+// the external topic-source seam walks if one is wired (B1-1220 PR2,
+// bb_openapi_set_topic_source_fn()) — needed to decide whether to
+// synthesize an SSE oneOf content block; a shared helper avoids re-deriving
+// it via bb_openapi_schema_get() in a loop already bounded by
 // bb_openapi_schema_count() (a redundant bounds re-check there is an
-// untestable, permanently-missed branch — the count is only ever taken over
-// the registry's own storage, directly, here).
+// untestable, permanently-missed branch — the count is only ever taken
+// over the registry's own storage, directly, here).
 size_t sse_schema_count(void);
 
 #ifdef BB_OPENAPI_TESTING
