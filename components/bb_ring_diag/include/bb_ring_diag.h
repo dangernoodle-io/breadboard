@@ -49,7 +49,7 @@ typedef struct {
 extern const bb_serialize_desc_t bb_ring_diag_desc;
 
 // Hand-authored JSON Schema for the section's GET response (B1-1180 PR-1) --
-// makes the "rings" section VISIBLE to bb_openapi_emit() via
+// makes the "rings" section VISIBLE to bb_openapi_emit_stream() via
 // bb_diag_section_t.describe_route (wired in this file's own
 // bb_ring_diag_register()). On-device (NOT host-gated). See
 // test/test_host/test_bb_ring_diag_meta_golden.c for the byte-fidelity proof

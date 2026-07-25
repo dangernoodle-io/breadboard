@@ -5,7 +5,7 @@
 // components/bb_ring_diag/bb_ring_diag.c), proving byte-fidelity against
 // bb_ring_diag_schema -- the hand-authored, on-device (NOT host-gated)
 // literal wired into the section's bb_diag_section_t.describe_route
-// (bb_ring_diag_register(), same file) so bb_openapi_emit() describes GET
+// (bb_ring_diag_register(), same file) so bb_openapi_emit_stream() describes GET
 // /api/diag/rings. Only reachable when BB_SERIALIZE_META_HOST is defined
 // (this native env; see platformio.ini).
 //

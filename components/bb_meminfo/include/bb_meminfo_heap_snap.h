@@ -56,7 +56,7 @@ typedef struct {
 extern const bb_serialize_desc_t bb_meminfo_heap_snap_desc;
 
 // Hand-authored JSON Schema for the "meminfo" bb_diag section's GET response
-// (B1-1180 PR-1) -- makes it VISIBLE to bb_openapi_emit() via the section's
+// (B1-1180 PR-1) -- makes it VISIBLE to bb_openapi_emit_stream() via the section's
 // describe-only route (wired in components/bb_diag/bb_diag_meminfo.c's
 // bb_diag_meminfo_register(), see bb_diag_section_t.describe_route's doc
 // comment). On-device (NOT host-gated). See

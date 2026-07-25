@@ -49,10 +49,15 @@ extern const bb_serialize_desc_t bb_wifi_http_info_wire_desc;
 // a host-only define (set by the PlatformIO native env; see
 // platformio.ini) -- NEVER set by the ESP-IDF/device build, so this
 // declaration (and its definition in bb_wifi_http_wire.c) compiles to
-// nothing on-device. bb_serialize_meta.h lives under
-// host_tools/bb_serialize_meta/ (PR-1), unreachable from any ESP-IDF
-// component build; the #include is itself compiled out when the guard is
-// off, so no extra include path is needed for the device build.
+// nothing on-device unless CONFIG_BB_OPENAPI_RUNTIME_META is also on.
+// bb_serialize_meta.h now lives under components/bb_serialize_meta/include/
+// (B1-1059 relocated it out of its original host-only host_tools/
+// bb_serialize_meta/ location so the engine could ship on-device, gated
+// off by default via CONFIG_BB_OPENAPI_RUNTIME_META) -- this component
+// REQUIRES bb_serialize_meta unconditionally (CMakeLists.txt), so its
+// include path is always available and the #include below is therefore
+// unconditional too; only the extern declaration right after it is
+// #if-gated on BB_SERIALIZE_META_SHIP.
 #include "bb_serialize_meta.h"
 #if defined(BB_SERIALIZE_META_SHIP)
 

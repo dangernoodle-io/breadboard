@@ -111,7 +111,7 @@ extern const char *const bb_sensor_http_thermal_schema;      // GET /api/sensors
 // (handler=NULL, .rodata/flash, never DRAM) for GET+PATCH /api/sensors/fan,
 // GET /api/sensors/power, and GET /api/sensors/thermal via
 // bb_http_register_route_descriptor_only() -- makes these paths VISIBLE to
-// bb_openapi_emit() without touching the live GET+PATCH /api/sensors/*
+// bb_openapi_emit_stream() without touching the live GET+PATCH /api/sensors/*
 // wildcard dispatch registered by bb_sensor_http_bind_and_register()/
 // bb_http_section_init(). Called once from bb_sensor_http_init()
 // (platform/espidf/bb_sensor_http/bb_sensor_http.c), after

@@ -26,7 +26,7 @@ typedef struct {
 extern const bb_serialize_desc_t bb_ws_server_diag_desc;
 
 // Hand-authored JSON Schema for the section's GET response (B1-1180 PR-1) --
-// makes the "websocket" section VISIBLE to bb_openapi_emit() via
+// makes the "websocket" section VISIBLE to bb_openapi_emit_stream() via
 // bb_diag_section_t.describe_route (wired in this file's own
 // bb_ws_server_diag_register()). On-device (NOT host-gated): flashed in
 // every build, unlike the BB_SERIALIZE_META_HOST-gated meta table below. See

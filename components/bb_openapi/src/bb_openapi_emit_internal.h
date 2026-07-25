@@ -85,12 +85,12 @@ void collect_paths_walker(const bb_route_t *route, void *ctx);
 // unspecified) if the fragment would not fit — caller must not splice out.
 bool build_sse_oneof_fragment(char *out, size_t out_size);
 
-// Count of registered schemas with a non-NULL sse_topic. Both emitters need
-// this to decide whether to synthesize an SSE oneOf content block; a shared
-// helper avoids each emitter re-deriving it via bb_openapi_schema_get() in a
-// loop already bounded by bb_openapi_schema_count() (a redundant bounds
-// re-check there is an untestable, permanently-missed branch — the count is
-// only ever taken over the registry's own storage, directly, here).
+// Count of registered schemas with a non-NULL sse_topic, needed to decide
+// whether to synthesize an SSE oneOf content block; a shared helper avoids
+// re-deriving it via bb_openapi_schema_get() in a loop already bounded by
+// bb_openapi_schema_count() (a redundant bounds re-check there is an
+// untestable, permanently-missed branch — the count is only ever taken over
+// the registry's own storage, directly, here).
 size_t sse_schema_count(void);
 
 #ifdef BB_OPENAPI_TESTING

@@ -49,7 +49,7 @@ typedef struct {
 extern const bb_serialize_desc_t bb_diag_storage_partitions_desc;
 
 // Hand-authored JSON Schema for the section's GET response (B1-1180 PR-1)
-// -- makes "storage/partitions" VISIBLE to bb_openapi_emit() via
+// -- makes "storage/partitions" VISIBLE to bb_openapi_emit_stream() via
 // bb_diag_section_t.describe_route (wired in
 // components/bb_diag/bb_diag_storage_partitions.c's
 // bb_diag_storage_partitions_register()). On-device (NOT host-gated). See

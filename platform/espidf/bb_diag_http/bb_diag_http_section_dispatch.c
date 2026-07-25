@@ -116,7 +116,7 @@ static bb_err_t diag_section_dispatch(bb_http_request_t *req)
 // ---------------------------------------------------------------------------
 // OpenAPI describe-only registration (B1-1180 PR-1) -- makes every
 // registered section carrying a non-NULL `describe_route` VISIBLE to
-// bb_openapi_emit() without touching the live GET /api/diag/* wildcard
+// bb_openapi_emit_stream() without touching the live GET /api/diag/* wildcard
 // dispatch above. `describe_route` is each PRODUCER's own `static const`
 // bb_route_t (handler=NULL, .rodata/flash -- see e.g.
 // components/bb_meminfo/src/bb_meminfo_heap_snap.c) -- this file owns no

@@ -5,7 +5,7 @@
 // components/bb_ws_server/bb_ws_server_diag.c), proving byte-fidelity
 // against bb_ws_server_diag_schema -- the hand-authored, on-device (NOT
 // host-gated) literal wired into the section's bb_diag_section_t.describe_route
-// field (bb_ws_server_diag_register(), same file) so bb_openapi_emit()
+// field (bb_ws_server_diag_register(), same file) so bb_openapi_emit_stream()
 // describes GET /api/diag/websocket. Only reachable when
 // BB_SERIALIZE_META_HOST is defined (this native env; see platformio.ini)
 // -- the ESP-IDF/device build never defines it, so bb_ws_server_diag_meta
