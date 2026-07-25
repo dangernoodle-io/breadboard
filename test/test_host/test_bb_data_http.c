@@ -8,10 +8,13 @@
 #include "unity.h"
 
 #include "bb_data_http.h"
+#include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_queue.h"
 
 #include "../../components/bb_data_http/src/bb_data_http_internal.h"
 #include "../../platform/host/bb_data_http/bb_data_http_host.h"
+#include "test_openapi_capture.h"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -1306,4 +1309,102 @@ void test_bb_data_http_host_frame_at_null_out_params_are_optional(void)
     // zero-capacity buffer.
     char zero_cap_buf[1];
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(0, NULL, NULL, zero_cap_buf, 0, NULL));
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/events route descriptor (B1-1215) -- production fix for
+// /api/events' absence from /api/openapi.json. bb_data_http_events_route()
+// is the exact static descriptor bb_data_http_espidf_routes_init() registers
+// on-device (see bb_data_http_espidf.c); these tests exercise the same
+// object host-side rather than a mirrored fixture.
+// ---------------------------------------------------------------------------
+
+void test_bb_data_http_events_route_shape(void)
+{
+    const bb_route_t *r = bb_data_http_events_route();
+    TEST_ASSERT_NOT_NULL(r);
+    TEST_ASSERT_EQUAL(BB_HTTP_GET, r->method);
+    TEST_ASSERT_EQUAL_STRING("/api/events", r->path);
+    // schema-only descriptor: the real handler is wired separately (ESP-IDF
+    // composition helper pairs it with events_get_handler via
+    // bb_http_register_route()); the descriptor itself only carries OpenAPI
+    // metadata, so .handler stays NULL here.
+    TEST_ASSERT_NULL(r->handler);
+    TEST_ASSERT_NOT_NULL(r->responses);
+    TEST_ASSERT_EQUAL(200, r->responses[0].status);
+    TEST_ASSERT_EQUAL_STRING("text/event-stream", r->responses[0].content_type);
+    // Multiplexed stream over every attached topic -- no single response
+    // schema; bb_openapi's oneOf synthesis fills this from registered SSE
+    // topic schemas instead (see build_sse_oneof_fragment()).
+    TEST_ASSERT_NULL(r->responses[0].schema);
+}
+
+void test_bb_data_http_events_route_registers_into_registry(void)
+{
+    bb_http_route_registry_clear();
+    TEST_ASSERT_EQUAL_size_t(0, bb_http_route_registry_count());
+
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_http_register_route_descriptor_only(bb_data_http_events_route()));
+    TEST_ASSERT_EQUAL_size_t(1, bb_http_route_registry_count());
+    TEST_ASSERT_TRUE(bb_http_uri_is_registered("/api/events"));
+}
+
+void test_bb_data_http_events_route_appears_in_openapi_doc(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_route_descriptor_only(bb_data_http_events_route());
+    // emit_operation() only emits a "content" block for a schema==NULL SSE
+    // response when at least one SSE topic schema is registered (see
+    // build_sse_oneof_fragment()'s gate) -- register one so the 200 entry's
+    // content/text/event-stream media type is actually present to assert on.
+    static const char k_schema[] =
+        "{\"title\":\"LogEvent\",\"x-sse-topic\":\"log\",\"type\":\"object\","
+        "\"properties\":{\"msg\":{\"type\":\"string\"}},\"required\":[\"msg\"]}";
+    bb_openapi_register_schema("LogEvent", k_schema, "log");
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
+
+    cJSON *paths = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    TEST_ASSERT_NOT_NULL(paths);
+    cJSON *events_pi = cJSON_GetObjectItemCaseSensitive(paths, "/api/events");
+    TEST_ASSERT_NOT_NULL(events_pi);
+    cJSON *get_op = cJSON_GetObjectItemCaseSensitive(events_pi, "get");
+    TEST_ASSERT_NOT_NULL(get_op);
+    cJSON *responses = cJSON_GetObjectItemCaseSensitive(get_op, "responses");
+    cJSON *r200 = cJSON_GetObjectItemCaseSensitive(responses, "200");
+    TEST_ASSERT_NOT_NULL(r200);
+    cJSON *content = cJSON_GetObjectItemCaseSensitive(r200, "content");
+    TEST_ASSERT_NOT_NULL(content);
+    TEST_ASSERT_NOT_NULL(cJSON_GetObjectItemCaseSensitive(content, "text/event-stream"));
+
+    test_openapi_capture_free(&r);
+}
+
+// Registering the production descriptor alongside a real SSE topic schema
+// gives build_sse_oneof_fragment() a production trigger for the first time
+// (B1-1215) -- previously nothing in the tree ever registered a route with
+// content_type=="text/event-stream" and schema==NULL, so this synthesis path
+// was fixture-only (test_sse_schema_fidelity.c's s_sse_route). Confirms the
+// oneOf actually fires for the real /api/events descriptor.
+void test_bb_data_http_events_route_oneof_synthesized_for_registered_topic(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_route_descriptor_only(bb_data_http_events_route());
+    static const char k_schema[] =
+        "{\"title\":\"LogEvent\",\"x-sse-topic\":\"log\",\"type\":\"object\","
+        "\"properties\":{\"msg\":{\"type\":\"string\"}},\"required\":[\"msg\"]}";
+    bb_openapi_register_schema("LogEvent", k_schema, "log");
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"oneOf\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/LogEvent\""));
+
+    test_openapi_capture_free(&r);
 }

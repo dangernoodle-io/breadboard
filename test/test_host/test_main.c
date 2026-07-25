@@ -389,6 +389,10 @@ void test_bb_data_http_host_frame_capture_stops_at_capacity(void);
 void test_bb_data_http_host_send_zero_length_frame_skips_copy(void);
 void test_bb_data_http_host_frame_at_out_of_range_returns_not_found(void);
 void test_bb_data_http_host_frame_at_null_out_params_are_optional(void);
+void test_bb_data_http_events_route_shape(void);
+void test_bb_data_http_events_route_registers_into_registry(void);
+void test_bb_data_http_events_route_appears_in_openapi_doc(void);
+void test_bb_data_http_events_route_oneof_synthesized_for_registered_topic(void);
 
 // Forward declarations from test_bb_serialize_console.c
 void test_bb_serialize_console_flat_scalars(void);
@@ -10895,6 +10899,10 @@ int main(void) {
     RUN_TEST(test_bb_data_http_host_send_zero_length_frame_skips_copy);
     RUN_TEST(test_bb_data_http_host_frame_at_out_of_range_returns_not_found);
     RUN_TEST(test_bb_data_http_host_frame_at_null_out_params_are_optional);
+    RUN_TEST(test_bb_data_http_events_route_shape);
+    RUN_TEST(test_bb_data_http_events_route_registers_into_registry);
+    RUN_TEST(test_bb_data_http_events_route_appears_in_openapi_doc);
+    RUN_TEST(test_bb_data_http_events_route_oneof_synthesized_for_registered_topic);
 
     return UNITY_END();
 }

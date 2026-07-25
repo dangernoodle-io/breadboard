@@ -20,6 +20,7 @@
 // the B1-1045 cutover -- consolidating with code already slated for
 // deletion is the wrong direction (KB 1447 fork #2).
 #include "bb_data_http.h"
+#include "bb_data_http_internal.h"
 #include "bb_data.h"
 #include "bb_http_server.h"
 #include "bb_task.h"
@@ -404,4 +405,33 @@ bb_err_t bb_data_http_espidf_client_connect(bb_http_request_t *req,
     bb_log_i(TAG, "client fd=%d connected (topic_filter=%s)", fd,
              (topic_filter && topic_filter[0]) ? topic_filter : "*");
     return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/events route registration (B1-1215) -- moved verbatim from
+// examples/floor's own composition root, which owned this handler with no
+// route-descriptor registration alongside it (the bug this fixes: /api/events
+// never appeared in /api/openapi.json on any board). See
+// bb_data_http_espidf_routes_init()'s doc in bb_data_http.h.
+// ---------------------------------------------------------------------------
+
+static bb_err_t events_get_handler(bb_http_request_t *req)
+{
+    char topic_buf[BB_DATA_HTTP_TOPIC_MAX] = {0};
+    const char *topic_filter = NULL;
+    if (bb_http_req_query_key_value(req, "topic", topic_buf, sizeof(topic_buf)) == BB_OK) {
+        topic_filter = topic_buf;
+    }
+    return bb_data_http_espidf_client_connect(req, topic_filter);
+}
+
+bb_err_t bb_data_http_espidf_routes_init(bb_http_handle_t server)
+{
+    if (!server) return BB_ERR_INVALID_ARG;
+
+    bb_err_t err = bb_http_register_route(server, BB_HTTP_GET, "/api/events",
+                                          events_get_handler);
+    if (err != BB_OK) return err;
+
+    return bb_http_register_route_descriptor_only(bb_data_http_events_route());
 }

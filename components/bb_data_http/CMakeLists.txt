@@ -11,10 +11,17 @@
 # bb_http_server (async req + socket) behind the injected seams above, so
 # both land in PRIV_REQUIRES -- the pure core's public header still never
 # mentions either.
+#
+# bb_http (B1-1215): bb_data_http_internal.h includes it directly for
+# bb_route_t/bb_route_response_t/bb_route_param_t -- the GET /api/events
+# descriptor (bb_data_http_events_route()) that fixes /api/events' absence
+# from /api/openapi.json. Direct-use dependency, not transitive padding on
+# bb_http_server's own bb_http edge (same posture bb_diag/bb_sensor_http use
+# for their own PRIV_REQUIRES bb_http).
 idf_component_register(
     SRCS "src/bb_data_http_common.c"
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_data_http/bb_data_http_espidf.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES bb_queue bb_core
-    PRIV_REQUIRES bb_log bb_registry bb_str bb_data bb_http_server bb_task lwip freertos)
+    PRIV_REQUIRES bb_log bb_registry bb_str bb_data bb_http bb_http_server bb_task lwip freertos)

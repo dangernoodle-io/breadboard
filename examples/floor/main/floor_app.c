@@ -111,22 +111,6 @@ static bb_err_t gather_log(void *dst, const bb_data_gather_args_t *args)
     return bb_log_event_gather((bb_log_event_wire_t *)dst);
 }
 
-// GET /api/events?topic=<key> -- the bb_data_http broadcaster route (B1-1045
-// repoint of the old bb_event_routes-served /api/events). Generalizes the
-// bb_data_http_derisk example's single-key test_stream_handler with real
-// topic-param parsing (mirrors the retired bb_event_routes_espidf.c
-// events_handler's "topic" query-param extraction): omit the param to
-// receive every attached key, or name one to filter the stream to it.
-static bb_err_t events_get_handler(bb_http_request_t *req)
-{
-    char topic_buf[BB_DATA_HTTP_TOPIC_MAX] = {0};
-    const char *topic_filter = NULL;
-    if (bb_http_req_query_key_value(req, "topic", topic_buf, sizeof(topic_buf)) == BB_OK) {
-        topic_filter = topic_buf;
-    }
-    return bb_data_http_espidf_client_connect(req, topic_filter);
-}
-
 // bb_lifecycle observer: bb_http_server_start()/stop() are driven purely by
 // the "http" service's RUNNING transitions -- start on entry to RUNNING,
 // stop on exit from RUNNING. Fires synchronously, outside bb_lifecycle's
@@ -207,10 +191,13 @@ static void http_lifecycle_observer(const bb_lifecycle_event_t *evt, void *user)
             if (bcast_err != BB_OK) {
                 bb_log_w(TAG, "data_http_espidf_start failed (%d)", (int)bcast_err);
             }
-            route_err = bb_http_register_route(
-                server, BB_HTTP_GET, "/api/events", events_get_handler);
+            // B1-1215: registers the handler AND the OpenAPI route descriptor
+            // (previously this called bb_http_register_route() directly with
+            // no descriptor, so /api/events was absent from
+            // /api/openapi.json).
+            route_err = bb_data_http_espidf_routes_init(server);
             if (route_err != BB_OK) {
-                bb_log_w(TAG, "route /api/events failed (%d)", (int)route_err);
+                bb_log_w(TAG, "data_http_espidf_routes_init failed (%d)", (int)route_err);
             }
         }
     } else if (evt->old_state == BB_LIFECYCLE_RUNNING && evt->new_state != BB_LIFECYCLE_RUNNING) {
