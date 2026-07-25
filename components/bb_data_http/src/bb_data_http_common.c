@@ -659,3 +659,41 @@ uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *
     return c ? c->event_cursor : 0;
 }
 #endif
+
+// ---------------------------------------------------------------------------
+// GET /api/events route descriptor (B1-1215) -- see bb_data_http_internal.h's
+// doc comment on bb_data_http_events_route() for the schema-only rationale.
+// ---------------------------------------------------------------------------
+
+static const bb_route_param_t s_events_params[] = {
+    { .name = "topic", .in = "query",
+      .description = "Optional topic filter (see bb_data_http_attach()'s topic "
+                      "argument); omit to receive every attached topic multiplexed "
+                      "on one stream.",
+      .required = false, .schema_type = "string" },
+};
+
+static const bb_route_response_t s_events_responses[] = {
+    { .status = 200, .content_type = "text/event-stream", .schema = NULL,
+      .description = "Multiplexed SSE stream over every bb_data-bound topic "
+                      "attached via bb_data_http_attach(); see the registered "
+                      "SSE topic schemas' oneOf below for the per-frame shape." },
+    { .status = 0 },
+};
+
+static const bb_route_t s_events_route = {
+    .method           = BB_HTTP_GET,
+    .path             = "/api/events",
+    .tag              = "data",
+    .summary          = "Server-Sent Events stream, multiplexed over every "
+                        "attached bb_data topic",
+    .responses        = s_events_responses,
+    .handler          = NULL,  // schema-only -- see bb_data_http_events_route()'s doc
+    .parameters       = s_events_params,
+    .parameters_count = 1,
+};
+
+const bb_route_t *bb_data_http_events_route(void)
+{
+    return &s_events_route;
+}

@@ -2,6 +2,7 @@
 // Private interface for bb_data_http_common.c and its host test file. Not
 // for external consumers -- kept out of include/.
 #include "bb_data_http.h"
+#include "bb_http.h"
 #include "bb_queue.h"
 
 #include <stdbool.h>
@@ -76,6 +77,22 @@ size_t bb_data_http_client_outbound_count_for_test(const bb_data_http_client_t *
 // sequence number). Returns 0 if `c` is NULL.
 uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *c);
 #endif
+
+// GET /api/events route descriptor (B1-1215): schema-only (.handler == NULL)
+// so the same static bb_route_t is shared verbatim between the ESP-IDF
+// composition helper (bb_data_http_espidf_routes_init(), which pairs it with
+// the real handler via bb_http_register_route_descriptor_only()) and host
+// tests -- one descriptor, no mirror. .handler stays NULL because this
+// descriptor lives in the portable bb_data_http_common.c, which host tests
+// compile directly, while the real handler (events_get_handler) lives in an
+// ESP-IDF-only platform TU; setting .handler here would leak a platform-only
+// symbol into a portable file, so the wiring is split between this
+// descriptor and bb_data_http_espidf_routes_init()'s separate handler
+// registration. content_type is "text/event-stream" with schema == NULL: a
+// multiplexed stream over every bb_data-bound topic has no single response
+// schema; bb_openapi's oneOf synthesis (build_sse_oneof_fragment()) fills
+// the content block from the registered SSE topic schemas instead.
+const bb_route_t *bb_data_http_events_route(void);
 
 #ifdef __cplusplus
 }

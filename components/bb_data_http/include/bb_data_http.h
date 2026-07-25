@@ -321,6 +321,19 @@ bb_err_t bb_data_http_espidf_start(void);
 // drains through).
 bb_err_t bb_data_http_espidf_client_connect(bb_http_request_t *req,
                                             const char *topic_filter);
+
+// Registers GET /api/events on `server`: the real query-param-parsing
+// handler (bb_data_http_espidf_client_connect() wrapper, ?topic= filter)
+// plus the OpenAPI route descriptor (bb_data_http_events_route()), via
+// bb_http_register_route() + bb_http_register_route_descriptor_only() --
+// mirrors bb_diag_routes_init()'s composition-root-called-once pattern
+// (B1-1215: previously the composition root wired the handler directly and
+// no descriptor was ever registered, so /api/events was absent from
+// /api/openapi.json on every board). bb_data_http_espidf_start() should be
+// called first so the sweep task is already running when a client connects.
+// bb_http_handle_t opaque handle (bb_core.h, already included above) -- no
+// platform type leaks through this declaration.
+bb_err_t bb_data_http_espidf_routes_init(bb_http_handle_t server);
 #endif
 
 #ifdef __cplusplus

@@ -19,6 +19,7 @@ Public symbols use the `bb_` prefix.
 |-----------|------|------|------|
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
 | `bb_data` | private | bb_data core binding table (B1-832) -- OWNS the `key -> (desc, gather)` binding table for the future bidirectional data path (the B1-828 epic replacing bb_pub + bb_sub + all bb_sink_*). | [bb_data](../bb_data/README.md) |
+| `bb_http` | private | — | [bb_http](../README.md) |
 | `bb_http_server` | private | — | [bb_http_server](../README.md) |
 | `bb_log` | private | — | [bb_log](../README.md) |
 | `bb_queue` | public | — | [bb_queue](../README.md) |
