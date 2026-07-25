@@ -210,14 +210,20 @@ bb_err_t bb_openapi_emit_stream(bb_http_request_t *req,
     }
     bb_http_resp_json_obj_set_obj_end(&s);  // paths
 
-    // components/schemas section (if registry non-empty)
-    size_t schema_count = bb_openapi_schema_count();
+    // components/schemas section (if the legacy registry or the injected
+    // topic-source seam has anything to emit — see bb_openapi_schemas_union_
+    // count()'s doc comment in bb_openapi_emit_internal.h for why this can't
+    // just be bb_openapi_schema_count(): a schema reachable only through the
+    // seam still needs a body here, or its oneOf $ref (sse_schema_count() /
+    // build_sse_oneof_fragment() above) dangles).
+    size_t schema_count = bb_openapi_schemas_union_count();
     if (schema_count > 0) {
+        size_t legacy_count = bb_openapi_schema_count();
         bb_http_resp_json_obj_set_obj_begin(&s, "components");
         bb_http_resp_json_obj_set_obj_begin(&s, "schemas");
-        for (size_t i = 0; i < schema_count; i++) {
+        for (size_t i = 0; i < legacy_count; i++) {
             bb_openapi_schema_entry_t entry;
-            // i < schema_count (== bb_openapi_schema_count() above) always
+            // i < legacy_count (== bb_openapi_schema_count() above) always
             // satisfies bb_openapi_schema_get()'s bounds check; the false
             // path is unreachable from this loop, so the return value is
             // intentionally not checked here (checking it would add a
@@ -228,6 +234,7 @@ bb_err_t bb_openapi_emit_stream(bb_http_request_t *req,
                                           entry.schema_literal,
                                           strlen(entry.schema_literal));
         }
+        emit_external_schemas(&s);
         bb_http_resp_json_obj_set_obj_end(&s);  // schemas
         bb_http_resp_json_obj_set_obj_end(&s);  // components
     }

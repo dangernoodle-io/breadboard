@@ -11,6 +11,7 @@
 #include <cJSON.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -1117,8 +1118,8 @@ void test_sse_schema_union_seam_unwired_matches_legacy_only_output(void)
 
 // Silent-failure demonstration: a producer calls bb_data_http_describe()
 // (populating the table) but the composition root never wires the seam --
-// the entry must NOT appear anywhere in the emitted document, same as if
-// bb_data_http didn't exist at all.
+// the entry must NOT appear anywhere in the emitted document (oneOf OR
+// components/schemas), same as if bb_data_http didn't exist at all.
 void test_sse_schema_union_seam_unwired_describe_entry_does_not_appear(void)
 {
     bb_data_http_reset_for_test();
@@ -1130,14 +1131,25 @@ void test_sse_schema_union_seam_unwired_describe_entry_does_not_appear(void)
 
     // Seam intentionally left unwired.
     TEST_ASSERT_EQUAL_size_t(1, sse_schema_count());
+    TEST_ASSERT_EQUAL_size_t(1, bb_openapi_schemas_union_count());
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
     test_openapi_capture_result_t r = test_openapi_capture(&meta);
     TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
     TEST_ASSERT_NOT_NULL(r.cap.body);
     TEST_ASSERT_NOT_NULL(strstr(r.cap.body,
         "\"oneOf\":[{\"$ref\":\"#/components/schemas/LogEvent\"}]"));
     TEST_ASSERT_NULL(strstr(r.cap.body, "DescribedThing"));
+
+    // components/schemas body-level check, not just a whole-body string
+    // scan: DescribedThing must have no entry there either.
+    cJSON *components = cJSON_GetObjectItemCaseSensitive(r.doc, "components");
+    TEST_ASSERT_NOT_NULL(components);
+    cJSON *schemas = cJSON_GetObjectItemCaseSensitive(components, "schemas");
+    TEST_ASSERT_NOT_NULL(schemas);
+    TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(schemas, "DescribedThing"));
+    TEST_ASSERT_NOT_NULL(cJSON_GetObjectItemCaseSensitive(schemas, "LogEvent"));
 
     test_openapi_capture_free(&r);
     bb_data_http_reset_for_test();
@@ -1151,11 +1163,20 @@ void test_sse_schema_union_seam_wired_describe_entry_counts_toward_sse_schema_co
         bb_data_http_describe("k1", "topic.a", "DescribedThing", "{\"type\":\"object\"}"));
 
     TEST_ASSERT_EQUAL_size_t(1, sse_schema_count());
+    TEST_ASSERT_EQUAL_size_t(1, bb_openapi_schemas_union_count());
 
     bb_openapi_set_topic_source_fn(NULL);
     bb_data_http_reset_for_test();
 }
 
+// The weakness this replaces: the pre-fix version of this test asserted only
+// that the "#/components/schemas/DescribedThing" $ref STRING appears in the
+// emitted oneOf array — never that a matching components/schemas.
+// DescribedThing BODY exists. A document with a $ref and no matching body is
+// invalid OpenAPI (a dangling reference) — exactly the B1-1220 defect this
+// fix closes. This version checks both the $ref AND the body, plus runs the
+// generic cJSON dangling-$ref oracle (bb_openapi_validate_no_dangling_refs)
+// over the whole document.
 void test_sse_schema_union_seam_wired_describe_entry_appears_in_oneof(void)
 {
     bb_data_http_reset_for_test();
@@ -1171,12 +1192,319 @@ void test_sse_schema_union_seam_wired_describe_entry_appears_in_oneof(void)
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
     test_openapi_capture_result_t r = test_openapi_capture(&meta);
     TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
     TEST_ASSERT_NOT_NULL(r.cap.body);
     TEST_ASSERT_NOT_NULL(strstr(r.cap.body,
         "\"oneOf\":[{\"$ref\":\"#/components/schemas/LogEvent\"},"
         "{\"$ref\":\"#/components/schemas/DescribedThing\"}]"));
 
+    // The $ref must resolve: components/schemas carries DescribedThing's own
+    // body (not just LogEvent's, which was already covered pre-fix).
+    cJSON *components = cJSON_GetObjectItemCaseSensitive(r.doc, "components");
+    TEST_ASSERT_NOT_NULL(components);
+    cJSON *schemas = cJSON_GetObjectItemCaseSensitive(components, "schemas");
+    TEST_ASSERT_NOT_NULL(schemas);
+    TEST_ASSERT_NOT_NULL(cJSON_GetObjectItemCaseSensitive(schemas, "DescribedThing"));
+    TEST_ASSERT_NOT_NULL(cJSON_GetObjectItemCaseSensitive(schemas, "LogEvent"));
+
+    // Stronger, reusable guard: no $ref anywhere in the document dangles.
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate_no_dangling_refs(r.doc, NULL));
+
     test_openapi_capture_free(&r);
     bb_openapi_set_topic_source_fn(NULL);
     bb_data_http_reset_for_test();
+}
+
+// Count non-overlapping occurrences of `needle` in `haystack` — strstr()
+// alone can only answer "at least once"; the dedup tests below need "EXACTLY
+// once", since a duplicate $ref in oneOf violates its "exactly one
+// subschema matches" semantics (not just untidy JSON) and a duplicate
+// components/schemas key is a duplicate-key document (also invalid).
+static size_t count_occurrences(const char *haystack, const char *needle)
+{
+    size_t count = 0;
+    size_t needle_len = strlen(needle);
+    const char *p = haystack;
+    while ((p = strstr(p, needle)) != NULL) {
+        count++;
+        p += needle_len;
+    }
+    return count;
+}
+
+// Dedup: the same component_name registered via BOTH the legacy registry
+// (bb_openapi_register_schema()) and the external describe table must emit
+// exactly one components/schemas entry (legacy body wins — the same
+// first-wins convention bb_openapi_register_schema() itself uses for a
+// duplicate re-registration, test_sse_schema_registry_dedup_first_wins
+// above) AND exactly one oneOf $ref, not two.
+void test_sse_schema_union_seam_dedup_collision_legacy_wins(void)
+{
+    bb_data_http_reset_for_test();
+    bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach);
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+    bb_openapi_register_schema("Dup", k_log_schema, "log");
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_data_http_describe("k1", "topic.a", "Dup", k_wifi_schema));
+
+    // Union count does not double-count the colliding name — neither the
+    // components/schemas count nor the oneOf-facing count.
+    TEST_ASSERT_EQUAL_size_t(1, bb_openapi_schemas_union_count());
+    TEST_ASSERT_EQUAL_size_t(1, sse_schema_count());
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
+
+    cJSON *components = cJSON_GetObjectItemCaseSensitive(r.doc, "components");
+    TEST_ASSERT_NOT_NULL(components);
+    cJSON *schemas = cJSON_GetObjectItemCaseSensitive(components, "schemas");
+    TEST_ASSERT_NOT_NULL(schemas);
+    cJSON *dup = cJSON_GetObjectItemCaseSensitive(schemas, "Dup");
+    TEST_ASSERT_NOT_NULL(dup);
+    // Legacy body (k_log_schema, title "LogEvent") wins, not the describe-
+    // table body (k_wifi_schema, title "WifiInfo").
+    cJSON *title = cJSON_GetObjectItemCaseSensitive(dup, "title");
+    TEST_ASSERT_NOT_NULL(title);
+    TEST_ASSERT_EQUAL_STRING("LogEvent", title->valuestring);
+
+    // oneOf carries exactly ONE $ref to Dup, not two.
+    TEST_ASSERT_EQUAL_size_t(1,
+        count_occurrences(r.cap.body, "\"$ref\":\"#/components/schemas/Dup\""));
+
+    // A dedup bug that dropped the wrong body (or emitted both) would show
+    // up as a dangling ref — confirm the whole document is still valid.
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate_no_dangling_refs(r.doc, NULL));
+
+    test_openapi_capture_free(&r);
+    bb_openapi_set_topic_source_fn(NULL);
+    bb_data_http_reset_for_test();
+}
+
+// External-vs-external collision: bb_data_http_describe() dedups by `key`
+// (bb_data_http.h), NOT by component_name — two distinct keys/topics can
+// legitimately share one component_name, with no legacy entry involved at
+// all. Must still emit exactly one components/schemas entry and exactly one
+// oneOf $ref — the HIGH (duplicate JSON key) and MEDIUM (duplicate oneOf
+// branch) findings this fix closes.
+void test_sse_schema_union_seam_external_vs_external_collision(void)
+{
+    bb_data_http_reset_for_test();
+    bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach);
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+    // Two distinct keys/topics, same component_name, no legacy entry.
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_data_http_describe("k1", "topic.a", "Collide", "{\"type\":\"object\"}"));
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_data_http_describe("k2", "topic.b", "Collide", "{\"type\":\"string\"}"));
+
+    // Registration-order first-wins, same convention as legacy-vs-external.
+    TEST_ASSERT_EQUAL_size_t(1, bb_openapi_schemas_union_count());
+    TEST_ASSERT_EQUAL_size_t(1, sse_schema_count());
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
+
+    cJSON *components = cJSON_GetObjectItemCaseSensitive(r.doc, "components");
+    TEST_ASSERT_NOT_NULL(components);
+    cJSON *schemas = cJSON_GetObjectItemCaseSensitive(components, "schemas");
+    TEST_ASSERT_NOT_NULL(schemas);
+    cJSON *collide = cJSON_GetObjectItemCaseSensitive(schemas, "Collide");
+    TEST_ASSERT_NOT_NULL(collide);
+    // topic.a's body (registered first) won.
+    cJSON *type = cJSON_GetObjectItemCaseSensitive(collide, "type");
+    TEST_ASSERT_NOT_NULL(type);
+    TEST_ASSERT_EQUAL_STRING("object", type->valuestring);
+
+    // Exactly one "Collide" key in components/schemas (cJSON's own parse
+    // silently keeps only the first of a duplicate key — the raw-body count
+    // below is what actually proves the stream never emitted a second one),
+    // and exactly one $ref in oneOf.
+    TEST_ASSERT_EQUAL_size_t(1, count_occurrences(r.cap.body, "\"Collide\":"));
+    TEST_ASSERT_EQUAL_size_t(1,
+        count_occurrences(r.cap.body, "\"$ref\":\"#/components/schemas/Collide\""));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate_no_dangling_refs(r.doc, NULL));
+
+    test_openapi_capture_free(&r);
+    bb_openapi_set_topic_source_fn(NULL);
+    bb_data_http_reset_for_test();
+}
+
+// Whole-document validity: every $ref in the oneOf array resolves to a real
+// components/schemas entry once the seam is wired, across a mix of legacy
+// and describe-table entries — the generic dangling-$ref oracle
+// (bb_openapi_validate_no_dangling_refs) is exactly the assertion that would
+// have caught the B1-1220 components/schemas defect.
+void test_sse_schema_union_seam_wired_produces_valid_document(void)
+{
+    bb_data_http_reset_for_test();
+    bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach);
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+    bb_openapi_register_schema("LogEvent", k_log_schema, "log");
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_data_http_describe("k1", "topic.a", "DescribedThing", "{\"type\":\"object\"}"));
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_data_http_describe("k2", "topic.b", "DescribedOther", "{\"type\":\"object\"}"));
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
+
+    bb_openapi_validate_err_t verr = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate_no_dangling_refs(r.doc, &verr));
+
+    test_openapi_capture_free(&r);
+    bb_openapi_set_topic_source_fn(NULL);
+    bb_data_http_reset_for_test();
+}
+
+// Regression pin: bb_openapi_validate_no_dangling_refs() itself detects a
+// dangling $ref (a document with a $ref pointing at a components/schemas
+// entry that was never given a body) — the exact shape the B1-1220
+// components/schemas defect produced before this fix.
+void test_sse_schema_dangling_ref_oracle_detects_missing_schema_body(void)
+{
+    cJSON *doc = cJSON_Parse(
+        "{\"components\":{\"schemas\":{\"LogEvent\":{\"type\":\"object\"}}},"
+        "\"content\":{\"schema\":{\"oneOf\":["
+        "{\"$ref\":\"#/components/schemas/LogEvent\"},"
+        "{\"$ref\":\"#/components/schemas/Missing\"}]}}}");
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_openapi_validate_err_t verr = {0};
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_openapi_validate_no_dangling_refs(doc, &verr));
+    TEST_ASSERT_NOT_NULL(strstr(verr.message, "Missing"));
+
+    cJSON_Delete(doc);
+}
+
+void test_sse_schema_dangling_ref_oracle_null_doc_returns_invalid_arg(void)
+{
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_openapi_validate_no_dangling_refs(NULL, NULL));
+}
+
+// Depth guard: a document nested far deeper than any real emitted document
+// (~11 levels to reach a $ref, see bb_openapi_validate.c's doc comment on
+// the depth bound) must fail closed (BB_ERR_VALIDATION) rather than recurse
+// further — cheap insurance now that this oracle is a reusable general
+// check, not just a check tied to one depth-capped producer.
+void test_sse_schema_dangling_ref_oracle_depth_guard(void)
+{
+    char buf[2048];
+    size_t pos = 0;
+    for (int i = 0; i < 40; i++) {
+        pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos, "{\"a\":");
+    }
+    pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos, "1");
+    for (int i = 0; i < 40; i++) {
+        pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos, "}");
+    }
+    TEST_ASSERT_TRUE(pos < sizeof(buf));
+
+    cJSON *doc = cJSON_Parse(buf);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_openapi_validate_err_t verr = {0};
+    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, bb_openapi_validate_no_dangling_refs(doc, &verr));
+    TEST_ASSERT_NOT_NULL(strstr(verr.message, "depth"));
+
+    cJSON_Delete(doc);
+}
+
+// ---------------------------------------------------------------------------
+// External dedup-cap overflow (B1-1220 follow-up hardening) -- proves the
+// schema_dedup_mark() overflow path (bb_openapi_emit_shared.c) is LOUD, not
+// silent: past BB_OPENAPI_EXTERNAL_DEDUP_CAP (16) distinct external
+// component_names in one walk, dedup tracking stops recording new names, so
+// a later repeat of one of the untracked names re-emits a duplicate
+// components/schemas entry -- exactly the defect this whole commit closes,
+// reintroduced past the cap. bb_data_http's own describe table caps at 8
+// (BB_DATA_HTTP_MAX_DESCRIBE), so it can never reach 16 -- this drives the
+// seam directly with a synthetic topic-source function (the seam accepts
+// any `(cb, ctx)` walker, not just bb_data_http_describe_foreach) to prove
+// the degrade + logging is real, not just documented.
+// ---------------------------------------------------------------------------
+
+// Synthetic external source: walks 17 distinct component_names (one past the
+// cap), then re-emits the 17th (the one dedup tracking failed to record,
+// since the cap was already full when it was seen) a second time. 18 calls
+// total; only 17 are DISTINCT names.
+static void synthetic_dedup_overflow_source(bb_openapi_topic_cb_t cb, void *ctx)
+{
+    static char names[17][16];
+    for (int i = 0; i < 17; i++) {
+        snprintf(names[i], sizeof(names[i]), "Synth%d", i);
+        cb("k", "topic", names[i], "{\"type\":\"object\"}", ctx);
+    }
+    // Repeat the 17th (index 16) name -- the one that overflowed the dedup
+    // scratch and so was never recorded as seen.
+    cb("k", "topic", names[16], "{\"type\":\"object\"}", ctx);
+}
+
+// dup()/dup2() stderr capture: bb_log_e/_w on host expand to fprintf(stderr,
+// ...) (bb_log.h) -- no bb_log test seam exists to intercept formatted lines
+// directly, so redirect the fd around the call under test and read it back.
+// Precedent for direct fd/unistd.h manipulation in this test tree: test_bb_
+// lock.c, test_bb_once.c, test_openapi_capture_selftest.c.
+static int    s_stderr_saved_fd = -1;
+static FILE  *s_stderr_capture_file = NULL;
+
+static void capture_stderr_begin(void)
+{
+    fflush(stderr);
+    s_stderr_saved_fd = dup(fileno(stderr));
+    TEST_ASSERT_TRUE(s_stderr_saved_fd >= 0);
+    s_stderr_capture_file = tmpfile();
+    TEST_ASSERT_NOT_NULL(s_stderr_capture_file);
+    TEST_ASSERT_TRUE(dup2(fileno(s_stderr_capture_file), fileno(stderr)) >= 0);
+}
+
+static size_t capture_stderr_end(char *out, size_t out_size)
+{
+    fflush(stderr);
+    dup2(s_stderr_saved_fd, fileno(stderr));
+    close(s_stderr_saved_fd);
+    s_stderr_saved_fd = -1;
+    rewind(s_stderr_capture_file);
+    size_t n = fread(out, 1, out_size - 1, s_stderr_capture_file);
+    out[n] = '\0';
+    fclose(s_stderr_capture_file);
+    s_stderr_capture_file = NULL;
+    return n;
+}
+
+void test_sse_schema_union_seam_external_dedup_cap_overflow_logs_once_and_degrades(void)
+{
+    bb_openapi_set_topic_source_fn(synthetic_dedup_overflow_source);
+
+    char captured[4096];
+    capture_stderr_begin();
+    size_t union_count = bb_openapi_schemas_union_count();
+    capture_stderr_end(captured, sizeof(captured));
+
+    // Degrade, as documented: 17 distinct names fed, but the 17th collided
+    // with the cap and its repeat was never recognised as a duplicate, so
+    // the union count is 18, not 17 -- a real re-emission, not a cosmetic
+    // symptom.
+    TEST_ASSERT_EQUAL_size_t(18, union_count);
+
+    // Loud, not silent: the overflow logs.
+    TEST_ASSERT_NOT_NULL(strstr(captured, "external schema dedup cap"));
+    TEST_ASSERT_NOT_NULL(strstr(captured, "16"));
+
+    // One-shot: two calls hit the over-cap branch in this walk (the 17th
+    // distinct name, then its repeat) but only one log line is emitted.
+    TEST_ASSERT_EQUAL_size_t(1, count_occurrences(captured, "external schema dedup cap"));
+
+    bb_openapi_set_topic_source_fn(NULL);
 }

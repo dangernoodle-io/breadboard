@@ -106,15 +106,45 @@ void collect_paths_walker(const bb_route_t *route, void *ctx);
 // unspecified) if the fragment would not fit — caller must not splice out.
 bool build_sse_oneof_fragment(char *out, size_t out_size);
 
-// Count of registered schemas with a non-NULL sse_topic, PLUS every entry
-// the external topic-source seam walks if one is wired (B1-1220 PR2,
-// bb_openapi_set_topic_source_fn()) — needed to decide whether to
-// synthesize an SSE oneOf content block; a shared helper avoids re-deriving
-// it via bb_openapi_schema_get() in a loop already bounded by
-// bb_openapi_schema_count() (a redundant bounds re-check there is an
-// untestable, permanently-missed branch — the count is only ever taken
-// over the registry's own storage, directly, here).
+// Count of registered schemas with a non-NULL sse_topic, PLUS every
+// NOT-already-covered entry the external topic-source seam walks if one is
+// wired (B1-1220 PR2, bb_openapi_set_topic_source_fn()) — needed to decide
+// whether to synthesize an SSE oneOf content block. Dedup by component_name,
+// legacy-first-wins, across the WHOLE union (legacy vs external AND
+// external vs external — bb_data_http_describe() dedups by `key`, not
+// component_name, so two distinct topics can legitimately share a
+// component_name; without external-vs-external dedup too, a collision would
+// double-count and the corresponding oneOf $ref would be emitted twice,
+// which breaks oneOf's "exactly one match" semantics). See
+// schema_already_emitted() in bb_openapi_emit_shared.c for the single shared
+// predicate this, build_sse_oneof_fragment(), bb_openapi_schemas_union_
+// count(), and emit_external_schemas() all use.
 size_t sse_schema_count(void);
+
+// ---------------------------------------------------------------------------
+// components/schemas union (B1-1220 follow-up fix)
+// ---------------------------------------------------------------------------
+
+// Total distinct schema count that belongs in the components/schemas
+// section: every legacy-registry entry (bb_openapi_schema_count(), REST-only
+// entries included -- unlike sse_schema_count(), which is oneOf/SSE-only)
+// PLUS every external topic-source entry (if the seam is wired) not already
+// covered by an earlier entry in the union — dedup by component_name,
+// legacy-first-wins, across legacy AND external-vs-external (see
+// sse_schema_count()'s doc comment above and schema_already_emitted() in
+// bb_openapi_emit_shared.c for why external-vs-external dedup is required,
+// not just legacy-vs-external). Unset seam (the default) is a no-op union:
+// equals bb_openapi_schema_count() alone, byte-identical to pre-this-fix
+// behavior.
+size_t bb_openapi_schemas_union_count(void);
+
+// Streams one components/schemas entry per external topic-source entry NOT
+// already covered (dedup, legacy-first-wins, legacy AND external-vs-external
+// -- matches bb_openapi_schemas_union_count() above exactly, same shared
+// predicate). Must be called from inside an already-open "schemas" object,
+// after the legacy-registry loop in bb_openapi_emit.c. No-op if the
+// topic-source seam is unwired.
+void emit_external_schemas(bb_http_json_obj_stream_t *s);
 
 #ifdef BB_OPENAPI_TESTING
 // Test-only seam onto build_sse_oneof_fragment() (bb_openapi_emit_shared.c):
