@@ -283,11 +283,10 @@ static bb_err_t validate_node(const cJSON *schema, const cJSON *value,
 // ---------------------------------------------------------------------------
 
 bb_err_t bb_openapi_validate(const char *schema_json,
-                             bb_json_t value,
+                             const cJSON *value,
                              bb_openapi_validate_err_t *err)
 {
-    const cJSON *v = (const cJSON *)value;
-    if (!schema_json || !v) return BB_ERR_INVALID_ARG;
+    if (!schema_json || !value) return BB_ERR_INVALID_ARG;
 
     cJSON *schema = cJSON_Parse(schema_json);
     if (!schema) {
@@ -298,7 +297,7 @@ bb_err_t bb_openapi_validate(const char *schema_json,
     path_stack_t ps;
     memset(&ps, 0, sizeof(ps));
 
-    bb_err_t rc = validate_node(schema, v, &ps, err);
+    bb_err_t rc = validate_node(schema, value, &ps, err);
 
     cJSON_Delete(schema);
     return rc;
