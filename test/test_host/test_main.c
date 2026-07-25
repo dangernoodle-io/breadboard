@@ -3191,6 +3191,21 @@ void test_bb_lock_init_cfg_with_null_name_and_category_leaves_defaults(void);
 void test_bb_lock_trylock_success_with_stats_runtime_disabled(void);
 void test_bb_lock_get_stats_null_out_is_noop(void);
 void test_bb_lock_get_stats_null_lock_zeroes_out(void);
+void test_bb_lock_lock_uninitialized_returns_invalid_state(void);
+void test_bb_lock_trylock_uninitialized_returns_invalid_state(void);
+void test_bb_lock_unlock_uninitialized_returns_invalid_state(void);
+void test_bb_lock_is_initialized_true_after_init(void);
+void test_bb_lock_is_initialized_false_for_zero_value(void);
+void test_bb_lock_is_initialized_null_returns_false(void);
+void test_bb_lock_lock_after_destroy_returns_invalid_state(void);
+void test_bb_lock_trylock_after_destroy_returns_invalid_state(void);
+void test_bb_lock_unlock_after_destroy_returns_invalid_state(void);
+
+// Forward declarations from test_bb_lock_once.c
+void test_bb_lock_once_ensure_null_once_returns_invalid_arg(void);
+void test_bb_lock_once_ensure_null_lock_returns_invalid_arg(void);
+void test_bb_lock_once_ensure_success_initializes_and_is_lockable(void);
+void test_bb_lock_once_ensure_second_call_is_noop_and_stays_ok(void);
 
 // Forward declarations from test_bb_lock_cond.c
 void test_bb_lock_cond_init_and_destroy_basic(void);
@@ -5685,6 +5700,21 @@ int main(void) {
     RUN_TEST(test_bb_lock_trylock_success_with_stats_runtime_disabled);
     RUN_TEST(test_bb_lock_get_stats_null_out_is_noop);
     RUN_TEST(test_bb_lock_get_stats_null_lock_zeroes_out);
+    RUN_TEST(test_bb_lock_lock_uninitialized_returns_invalid_state);
+    RUN_TEST(test_bb_lock_trylock_uninitialized_returns_invalid_state);
+    RUN_TEST(test_bb_lock_unlock_uninitialized_returns_invalid_state);
+    RUN_TEST(test_bb_lock_is_initialized_true_after_init);
+    RUN_TEST(test_bb_lock_is_initialized_false_for_zero_value);
+    RUN_TEST(test_bb_lock_is_initialized_null_returns_false);
+    RUN_TEST(test_bb_lock_lock_after_destroy_returns_invalid_state);
+    RUN_TEST(test_bb_lock_trylock_after_destroy_returns_invalid_state);
+    RUN_TEST(test_bb_lock_unlock_after_destroy_returns_invalid_state);
+
+    // bb_lock_once_ensure -- shared bb_lock_init()-guarded-by-once helper (B1-1203)
+    RUN_TEST(test_bb_lock_once_ensure_null_once_returns_invalid_arg);
+    RUN_TEST(test_bb_lock_once_ensure_null_lock_returns_invalid_arg);
+    RUN_TEST(test_bb_lock_once_ensure_success_initializes_and_is_lockable);
+    RUN_TEST(test_bb_lock_once_ensure_second_call_is_noop_and_stays_ok);
 
     // bb_lock_cond condition-variable primitive (composed with bb_lock_t)
     RUN_TEST(test_bb_lock_cond_init_and_destroy_basic);

@@ -102,6 +102,12 @@ typedef struct {
     _Atomic bool bb_lock_initialized; // set true by bb_lock_init(); never true on a
                                        // zero-initialized handle that skipped init
     _Atomic bool bb_lock_destroyed;   // set true by the first successful bb_lock_destroy()
+    _Atomic bool bb_lock_invalid_logged; // set true after the first fail-fast log
+                                          // (bb_lock_lock/trylock/unlock on an
+                                          // uninitialized handle) -- rate-limits
+                                          // that log to once per lock instance so
+                                          // a hot-path caller looping on the same
+                                          // broken lock cannot flood the log.
 } bb_lock_t;
 
 // Point-in-time snapshot returned by bb_lock_get_stats(). All-zero when
@@ -119,6 +125,18 @@ typedef struct {
 // explicit NUL-termination into BB_LOCK_NAME_MAX/BB_LOCK_CATEGORY_MAX) — the
 // caller does not need to keep the strings alive past this call.
 bb_err_t bb_lock_init(const bb_lock_config_t *cfg, bb_lock_t *out);
+
+// Sentinel: true once bb_lock_init() has successfully completed on lock,
+// false otherwise (never bb_lock_init()'d, or a bb_lock_init() attempt
+// failed). Intended for callers composing bb_lock_t into their own lazy-init
+// idiom (e.g. bb_lock_once_ensure() in bb_lock_once.h) that must re-check
+// initialization as a defense-in-depth sentinel rather than trusting a
+// once-guard's own return value alone -- a losing racer can otherwise read a
+// stale (not-yet-visible) view of *lock.
+static inline bool bb_lock_is_initialized(const bb_lock_t *lock)
+{
+    return lock && atomic_load_explicit(&lock->bb_lock_initialized, memory_order_acquire);
+}
 
 // Release backend resources. Safe to call on a zero-initialized handle that
 // was never bb_lock_init()'d (no-op, returns BB_OK). Returns

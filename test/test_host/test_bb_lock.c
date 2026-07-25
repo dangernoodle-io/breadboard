@@ -441,3 +441,95 @@ void test_bb_lock_get_stats_null_lock_zeroes_out(void)
     TEST_ASSERT_EQUAL_UINT64(0, s.hold_time_total_us);
     TEST_ASSERT_EQUAL_UINT64(0, s.hold_time_max_us);
 }
+
+// ---------------------------------------------------------------------------
+// Fail-fast floor (B1-1203): bb_lock_lock()/trylock()/unlock() on a handle
+// that was never bb_lock_init()'d (an ordinary zero-initialized bb_lock_t —
+// no injection needed, the field this checks is exactly what a `{0}` value
+// leaves false) must return BB_ERR_INVALID_STATE without touching the
+// backend handle, rather than reproducing the historical UB of handing a
+// NULL/garbage mutex straight to the platform primitive.
+// ---------------------------------------------------------------------------
+
+void test_bb_lock_lock_uninitialized_returns_invalid_state(void)
+{
+    bb_lock_t lock = {0};
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_lock_lock(&lock));
+    // A second call on the same still-uninitialized handle exercises the
+    // rate-limit branch (bb_lock_invalid_logged already true -- log skipped)
+    // distinct from the first call's "log now" branch above; the caller-
+    // visible return value is identical either way.
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_lock_lock(&lock));
+}
+
+void test_bb_lock_trylock_uninitialized_returns_invalid_state(void)
+{
+    bb_lock_t lock = {0};
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_lock_trylock(&lock));
+}
+
+void test_bb_lock_unlock_uninitialized_returns_invalid_state(void)
+{
+    bb_lock_t lock = {0};
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_lock_unlock(&lock));
+}
+
+// ---------------------------------------------------------------------------
+// bb_lock_is_initialized() — the sentinel bb_lock_once_ensure() (and any
+// other lazy-init composer) re-checks as defense-in-depth.
+// ---------------------------------------------------------------------------
+
+void test_bb_lock_is_initialized_true_after_init(void)
+{
+    bb_lock_t lock;
+    TEST_ASSERT_EQUAL(BB_OK, bb_lock_init(NULL, &lock));
+    TEST_ASSERT_TRUE(bb_lock_is_initialized(&lock));
+    bb_lock_destroy(&lock);
+}
+
+void test_bb_lock_is_initialized_false_for_zero_value(void)
+{
+    bb_lock_t lock = {0};
+    TEST_ASSERT_FALSE(bb_lock_is_initialized(&lock));
+}
+
+void test_bb_lock_is_initialized_null_returns_false(void)
+{
+    TEST_ASSERT_FALSE(bb_lock_is_initialized(NULL));
+}
+
+// ---------------------------------------------------------------------------
+// Fail-fast floor, destroyed-lock hole (B1-1203 review followup):
+// bb_lock_destroy() never clears bb_lock_initialized (init/destroy is
+// one-shot, not re-armable), so a check against bb_lock_initialized alone
+// would let lock()/trylock()/unlock() fall through to the backend after a
+// successful destroy and hand the platform primitive an already-destroyed
+// handle -- UB (ESP-IDF: NULL SemaphoreHandle_t; host: a freed
+// pthread_mutex_t). bb_lock_check_usable() also checks bb_lock_destroyed to
+// close this. One test per entry point, asserting BB_ERR_INVALID_STATE and
+// no crash.
+// ---------------------------------------------------------------------------
+
+void test_bb_lock_lock_after_destroy_returns_invalid_state(void)
+{
+    bb_lock_t lock;
+    TEST_ASSERT_EQUAL(BB_OK, bb_lock_init(NULL, &lock));
+    TEST_ASSERT_EQUAL(BB_OK, bb_lock_destroy(&lock));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_lock_lock(&lock));
+}
+
+void test_bb_lock_trylock_after_destroy_returns_invalid_state(void)
+{
+    bb_lock_t lock;
+    TEST_ASSERT_EQUAL(BB_OK, bb_lock_init(NULL, &lock));
+    TEST_ASSERT_EQUAL(BB_OK, bb_lock_destroy(&lock));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_lock_trylock(&lock));
+}
+
+void test_bb_lock_unlock_after_destroy_returns_invalid_state(void)
+{
+    bb_lock_t lock;
+    TEST_ASSERT_EQUAL(BB_OK, bb_lock_init(NULL, &lock));
+    TEST_ASSERT_EQUAL(BB_OK, bb_lock_destroy(&lock));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_lock_unlock(&lock));
+}
