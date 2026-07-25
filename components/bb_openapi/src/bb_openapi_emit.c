@@ -1,4 +1,5 @@
 #include "bb_openapi.h"
+#include "bb_openapi_emit_internal.h"
 #include "bb_log.h"
 
 #include <stdbool.h>
@@ -184,6 +185,71 @@ static void collect_paths_walker(const bb_route_t *route, void *ctx)
 }
 
 // ---------------------------------------------------------------------------
+// SSE oneOf fragment builder
+// ---------------------------------------------------------------------------
+// BB_OPENAPI_SSE_REF_BUF_SIZE / BB_OPENAPI_SSE_ONEOF_BUF_SIZE are defined in
+// bb_openapi_emit_internal.h (included above) — shared with host tests that
+// size buffers against them via the BB_OPENAPI_TESTING seam.
+
+// Builds the complete `{"oneOf":[{"$ref":"..."},...]}` fragment for every
+// registered schema with a non-NULL sse_topic. Returns true and leaves a
+// NUL-terminated fragment in out on success; returns false (out left
+// unspecified) if the fragment would not fit — caller must not splice out.
+//
+// Every "did this snprintf fit" check below is a single unsigned comparison
+// rather than `ret < 0 || (size_t)ret >= size`: snprintf only returns
+// negative on an output/encoding error, which cannot happen writing plain
+// ASCII into these buffers, so a separate `ret < 0` branch would be dead —
+// untestable without faking libc — and would sit as a permanently-missed
+// branch on every coverage run. Casting a hypothetical negative return to
+// size_t wraps it to a huge value, which trivially satisfies `>= size`
+// anyway, so the single comparison is both correct and branch-free for
+// that case (nothing to exclude because there is no separate edge).
+static bool build_sse_oneof_fragment(char *out, size_t out_size)
+{
+    int n = snprintf(out, out_size, "{\"oneOf\":[");
+    if ((size_t)n >= out_size) return false;
+    size_t pos = (size_t)n;
+
+    bool first = true;
+    for (size_t k = 0; k < s_schema_count; k++) {
+        if (!s_schema_registry[k].sse_topic) continue;
+
+        char ref_val[BB_OPENAPI_SSE_REF_BUF_SIZE];
+        int ref_n = snprintf(ref_val, sizeof(ref_val), "#/components/schemas/%s",
+                             s_schema_registry[k].component_name);
+        // A silently truncated $ref would splice a WRONG (but well-formed)
+        // component reference into otherwise-valid JSON — worse than the
+        // malformed-JSON case the outer overflow guard exists to prevent.
+        // Treat it the same way: omit the whole fragment rather than emit it.
+        if ((size_t)ref_n >= sizeof(ref_val)) return false;
+
+        int written = snprintf(out + pos, out_size - pos,
+                               "%s{\"$ref\":\"%s\"}", first ? "" : ",", ref_val);
+        if ((size_t)written >= out_size - pos) return false;
+        pos += (size_t)written;
+        first = false;
+    }
+
+    int closing = snprintf(out + pos, out_size - pos, "]}");
+    if ((size_t)closing >= out_size - pos) return false;
+
+    return true;
+}
+
+#ifdef BB_OPENAPI_TESTING
+// Test-only seam: exposes the file-static fragment builder so host tests can
+// drive it directly with a caller-controlled out_size (the cheapest lever
+// for hitting its overflow branches — see test_sse_schema_fidelity.c), same
+// "_for_test" + BB_<COMPONENT>_TESTING convention used elsewhere in this
+// codebase (e.g. bb_ota_check_config_desc_for_test()).
+bool bb_openapi_build_sse_oneof_fragment_for_test(char *out, size_t out_size)
+{
+    return build_sse_oneof_fragment(out, out_size);
+}
+#endif /* BB_OPENAPI_TESTING */
+
+// ---------------------------------------------------------------------------
 // Build a single operation object for a route
 // ---------------------------------------------------------------------------
 
@@ -292,7 +358,14 @@ static bb_json_t build_operation(const bb_route_t *route)
                 }
             } else if (r->content_type &&
                        strcmp(r->content_type, "text/event-stream") == 0) {
-                // SSE route with no schema: synthesize oneOf from registered SSE topics.
+                // SSE route with no schema: synthesize oneOf from registered SSE
+                // topics. The envelope is already 7 levels deep by the time
+                // "schema" is reached (paths>path-item>operation>responses>
+                // status>content>media); a nested bb_json oneOf array plus a
+                // $ref object per entry would push past bb_http_resp_json_obj's
+                // depth cap once PR4 ports this emitter onto that API. Build the
+                // fragment as a bounded string instead and splice it in one shot
+                // — the same mechanism already used for static schema literals.
                 size_t sse_count = 0;
                 for (size_t k = 0; k < s_schema_count; k++) {
                     if (s_schema_registry[k].sse_topic) sse_count++;
@@ -300,30 +373,33 @@ static bb_json_t build_operation(const bb_route_t *route)
                 if (sse_count > 0) {
                     bb_json_t content = bb_json_obj_new();
                     bb_json_t media   = bb_json_obj_new();
-                    bb_json_t schema  = bb_json_obj_new();
-                    bb_json_t one_of  = bb_json_arr_new();
-                    if (content && media && schema && one_of) {
-                        for (size_t k = 0; k < s_schema_count; k++) {
-                            if (!s_schema_registry[k].sse_topic) continue;
-                            bb_json_t ref = bb_json_obj_new();
-                            if (ref) {
-                                char ref_val[80];
-                                snprintf(ref_val, sizeof(ref_val),
-                                         "#/components/schemas/%s",
-                                         s_schema_registry[k].component_name);
-                                bb_json_obj_set_string(ref, "$ref", ref_val);
-                                bb_json_arr_append_obj(one_of, ref);
-                            }
+                    if (content && media) {
+                        // static, not stack: ~1.9KB is too large a fraction of
+                        // the httpd worker's CONFIG_BB_HTTP_TASK_STACK_SIZE
+                        // (default 6144, bb_http.c) to carry as an automatic
+                        // array in this frame. Safe because esp_http_server
+                        // runs exactly one FreeRTOS task per httpd_start()
+                        // (bb_http.c holds a single s_server, started once)
+                        // and that task serializes all request handling via
+                        // select() — build_operation() is never reentered
+                        // before this buffer's contents are consumed below.
+                        // Gone entirely once PR4 streams the fragment directly.
+                        static char oneof_buf[BB_OPENAPI_SSE_ONEOF_BUF_SIZE];
+                        if (build_sse_oneof_fragment(oneof_buf, sizeof(oneof_buf))) {
+                            bb_json_obj_set_raw(media, "schema", oneof_buf);
+                            bb_json_obj_set_obj(content, "text/event-stream", media);
+                            bb_json_obj_set_obj(resp_obj, "content", content);
+                        } else {
+                            // Fragment would not fit the bounded buffer — omit
+                            // the content block rather than emit truncated
+                            // (malformed) JSON, matching the sse_count == 0 path.
+                            bb_log_e(TAG, "SSE oneOf fragment overflow — omitting content");
+                            bb_json_free(content);
+                            bb_json_free(media);
                         }
-                        bb_json_obj_set_arr(schema, "oneOf", one_of);
-                        bb_json_obj_set_obj(media, "schema", schema);
-                        bb_json_obj_set_obj(content, "text/event-stream", media);
-                        bb_json_obj_set_obj(resp_obj, "content", content);
                     } else {
                         bb_json_free(content);
                         bb_json_free(media);
-                        bb_json_free(schema);
-                        bb_json_free(one_of);
                     }
                 }
             }
