@@ -6,7 +6,7 @@
 // against the hand-authored, on-device (NOT host-gated) literals the
 // describe-only routes (bb_sensor_http_describe_routes(), same file) use to
 // make GET+PATCH /api/sensors/fan, GET /api/sensors/power, and GET
-// /api/sensors/thermal visible to bb_openapi_emit(). Only reachable when
+// /api/sensors/thermal visible to bb_openapi_emit_stream(). Only reachable when
 // BB_SERIALIZE_META_HOST is defined (this native env; see platformio.ini).
 //
 // FAN (B1-1180 PR-2 review fix, HIGH 2): CONFIG_BB_FAN_AUTOFAN forks fan's

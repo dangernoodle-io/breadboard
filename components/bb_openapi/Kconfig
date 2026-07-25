@@ -7,11 +7,14 @@ config BB_OPENAPI_RUNTIME_META
         Compiles the bb_serialize_meta engine (bb_serialize_meta_openapi_schema/
         bb_serialize_meta_validate) plus every co-located bb_serialize_desc_meta_t
         table across the tree (components/bb_serialize_meta) into the device
-        image, for a runtime OpenAPI schema generator. bb_diag_storage_nvs is
-        the first component composing its describe-route schema from this
-        engine at init when this knob is on (B1-1059 PR-2 pilot); other
-        components are still pending adoption. Default off ships zero bytes
-        of this code; the PlatformIO native host test env always builds it
-        regardless of this Kconfig.
+        image, for a runtime OpenAPI schema generator. Every describe-route
+        component in the tree has adopted the descriptor-meta path -- none
+        remain on hand-authored describe_route schemas -- and composes its
+        schema from this engine at init when this knob is on. Default off
+        ships zero bytes of this code; the PlatformIO native host test env
+        always builds it regardless of this Kconfig. This is a
+        runtime-compose opt-in, not a migration in progress: trading the
+        device RAM/flash of the engine against generating schemas at init
+        instead of shipping them as hand-authored describe_route literals.
 
 endmenu

@@ -1,9 +1,10 @@
-// Plumbing shared by both bb_openapi emitter translation units — the schema
-// registry, method/operationId derivation, path-uniqueness tracking, and the
-// SSE oneOf fragment builder. Consumed by:
-//   - bb_openapi_emit.c (device streaming emitter, ships in firmware)
-//   - platform/host/bb_openapi/bb_openapi_emit_tree.c (host-only tree
-//     emitter, never linked into firmware)
+// Plumbing for bb_openapi_emit.c (device streaming emitter, the sole
+// consumer) — the schema registry, method/operationId derivation,
+// path-uniqueness tracking, and the SSE oneOf fragment builder. A
+// host-only tree emitter (platform/host/bb_openapi/bb_openapi_emit_tree.c)
+// used to share this plumbing too; it was removed entirely in B1-1054 once
+// bb_openapi_emit.c reached full parity, leaving bb_openapi_emit.c as the
+// only consumer.
 // See bb_openapi_emit_internal.h for the shared declarations.
 #include "bb_openapi.h"
 #include "bb_openapi_emit_internal.h"

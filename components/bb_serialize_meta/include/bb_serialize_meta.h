@@ -15,11 +15,11 @@
 // host_tools/bb_serialize_meta/, outside bbtool's discovery.py component/
 // board scan). Relocated into this real ESP-IDF component (device-shippable
 // PR, B1-1059) so it CAN compile into firmware, gated OFF by default via
-// BB_SERIALIZE_META_SHIP below. Adoption has begun (B1-1059 PR-2 pilot):
-// bb_diag_storage_nvs is the first component composing its describe-route
-// schema from this engine at init when CONFIG_BB_OPENAPI_RUNTIME_META is
-// on; other components still source their describe-route schema as a hand
-// literal.
+// BB_SERIALIZE_META_SHIP below. Adoption status (which components compose
+// their describe-route schema from this engine vs. a hand literal) is
+// tracked in one place, components/bb_openapi/Kconfig's
+// BB_OPENAPI_RUNTIME_META help text -- not restated here to avoid the two
+// going stale against each other.
 //
 // A bb_serialize_desc_meta_t is keyed by field `key` against its paired
 // bb_serialize_desc_t -- see bb_serialize_meta_validate() for the exact
@@ -160,7 +160,8 @@ typedef struct bb_serialize_field_meta_s {
 // bb_serialize_meta_validate.c (duplicate-key row matching); trivial/cheap
 // enough (bounded by a descriptor's small, fixed `n_fields`) that a
 // static-inline header helper is preferable to exporting two extra
-// non-static symbols from this host-only engine.
+// non-static symbols from this engine (device-shippable but gated off
+// by default, see BB_SERIALIZE_META_SHIP above).
 static inline uint16_t bb_serialize_meta_occurrence_index(const bb_serialize_field_t *fields,
                                                            uint16_t i)
 {

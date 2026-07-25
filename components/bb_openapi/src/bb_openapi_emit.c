@@ -19,13 +19,12 @@ static const char *TAG = "bb_openapi_emit";
 // count grew past ~50 (B1-222); it was removed in B1-1054 once this
 // streaming path reached full parity.
 //
-// emit_operation() mirrors the host tree emitter's build_operation()
-// field-for-field and must be kept in sync with it manually —
-// test_openapi_emit_equivalence.c is the structural lock that catches drift
-// between the two. Shared helpers (method_str, derive_operation_id,
-// path_set_*, collect_paths_walker, build_sse_oneof_fragment) live in
-// bb_openapi_emit_shared.c (see bb_openapi_emit_internal.h) so both
-// emitters derive identically without duplicating that logic.
+// emit_operation() is the sole operationId/schema serializer now that the
+// host tree emitter is gone — no counterpart to stay in sync with. Shared
+// helpers (method_str, derive_operation_id, path_set_*, collect_paths_walker,
+// build_sse_oneof_fragment) still live in bb_openapi_emit_shared.c (see
+// bb_openapi_emit_internal.h), kept separate from this file for test-only
+// seam access rather than for sharing with a second emitter.
 // ---------------------------------------------------------------------------
 
 static void emit_operation(bb_http_json_obj_stream_t *s, const bb_route_t *route)
@@ -192,7 +191,9 @@ bb_err_t bb_openapi_emit_stream(bb_http_request_t *req,
         bb_http_resp_json_obj_set_arr_end(&s);
     }
 
-    // paths — two-pass, same as the host tree emitter (bb_openapi_emit()).
+    // paths — two-pass: collect unique paths first, then emit each path's
+    // operations, since the OpenAPI paths object groups all methods under
+    // one path key rather than listing routes flat.
     path_set_t ps;
     memset(&ps, 0, sizeof(ps));
     bb_http_route_registry_foreach(collect_paths_walker, &ps);

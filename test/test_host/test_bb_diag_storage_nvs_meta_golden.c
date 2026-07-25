@@ -5,7 +5,7 @@
 // both in components/bb_diag/bb_diag_storage_nvs.c), proving byte-fidelity
 // against bb_diag_storage_nvs_schema -- the hand-authored, on-device (NOT
 // host-gated) literal wired into the section's bb_diag_section_t.describe_route
-// field (bb_diag_storage_nvs_register(), same file) so bb_openapi_emit()
+// field (bb_diag_storage_nvs_register(), same file) so bb_openapi_emit_stream()
 // describes GET /api/diag/storage/nvs. Only reachable when
 // BB_SERIALIZE_META_HOST is defined (this native env; see platformio.ini).
 //

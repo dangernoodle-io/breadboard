@@ -6,7 +6,7 @@
 // against bb_meminfo_heap_snap_schema -- the hand-authored, on-device (NOT
 // host-gated) literal wired into the "meminfo" section's
 // bb_diag_section_t.describe_route (bb_diag_meminfo_register(),
-// components/bb_diag/bb_diag_meminfo.c) so bb_openapi_emit() describes GET
+// components/bb_diag/bb_diag_meminfo.c) so bb_openapi_emit_stream() describes GET
 // /api/diag/meminfo. Only reachable when BB_SERIALIZE_META_HOST is defined
 // (this native env; see platformio.ini).
 //

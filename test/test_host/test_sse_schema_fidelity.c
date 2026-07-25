@@ -1006,10 +1006,11 @@ void test_sse_schema_oneof_fragment_closing_overflow(void)
     TEST_ASSERT_FALSE(bb_openapi_build_sse_oneof_fragment_for_test(tight, full_len));
 }
 
-// Stream-path counterpart to test_sse_schema_oneof_fragment_overflow_omits_content
-// — same oversized registry, but through bb_openapi_emit_stream()'s
-// emit_operation() (B1-1116 PR4), pinning that the overflow-omit branch
-// behaves identically on both emitters.
+// Stream-path counterpart to the now-deleted tree-path
+// test_sse_schema_oneof_fragment_overflow_omits_content — same oversized
+// registry, but through bb_openapi_emit_stream()'s emit_operation()
+// (B1-1116 PR4), pinning that the overflow-omit branch is still covered now
+// that the tree emitter is gone.
 void test_sse_schema_oneof_fragment_overflow_omits_content_stream(void)
 {
     bb_http_route_registry_clear();
@@ -1048,9 +1049,8 @@ void test_sse_schema_oneof_fragment_overflow_omits_content_stream(void)
 // budget (name > 58 chars) must not silently splice a truncated
 // (wrong-but-valid-looking) $ref into the fragment. This is the sole
 // remaining cover for build_sse_oneof_fragment()'s ref_n overflow branch
-// (components/bb_openapi/src/bb_openapi_emit_shared.c) shared by both
-// emitters — losing it would drop that branch's coverage with no code
-// removal to offset it.
+// (components/bb_openapi/src/bb_openapi_emit_shared.c) — losing it would
+// drop that branch's coverage with no code removal to offset it.
 void test_sse_schema_oneof_fragment_long_name_truncation_omits_content_stream(void)
 {
     bb_http_route_registry_clear();

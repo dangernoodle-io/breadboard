@@ -30,7 +30,7 @@ bb_err_t bb_sensor_http_init(bb_http_handle_t server)
 
     // Describe-only registration (B1-1180 PR-2) -- makes GET+PATCH
     // /api/sensors/fan, GET /api/sensors/power, and GET /api/sensors/thermal
-    // VISIBLE to bb_openapi_emit() without touching the live wildcard
+    // VISIBLE to bb_openapi_emit_stream() without touching the live wildcard
     // dispatch bb_http_section_init() just registered above. See
     // bb_sensor_http_describe_routes()'s doc comment
     // (bb_sensor_http_wire_priv.h) for the full mechanism.

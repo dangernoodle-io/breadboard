@@ -72,7 +72,7 @@ typedef struct {
 extern const bb_serialize_desc_t bb_diag_storage_nvs_desc;
 
 // Hand-authored JSON Schema for the section's GET response (B1-1180 PR-1) --
-// makes "storage/nvs" VISIBLE to bb_openapi_emit() via
+// makes "storage/nvs" VISIBLE to bb_openapi_emit_stream() via
 // bb_diag_section_t.describe_route (wired in this file's own
 // bb_diag_storage_nvs_register()). On-device (NOT host-gated). See
 // test/test_host/test_bb_diag_storage_nvs_meta_golden.c for the

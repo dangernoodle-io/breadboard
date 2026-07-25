@@ -1677,10 +1677,10 @@ void test_openapi_emit_stream_handles_multiple_methods_per_path(void)
 // ---------------------------------------------------------------------------
 // Stream-path null-field/branch coverage — mirrors the tree-path fixtures
 // above (s_route_no_summary, s_route_params_count_zero, etc.) through
-// emit_operation()/bb_openapi_emit_stream() (B1-1116 PR4). The equivalence
-// harness only proves the two emitters agree on populated fixtures; it does
-// not exercise emit_operation()'s own null/absent-field arms, so those need
-// their own stream-path fixtures here.
+// emit_operation()/bb_openapi_emit_stream() (B1-1116 PR4). The (now-removed)
+// equivalence harness only proved the two emitters agreed on populated
+// fixtures; it never exercised emit_operation()'s own null/absent-field
+// arms, so those needed their own stream-path fixtures here.
 // ---------------------------------------------------------------------------
 
 void test_openapi_emit_stream_route_null_summary_omitted(void)

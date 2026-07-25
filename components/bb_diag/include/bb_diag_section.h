@@ -109,7 +109,7 @@ typedef struct {
     // static-const describe-only route (handler=NULL, .rodata/flash, never
     // DRAM) -- except a producer opting into CONFIG_BB_OPENAPI_RUNTIME_META,
     // which patches .schema once at init (mutable .data) before serving --
-    // makes GET /api/diag/<name> visible to bb_openapi_emit()
+    // makes GET /api/diag/<name> visible to bb_openapi_emit_stream()
     // without registering a live handler. The ESP-IDF dispatcher
     // (bb_diag_sections_init(), platform/espidf/bb_diag_http/
     // bb_diag_http_section_dispatch.c, which DOES see bb_http_server.h)

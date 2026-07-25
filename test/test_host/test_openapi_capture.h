@@ -5,9 +5,9 @@
 // cJSON exactly once, so stream-path assertions (PR 3-5 of B1-1054) can
 // compare parsed JSON instead of each hand-rolling the
 // capture_begin/emit_stream/capture_end/cJSON_Parse dance (already repeated
-// verbatim across test_openapi_emit_equivalence.c and
-// test_sse_schema_fidelity.c -- this is roughly the tenth instance, past the
-// project's second-instance extraction threshold).
+// verbatim across test_openapi_emit.c and test_sse_schema_fidelity.c -- this
+// is roughly the tenth instance, past the project's second-instance
+// extraction threshold).
 
 #include "bb_openapi.h"
 #include "bb_http_host.h"

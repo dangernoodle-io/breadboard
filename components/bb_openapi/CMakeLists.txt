@@ -19,12 +19,16 @@ idf_component_register(
 # so the host build picks this file up automatically, same as any other
 # platform-specific TU.
 #
-# bb_openapi_emit_tree.c (B1-1116) -- the host-only tree emitter
-# (bb_openapi_emit()) -- follows the exact same precedent: zero device
+# bb_openapi_emit_tree.c (B1-1116) was the host-only tree emitter
+# (bb_openapi_emit()) -- it followed the exact same precedent: zero device
 # callers (the device path is bb_openapi_emit_stream(), bb_openapi_emit.c
-# above, which never calls bb_json_*), but it IS the load-bearing entrypoint
-# for host_tools/emit_openapi and the host test suites that assert against a
-# fully-materialized document. Relocated to platform/host/bb_openapi/
-# alongside bb_openapi_validate.c, picked up by host builds the same way, and
-# never linked into firmware -- which is what lets bb_json (and the cJSON
-# backend it pulls in on ESP-IDF) come out of REQUIRES above entirely.
+# above, which never calls bb_json_*), but it WAS the load-bearing entrypoint
+# for host_tools/emit_openapi and the host test suites that asserted against
+# a fully-materialized document, so it was relocated to platform/host/bb_openapi/
+# alongside bb_openapi_validate.c rather than deleted outright at the time.
+# It has since been removed entirely (B1-1054) now that bb_openapi_emit_stream()
+# has reached full parity; host_tools/emit_openapi was deleted outright in
+# the same change (not migrated), and the host test suites now go through
+# bb_openapi_emit_stream() + test_openapi_capture() instead, which is what
+# lets bb_json (and the cJSON backend it pulls in on ESP-IDF) come out of
+# REQUIRES above entirely.
