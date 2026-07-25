@@ -2200,6 +2200,10 @@ void test_desc_audit_all_routes_registered(void);
 void test_desc_audit_query_params(void);
 void test_desc_audit_request_schema_presence(void);
 void test_desc_audit_response_content_types(void);
+// Forward declarations from test_route_schema_literals_live.c (B1-1211)
+void test_route_schema_literals_live_registry_nonempty(void);
+void test_route_schema_literals_live_all_parse(void);
+void test_route_schema_literals_live_walker_catches_malformed(void);
 // Forward declarations from test_route_fidelity.c
 void test_fidelity_reboot(void);
 void test_fidelity_health(void);
@@ -6558,6 +6562,11 @@ int main(void) {
     RUN_TEST(test_desc_audit_query_params);
     RUN_TEST(test_desc_audit_request_schema_presence);
     RUN_TEST(test_desc_audit_response_content_types);
+    // B1-1211: schema-literal validation over REAL production route
+    // descriptors (not fixtures)
+    RUN_TEST(test_route_schema_literals_live_registry_nonempty);
+    RUN_TEST(test_route_schema_literals_live_all_parse);
+    RUN_TEST(test_route_schema_literals_live_walker_catches_malformed);
 
     // CORS header capture tests
     RUN_TEST(test_capture_cors_headers_recorded);
