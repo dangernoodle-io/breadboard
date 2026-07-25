@@ -17,6 +17,7 @@
 #include "bb_serialize_json.h"
 #include "bb_serialize_console.h"
 #include "bb_serialize_logfmt.h"
+#include "test_openapi_capture.h"
 // Forward declarations from test_bb_lifecycle.c
 void test_bb_lifecycle_autoinit_returns_ok(void);
 void test_bb_lifecycle_register_starts_stopped(void);
@@ -2489,6 +2490,8 @@ void test_openapi_emit_foo_response_schema_is_object(void);
 void test_openapi_emit_baz_derived_operation_id(void);
 void test_openapi_emit_baz_no_tags_array(void);
 void test_openapi_emit_null_meta_returns_null(void);
+void test_openapi_emit_stream_null_meta_returns_invalid_arg(void);
+void test_openapi_emit_defaults_for_omitted_fields(void);
 void test_openapi_emit_servers_present_when_url_set(void);
 void test_openapi_emit_servers_absent_when_no_url(void);
 void test_openapi_emit_patch_method_operation_id(void);
@@ -2510,6 +2513,7 @@ void test_openapi_emit_route_null_summary_omitted(void);
 void test_openapi_emit_route_null_responses_array(void);
 void test_openapi_emit_request_schema_without_content_type(void);
 void test_openapi_emit_request_content_type_without_schema(void);
+void test_openapi_emit_invalid_method_defaults_to_get(void);
 void test_openapi_emit_oom_root_alloc_returns_null(void);
 void test_openapi_emit_oom_info_alloc_returns_null(void);
 void test_openapi_emit_oom_servers_arr_skips(void);
@@ -2525,7 +2529,6 @@ void test_openapi_emit_oom_responses_alloc_omits_responses(void);
 void test_openapi_emit_oom_resp_obj_alloc_skips_response(void);
 void test_openapi_emit_oom_resp_content_alloc_omits_content(void);
 void test_openapi_emit_oom_resp_media_alloc_omits_content(void);
-void test_openapi_emit_invalid_method_defaults_to_get(void);
 void test_openapi_emit_response_null_description(void);
 void test_openapi_emit_response_null_content_type_defaults_to_json(void);
 void test_openapi_emit_long_path_truncates_operation_id(void);
@@ -2580,6 +2583,7 @@ void test_openapi_capture_signals_emitter_failure_via_status(void);
 void test_openapi_capture_signals_parse_failure_on_malformed_body(void);
 void test_openapi_capture_free_is_idempotent(void);
 void test_openapi_capture_free_handles_null_result(void);
+void test_openapi_capture_guards_double_capture_without_free(void);
 
 // Forward declarations from test_sse_schema_fidelity.c
 void test_sse_schema_registry_count_zero_initially(void);
@@ -5257,7 +5261,13 @@ void setUp(void) {
     // and register their own dummy entries.
     bb_serialize_json_register_format();
 }
-void tearDown(void) {}
+void tearDown(void)
+{
+    // Safety net for a failed TEST_ASSERT between test_openapi_capture() and
+    // test_openapi_capture_free() (the longjmp skips the explicit free) --
+    // see test_openapi_capture.h.
+    test_openapi_capture_teardown();
+}
 
 // Forward declarations from test_bb_cache_fidelity.c
 void test_bb_cache_register_idempotent(void);
@@ -6923,6 +6933,8 @@ int main(void) {
     RUN_TEST(test_openapi_emit_baz_derived_operation_id);
     RUN_TEST(test_openapi_emit_baz_no_tags_array);
     RUN_TEST(test_openapi_emit_null_meta_returns_null);
+    RUN_TEST(test_openapi_emit_stream_null_meta_returns_invalid_arg);
+    RUN_TEST(test_openapi_emit_defaults_for_omitted_fields);
     RUN_TEST(test_openapi_emit_servers_present_when_url_set);
     RUN_TEST(test_openapi_emit_servers_absent_when_no_url);
     RUN_TEST(test_openapi_emit_patch_method_operation_id);
@@ -6944,6 +6956,7 @@ int main(void) {
     RUN_TEST(test_openapi_emit_route_null_responses_array);
     RUN_TEST(test_openapi_emit_request_schema_without_content_type);
     RUN_TEST(test_openapi_emit_request_content_type_without_schema);
+    RUN_TEST(test_openapi_emit_invalid_method_defaults_to_get);
     RUN_TEST(test_openapi_emit_oom_root_alloc_returns_null);
     RUN_TEST(test_openapi_emit_oom_info_alloc_returns_null);
     RUN_TEST(test_openapi_emit_oom_servers_arr_skips);
@@ -6959,7 +6972,6 @@ int main(void) {
     RUN_TEST(test_openapi_emit_oom_resp_obj_alloc_skips_response);
     RUN_TEST(test_openapi_emit_oom_resp_content_alloc_omits_content);
     RUN_TEST(test_openapi_emit_oom_resp_media_alloc_omits_content);
-    RUN_TEST(test_openapi_emit_invalid_method_defaults_to_get);
     RUN_TEST(test_openapi_emit_response_null_description);
     RUN_TEST(test_openapi_emit_response_null_content_type_defaults_to_json);
     RUN_TEST(test_openapi_emit_long_path_truncates_operation_id);
@@ -6972,6 +6984,8 @@ int main(void) {
     RUN_TEST(test_openapi_emit_param_null_name_defaults_to_empty);
     RUN_TEST(test_openapi_emit_param_null_in_defaults_to_query);
     RUN_TEST(test_openapi_emit_oom_params_arr_skips_parameters);
+    RUN_TEST(test_openapi_emit_oom_param_obj_skips_entry);
+    RUN_TEST(test_openapi_emit_oom_schema_obj_skips_schema);
     RUN_TEST(test_openapi_emit_stream_produces_valid_openapi_doc);
     RUN_TEST(test_openapi_emit_stream_null_args_return_invalid_arg);
     RUN_TEST(test_openapi_emit_stream_includes_servers_and_description);
@@ -6986,8 +7000,6 @@ int main(void) {
     RUN_TEST(test_openapi_emit_stream_response_null_content_type_defaults_to_json);
     RUN_TEST(test_openapi_emit_stream_sse_zero_topics_omits_content);
     RUN_TEST(test_openapi_emit_stream_obj_begin_fails_returns_err);
-    RUN_TEST(test_openapi_emit_oom_param_obj_skips_entry);
-    RUN_TEST(test_openapi_emit_oom_schema_obj_skips_schema);
     RUN_TEST(test_openapi_emit_components_schemas_present);
     RUN_TEST(test_openapi_emit_ref_literal_passthrough);
     RUN_TEST(test_openapi_emit_oom_components_section);
@@ -7014,6 +7026,7 @@ int main(void) {
     RUN_TEST(test_openapi_capture_signals_parse_failure_on_malformed_body);
     RUN_TEST(test_openapi_capture_free_is_idempotent);
     RUN_TEST(test_openapi_capture_free_handles_null_result);
+    RUN_TEST(test_openapi_capture_guards_double_capture_without_free);
 
     // test_sse_schema_fidelity tests
     RUN_TEST(test_sse_schema_registry_count_zero_initially);
