@@ -11,9 +11,50 @@
 #include <pthread.h>
 #include <string.h>
 #include <stdatomic.h>
+#include <stdio.h>
+
+// bb_core has no bb_log dependency (bb_log itself REQUIRES bb_core -- see
+// bb_claim.c's identical rationale) -- log directly to stderr rather than
+// bb_log_e() to avoid a circular component dependency.
+static const char *TAG = "bb_lock";
 
 _Static_assert(sizeof(pthread_mutex_t) <= BB_LOCK_IMPL_STORAGE_BYTES,
                "pthread_mutex_t exceeds bb_lock_t backend storage");
+
+// Fail-fast floor: bb_lock_init() can fail (pthread_mutex_init() failure per
+// POSIX), leaving bb_lock_initialized false on an otherwise zero-inited
+// bb_lock_t. Without this check, bb_lock_lock()/trylock()/unlock() would
+// hand an uninitialized pthread_mutex_t straight to pthread_mutex_lock()/
+// unlock() -- undefined behavior that used to permanently brick every
+// future caller of that lock. Returning BB_ERR_INVALID_STATE here instead
+// never touches the backend handle.
+//
+// Also rejects a lock that has already been through a successful
+// bb_lock_destroy() -- bb_lock_destroy() never clears bb_lock_initialized
+// (by design: init/destroy is one-shot, not a re-armable pair), so a check
+// against bb_lock_initialized alone would let lock()/trylock()/unlock() fall
+// through to the backend after destroy and hand pthread_mutex_lock()/
+// unlock() an already-destroyed pthread_mutex_t -- UB on a freed primitive.
+// bb_lock_destroyed is checked here for the same reason.
+//
+// Logged loudly (not silently) because none of this tree's ~48
+// bb_lock_lock() call sites check the return value -- a silent error here
+// would convert a loud hard-fault into a silently-unheld critical section,
+// strictly worse than the bug this fixes. Rate-limited to once per lock
+// instance (bb_lock_invalid_logged) so a hot-path caller looping on the same
+// permanently-broken lock cannot flood the log; a distinct broken lock still
+// gets its own one-time log.
+static inline bool bb_lock_check_usable(bb_lock_t *lock)
+{
+    if (atomic_load_explicit(&lock->bb_lock_initialized, memory_order_acquire)
+        && !atomic_load_explicit(&lock->bb_lock_destroyed, memory_order_acquire)) {
+        return true;
+    }
+    if (!atomic_exchange_explicit(&lock->bb_lock_invalid_logged, true, memory_order_relaxed)) {
+        fprintf(stderr, "E (%s): bb_lock used before bb_lock_init() succeeded, or after bb_lock_destroy() -- refusing to touch backend handle\n", TAG);
+    }
+    return false;
+}
 
 #if BB_LOCK_STATS_ENABLE
 static _Atomic bool s_stats_runtime_enabled = true;
@@ -78,6 +119,9 @@ bb_err_t bb_lock_lock(bb_lock_t *lock)
     if (!lock) {
         return BB_ERR_INVALID_ARG;
     }
+    if (!bb_lock_check_usable(lock)) {
+        return BB_ERR_INVALID_STATE;
+    }
     pthread_mutex_t *m = bb_lock_impl(lock);
 #if BB_LOCK_STATS_ENABLE
     if (atomic_load_explicit(&s_stats_runtime_enabled, memory_order_relaxed)) {
@@ -102,6 +146,9 @@ bb_err_t bb_lock_trylock(bb_lock_t *lock)
     if (!lock) {
         return BB_ERR_INVALID_ARG;
     }
+    if (!bb_lock_check_usable(lock)) {
+        return BB_ERR_INVALID_STATE;
+    }
     pthread_mutex_t *m = bb_lock_impl(lock);
     if (pthread_mutex_trylock(m) != 0) {
         // Contended trylock is NOT contention — that only counts on a lock()
@@ -120,6 +167,9 @@ bb_err_t bb_lock_unlock(bb_lock_t *lock)
 {
     if (!lock) {
         return BB_ERR_INVALID_ARG;
+    }
+    if (!bb_lock_check_usable(lock)) {
+        return BB_ERR_INVALID_STATE;
     }
 #if BB_LOCK_STATS_ENABLE
     // Unconditionally attempt the release-side bookkeeping — do NOT gate
