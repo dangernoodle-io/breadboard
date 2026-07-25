@@ -2,27 +2,17 @@
   "entries": [
     {
       "id": "BB_DISPLAY_EK79007_AUTOREGISTER",
-      "path": "components/bb_display_ek79007/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_DISPLAY_ILI9341_AUTOREGISTER",
-      "path": "components/bb_display_ili9341/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_DISPLAY_SSD1306_AUTOREGISTER",
-      "path": "components/bb_display_ssd1306/Kconfig",
+      "path": "components/display/bb_display_ek79007/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
       "id": "BB_DISPLAY_ST7735_AUTOREGISTER",
-      "path": "components/bb_display_st77xx/Kconfig",
+      "path": "components/display/bb_display_st77xx/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
       "id": "BB_DISPLAY_ST7789_AUTOREGISTER",
-      "path": "components/bb_display_st77xx/Kconfig",
+      "path": "components/display/bb_display_st77xx/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
@@ -48,16 +38,6 @@
     {
       "id": "BB_DISPLAY_EK79007_AUTOREGISTER",
       "path": "platform/espidf/bb_display_ek79007/bb_display_ek79007.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_DISPLAY_ILI9341_AUTOREGISTER",
-      "path": "platform/espidf/bb_display_ili9341/bb_display_ili9341.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_DISPLAY_SSD1306_AUTOREGISTER",
-      "path": "platform/espidf/bb_display_ssd1306/bb_display_ssd1306.c",
       "type": "autoregister_usage"
     },
     {
@@ -92,42 +72,22 @@
     },
     {
       "id": "linker:ek79007",
-      "path": "components/bb_display_ek79007/CMakeLists.txt",
-      "type": "display_force_keep"
-    },
-    {
-      "id": "linker:ili9341",
-      "path": "components/bb_display_ili9341/CMakeLists.txt",
-      "type": "display_force_keep"
-    },
-    {
-      "id": "linker:ssd1306",
-      "path": "components/bb_display_ssd1306/CMakeLists.txt",
+      "path": "components/display/bb_display_ek79007/CMakeLists.txt",
       "type": "display_force_keep"
     },
     {
       "id": "linker:st7735",
-      "path": "components/bb_display_st77xx/CMakeLists.txt",
+      "path": "components/display/bb_display_st77xx/CMakeLists.txt",
       "type": "display_force_keep"
     },
     {
       "id": "linker:st7789",
-      "path": "components/bb_display_st77xx/CMakeLists.txt",
+      "path": "components/display/bb_display_st77xx/CMakeLists.txt",
       "type": "display_force_keep"
     },
     {
       "id": "macro:ek79007",
       "path": "platform/espidf/bb_display_ek79007/bb_display_ek79007.c",
-      "type": "display_force_keep"
-    },
-    {
-      "id": "macro:ili9341",
-      "path": "platform/espidf/bb_display_ili9341/bb_display_ili9341.c",
-      "type": "display_force_keep"
-    },
-    {
-      "id": "macro:ssd1306",
-      "path": "platform/espidf/bb_display_ssd1306/bb_display_ssd1306.c",
       "type": "display_force_keep"
     },
     {

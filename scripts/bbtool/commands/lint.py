@@ -1136,7 +1136,6 @@ _PUBLIC_REQUIRES_UNUSED_DEFAULT_ALLOW = [
     ("bb_display_ek79007", "esp_lvgl_port"),
     ("bb_display_ek79007", "lv_"),
     ("bb_display_ek79007", "lvgl"),
-    ("bb_display_ssd1306", "esp_driver_i2c"),
     ("bb_fan_emc2101", "esp_driver_i2c"),
     ("bb_power_tps546", "esp_driver_i2c"),
 ]

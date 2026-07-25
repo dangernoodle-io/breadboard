@@ -76,18 +76,8 @@
       "type": "component"
     },
     {
-      "id": "bb_display_ili9341",
-      "path": "components/bb_display_ili9341",
-      "type": "component"
-    },
-    {
       "id": "bb_display_spi_common",
       "path": "components/bb_display_spi_common",
-      "type": "component"
-    },
-    {
-      "id": "bb_display_ssd1306",
-      "path": "components/bb_display_ssd1306",
       "type": "component"
     },
     {

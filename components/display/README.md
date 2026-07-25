@@ -10,8 +10,6 @@ consumer-facing API.
 |-----------|---------|
 | [bb_display](./bb_display/) | — |
 | [bb_display_ek79007](./bb_display_ek79007/) | — |
-| [bb_display_ili9341](./bb_display_ili9341/) | — |
 | [bb_display_spi_common](./bb_display_spi_common/) | — |
-| [bb_display_ssd1306](./bb_display_ssd1306/) | — |
 | [bb_display_st77xx](./bb_display_st77xx/) | — |
 <!-- END bbtool:group-index -->

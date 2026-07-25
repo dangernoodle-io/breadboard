@@ -1606,18 +1606,6 @@ class TestPublicRequiresUnused(unittest.TestCase):
                 "esp_netif must fire even with bb_* deps present (which must be ignored)")
             self.assertIn("esp_netif", violations[0]["detail"])
 
-    def test_default_allowlist_bb_display_ssd1306_esp_driver_i2c(self):
-        with tempfile.TemporaryDirectory() as td:
-            self._make_cmake(td, "bb_display_ssd1306",
-                'idf_component_register(\n    SRCS "fake.c"\n'
-                '    REQUIRES bb_core bb_display esp_driver_i2c\n)\n')
-            self._make_header(td, "bb_display_ssd1306", "bb_display_ssd1306.h",
-                '#pragma once\n#include "bb_core.h"\n#include "bb_display.h"\n')
-            violations = _check_public_requires_unused(make_ctx(td))
-            self.assertFalse(violations,
-                "bb_display_ssd1306 / esp_driver_i2c must be allowlisted by default"
-                " (carried over from the retired public-requires-watchlist rule)")
-
     def test_default_allowlist_bb_fan_emc2101_esp_driver_i2c(self):
         with tempfile.TemporaryDirectory() as td:
             self._make_cmake(td, "bb_fan_emc2101",
