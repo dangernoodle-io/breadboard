@@ -2558,6 +2558,11 @@ void test_sse_schema_dangling_ref_oracle_null_doc_returns_invalid_arg(void);
 void test_sse_schema_dangling_ref_oracle_depth_guard(void);
 void test_sse_schema_union_seam_external_dedup_cap_overflow_logs_once_and_degrades(void);
 void test_sse_schema_log_event_describe_matches_legacy_register_topic_schema_output(void);
+void test_sse_schema_ota_hooks_describe_matches_legacy_register_topic_schema_output(void);
+void test_sse_schema_health_stack_describe_matches_legacy_register_topic_schema_output(void);
+void test_sse_schema_diag_boot_describe_matches_legacy_register_topic_schema_output(void);
+void test_sse_schema_display_info_describe_matches_legacy_register_topic_schema_output(void);
+void test_sse_schema_ota_check_describe_matches_legacy_register_topic_schema_output(void);
 void test_sse_schema_oneof_fragment_opener_overflow(void);
 void test_sse_schema_oneof_fragment_closing_overflow(void);
 void test_sse_schema_wifi_telemetry_payload_valid(void);
@@ -4755,6 +4760,7 @@ void test_bb_http_client_host_set_session_calloc_null_reverts_to_real_calloc(voi
 
 // Forward declarations from test_bb_ota_check.c
 void test_bb_ota_check_init_idempotent(void);
+void test_bb_ota_check_init_describe_failure_is_non_fatal(void);
 void test_bb_ota_check_init_with_cfg_uses_overrides(void);
 void test_bb_ota_check_update_available_schema_is_unchanged_hand_literal(void);
 void test_bb_ota_check_config_get_schema_is_unchanged_hand_literal(void);
@@ -6973,6 +6979,11 @@ int main(void) {
     RUN_TEST(test_sse_schema_dangling_ref_oracle_depth_guard);
     RUN_TEST(test_sse_schema_union_seam_external_dedup_cap_overflow_logs_once_and_degrades);
     RUN_TEST(test_sse_schema_log_event_describe_matches_legacy_register_topic_schema_output);
+    RUN_TEST(test_sse_schema_ota_hooks_describe_matches_legacy_register_topic_schema_output);
+    RUN_TEST(test_sse_schema_health_stack_describe_matches_legacy_register_topic_schema_output);
+    RUN_TEST(test_sse_schema_diag_boot_describe_matches_legacy_register_topic_schema_output);
+    RUN_TEST(test_sse_schema_display_info_describe_matches_legacy_register_topic_schema_output);
+    RUN_TEST(test_sse_schema_ota_check_describe_matches_legacy_register_topic_schema_output);
     RUN_TEST(test_sse_schema_oneof_fragment_opener_overflow);
     RUN_TEST(test_sse_schema_oneof_fragment_closing_overflow);
     RUN_TEST(test_sse_schema_wifi_telemetry_payload_valid);
@@ -8588,6 +8599,7 @@ int main(void) {
 
     // bb_ota_check tests
     RUN_TEST(test_bb_ota_check_init_idempotent);
+    RUN_TEST(test_bb_ota_check_init_describe_failure_is_non_fatal);
     RUN_TEST(test_bb_ota_check_init_with_cfg_uses_overrides);
     RUN_TEST(test_bb_ota_check_update_available_schema_is_unchanged_hand_literal);
     RUN_TEST(test_bb_ota_check_config_get_schema_is_unchanged_hand_literal);

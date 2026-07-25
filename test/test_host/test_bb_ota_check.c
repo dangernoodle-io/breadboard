@@ -6,6 +6,7 @@
 #include "bb_http_host.h"
 #include "bb_ota_check_wire.h"
 #include "bb_data.h"
+#include "bb_data_http.h"
 #include "bb_settings.h"
 #include "bb_storage.h"
 #include "fake_nvs_backend.h"
@@ -125,6 +126,26 @@ void test_bb_ota_check_init_idempotent(void)
     reset_world();
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
+}
+
+// B1-1220: bb_data_http_describe()'s call site in bb_ota_check_init() is
+// non-fatal -- a describe failure (here, forced via a pre-filled
+// BB_DATA_HTTP_MAX_DESCRIBE table so "update.available" itself can never
+// get a slot) must warn and fall through, never abort init. Mirrors
+// bb_log_event_init()'s identical posture (B1-1083).
+void test_bb_ota_check_init_describe_failure_is_non_fatal(void)
+{
+    reset_world();
+    bb_data_http_reset_for_test();
+    char keys[BB_DATA_HTTP_MAX_DESCRIBE][16];
+    for (int i = 0; i < BB_DATA_HTTP_MAX_DESCRIBE; i++) {
+        snprintf(keys[i], sizeof(keys[i]), "k.%d", i);
+        TEST_ASSERT_EQUAL(BB_OK, bb_data_http_describe(keys[i], "t", "C", "{}"));
+    }
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
+
+    bb_data_http_reset_for_test();
 }
 
 void test_bb_ota_check_init_with_cfg_uses_overrides(void)

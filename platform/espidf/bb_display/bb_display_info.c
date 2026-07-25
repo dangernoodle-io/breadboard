@@ -5,7 +5,7 @@
 #include "bb_data.h"
 #include "bb_display.h"
 #include "bb_log.h"
-#include "bb_openapi.h"
+#include "bb_data_http.h"
 #include "bb_http_server.h"
 #include "bb_settings.h"
 #include "bb_str.h"
@@ -65,37 +65,42 @@ void bb_display_register_info(void)
         return;
     }
 
-    // Register the OpenAPI schema for the "health.display" bb_cache key.
-    // Compose-then-register (B1-1059 SSE PR-4): the hand literal moved to
-    // bb_display_info_wire.c (relocation, see its own banner) -- config-OFF
-    // this register call serves that literal unchanged; config-ON, the
-    // schema is composed first, before serving the runtime-composed
-    // buffer -- a compose failure is degrade-and-continue (warn, keep
-    // going), not fail-loud, see the comment below.
+    // Describe the "health.display" bb_cache key via the B1-1220
+    // bb_data_http_describe() seam (bb_display no longer links bb_openapi at
+    // all, see CMakeLists.txt). key and topic are both BB_DISPLAY_INFO_TOPIC.
+    // A composition root that wants "health.display" back in
+    // /api/openapi.json must wire
+    // bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach) -- see
+    // bb_openapi.h's seam doc.
     //
     // Doc-only bookkeeping (feeds /api/openapi.json schema synthesis) -- a
     // compose failure here must not abort bring-up: schema composition is
     // documentation-only and must never block the bb_data bind +
     // s_registered flag below. Degrade and continue -- log a warning and
-    // fall through. But a compose failure must degrade to "no DisplayInfo
-    // entry in the document", never "an invalid entry that poisons the
-    // whole document": on failure, bb_display_info_ensure_schema_patched()
-    // guarantees the schema buffer is left EMPTY, and
-    // bb_openapi_register_schema() rejects only a NULL literal, not "" --
-    // an empty literal would still register and later get spliced raw
-    // into the JSON document as `"DisplayInfo":` with no value,
-    // corrupting every topic's entry, not just this one. So skip
-    // registration entirely when compose failed (see
-    // bb_log_event_init()'s identical rationale, #1083).
+    // fall through, skipping the describe call entirely (never describe
+    // with an empty/poisoned schema buffer). The bb_data_http_describe()
+    // call itself is also non-fatal on failure: it logs a warning and
+    // falls through rather than aborting bb_display_register_info(), since
+    // its backing table (BB_DATA_HTTP_MAX_DESCRIBE) is shared, first-come,
+    // no-eviction, and can legitimately be full by the time this producer
+    // registers.
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t schema_rc = bb_display_info_ensure_schema_patched();
     if (schema_rc != BB_OK) {
         bb_log_w(TAG, "health.display schema compose failed: %d", (int)schema_rc);
     } else {
-        bb_openapi_register_topic_schema(BB_DISPLAY_INFO_TOPIC, bb_display_info_get_schema(), "DisplayInfo");
+        bb_err_t describe_rc = bb_data_http_describe(BB_DISPLAY_INFO_TOPIC, BB_DISPLAY_INFO_TOPIC,
+                                                      "DisplayInfo", bb_display_info_get_schema());
+        if (describe_rc != BB_OK) {
+            bb_log_w(TAG, "health.display schema describe failed: %d", (int)describe_rc);
+        }
     }
 #else
-    bb_openapi_register_topic_schema(BB_DISPLAY_INFO_TOPIC, bb_display_info_get_schema(), "DisplayInfo");
+    bb_err_t describe_rc = bb_data_http_describe(BB_DISPLAY_INFO_TOPIC, BB_DISPLAY_INFO_TOPIC,
+                                                  "DisplayInfo", bb_display_info_get_schema());
+    if (describe_rc != BB_OK) {
+        bb_log_w(TAG, "health.display schema describe failed: %d", (int)describe_rc);
+    }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     // Bind "health.display" to bb_data (B1-1146a) so a future REST/SSE

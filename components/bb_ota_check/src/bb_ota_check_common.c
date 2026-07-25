@@ -10,7 +10,7 @@
 #include "bb_log.h"
 #include "bb_mdns.h"
 #include "bb_settings.h"
-#include "bb_openapi.h"
+#include "bb_data_http.h"
 #include "bb_serialize.h"
 #include "bb_system.h"
 #include "bb_mem.h"
@@ -254,33 +254,44 @@ bb_err_t bb_ota_check_init(const bb_ota_check_cfg_t *cfg)
 
     bb_mdns_set_txt("update", "unknown");
 
+    // Describe "update.available" via the B1-1220 bb_data_http_describe()
+    // seam (bb_ota_check no longer links bb_openapi at all, see
+    // CMakeLists.txt). key and topic are both BB_OTA_CHECK_TOPIC. A
+    // composition root that wants "update.available" back in
+    // /api/openapi.json must wire
+    // bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach) -- see
+    // bb_openapi.h's seam doc.
+    //
     // Doc-only bookkeeping (feeds /api/openapi.json schema synthesis) -- a
     // compose failure here must not abort bring-up: schema composition is
     // documentation-only and must never take down real update-check
     // functionality (bb_ota_check_register_init() aborts ALL of its own
     // route registration, timer creation, and initial snapshot publish on
     // any non-BB_OK return from bb_ota_check_init()). Degrade and continue
-    // -- log a warning and fall through. But a compose failure must degrade
-    // to "no UpdateAvailable entry in the document", never "an invalid
-    // entry that poisons the whole document": on failure,
-    // ensure_update_available_schema_patched() guarantees the schema
-    // buffer is left EMPTY, and bb_openapi_register_topic_schema() rejects
-    // only a NULL literal, not "" -- an empty literal would still register
-    // and later get spliced raw into the JSON document as
-    // `"UpdateAvailable":` with no value, corrupting every topic's entry,
-    // not just this one. So skip registration entirely when compose failed
-    // (see bb_log_event_init()'s identical rationale, #1083).
+    // -- log a warning and fall through, skipping the describe call
+    // entirely (never describe with an empty/poisoned schema buffer). The
+    // bb_data_http_describe() call itself is also non-fatal on its own
+    // failure -- it logs a warning and falls through rather than aborting
+    // init, since its backing table (BB_DATA_HTTP_MAX_DESCRIBE) is shared,
+    // first-come, no-eviction, and can legitimately be full by the time
+    // this producer registers.
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t schema_rc = ensure_update_available_schema_patched();
     if (schema_rc != BB_OK) {
         bb_log_w(TAG, "update.available schema compose failed: %d", (int)schema_rc);
     } else {
-        bb_openapi_register_topic_schema(BB_OTA_CHECK_TOPIC, s_update_available_schema_buf,
-                                         "UpdateAvailable");
+        bb_err_t describe_rc = bb_data_http_describe(BB_OTA_CHECK_TOPIC, BB_OTA_CHECK_TOPIC,
+                                                      "UpdateAvailable", s_update_available_schema_buf);
+        if (describe_rc != BB_OK) {
+            bb_log_w(TAG, "update.available schema describe failed: %d", (int)describe_rc);
+        }
     }
 #else
-    bb_openapi_register_topic_schema(BB_OTA_CHECK_TOPIC, k_update_available_schema,
-                                     "UpdateAvailable");
+    bb_err_t describe_rc = bb_data_http_describe(BB_OTA_CHECK_TOPIC, BB_OTA_CHECK_TOPIC,
+                                                  "UpdateAvailable", k_update_available_schema);
+    if (describe_rc != BB_OK) {
+        bb_log_w(TAG, "update.available schema describe failed: %d", (int)describe_rc);
+    }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     // GET /api/update/config's runtime-compose (B1-1059 emit batch A, site

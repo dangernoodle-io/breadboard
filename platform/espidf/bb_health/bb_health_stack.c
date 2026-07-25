@@ -13,8 +13,8 @@
 #include "bb_health_stack_wire.h"
 
 #include "bb_data.h"
+#include "bb_data_http.h"
 #include "bb_log.h"
-#include "bb_openapi.h"
 #include "bb_str.h"
 #include "bb_task_registry.h"
 
@@ -89,27 +89,24 @@ bb_err_t bb_health_stack_monitor_start(void)
 // Public init (called by bb_health_init after the HTTP server is up)
 // ---------------------------------------------------------------------------
 
-// SSE topic schema for "health.stack" (B1-1059 SSE batch PR-3): the hand
-// literal moved to bb_health_stack_wire.c (relocation, see its own banner)
-// -- config-OFF this register call serves that literal unchanged; config-ON,
-// the schema is composed first, before serving the runtime-composed
-// buffer -- a compose failure is degrade-and-continue (warn, keep going),
-// not fail-loud, see the comment at the call site below.
+// SSE topic schema for "health.stack" (B1-1220: migrated to the
+// bb_data_http_describe() seam -- bb_health_stack no longer links bb_openapi
+// at all, see CMakeLists.txt). key and topic are both BB_HEALTH_STACK_TOPIC.
+// A composition root that wants "health.stack" back in /api/openapi.json
+// must wire bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach) --
+// see bb_openapi.h's seam doc.
 //
 // Doc-only bookkeeping (feeds /api/openapi.json schema synthesis) -- a
 // compose failure here must not abort bring-up: schema composition is
 // documentation-only and must never take down the low-stack monitor.
 // Degrade and continue -- log a warning and fall through so the initial
-// snapshot publish below still happens. But a compose failure must
-// degrade to "no HealthStack entry in the document", never "an invalid
-// entry that poisons the whole document": on failure,
-// bb_health_stack_ensure_schema_patched() guarantees the schema buffer is
-// left EMPTY, and bb_openapi_register_schema() rejects only a NULL
-// literal, not "" -- an empty literal would still register and later get
-// spliced raw into the JSON document as `"HealthStack":` with no value,
-// corrupting every topic's entry, not just this one. So skip
-// registration entirely when compose failed (see bb_log_event_init()'s
-// identical rationale, #1083).
+// snapshot publish below still happens, skipping the describe call
+// entirely (never describe with an empty/poisoned schema buffer). The
+// bb_data_http_describe() call itself is also non-fatal on failure: it
+// logs a warning and falls through rather than aborting
+// bb_health_stack_monitor_init(), since its backing table
+// (BB_DATA_HTTP_MAX_DESCRIBE) is shared, first-come, no-eviction, and can
+// legitimately be full by the time this producer registers.
 bb_err_t bb_health_stack_monitor_init(void)
 {
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
@@ -117,10 +114,18 @@ bb_err_t bb_health_stack_monitor_init(void)
     if (schema_rc != BB_OK) {
         bb_log_w(TAG, "health.stack schema compose failed: %d", (int)schema_rc);
     } else {
-        bb_openapi_register_topic_schema(BB_HEALTH_STACK_TOPIC, bb_health_stack_get_schema(), "HealthStack");
+        bb_err_t describe_rc = bb_data_http_describe(BB_HEALTH_STACK_TOPIC, BB_HEALTH_STACK_TOPIC,
+                                                      "HealthStack", bb_health_stack_get_schema());
+        if (describe_rc != BB_OK) {
+            bb_log_w(TAG, "health.stack schema describe failed: %d", (int)describe_rc);
+        }
     }
 #else
-    bb_openapi_register_topic_schema(BB_HEALTH_STACK_TOPIC, bb_health_stack_get_schema(), "HealthStack");
+    bb_err_t describe_rc = bb_data_http_describe(BB_HEALTH_STACK_TOPIC, BB_HEALTH_STACK_TOPIC,
+                                                  "HealthStack", bb_health_stack_get_schema());
+    if (describe_rc != BB_OK) {
+        bb_log_w(TAG, "health.stack schema describe failed: %d", (int)describe_rc);
+    }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     // Publish initial retained snapshot so a bb_data consumer reading before
