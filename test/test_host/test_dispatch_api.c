@@ -492,7 +492,7 @@ void test_dispatch_api_exact_method_mismatch_not_rescued_by_wildcard(void)
     TEST_ASSERT_NULL(out);
 }
 
-/* Regression: every existing exact /api/* route still resolves correctly
+/* Regression: every existing exact /api/{name} route still resolves correctly
  * with a wildcard entry also present. */
 void test_dispatch_api_exact_routes_unaffected_by_wildcard_presence(void)
 {

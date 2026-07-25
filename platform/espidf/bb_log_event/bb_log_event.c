@@ -146,8 +146,9 @@ bb_err_t bb_log_event_gather(bb_log_event_wire_t *dst)
 // SSE topic schema for "log" (B1-1059 SSE batch PR-3): the hand literal
 // moved to bb_log_event_line_wire.c (relocation, see its own banner) --
 // config-OFF this register call serves that literal unchanged; config-ON,
-// ensure the schema is composed first (fail-loud) before serving the
-// runtime-composed buffer.
+// the schema is composed first, before serving the runtime-composed
+// buffer -- a compose failure is degrade-and-continue (warn, keep going),
+// not fail-loud, see the comment at the call site below.
 bb_err_t bb_log_event_init(bb_http_handle_t server)
 {
     (void)server;
@@ -159,14 +160,29 @@ bb_err_t bb_log_event_init(bb_http_handle_t server)
     // descriptor's fields at runtime, not a compile-time constant.
     assert(sizeof(s_render_buf) >= bb_serialize_json_bound(&bb_log_event_line_wire_desc));
 
+    // Doc-only bookkeeping (feeds /api/openapi.json schema synthesis) --
+    // a compose failure here must not abort bring-up: schema composition
+    // is documentation-only and must never take down logging. Degrade
+    // and continue -- log a warning and fall through so the queue/task/
+    // subscription below still comes up. But a compose failure must
+    // degrade to "no LogEvent entry in the document", never "an invalid
+    // entry that poisons the whole document": on failure,
+    // bb_log_event_line_ensure_schema_patched() guarantees the schema
+    // buffer is left EMPTY, and bb_openapi_register_schema() rejects only
+    // a NULL literal, not "" -- an empty literal would still register and
+    // later get spliced raw into the JSON document as `"LogEvent":` with
+    // no value, corrupting every topic's entry, not just log's. So skip
+    // registration entirely when compose failed.
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t schema_rc = bb_log_event_line_ensure_schema_patched();
     if (schema_rc != BB_OK) {
         bb_log_w(TAG, "log schema compose failed: %d", (int)schema_rc);
-        return schema_rc;
+    } else {
+        bb_openapi_register_topic_schema("log", bb_log_event_line_get_schema(), "LogEvent");
     }
-#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+#else
     bb_openapi_register_topic_schema("log", bb_log_event_line_get_schema(), "LogEvent");
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     s_q = xQueueCreate(BB_LOG_EVENT_QUEUE_LEN, sizeof(log_event_msg_t));
     if (!s_q) {
