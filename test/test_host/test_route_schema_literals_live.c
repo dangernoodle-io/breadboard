@@ -20,25 +20,20 @@
 //   - bb_storage_http_routes_init()               -- DELETE /api/diag/storage
 //   - bb_storage_http_factory_reset_routes_init()  -- POST /api/diag/factory-reset
 //   - bb_log_register_routes_init()                -- GET/POST /api/log/level
+//   - bb_system_routes_init()                      -- POST /api/reboot
 //
-// All three live under platform/espidf/bb_diag_http/ (bb_storage_http_routes.c,
-// bb_log_http.c) -- portable code filed under platform/espidf/ but pulled
-// into the host build via `# bbtool-scaffold-hint: source=...` lines in
-// components/bb_diag_http/CMakeLists.txt (the host scaffold's
-// directory-convention walk, scripts/bbtool/boards.py, only looks under
-// platform/host/<name>/ for the "native" board and has no other way to see
-// these files). Calling the REAL init function registers the REAL
-// bb_route_t/bb_route_response_t descriptors -- the exact ones
-// bb_openapi_emit.c walks in production -- into the same process-wide
-// registry (components/bb_http_server/src/route_registry.c), so this test
-// parses the literal that actually ships, not a maintained copy of it.
-//
-// bb_system_routes_init() (POST /api/reboot) is deliberately NOT called
-// here: its declaration in bb_system.h is itself fenced behind
-// #ifdef ESP_PLATFORM (see that header's own doc comment on
-// bb_system_reboot_bind_for_test() -- "requires a real bb_http_handle_t
-// server, unavailable in host tests"), so it is unreachable from a host
-// test binary at compile time, not merely untested at runtime.
+// All four live under platform/espidf/ (bb_storage_http_routes.c,
+// bb_log_http.c, bb_system_routes.c) -- portable code filed under
+// platform/espidf/ but pulled into the host build via
+// `# bbtool-scaffold-hint: source=...` lines in the owning component's
+// CMakeLists.txt (the host scaffold's directory-convention walk,
+// scripts/bbtool/boards.py, only looks under platform/host/<name>/ for the
+// "native" board and has no other way to see these files). Calling the REAL
+// init function registers the REAL bb_route_t/bb_route_response_t
+// descriptors -- the exact ones bb_openapi_emit.c walks in production --
+// into the same process-wide registry (components/bb_http_server/src/
+// route_registry.c), so this test parses the literal that actually ships,
+// not a maintained copy of it.
 //
 // A non-NULL dummy bb_http_handle_t satisfies each init fn's `if (!server)
 // return BB_ERR_INVALID_ARG` guard: the host bb_http_register_route()
@@ -56,6 +51,7 @@
 #include "bb_http_server.h"
 #include "bb_storage_http.h"
 #include "bb_log_http.h"
+#include "bb_system.h"
 #include "bb_data.h"
 #include "test_route_schema_walk_common.h"
 
@@ -83,20 +79,21 @@ static void seed_live_routes(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_http_routes_init(dummy));                // DELETE /api/diag/storage
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_http_factory_reset_routes_init(dummy));  // POST /api/diag/factory-reset
     TEST_ASSERT_EQUAL(BB_OK, bb_log_register_routes_init(dummy));                // GET/POST /api/log/level
+    TEST_ASSERT_EQUAL(BB_OK, bb_system_routes_init(dummy));                      // POST /api/reboot
 }
 
 // ---------------------------------------------------------------------------
 // Presence-of-specific-route check: proves the routes THIS test file exists
-// to cover (GET and POST /api/log/level) are actually in the registry, not
-// merely that *some* route/schema is non-zero. A `>0` count alone is still
-// satisfied by the 2 pre-existing storage routes even if
+// to cover (GET and POST /api/log/level, POST /api/reboot) are actually in
+// the registry, not merely that *some* route/schema is non-zero. A `>0`
+// count alone is still satisfied by the pre-existing storage routes even if
 // bb_log_register_routes_init() silently falls back to its
 // `#else !CONFIG_BB_LOG_ROUTES` no-op stub (which still returns BB_OK) --
 // dropping the scaffold-hint or the -DCONFIG_BB_LOG_ROUTES=1 build flag would
 // shrink the counts but leave them positive, so nothing would fail. Checking
-// exact presence of these two routes fails loudly instead, and is stable
-// across unrelated future route additions (unlike an exact total count,
-// which would need bumping every time).
+// exact presence of these routes fails loudly instead, and is stable across
+// unrelated future route additions (unlike an exact total count, which would
+// need bumping every time).
 // ---------------------------------------------------------------------------
 
 typedef struct {
@@ -111,6 +108,18 @@ static void check_log_level_route_present(const bb_route_t *route, void *ctx_)
     if (strcmp(route->path, "/api/log/level") != 0) return;
     if (route->method == BB_HTTP_GET) ctx->saw_get_log_level = true;
     if (route->method == BB_HTTP_POST) ctx->saw_post_log_level = true;
+}
+
+typedef struct {
+    bool saw_post_reboot;
+} reboot_presence_ctx_t;
+
+static void check_reboot_route_present(const bb_route_t *route, void *ctx_)
+{
+    reboot_presence_ctx_t *ctx = (reboot_presence_ctx_t *)ctx_;
+    if (!route || !route->path) return;
+    if (strcmp(route->path, "/api/reboot") != 0) return;
+    if (route->method == BB_HTTP_POST) ctx->saw_post_reboot = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +161,12 @@ void test_route_schema_literals_live_all_parse(void)
                               "POST /api/log/level missing from registry -- "
                               "bb_log_register_routes_init() fell back to its "
                               "no-op stub");
+
+    reboot_presence_ctx_t reboot_presence = { 0 };
+    bb_http_route_registry_foreach(check_reboot_route_present, &reboot_presence);
+    TEST_ASSERT_TRUE_MESSAGE(reboot_presence.saw_post_reboot,
+                              "POST /api/reboot missing from registry -- "
+                              "bb_system_routes_init() did not register it");
 
     bb_http_route_registry_clear();
 }

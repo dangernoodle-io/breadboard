@@ -502,7 +502,13 @@ bb_err_t bb_system_boot_banner_init(void);
 // proof against bb_system_reboot_meta.
 extern const char *const bb_system_reboot_request_schema;
 
-#ifdef ESP_PLATFORM
+// bb_system_routes_reserve/bb_system_routes_init are portable too --
+// bb_system_routes.c (their sole definition) is host-compiled via the
+// bbtool-scaffold-hint in components/bb_system/CMakeLists.txt, same as
+// bb_storage_http.h's/bb_log_http.h's route-init declarations (B1-1214).
+// bb_http_server.h is itself fully portable (opaque bb_http_handle_t,
+// no ESP_PLATFORM-gated content), so unfencing this include and the two
+// declarations below carries no platform leak.
 #include "bb_http_server.h"
 
 /// Reserve route-table slots for bb_system before the HTTP server starts.
@@ -512,8 +518,6 @@ bb_err_t bb_system_routes_reserve(void);
 /// Registry hook — registers POST /api/reboot.
 // bbtool:init tier=regular fn=bb_system_routes_init server=true
 bb_err_t bb_system_routes_init(bb_http_handle_t server);
-
-#endif /* ESP_PLATFORM */
 
 #ifdef BB_SYSTEM_TESTING
 /// Expose the POST /api/reboot handler for host unit tests (B1-1148 PR1).
