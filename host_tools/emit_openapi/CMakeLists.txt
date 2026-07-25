@@ -24,7 +24,8 @@ endif()
 
 add_executable(emit_openapi
     "${CMAKE_CURRENT_LIST_DIR}/main.c"
-    "${BB_ROOT}/components/bb_openapi/src/bb_openapi_emit.c"
+    "${BB_ROOT}/platform/host/bb_openapi/bb_openapi_emit_tree.c"
+    "${BB_ROOT}/components/bb_openapi/src/bb_openapi_emit_shared.c"
     "${BB_ROOT}/platform/espidf/bb_json/bb_json_cjson.c"
     "${BB_ROOT}/components/bb_http_server/src/route_registry.c"
     "${BB_ROOT}/components/bb_http_server/src/http_utils.c"
@@ -35,6 +36,8 @@ add_executable(emit_openapi
 
 target_include_directories(emit_openapi PRIVATE
     "${BB_ROOT}/components/bb_openapi/include"
+    "${BB_ROOT}/components/bb_openapi/src"
+    "${BB_ROOT}/platform/host/bb_openapi"
     "${BB_ROOT}/components/bb_http/include"
     "${BB_ROOT}/components/bb_http_server/include"
     "${BB_ROOT}/components/bb_json/include"

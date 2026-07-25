@@ -1,4 +1,5 @@
 #include "bb_openapi.h"
+#include "bb_openapi_emit_tree_priv.h"
 #include "bb_json.h"
 
 #include <stdio.h>

@@ -20,7 +20,6 @@
 
 #include "bb_http.h"
 #include "bb_http_server.h"
-#include "bb_json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,36 +35,13 @@ typedef struct {
     const char *server_url;   // optional; e.g. "http://miner.local"; NULL omits "servers"
 } bb_openapi_meta_t;
 
-// Build a complete OpenAPI 3.1 document from the bb_http route descriptor
-// registry into a new JSON tree rooted at the returned handle.
-// Returns a bb_json_t tree that the caller must free with bb_json_free().
-// Returns NULL on allocation failure.
-//
-// The emitter walks bb_http_route_registry_foreach and writes:
-//   "openapi", "info", "servers" (if meta->server_url), "paths"
-//
-// operationId derivation (when route->operation_id is NULL):
-//   <method><PathCamelCase> where:
-//   - method is lowercased (get/post/...)
-//   - path segments have leading '/' stripped and first letter uppercased
-//   - '-' and '_' trigger next-char uppercasing
-//   e.g. GET /api/stats -> "getApiStats"
-//       POST /api/pool-config -> "postApiPoolConfig"
-//
-// Schema injection: route->request_schema and bb_route_response_t.schema are
-// JSON Schema fragments (const char * JSON literals). They are injected as raw
-// JSON objects via bb_json_obj_set_raw — NOT as strings.
-//
-// Path grouping: multiple methods on the same path are grouped under one path
-// key. Up to 64 unique paths are supported (matches registry cap).
-bb_json_t bb_openapi_emit(const bb_openapi_meta_t *meta);
-
 // Streaming variant: writes the OpenAPI document directly to the response via
 // bb_http_resp_json_obj_* (bb_http_server's streaming JSON object primitive)
 // so peak memory is bounded to that primitive's internal buffer plus one
 // schema literal at a time, never a full in-memory JSON tree. Avoids the
 // heap+stack pressure of materializing the full document on a board with
-// many routes — the in-memory tree builder (bb_openapi_emit) crashed httpd
+// many routes — the in-memory tree builder (bb_openapi_emit(), host-only —
+// see platform/host/bb_openapi/bb_openapi_emit_tree_priv.h) crashed httpd
 // workers on tdongle-s3 / ESP32-WROOM-32 once the route count grew past ~50
 // routes (B1-222). Unlike bb_openapi_emit, this path never calls bb_json_*.
 //
