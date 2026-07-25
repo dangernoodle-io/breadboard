@@ -914,6 +914,39 @@ class TestMutatingRouteNeedsBodySchema(unittest.TestCase):
             violations = _check_mutating_route_needs_body_schema(make_ctx(td))
             self.assertTrue(violations, "PATCH with JSON body and NULL schema must fire")
 
+    def test_no_fire_on_null_schema_with_patched_at_init_comment(self):
+        """NULL-then-runtime-patched (CONFIG_BB_OPENAPI_RUNTIME_META convention,
+        same shape as this file's response-schema fields) is trusted, same as
+        a variable reference — the runtime patch can't be inspected statically."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/bb_fake.c",
+                'static bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_POST,\n'
+                '    .path                 = "/api/fake",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = NULL /* patched at init */,\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertFalse(violations,
+                              "NULL schema with a 'patched' comment must NOT fire")
+
+    def test_fires_on_null_schema_with_unrelated_comment(self):
+        """A comment that doesn't mention "patched" must NOT suppress the rule --
+        only the documented NULL-then-runtime-patched convention is trusted."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/bb_fake.c",
+                'static const bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_POST,\n'
+                '    .path                 = "/api/fake",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = NULL /* not yet wired */,\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertTrue(violations,
+                             "NULL schema with an unrelated comment must still fire")
+
     def test_fires_on_post_with_bare_object_schema(self):
         with tempfile.TemporaryDirectory() as td:
             self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",

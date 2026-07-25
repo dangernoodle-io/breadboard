@@ -254,11 +254,30 @@ bb_err_t bb_ota_check_init(const bb_ota_check_cfg_t *cfg)
 
     bb_mdns_set_txt("update", "unknown");
 
+    // Doc-only bookkeeping (feeds /api/openapi.json schema synthesis) -- a
+    // compose failure here must not abort bring-up: schema composition is
+    // documentation-only and must never take down real update-check
+    // functionality (bb_ota_check_register_init() aborts ALL of its own
+    // route registration, timer creation, and initial snapshot publish on
+    // any non-BB_OK return from bb_ota_check_init()). Degrade and continue
+    // -- log a warning and fall through. But a compose failure must degrade
+    // to "no UpdateAvailable entry in the document", never "an invalid
+    // entry that poisons the whole document": on failure,
+    // ensure_update_available_schema_patched() guarantees the schema
+    // buffer is left EMPTY, and bb_openapi_register_topic_schema() rejects
+    // only a NULL literal, not "" -- an empty literal would still register
+    // and later get spliced raw into the JSON document as
+    // `"UpdateAvailable":` with no value, corrupting every topic's entry,
+    // not just this one. So skip registration entirely when compose failed
+    // (see bb_log_event_init()'s identical rationale, #1083).
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t schema_rc = ensure_update_available_schema_patched();
-    if (schema_rc != BB_OK) return schema_rc;  // fail loud -- never register a partial schema
-    bb_openapi_register_topic_schema(BB_OTA_CHECK_TOPIC, s_update_available_schema_buf,
-                                     "UpdateAvailable");
+    if (schema_rc != BB_OK) {
+        bb_log_w(TAG, "update.available schema compose failed: %d", (int)schema_rc);
+    } else {
+        bb_openapi_register_topic_schema(BB_OTA_CHECK_TOPIC, s_update_available_schema_buf,
+                                         "UpdateAvailable");
+    }
 #else
     bb_openapi_register_topic_schema(BB_OTA_CHECK_TOPIC, k_update_available_schema,
                                      "UpdateAvailable");
@@ -270,20 +289,40 @@ bb_err_t bb_ota_check_init(const bb_ota_check_cfg_t *cfg)
     // reason as the "update.available" compose just above: bb_ota_check_init()
     // is the one function both platform entry points already call, and
     // ensure_config_get_schema_patched() is file-scope static (same TU).
+    // Doc-only, non-fatal for the same reason as the compose above: on
+    // failure, ensure_config_get_schema_patched() never patches
+    // s_config_get_responses[0].schema (it only does so on its own success
+    // path, so the route's schema field stays NULL, never an empty
+    // literal) -- warn and fall through rather than aborting the rest of
+    // bring-up.
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t config_get_schema_rc = ensure_config_get_schema_patched();
-    if (config_get_schema_rc != BB_OK) return config_get_schema_rc;  // fail loud
+    if (config_get_schema_rc != BB_OK) {
+        bb_log_w(TAG, "update.config GET schema compose failed: %d", (int)config_get_schema_rc);
+    }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     // POST /api/update/config's runtime-compose (B1-1059 emit batch A, site
     // 4) -- same co-located call-site rationale as GET's compose just
     // above. Compose BOTH buffers (request then response) before either is
-    // ever served -- never interleave with route registration.
+    // ever served -- never interleave with route registration. Doc-only,
+    // non-fatal for the same reason as GET's compose above: the response
+    // buffer's field-patch (s_config_post_responses[0].schema) only applies
+    // on its own success path (never an empty literal), and the request
+    // buffer's own field-patch (s_config_post_route.request_schema) is the
+    // same NULL-then-patched shape, only applying on success too -- so
+    // neither arm need block the rest of bring-up.
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t config_post_request_schema_rc = ensure_config_post_request_schema_patched();
-    if (config_post_request_schema_rc != BB_OK) return config_post_request_schema_rc;  // fail loud
+    if (config_post_request_schema_rc != BB_OK) {
+        bb_log_w(TAG, "update.config POST request schema compose failed: %d",
+                 (int)config_post_request_schema_rc);
+    }
     bb_err_t config_post_response_schema_rc = ensure_config_post_response_schema_patched();
-    if (config_post_response_schema_rc != BB_OK) return config_post_response_schema_rc;  // fail loud
+    if (config_post_response_schema_rc != BB_OK) {
+        bb_log_w(TAG, "update.config POST response schema compose failed: %d",
+                 (int)config_post_response_schema_rc);
+    }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     s_initialized = true;
@@ -1032,19 +1071,26 @@ static bb_route_response_t s_config_post_responses[] = {
     { 0 },
 };
 
-// `.request_schema` points DIRECTLY at the compose buffer (a link-time-
-// constant array address, valid in a static initializer) rather than
-// starting NULL-then-patched -- same posture as bb_sensor_http_wire.c's
-// PATCH /api/sensors/fan request_schema (see that route's own doc comment).
-// The route struct itself stays `static const`: only the BYTES the pointer
-// targets change at runtime.
-static const bb_route_t s_config_post_route = {
+// Mutable (`.data`, not `.rodata`) with this config on -- `.request_schema`
+// starts NULL and is patched in once by bb_ota_check_init() (or the test
+// accessor below) before the route is ever registered/served. Unlike
+// bb_sensor_http_wire.c's PATCH /api/sensors/fan (whose request_schema
+// points DIRECTLY at its compose buffer, a link-time-constant address that's
+// always non-NULL even before compose), THIS route's registration is no
+// longer gated on compose success (bb_ota_check_init() degrades-and-
+// continues on a compose failure, B1-1220 PR-fix) -- so a direct buffer
+// pointer would leave bb_openapi_emit.c's `if (route->request_schema)`
+// pointer-null check seeing a truthy-but-empty buffer, emitting a
+// schema-less requestBody instead of omitting it entirely. NULL-then-patch
+// matches the response-schema pattern already used everywhere else in this
+// file for exactly this reason.
+static bb_route_t s_config_post_route = {
     .method               = BB_HTTP_POST,
     .path                 = "/api/update/config",
     .tag                  = "update",
     .summary              = "Set update-check enabled flag",
     .request_content_type = "application/json",
-    .request_schema       = s_config_post_request_schema_buf,
+    .request_schema       = NULL /* patched at init */,
     .responses            = s_config_post_responses,
     .handler              = bb_ota_check_config_post_handler,
 };
@@ -1079,16 +1125,15 @@ static const bb_route_t s_config_post_route = {
 // buf[0] sentinel) and fail-loud (propagates the composer's rc without ever
 // patching a partial/NULL schema in).
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
-// No field-patch step here (unlike the response sibling below) --
-// s_config_post_route's `.request_schema` already points directly at
-// s_config_post_request_schema_buf (see that route's own doc comment);
-// composing into the buffer is the only work needed.
 static bb_err_t ensure_config_post_request_schema_patched(void)
 {
-    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
-                                              &s_config_desc, &bb_ota_check_config_meta,
-                                              s_config_post_request_schema_buf,
-                                              sizeof(s_config_post_request_schema_buf));
+    bb_err_t rc = bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                                      &s_config_desc, &bb_ota_check_config_meta,
+                                                      s_config_post_request_schema_buf,
+                                                      sizeof(s_config_post_request_schema_buf));
+    if (rc != BB_OK) return rc;  // fail loud -- never patch a partial/NULL schema in
+    s_config_post_route.request_schema = s_config_post_request_schema_buf;
+    return BB_OK;
 }
 
 static bb_err_t ensure_config_post_response_schema_patched(void)
@@ -1320,16 +1365,12 @@ bb_err_t bb_ota_check_assemble_config_post_request_schema_for_test(void)
 
 const char *bb_ota_check_get_config_post_request_schema_for_test(void)
 {
-#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
-    // s_config_post_route.request_schema always points at
-    // s_config_post_request_schema_buf (see that route's own doc comment) --
-    // an empty buffer (buf[0] == '\0') means "not yet composed", the same
-    // sentinel bb_serialize_meta_ensure_composed() itself uses, so report it
-    // as NULL rather than an empty string.
-    return s_config_post_request_schema_buf[0] != '\0' ? s_config_post_request_schema_buf : NULL;
-#else
+    // Reads the actual struct field the emitter dereferences
+    // (bb_openapi_emit.c's `if (route->request_schema)`), not a buffer-
+    // content proxy that can diverge from it -- s_config_post_route.
+    // request_schema is NULL-then-patched (see that route's own doc
+    // comment), same shape as every response schema in this file.
     return s_config_post_route.request_schema;
-#endif
 }
 
 bb_err_t bb_ota_check_assemble_config_post_response_schema_for_test(void)

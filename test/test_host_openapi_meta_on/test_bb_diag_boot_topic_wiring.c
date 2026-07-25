@@ -48,16 +48,19 @@ static const char *const k_expected_diag_boot_schema =
     "\"pending_verify\",\"rolled_back\",\"reboot_reason\",\"reboot_history\"],"
     "\"additionalProperties\":false}";
 
-// Exercises the fail-loud `if (schema_rc != BB_OK) return schema_rc;` arm
-// wired into bb_diag_routes_init() (bb_diag_http_routes.c) -- forces the
-// engine (bb_serialize_meta, via BB_SERIALIZE_META_TESTING's fail-injection
-// seam) to return BB_ERR_NO_SPACE and asserts bb_diag_boot_ensure_schema_
-// patched() propagates that error with the schema buffer left unpatched
-// (empty), rather than composing a partial/stale schema. MUST run before
-// the two success tests below: the compose-and-patch step is guarded/
-// idempotent (a non-empty schema buffer short-circuits a second real
-// compose), so once a prior test has successfully composed it this seam
-// can no longer force a re-compose -- see test_main.c's RUN_TEST order.
+// Exercises bb_diag_boot_ensure_schema_patched()'s own failure contract
+// directly (not via bb_diag_routes_init(), which is ESP_PLATFORM-gated and
+// not host-testable): forces the engine (bb_serialize_meta, via
+// BB_SERIALIZE_META_TESTING's fail-injection seam) to return
+// BB_ERR_NO_SPACE and asserts the error propagates with the schema buffer
+// left unpatched (empty), rather than composing a partial/stale schema --
+// the invariant bb_diag_routes_init()'s CONFIG_BB_OPENAPI_RUNTIME_META
+// guard relies on to skip registration on a compose failure. MUST run
+// before the two success tests below: the compose-and-patch step is
+// guarded/idempotent (a non-empty schema buffer short-circuits a second
+// real compose), so once a prior test has successfully composed it this
+// seam can no longer force a re-compose -- see test_main.c's RUN_TEST
+// order.
 void test_bb_diag_boot_topic_schema_offline_on_compose_failure(void)
 {
     bb_serialize_meta_openapi_test_set_force_no_space(true);

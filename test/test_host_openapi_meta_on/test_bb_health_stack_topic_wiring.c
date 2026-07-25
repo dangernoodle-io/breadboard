@@ -30,12 +30,14 @@ static const char *const k_expected_health_stack_schema =
     "\"required\":[\"task\",\"free_bytes\",\"low\"],"
     "\"additionalProperties\":false}";
 
-// Exercises the fail-loud `if (schema_rc != BB_OK) return schema_rc;` arm
-// wired into bb_health_stack_monitor_init() (bb_health_stack.c) -- forces
-// the engine (bb_serialize_meta, via BB_SERIALIZE_META_TESTING's fail-
-// injection seam) to return BB_ERR_NO_SPACE and asserts bb_health_stack_
-// ensure_schema_patched() propagates that error with the schema buffer left
-// unpatched (empty). MUST run before the two success tests below: the
+// Exercises bb_health_stack_ensure_schema_patched()'s own failure contract
+// directly (not via bb_health_stack_monitor_init(), which is ESP_PLATFORM-
+// gated and not host-testable): forces the engine (bb_serialize_meta, via
+// BB_SERIALIZE_META_TESTING's fail-injection seam) to return
+// BB_ERR_NO_SPACE and asserts the error propagates with the schema buffer
+// left unpatched (empty) -- the invariant bb_health_stack_monitor_init()'s
+// CONFIG_BB_OPENAPI_RUNTIME_META guard relies on to skip registration on
+// a compose failure. MUST run before the two success tests below: the
 // compose-and-patch step is guarded/idempotent (a non-empty schema buffer
 // short-circuits a second real compose), so once a prior test has
 // successfully composed it this seam can no longer force a re-compose --
