@@ -1,3 +1,30 @@
+// NOTE: this file intentionally still references bb_json_* (bb_json.h,
+// bb_json_test_hooks.h) for a handful of deliberately-retained tests --
+// B1-1054 PR 5 (this port). platform/host/bb_openapi/bb_openapi_emit_tree.c
+// (the TREE emitter) is still present until B1-1054 PR 6 deletes it, so a
+// test that is the SOLE cover for one of its lines/branches must keep
+// driving bb_openapi_emit() (tree) rather than move to the stream path --
+// same rule PR 4 applied to test_openapi_emit.c's 19 OOM tests. Retained
+// here, each commented at its call site:
+//   - the 3 OOM tests (content/media/components alloc-failure) -- sole
+//     cover for the tree emitter's SSE-response alloc-failure cleanup arms.
+//   - test_sse_schema_oneof_fragment_overflow_omits_content and
+//     test_sse_schema_oneof_fragment_long_name_truncation_omits_content --
+//     sole cover for the tree emitter's own
+//     "build_sse_oneof_fragment() returned false" glue branch
+//     (bb_openapi_emit_tree.c's build_operation(), not the shared
+//     build_sse_oneof_fragment() helper itself, which the ported
+//     stream-path counterpart below already exercises independently).
+//   - test_sse_schema_no_sse_topic_no_oneof -- sole cover for the tree
+//     emitter's `if (sse_schema_count() > 0)` FALSE arm (bb_openapi_emit_
+//     tree.c:139); this is branch-only (the line itself always executes),
+//     so it doesn't show up as an uncovered LINE, only as a lost branch hit
+//     -- exactly the shape that slipped past the local gate on PR #1069.
+//     The stream-path arm has its own dedicated counterpart,
+//     test_openapi_emit_stream_sse_zero_topics_omits_content in
+//     test_openapi_emit.c, which cross-references this test by name.
+// Every other test in this file ports 1:1 onto test_openapi_capture()
+// (bb_openapi_emit_stream()).
 #include "unity.h"
 #include "bb_openapi.h"
 #include "bb_openapi_emit_internal.h"
@@ -8,7 +35,9 @@
 #include "bb_http_host.h"
 #include "bb_json.h"
 #include "bb_json_test_hooks.h"
+#include "test_openapi_capture.h"
 
+#include <cJSON.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -112,42 +141,42 @@ void test_sse_schema_register_topic_schema_convenience(void)
 
 void test_sse_schema_log_payload_valid(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_int(obj,    "ts",    1234567890LL);
-    bb_json_obj_set_string(obj, "level", "I");
-    bb_json_obj_set_string(obj, "tag",   "wifi");
-    bb_json_obj_set_string(obj, "msg",   "connected");
+    cJSON_AddNumberToObject(obj,    "ts",    1234567890LL);
+    cJSON_AddStringToObject(obj, "level", "I");
+    cJSON_AddStringToObject(obj, "tag",   "wifi");
+    cJSON_AddStringToObject(obj, "msg",   "connected");
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_log_schema, obj, NULL));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_log_payload_missing_required_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_int(obj,    "ts",    1234567890LL);
-    bb_json_obj_set_string(obj, "level", "W");
+    cJSON_AddNumberToObject(obj,    "ts",    1234567890LL);
+    cJSON_AddStringToObject(obj, "level", "W");
     // missing "tag" and "msg"
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_log_schema, obj, &verr));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_log_payload_bad_level_enum_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_int(obj,    "ts",    1234567890LL);
-    bb_json_obj_set_string(obj, "level", "X");
-    bb_json_obj_set_string(obj, "tag",   "test");
-    bb_json_obj_set_string(obj, "msg",   "bad level");
+    cJSON_AddNumberToObject(obj,    "ts",    1234567890LL);
+    cJSON_AddStringToObject(obj, "level", "X");
+    cJSON_AddStringToObject(obj, "tag",   "test");
+    cJSON_AddStringToObject(obj, "msg",   "bad level");
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_log_schema, obj, &verr));
     TEST_ASSERT_NOT_NULL(strstr(verr.path, "level"));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 // ---------------------------------------------------------------------------
@@ -174,17 +203,18 @@ void test_sse_schema_emit_has_components_schemas(void)
     bb_openapi_register_schema("LogEvent", k_log_schema, "log");
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t components = bb_json_obj_get_item(doc, "components");
+    cJSON *components = cJSON_GetObjectItemCaseSensitive(r.doc, "components");
     TEST_ASSERT_NOT_NULL(components);
-    bb_json_t schemas = bb_json_obj_get_item(components, "schemas");
+    cJSON *schemas = cJSON_GetObjectItemCaseSensitive(components, "schemas");
     TEST_ASSERT_NOT_NULL(schemas);
-    bb_json_t entry = bb_json_obj_get_item(schemas, "LogEvent");
+    cJSON *entry = cJSON_GetObjectItemCaseSensitive(schemas, "LogEvent");
     TEST_ASSERT_NOT_NULL(entry);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_sse_schema_emit_no_schemas_no_components(void)
@@ -194,10 +224,11 @@ void test_sse_schema_emit_no_schemas_no_components(void)
     // registry is empty (cleared in setUp)
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-    TEST_ASSERT_NULL(bb_json_obj_get_item(doc, "components"));
-    bb_json_free(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
+    TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(r.doc, "components"));
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -222,19 +253,24 @@ void test_sse_schema_oneof_synthesized_in_events(void)
     bb_openapi_register_schema("LogEvent", k_log_schema, "log");
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
-    char *s = bb_json_serialize(doc);
-    bb_json_free(doc);
-    TEST_ASSERT_NOT_NULL(s);
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"oneOf\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/LogEvent\""));
 
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"oneOf\""));
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/LogEvent\""));
-
-    bb_json_free_str(s);
+    test_openapi_capture_free(&r);
 }
 
+// Deliberately retained on the TREE path (bb_openapi_emit()), not ported --
+// sole cover for bb_openapi_emit_tree.c:139's `if (sse_schema_count() > 0)`
+// FALSE arm (no SSE-topic schemas registered, so build_operation() skips the
+// oneOf-fragment block entirely). The stream emitter's equivalent arm already
+// has its own dedicated counterpart --
+// test_openapi_emit_stream_sse_zero_topics_omits_content in
+// test_openapi_emit.c, which cross-references this test by name. Retained
+// until B1-1054 PR 6 deletes the tree emitter.
 void test_sse_schema_no_sse_topic_no_oneof(void)
 {
     bb_http_route_registry_clear();
@@ -332,21 +368,18 @@ void test_sse_schema_oneof_skips_non_sse_schema_in_registry(void)
     bb_openapi_register_schema("WifiInfo", k_wifi_schema, NULL);
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-
-    char *s = bb_json_serialize(doc);
-    bb_json_free(doc);
-    TEST_ASSERT_NOT_NULL(s);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
     // LogEvent IS in oneOf (has sse_topic)
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/LogEvent\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/LogEvent\""));
     // WifiInfo is NOT in oneOf (null sse_topic → continue branch)
-    TEST_ASSERT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/WifiInfo\""));
+    TEST_ASSERT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/WifiInfo\""));
     // WifiInfo IS in components/schemas (registered with null sse_topic)
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"WifiInfo\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"WifiInfo\""));
 
-    bb_json_free_str(s);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -393,6 +426,9 @@ void test_sse_schema_stream_two_schemas_has_comma_separator(void)
 // remain to fail independently.
 // ---------------------------------------------------------------------------
 
+// Deliberately retained on the TREE path (bb_openapi_emit()), not ported --
+// sole cover for the tree emitter's SSE-response alloc-failure cleanup arms.
+// Retained until B1-1054 PR 6 deletes the tree emitter.
 // content=NULL → if(NULL && ...) → else cleanup (line 305 branch 1)
 void test_sse_schema_oom_oneof_content_skips_block(void)
 {
@@ -418,6 +454,9 @@ void test_sse_schema_oom_oneof_content_skips_block(void)
     bb_json_free(doc);
 }
 
+// Deliberately retained on the TREE path (bb_openapi_emit()), not ported --
+// sole cover for the tree emitter's SSE-response alloc-failure cleanup arms.
+// Retained until B1-1054 PR 6 deletes the tree emitter.
 // media=NULL → if(content && NULL && ...) → else cleanup (line 305 branch 3)
 void test_sse_schema_oom_oneof_media_skips_block(void)
 {
@@ -442,6 +481,9 @@ void test_sse_schema_oom_oneof_media_skips_block(void)
     bb_json_free(doc);
 }
 
+// Deliberately retained on the TREE path (bb_openapi_emit()), not ported --
+// sole cover for the tree emitter's SSE-response alloc-failure cleanup arms.
+// Retained until B1-1054 PR 6 deletes the tree emitter.
 // components=NULL → if(NULL && schemas) short-circuits (line 424 branch 1)
 void test_sse_schema_oom_components_obj_skips_section(void)
 {
@@ -483,31 +525,31 @@ static const char k_wifi_telemetry_schema[] =
 
 void test_sse_schema_wifi_telemetry_payload_valid(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "ssid",             "TestNet");
-    bb_json_obj_set_string(obj, "bssid",            "aa:bb:cc:dd:ee:ff");
-    bb_json_obj_set_int   (obj, "rssi",             -65);
-    bb_json_obj_set_string(obj, "ip",               "192.168.1.10");
-    bb_json_obj_set_bool  (obj, "connected",        true);
-    bb_json_obj_set_string(obj, "disc_reason",      "unknown");
-    bb_json_obj_set_int   (obj, "disc_age_s",       0);
-    bb_json_obj_set_int   (obj, "retry_count",      0);
-    bb_json_obj_set_int   (obj, "ts_ms",            12345678LL);
+    cJSON_AddStringToObject(obj, "ssid",             "TestNet");
+    cJSON_AddStringToObject(obj, "bssid",            "aa:bb:cc:dd:ee:ff");
+    cJSON_AddNumberToObject(obj, "rssi",             -65);
+    cJSON_AddStringToObject(obj, "ip",               "192.168.1.10");
+    cJSON_AddBoolToObject(obj, "connected",        true);
+    cJSON_AddStringToObject(obj, "disc_reason",      "unknown");
+    cJSON_AddNumberToObject(obj, "disc_age_s",       0);
+    cJSON_AddNumberToObject(obj, "retry_count",      0);
+    cJSON_AddNumberToObject(obj, "ts_ms",            12345678LL);
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_wifi_telemetry_schema, obj, NULL));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_wifi_telemetry_payload_missing_required_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "ssid", "TestNet");
+    cJSON_AddStringToObject(obj, "ssid", "TestNet");
     // missing connected, rssi, ts_ms
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_wifi_telemetry_schema, obj, &verr));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 // FanTelemetry (sse_topic="fan")
@@ -527,27 +569,27 @@ static const char k_fan_telemetry_schema[] =
 
 void test_sse_schema_fan_telemetry_payload_valid(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_int   (obj, "rpm",      1200);
-    bb_json_obj_set_int   (obj, "duty_pct", 50);
-    bb_json_obj_set_number(obj, "die_c",    72.5);
-    bb_json_obj_set_number(obj, "board_c",  45.0);
-    bb_json_obj_set_int   (obj, "ts_ms",    12345678LL);
+    cJSON_AddNumberToObject(obj, "rpm",      1200);
+    cJSON_AddNumberToObject(obj, "duty_pct", 50);
+    cJSON_AddNumberToObject(obj, "die_c",    72.5);
+    cJSON_AddNumberToObject(obj, "board_c",  45.0);
+    cJSON_AddNumberToObject(obj, "ts_ms",    12345678LL);
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_fan_telemetry_schema, obj, NULL));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_fan_telemetry_payload_missing_required_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_int(obj, "rpm", 1200);
+    cJSON_AddNumberToObject(obj, "rpm", 1200);
     // missing duty_pct, die_c, board_c, ts_ms
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_fan_telemetry_schema, obj, &verr));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 // PowerTelemetry (sse_topic="power")
@@ -564,28 +606,28 @@ static const char k_power_telemetry_schema[] =
 
 void test_sse_schema_power_telemetry_payload_valid(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_number(obj, "vout_mv", 12000.0);
-    bb_json_obj_set_number(obj, "iout_ma", 5000.0);
-    bb_json_obj_set_number(obj, "pout_mw", 60000.0);
-    bb_json_obj_set_number(obj, "vin_mv",  19000.0);
-    bb_json_obj_set_number(obj, "temp_c",  55.0);
-    bb_json_obj_set_int   (obj, "ts_ms",   12345678LL);
+    cJSON_AddNumberToObject(obj, "vout_mv", 12000.0);
+    cJSON_AddNumberToObject(obj, "iout_ma", 5000.0);
+    cJSON_AddNumberToObject(obj, "pout_mw", 60000.0);
+    cJSON_AddNumberToObject(obj, "vin_mv",  19000.0);
+    cJSON_AddNumberToObject(obj, "temp_c",  55.0);
+    cJSON_AddNumberToObject(obj, "ts_ms",   12345678LL);
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_power_telemetry_schema, obj, NULL));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_power_telemetry_payload_missing_required_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_number(obj, "vout_mv", 12000.0);
+    cJSON_AddNumberToObject(obj, "vout_mv", 12000.0);
     // missing iout_ma, pout_mw, vin_mv, temp_c, ts_ms
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_power_telemetry_schema, obj, &verr));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 // ThermalTelemetry (sse_topic="thermal")
@@ -601,24 +643,24 @@ static const char k_thermal_telemetry_schema[] =
 
 void test_sse_schema_thermal_telemetry_payload_valid(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_number(obj, "soc_c",  68.0);
-    bb_json_obj_set_int   (obj, "ts_ms",  12345678LL);
+    cJSON_AddNumberToObject(obj, "soc_c",  68.0);
+    cJSON_AddNumberToObject(obj, "ts_ms",  12345678LL);
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_thermal_telemetry_schema, obj, NULL));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_thermal_telemetry_payload_missing_required_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_number(obj, "vr_c", 55.0);
+    cJSON_AddNumberToObject(obj, "vr_c", 55.0);
     // missing soc_c and ts_ms
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_thermal_telemetry_schema, obj, &verr));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 // InfoTelemetry (sse_topic=NULL — sinks only)
@@ -657,43 +699,43 @@ static const char k_info_telemetry_schema[] =
 
 void test_sse_schema_info_telemetry_payload_valid(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_number(obj, "heap_internal_free",          100000.0);
-    bb_json_obj_set_number(obj, "heap_internal_total",         200000.0);
-    bb_json_obj_set_number(obj, "heap_internal_largest_block",  90000.0);
-    bb_json_obj_set_number(obj, "heap_internal_min_free",       80000.0);
-    bb_json_obj_set_number(obj, "rtc_used",         1024.0);
-    bb_json_obj_set_number(obj, "rtc_total",         8192.0);
-    bb_json_obj_set_number(obj, "dram_static_bytes", 50000.0);
-    bb_json_obj_set_number(obj, "flash_size",         4194304.0);
-    bb_json_obj_set_number(obj, "app_size",           1200000.0);
-    bb_json_obj_set_number(obj, "wdt_resets",         0.0);
-    bb_json_obj_set_string(obj, "version",            "1.0.0");
-    bb_json_obj_set_string(obj, "board",              "wroom32");
-    bb_json_obj_set_string(obj, "chip_model",         "ESP32");
-    bb_json_obj_set_string(obj, "mac",                "aa:bb:cc:dd:ee:ff");
-    bb_json_obj_set_string(obj, "reset_reason",       "power_on");
-    bb_json_obj_set_bool  (obj, "ota_validated",      true);
-    bb_json_obj_set_bool  (obj, "time_valid",         false);
-    bb_json_obj_set_number(obj, "boot_epoch_s",       0.0);
-    bb_json_obj_set_string(obj, "time_source",        "none");
-    bb_json_obj_set_number(obj, "rtc_free",           7168.0);
-    bb_json_obj_set_int   (obj, "ts_ms",              12345678LL);
+    cJSON_AddNumberToObject(obj, "heap_internal_free",          100000.0);
+    cJSON_AddNumberToObject(obj, "heap_internal_total",         200000.0);
+    cJSON_AddNumberToObject(obj, "heap_internal_largest_block",  90000.0);
+    cJSON_AddNumberToObject(obj, "heap_internal_min_free",       80000.0);
+    cJSON_AddNumberToObject(obj, "rtc_used",         1024.0);
+    cJSON_AddNumberToObject(obj, "rtc_total",         8192.0);
+    cJSON_AddNumberToObject(obj, "dram_static_bytes", 50000.0);
+    cJSON_AddNumberToObject(obj, "flash_size",         4194304.0);
+    cJSON_AddNumberToObject(obj, "app_size",           1200000.0);
+    cJSON_AddNumberToObject(obj, "wdt_resets",         0.0);
+    cJSON_AddStringToObject(obj, "version",            "1.0.0");
+    cJSON_AddStringToObject(obj, "board",              "wroom32");
+    cJSON_AddStringToObject(obj, "chip_model",         "ESP32");
+    cJSON_AddStringToObject(obj, "mac",                "aa:bb:cc:dd:ee:ff");
+    cJSON_AddStringToObject(obj, "reset_reason",       "power_on");
+    cJSON_AddBoolToObject(obj, "ota_validated",      true);
+    cJSON_AddBoolToObject(obj, "time_valid",         false);
+    cJSON_AddNumberToObject(obj, "boot_epoch_s",       0.0);
+    cJSON_AddStringToObject(obj, "time_source",        "none");
+    cJSON_AddNumberToObject(obj, "rtc_free",           7168.0);
+    cJSON_AddNumberToObject(obj, "ts_ms",              12345678LL);
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_info_telemetry_schema, obj, NULL));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_info_telemetry_payload_missing_required_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_number(obj, "heap_internal_free", 100000.0);
+    cJSON_AddNumberToObject(obj, "heap_internal_free", 100000.0);
     // missing all other required fields
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_info_telemetry_schema, obj, &verr));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 // RtosTelemetry: historical fixture — the "rtos" telemetry source
@@ -716,25 +758,25 @@ static const char k_rtos_telemetry_schema[] =
 
 void test_sse_schema_rtos_telemetry_payload_valid(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_number(obj, "min_free_stack",      2048.0);
-    bb_json_obj_set_string(obj, "min_free_stack_task", "worker");
-    bb_json_obj_set_number(obj, "task_count",          8.0);
+    cJSON_AddNumberToObject(obj, "min_free_stack",      2048.0);
+    cJSON_AddStringToObject(obj, "min_free_stack_task", "worker");
+    cJSON_AddNumberToObject(obj, "task_count",          8.0);
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_rtos_telemetry_schema, obj, NULL));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_rtos_telemetry_payload_missing_required_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_number(obj, "min_free_stack", 2048.0);
+    cJSON_AddNumberToObject(obj, "min_free_stack", 2048.0);
     // missing min_free_stack_task and task_count
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_rtos_telemetry_schema, obj, &verr));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 // Alert (sse_topic="alert")
@@ -748,25 +790,25 @@ static const char k_alert_schema[] =
 
 void test_sse_schema_alert_payload_valid(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "type",      "wifi_down");
-    bb_json_obj_set_int   (obj, "severity",  2);
-    bb_json_obj_set_int   (obj, "uptime_ms", 60000LL);
+    cJSON_AddStringToObject(obj, "type",      "wifi_down");
+    cJSON_AddNumberToObject(obj, "severity",  2);
+    cJSON_AddNumberToObject(obj, "uptime_ms", 60000LL);
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_alert_schema, obj, NULL));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_alert_payload_missing_required_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "type", "wifi_down");
+    cJSON_AddStringToObject(obj, "type", "wifi_down");
     // missing severity and uptime_ms
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_alert_schema, obj, &verr));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 // UpdateAvailable (sse_topic="update.available")
@@ -788,30 +830,30 @@ static const char k_update_available_schema[] =
 
 void test_sse_schema_update_available_payload_valid(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "current",      "1.0.0");
-    bb_json_obj_set_string(obj, "latest",       "1.1.0");
-    bb_json_obj_set_string(obj, "download_url", "https://example.com/fw.bin");
-    bb_json_obj_set_bool  (obj, "available",    true);
-    bb_json_obj_set_int   (obj, "ts",           1700000000LL);
-    bb_json_obj_set_bool  (obj, "last_check_ok",true);
-    bb_json_obj_set_bool  (obj, "enabled",      true);
-    bb_json_obj_set_string(obj, "outcome",      "update_available");
+    cJSON_AddStringToObject(obj, "current",      "1.0.0");
+    cJSON_AddStringToObject(obj, "latest",       "1.1.0");
+    cJSON_AddStringToObject(obj, "download_url", "https://example.com/fw.bin");
+    cJSON_AddBoolToObject(obj, "available",    true);
+    cJSON_AddNumberToObject(obj, "ts",           1700000000LL);
+    cJSON_AddBoolToObject(obj, "last_check_ok",true);
+    cJSON_AddBoolToObject(obj, "enabled",      true);
+    cJSON_AddStringToObject(obj, "outcome",      "update_available");
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_update_available_schema, obj, NULL));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_update_available_payload_missing_required_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "current", "1.0.0");
+    cJSON_AddStringToObject(obj, "current", "1.0.0");
     // missing latest, download_url, available, ts, last_check_ok, enabled, outcome
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_update_available_schema, obj, &verr));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 // DiagBoot (sse_topic="diag.boot")
@@ -830,31 +872,31 @@ static const char k_diag_boot_schema[] =
 
 void test_sse_schema_diag_boot_payload_valid(void)
 {
-    bb_json_t panic = bb_json_obj_new();
+    cJSON *panic = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(panic);
-    bb_json_obj_set_bool(panic, "available", false);
+    cJSON_AddBoolToObject(panic, "available", false);
 
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "reset_reason",  "power_on");
-    bb_json_obj_set_int   (obj, "wdt_resets",    0);
-    bb_json_obj_set_obj   (obj, "panic",         panic);
-    bb_json_obj_set_bool  (obj, "pending_verify",false);
-    bb_json_obj_set_bool  (obj, "rolled_back",   false);
+    cJSON_AddStringToObject(obj, "reset_reason",  "power_on");
+    cJSON_AddNumberToObject(obj, "wdt_resets",    0);
+    cJSON_AddItemToObject(obj, "panic", panic);
+    cJSON_AddBoolToObject(obj, "pending_verify",false);
+    cJSON_AddBoolToObject(obj, "rolled_back",   false);
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_diag_boot_schema, obj, NULL));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_diag_boot_payload_missing_required_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "reset_reason", "power_on");
+    cJSON_AddStringToObject(obj, "reset_reason", "power_on");
     // missing wdt_resets, panic, pending_verify, rolled_back
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_diag_boot_schema, obj, &verr));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 // DisplayInfo (sse_topic="health.display")
@@ -870,23 +912,23 @@ static const char k_display_info_schema[] =
 
 void test_sse_schema_display_info_payload_valid(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_bool(obj, "present", false);
+    cJSON_AddBoolToObject(obj, "present", false);
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_display_info_schema, obj, NULL));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_display_info_payload_missing_required_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "panel", "ILI9341");
+    cJSON_AddStringToObject(obj, "panel", "ILI9341");
     // missing present
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_display_info_schema, obj, &verr));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 // HealthStack (sse_topic="health.stack")
@@ -900,25 +942,25 @@ static const char k_health_stack_schema[] =
 
 void test_sse_schema_health_stack_payload_valid(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "task",       "httpd");
-    bb_json_obj_set_int   (obj, "free_bytes", 512);
-    bb_json_obj_set_bool  (obj, "low",        true);
+    cJSON_AddStringToObject(obj, "task",       "httpd");
+    cJSON_AddNumberToObject(obj, "free_bytes", 512);
+    cJSON_AddBoolToObject(obj, "low",        true);
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_health_stack_schema, obj, NULL));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_health_stack_payload_missing_required_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "task", "httpd");
+    cJSON_AddStringToObject(obj, "task", "httpd");
     // missing free_bytes and low
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_health_stack_schema, obj, &verr));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 // OtaProgress (sse_topic="ota.progress")
@@ -933,25 +975,25 @@ static const char k_ota_progress_schema[] =
 
 void test_sse_schema_ota_progress_payload_valid(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "via",   "mqtt");
-    bb_json_obj_set_string(obj, "state", "progress");
-    bb_json_obj_set_int   (obj, "pct",   50);
+    cJSON_AddStringToObject(obj, "via",   "mqtt");
+    cJSON_AddStringToObject(obj, "state", "progress");
+    cJSON_AddNumberToObject(obj, "pct",   50);
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_ota_progress_schema, obj, NULL));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 void test_sse_schema_ota_progress_payload_missing_required_fails(void)
 {
-    bb_json_t obj = bb_json_obj_new();
+    cJSON *obj = cJSON_CreateObject();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "via", "mqtt");
+    cJSON_AddStringToObject(obj, "via", "mqtt");
     // missing state and pct
     bb_openapi_validate_err_t verr = {0};
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
                       bb_openapi_validate(k_ota_progress_schema, obj, &verr));
-    bb_json_free(obj);
+    cJSON_Delete(obj);
 }
 
 // ---------------------------------------------------------------------------
@@ -985,31 +1027,28 @@ void test_sse_schema_sse_oneof_count_and_topics(void)
     TEST_ASSERT_EQUAL_size_t(14, bb_openapi_schema_count());
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-
-    char *s = bb_json_serialize(doc);
-    bb_json_free(doc);
-    TEST_ASSERT_NOT_NULL(s);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
     // All 11 SSE schemas must appear as $ref entries in oneOf.
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/LogEvent\""));
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/WifiTelemetry\""));
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/FanTelemetry\""));
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/PowerTelemetry\""));
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/ThermalTelemetry\""));
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/Alert\""));
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/UpdateAvailable\""));
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/DiagBoot\""));
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/DisplayInfo\""));
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/HealthStack\""));
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/OtaProgress\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/LogEvent\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/WifiTelemetry\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/FanTelemetry\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/PowerTelemetry\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/ThermalTelemetry\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/Alert\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/UpdateAvailable\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/DiagBoot\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/DisplayInfo\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/HealthStack\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/OtaProgress\""));
     // REST-only schemas must NOT appear in oneOf.
-    TEST_ASSERT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/InfoTelemetry\""));
-    TEST_ASSERT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/RtosTelemetry\""));
-    TEST_ASSERT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/WifiInfo\""));
+    TEST_ASSERT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/InfoTelemetry\""));
+    TEST_ASSERT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/RtosTelemetry\""));
+    TEST_ASSERT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/WifiInfo\""));
 
-    bb_json_free_str(s);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -1023,17 +1062,14 @@ void test_sse_schema_oneof_fragment_single_topic(void)
     bb_openapi_register_schema("LogEvent", k_log_schema, "log");
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
-    char *s = bb_json_serialize(doc);
-    bb_json_free(doc);
-    TEST_ASSERT_NOT_NULL(s);
-
-    TEST_ASSERT_NOT_NULL(strstr(s,
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body,
         "\"oneOf\":[{\"$ref\":\"#/components/schemas/LogEvent\"}]"));
 
-    bb_json_free_str(s);
+    test_openapi_capture_free(&r);
 }
 
 void test_sse_schema_oneof_fragment_max_cap_topics(void)
@@ -1051,23 +1087,20 @@ void test_sse_schema_oneof_fragment_max_cap_topics(void)
     TEST_ASSERT_EQUAL_size_t(BB_OPENAPI_SCHEMA_REGISTRY_CAP, bb_openapi_schema_count());
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-
-    char *s = bb_json_serialize(doc);
-    bb_json_free(doc);
-    TEST_ASSERT_NOT_NULL(s);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
     // Realistic component-name lengths at the full registry cap fit within
     // BB_OPENAPI_SSE_ONEOF_BUF_SIZE — content block is present, all present.
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"oneOf\":["));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"oneOf\":["));
     for (size_t i = 0; i < BB_OPENAPI_SCHEMA_REGISTRY_CAP; i++) {
         char needle[64];
         snprintf(needle, sizeof(needle), "\"$ref\":\"#/components/schemas/%s\"", names[i]);
-        TEST_ASSERT_NOT_NULL(strstr(s, needle));
+        TEST_ASSERT_NOT_NULL(strstr(r.cap.body, needle));
     }
 
-    bb_json_free_str(s);
+    test_openapi_capture_free(&r);
 }
 
 void test_sse_schema_oneof_fragment_mixed_sse_and_rest_only(void)
@@ -1079,19 +1112,16 @@ void test_sse_schema_oneof_fragment_mixed_sse_and_rest_only(void)
     bb_openapi_register_schema("WifiInfo", k_wifi_schema, NULL);
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
-    char *s = bb_json_serialize(doc);
-    bb_json_free(doc);
-    TEST_ASSERT_NOT_NULL(s);
-
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/LogEvent\""));
-    TEST_ASSERT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/WifiInfo\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/LogEvent\""));
+    TEST_ASSERT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/WifiInfo\""));
     // REST-only schema still appears in components/schemas, just not oneOf.
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"WifiInfo\":"));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"WifiInfo\":"));
 
-    bb_json_free_str(s);
+    test_openapi_capture_free(&r);
 }
 
 // 24 registry-cap entries, each with a component name at the widest length
@@ -1099,6 +1129,12 @@ void test_sse_schema_oneof_fragment_mixed_sse_and_rest_only(void)
 // resulting fragment (~2195 bytes) exceeds BB_OPENAPI_SSE_ONEOF_BUF_SIZE
 // (~1933 bytes) — the pathological case the buffer is NOT sized for. Content
 // must be omitted, never emitted as truncated (malformed) JSON.
+// Deliberately retained on the TREE path (bb_openapi_emit()), not ported --
+// sole cover for the tree emitter's own fragment glue at
+// bb_openapi_emit_tree.c:154-165 (distinct from the shared
+// build_sse_oneof_fragment() helper, which the stream-path counterpart below
+// already exercises independently). Retained until B1-1054 PR 6 deletes the
+// tree emitter.
 void test_sse_schema_oneof_fragment_overflow_omits_content(void)
 {
     bb_http_route_registry_clear();
@@ -1134,6 +1170,12 @@ void test_sse_schema_oneof_fragment_overflow_omits_content(void)
 // splice a truncated (wrong-but-valid-looking) $ref into the fragment —
 // that would be worse than the overflow case above, since the output reads
 // as valid JSON while pointing at the wrong schema. Content must be omitted.
+// Deliberately retained on the TREE path (bb_openapi_emit()), not ported --
+// sole cover for the tree emitter's own fragment glue at
+// bb_openapi_emit_tree.c:154-165 (distinct from the shared
+// build_sse_oneof_fragment() helper, which the stream-path counterpart below
+// already exercises independently). Retained until B1-1054 PR 6 deletes the
+// tree emitter.
 void test_sse_schema_oneof_fragment_long_name_truncation_omits_content(void)
 {
     bb_http_route_registry_clear();
@@ -1210,28 +1252,19 @@ void test_sse_schema_oneof_fragment_overflow_omits_content_stream(void)
     }
     TEST_ASSERT_EQUAL_size_t(BB_OPENAPI_SCHEMA_REGISTRY_CAP, bb_openapi_schema_count());
 
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-
     bb_openapi_meta_t meta2 = { .title = "T", .version = "1.0" };
-    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta2));
+    test_openapi_capture_result_t r = test_openapi_capture(&meta2);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_http_host_capture_t cap = {0};
-    bb_http_host_capture_end(req, &cap);
-    TEST_ASSERT_NOT_NULL(cap.body);
-
-    bb_json_t stream_doc = bb_json_parse(cap.body, cap.body_len);
-    TEST_ASSERT_NOT_NULL(stream_doc);
-
-    bb_json_t s_paths  = bb_json_obj_get_item(stream_doc, "paths");
-    bb_json_t s_pi     = bb_json_obj_get_item(s_paths, "/api/events");
-    bb_json_t s_get_op = bb_json_obj_get_item(s_pi, "get");
-    bb_json_t s_resps  = bb_json_obj_get_item(s_get_op, "responses");
-    bb_json_t s_r200   = bb_json_obj_get_item(s_resps, "200");
+    cJSON *s_paths  = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *s_pi     = cJSON_GetObjectItemCaseSensitive(s_paths, "/api/events");
+    cJSON *s_get_op = cJSON_GetObjectItemCaseSensitive(s_pi, "get");
+    cJSON *s_resps  = cJSON_GetObjectItemCaseSensitive(s_get_op, "responses");
+    cJSON *s_r200   = cJSON_GetObjectItemCaseSensitive(s_resps, "200");
     TEST_ASSERT_NOT_NULL(s_r200);
     // Fragment overflowed the bounded buffer — content omitted, not truncated.
-    TEST_ASSERT_NULL(bb_json_obj_get_item(s_r200, "content"));
+    TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(s_r200, "content"));
 
-    bb_json_free(stream_doc);
-    bb_http_host_capture_free(&cap);
+    test_openapi_capture_free(&r);
 }

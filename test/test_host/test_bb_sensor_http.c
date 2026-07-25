@@ -32,8 +32,8 @@
 #include "bb_sensor_test.h"
 #include "bb_temp.h"
 #include "bb_temp_test.h"
-#include "bb_json.h"
 
+#include <cJSON.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -270,15 +270,15 @@ void test_bb_sensor_http_e2e_get_power_renders_json(void)
     buf[out_len] = '\0';
     TEST_ASSERT_EQUAL(200, bb_http_section_status_for_render(rc));
 
-    bb_json_t parsed = bb_json_parse(buf, out_len);
+    cJSON *parsed = cJSON_ParseWithLength(buf, out_len);
     TEST_ASSERT_NOT_NULL(parsed);
-    bool present = false;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "present", &present));
-    TEST_ASSERT_TRUE(present);
-    double vout = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "vout_mv", &vout));
-    TEST_ASSERT_EQUAL_INT(1200, (int)vout);
-    bb_json_free(parsed);
+    cJSON *present_item = cJSON_GetObjectItemCaseSensitive(parsed, "present");
+    TEST_ASSERT_TRUE(cJSON_IsBool(present_item));
+    TEST_ASSERT_TRUE(cJSON_IsTrue(present_item));
+    cJSON *vout_item = cJSON_GetObjectItemCaseSensitive(parsed, "vout_mv");
+    TEST_ASSERT_TRUE(cJSON_IsNumber(vout_item));
+    TEST_ASSERT_EQUAL_INT(1200, (int)vout_item->valuedouble);
+    cJSON_Delete(parsed);
 
     bb_power_set_primary(NULL);
     free(ph);
@@ -319,17 +319,17 @@ void test_bb_sensor_http_e2e_thermal_get_renders_nested_sources(void)
     TEST_ASSERT_EQUAL(BB_OK, ns->render(name, NULL, buf, sizeof(buf), &out_len, ns->ctx));
     buf[out_len] = '\0';
 
-    bb_json_t parsed = bb_json_parse(buf, out_len);
+    cJSON *parsed = cJSON_ParseWithLength(buf, out_len);
     TEST_ASSERT_NOT_NULL(parsed);
-    bb_json_t soc = bb_json_obj_get_item(parsed, "soc");
+    cJSON *soc = cJSON_GetObjectItemCaseSensitive(parsed, "soc");
     TEST_ASSERT_NOT_NULL(soc);
-    bool present = false;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(soc, "present", &present));
-    TEST_ASSERT_TRUE(present);
-    double c = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(soc, "c", &c));
-    TEST_ASSERT_EQUAL_FLOAT(50.0f, (float)c);
-    bb_json_free(parsed);
+    cJSON *present_item = cJSON_GetObjectItemCaseSensitive(soc, "present");
+    TEST_ASSERT_TRUE(cJSON_IsBool(present_item));
+    TEST_ASSERT_TRUE(cJSON_IsTrue(present_item));
+    cJSON *c_item = cJSON_GetObjectItemCaseSensitive(soc, "c");
+    TEST_ASSERT_TRUE(cJSON_IsNumber(c_item));
+    TEST_ASSERT_EQUAL_FLOAT(50.0f, (float)c_item->valuedouble);
+    cJSON_Delete(parsed);
 }
 
 void test_bb_sensor_http_e2e_get_fan_no_primary_returns_200_present_false(void)
@@ -353,12 +353,12 @@ void test_bb_sensor_http_e2e_get_fan_no_primary_returns_200_present_false(void)
     TEST_ASSERT_EQUAL(200, bb_http_section_status_for_render(rc));
 
     buf[out_len] = '\0';
-    bb_json_t parsed = bb_json_parse(buf, out_len);
+    cJSON *parsed = cJSON_ParseWithLength(buf, out_len);
     TEST_ASSERT_NOT_NULL(parsed);
-    bool present = true;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "present", &present));
-    TEST_ASSERT_FALSE(present);
-    bb_json_free(parsed);
+    cJSON *present_item = cJSON_GetObjectItemCaseSensitive(parsed, "present");
+    TEST_ASSERT_TRUE(cJSON_IsBool(present_item));
+    TEST_ASSERT_FALSE(cJSON_IsTrue(present_item));
+    cJSON_Delete(parsed);
 }
 
 void test_bb_sensor_http_e2e_fan_patch_no_primary_maps_503(void)
