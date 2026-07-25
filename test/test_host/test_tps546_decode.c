@@ -286,6 +286,17 @@ void test_decode_fault_bits_iout_oc_incident_0xa0(void)
     TEST_ASSERT_FALSE(bits & TPS546_FAULT_UNIT_OFF);
 }
 
+// IOUT_OC_WARNING isolated (no OC_FAULT): STATUS_IOUT=0x20 (bit5 set, bit7
+// clear). bit5 has no named mapping in tps546_decode_fault_bits() — it must
+// NOT be mistaken for bit7 (IOUT_OC_FAULT). Every other IOUT test sets bit5
+// only alongside bit7 (0x80, 0xA0); this is the one exercising bit5 alone.
+void test_decode_fault_bits_iout_oc_warning_only_does_not_trigger_oc(void)
+{
+    uint16_t bits = tps546_decode_fault_bits(0x0000, 0x20, 0x00, 0x00);
+    TEST_ASSERT_FALSE(bits & TPS546_FAULT_IOUT_OC);
+    TEST_ASSERT_EQUAL_UINT16(0, bits);
+}
+
 // IOUT_UC (undercurrent): STATUS_IOUT=0x10 (bit4=IOUT_UC_FAULT on TPS546D24A).
 // Must NOT trigger IOUT_OC — bit4 is undercurrent, not overcurrent.
 void test_decode_fault_bits_iout_uc_does_not_trigger_oc(void)
