@@ -115,13 +115,14 @@ bool bb_openapi_schema_get(size_t idx, bb_openapi_schema_entry_t *out);
 // ---------------------------------------------------------------------------
 // bb_openapi never links bb_data_http (or any other topic-schema producer
 // component) directly -- breadboard ships primitives, composition is the
-// consumer's job (see CLAUDE.md's composition-only banner). Instead, the SSE
-// oneOf synthesis below (sse_schema_count() / build_sse_oneof_fragment(),
-// bb_openapi_emit_shared.c) can be pointed at an EXTERNAL topic-schema table
-// through this injected seam -- the exact same shape bb_data_http itself uses
-// for its own render/generation-read/send seams (bb_data_http.h): an
-// installable function pointer, NULL default, degrades gracefully rather than
-// requiring a link-time dependency.
+// consumer's job (see CLAUDE.md's composition-only banner). Instead, both the
+// SSE oneOf synthesis (sse_schema_count() / build_sse_oneof_fragment()) AND
+// the components/schemas section (bb_openapi_schemas_union_count() /
+// emit_external_schemas(), bb_openapi_emit_shared.c) can be pointed at an
+// EXTERNAL topic-schema table through this injected seam -- the exact same
+// shape bb_data_http itself uses for its own render/generation-read/send
+// seams (bb_data_http.h): an installable function pointer, NULL default,
+// degrades gracefully rather than requiring a link-time dependency.
 
 // Callback invoked once per external topic-schema entry by a
 // bb_openapi_topic_source_fn_t. Shape matches bb_data_http_describe_cb_t
@@ -151,8 +152,18 @@ typedef void (*bb_openapi_topic_source_fn_t)(bb_openapi_topic_cb_t cb, void *ctx
 
 // Install/replace the external topic-schema source seam. `fn` is called
 // alongside (after) the legacy schema registry above whenever
-// sse_schema_count() / build_sse_oneof_fragment() run, so its entries are
-// unioned into the SSE oneOf synthesis with stable ordering (legacy first).
+// sse_schema_count() / build_sse_oneof_fragment() OR bb_openapi_schemas_
+// union_count() / emit_external_schemas() run, so its entries are unioned
+// into both the SSE oneOf synthesis AND the components/schemas section with
+// stable ordering (legacy first) -- a component reachable only through the
+// seam always gets a body alongside its $ref, never a dangling reference.
+// Dedup is by component_name, legacy-first-wins, across the WHOLE union --
+// including entry-vs-entry WITHIN `fn`'s own walk: `fn` (e.g.
+// bb_data_http_describe_foreach()) may dedup its own entries by a different
+// key (bb_data_http_describe() dedups by `key`, not component_name), so two
+// of its entries can legitimately share one component_name; this seam still
+// emits that component_name exactly once (first-registered wins), never a
+// duplicate JSON key or a duplicate oneOf branch.
 // Passing fn=NULL (the default -- no bb_openapi_set_topic_source_fn() call
 // at all is equivalent) disables this source entirely: documents synthesize
 // from the legacy bb_openapi_register_topic_schema() registry alone, byte-

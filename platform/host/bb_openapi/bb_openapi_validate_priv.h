@@ -48,6 +48,24 @@ bb_err_t bb_openapi_validate(const char *schema_json,
                              const cJSON *value,
                              bb_openapi_validate_err_t *err);
 
+// Document-level structural check: walks the entire parsed OpenAPI `doc`
+// tree (paths, oneOf arrays, anywhere) for any `{"$ref":"#/components/schemas/
+// <Name>"}` object and confirms `<Name>` resolves to an actual key under
+// doc.components.schemas. A dangling $ref (a schema referenced but never
+// given a body — e.g. the B1-1220 components/schemas defect this guards
+// against) fails with BB_ERR_VALIDATION; err->path is a dotted JSON path to
+// the first offending $ref and err->message names it. A document with no
+// $ref usage at all trivially passes.
+//
+// Depth-bounded: recursion stops at a fixed nesting cap (see
+// bb_openapi_validate.c) and fails with BB_ERR_VALIDATION rather than
+// recursing further — cheap insurance now that this is a reusable
+// general-purpose check, not just a check tied to one depth-capped producer.
+//
+// Returns BB_ERR_INVALID_ARG if doc is NULL.
+bb_err_t bb_openapi_validate_no_dangling_refs(const cJSON *doc,
+                                              bb_openapi_validate_err_t *err);
+
 #ifdef __cplusplus
 }
 #endif

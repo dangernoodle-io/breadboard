@@ -302,3 +302,81 @@ bb_err_t bb_openapi_validate(const char *schema_json,
     cJSON_Delete(schema);
     return rc;
 }
+
+// ---------------------------------------------------------------------------
+// Document-level dangling-$ref check
+// ---------------------------------------------------------------------------
+
+static const char k_schema_ref_prefix[] = "#/components/schemas/";
+
+// Recursion depth bound, mirroring the same "an explicit cap beats an
+// unbounded walk" idiom bb_http_json_obj.c's BB_JSON_OBJ_MAX_DEPTH uses for
+// the streaming emitter's own object nesting -- this oracle is host-test-
+// only and its one real producer (bb_openapi_emit_stream()) is itself
+// depth-capped, but it is a reusable general-purpose check now, so it gets
+// its own defensive bound rather than trusting every future caller's input
+// to be well-behaved. Reuses PATH_DEPTH_MAX (already defined above for this
+// file's path stack, and already comfortably covers a real emitted
+// document's deepest $ref -- paths/<path>/get/responses/200/content/
+// text/event-stream/schema/oneOf/[i]/$ref bottoms out around depth 11)
+// rather than introducing a second depth constant for the same file.
+static bb_err_t check_no_dangling_refs_node(const cJSON *node, const cJSON *schemas,
+                                            path_stack_t *ps, int depth,
+                                            bb_openapi_validate_err_t *err)
+{
+    if (depth >= PATH_DEPTH_MAX) {
+        if (err) {
+            path_render(ps, err->path, sizeof(err->path));
+            snprintf(err->message, sizeof(err->message),
+                     "maximum nesting depth (%d) exceeded", PATH_DEPTH_MAX);
+        }
+        return BB_ERR_VALIDATION;
+    }
+
+    if (cJSON_IsObject(node)) {
+        cJSON *ref = cJSON_GetObjectItemCaseSensitive(node, "$ref");
+        if (ref && cJSON_IsString(ref)) {
+            const char *val = ref->valuestring;
+            size_t prefix_len = sizeof(k_schema_ref_prefix) - 1;
+            if (strncmp(val, k_schema_ref_prefix, prefix_len) == 0) {
+                const char *name = val + prefix_len;
+                if (!schemas || !cJSON_GetObjectItemCaseSensitive(schemas, name)) {
+                    if (err) {
+                        path_render(ps, err->path, sizeof(err->path));
+                        snprintf(err->message, sizeof(err->message),
+                                 "dangling $ref '%s' has no components/schemas entry", val);
+                    }
+                    return BB_ERR_VALIDATION;
+                }
+            }
+        }
+        for (const cJSON *child = node->child; child != NULL; child = child->next) {
+            path_push(ps, child->string ? child->string : "?");
+            bb_err_t rc = check_no_dangling_refs_node(child, schemas, ps, depth + 1, err);
+            path_pop(ps);
+            if (rc != BB_OK) return rc;
+        }
+    } else if (cJSON_IsArray(node)) {
+        int idx = 0;
+        for (const cJSON *child = node->child; child != NULL; child = child->next) {
+            path_push_index(ps, idx++);
+            bb_err_t rc = check_no_dangling_refs_node(child, schemas, ps, depth + 1, err);
+            path_pop(ps);
+            if (rc != BB_OK) return rc;
+        }
+    }
+    return BB_OK;
+}
+
+bb_err_t bb_openapi_validate_no_dangling_refs(const cJSON *doc,
+                                              bb_openapi_validate_err_t *err)
+{
+    if (!doc) return BB_ERR_INVALID_ARG;
+
+    cJSON *components = cJSON_GetObjectItemCaseSensitive(doc, "components");
+    cJSON *schemas = components ? cJSON_GetObjectItemCaseSensitive(components, "schemas") : NULL;
+
+    path_stack_t ps;
+    memset(&ps, 0, sizeof(ps));
+    return check_no_dangling_refs_node(doc, schemas, &ps, 0, err);
+}
