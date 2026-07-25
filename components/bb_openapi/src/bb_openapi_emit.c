@@ -14,10 +14,10 @@ static const char *TAG = "bb_openapi_emit";
 // primitive), never through bb_json / a bb_json_t tree. Peak memory is
 // bounded to that primitive's ~1KB internal buffer plus whichever single
 // schema literal is being spliced, instead of the heap+stack pressure of
-// materializing the full document (bb_openapi_emit(), the tree path in
-// platform/host/bb_openapi/bb_openapi_emit_tree.c — host-only, never linked
-// into firmware — crashed httpd workers on tight-stack boards once route
-// count grew past ~50 — B1-222).
+// materializing the full document — an earlier in-memory tree builder,
+// bb_openapi_emit(), crashed httpd workers on tight-stack boards once route
+// count grew past ~50 (B1-222); it was removed in B1-1054 once this
+// streaming path reached full parity.
 //
 // emit_operation() mirrors the host tree emitter's build_operation()
 // field-for-field and must be kept in sync with it manually —

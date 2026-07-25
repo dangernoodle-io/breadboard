@@ -34,7 +34,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_http_client](./bb_http_client/) | — |
 | [bb_http_server](./bb_http_server/) | — |
 | [bb_i2c](./bb_i2c/) | — |
-| [bb_json](./bb_json/) | — |
 | [bb_lifecycle](./bb_lifecycle/) | Service run-state authority: register named services, track a computed STOPPED/PAUSED/RUNNING state per service, and let independent subsystems assert/clear open-vocabulary pause reasons without stepping on each other. PUSH (observer), PULL (generic emit sink), and POLL (lock-free version counter) delivery, all sourced from one lock-guarded commit. |
 | [bb_log](./bb_log/) | — |
 | [bb_log_event](./bb_log_event/) | "log" `bb_event` stream topic sink, carved out of `bb_log` (KB #708/#704). |

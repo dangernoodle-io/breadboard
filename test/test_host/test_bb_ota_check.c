@@ -6,7 +6,6 @@
 #include "bb_http_host.h"
 #include "bb_ota_check_wire.h"
 #include "bb_data.h"
-#include "bb_json.h"
 #include "bb_settings.h"
 #include "bb_storage.h"
 #include "fake_nvs_backend.h"

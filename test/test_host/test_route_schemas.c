@@ -4,8 +4,8 @@
 // Walks bb_http_route_registry_foreach (the same iterator the OpenAPI emitter
 // uses) and asserts that every responses[].schema and request_schema string
 // literal parses as JSON. Catches the class of regression where a
-// hand-authored schema literal is malformed and bb_json_obj_set_raw silently
-// substitutes JSON null in the spec.
+// hand-authored schema literal is malformed and would otherwise silently
+// substitute JSON null in the spec.
 //
 // The host build today does not auto-link every component's init function,
 // so this test seeds the registry with explicit fixtures that mirror the
@@ -15,7 +15,6 @@
 #include "unity.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
-#include "bb_json.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -272,48 +271,6 @@ void test_route_schemas_walker_flags_malformed(void)
     TEST_ASSERT_EQUAL_INT(1, ctx.failures);
 
     bb_http_route_registry_clear();
-}
-
-// NOTE: these 2 tests (through test_set_raw_writes_parsed_object_on_valid_json
-// below) are the only bb_json_* references left in this file -- deliberately
-// retained (B1-1054 PR 5, not deleted). They exercise bb_json_obj_set_raw()'s
-// own parse-and-reserialize behaviour, whose sole production caller is
-// platform/host/bb_openapi/bb_openapi_emit_tree.c (the TREE emitter, still
-// present until B1-1054 PR 6). Deleting them now would drop that still-live
-// function's branch coverage with no code removal to offset it -- same
-// reasoning as PR 4's retained OOM tests. They lose their meaning together
-// with bb_json_obj_set_raw()'s only caller once PR 6 deletes the tree
-// emitter, and should be deleted then, not before.
-void test_set_raw_writes_null_on_malformed_json(void)
-{
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-
-    bb_json_obj_set_raw(obj, "schema", "{\"oops\":");
-
-    char *out = bb_json_serialize(obj);
-    TEST_ASSERT_NOT_NULL(out);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(out, "\"schema\":null"),
-        "set_raw should write JSON null on cJSON_Parse failure");
-    bb_json_free_str(out);
-    bb_json_free(obj);
-}
-
-void test_set_raw_writes_parsed_object_on_valid_json(void)
-{
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-
-    bb_json_obj_set_raw(obj, "schema",
-                        "{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"integer\"}}}");
-
-    char *out = bb_json_serialize(obj);
-    TEST_ASSERT_NOT_NULL(out);
-    TEST_ASSERT_NOT_NULL(strstr(out, "\"type\":\"object\""));
-    TEST_ASSERT_NULL_MESSAGE(strstr(out, "null"),
-        "valid schema should not be substituted with null");
-    bb_json_free_str(out);
-    bb_json_free(obj);
 }
 
 // Guard: PATCH /api/wifi request_schema declares a requestBody and requires ssid.

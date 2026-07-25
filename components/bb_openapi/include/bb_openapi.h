@@ -39,11 +39,12 @@ typedef struct {
 // bb_http_resp_json_obj_* (bb_http_server's streaming JSON object primitive)
 // so peak memory is bounded to that primitive's internal buffer plus one
 // schema literal at a time, never a full in-memory JSON tree. Avoids the
-// heap+stack pressure of materializing the full document on a board with
-// many routes — the in-memory tree builder (bb_openapi_emit(), host-only —
-// see platform/host/bb_openapi/bb_openapi_emit_tree_priv.h) crashed httpd
-// workers on tdongle-s3 / ESP32-WROOM-32 once the route count grew past ~50
-// routes (B1-222). Unlike bb_openapi_emit, this path never calls bb_json_*.
+// heap+stack pressure of materializing a full in-memory JSON document on a
+// board with many routes — an earlier in-memory tree builder,
+// bb_openapi_emit(), crashed httpd workers on tdongle-s3 / ESP32-WROOM-32
+// once the route count grew past ~50 routes (B1-222); it was removed in
+// B1-1054 once this streaming path reached full parity. This path never
+// calls bb_json_*.
 //
 // Owns the full response lifecycle: opens the chunked response (sets
 // Content-Type, emits "{") and, once opened, always closes it (flushes the

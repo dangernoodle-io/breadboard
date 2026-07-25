@@ -146,11 +146,6 @@
       "type": "component"
     },
     {
-      "id": "bb_json",
-      "path": "components/bb_json",
-      "type": "component"
-    },
-    {
       "id": "bb_led",
       "path": "components/bb_led",
       "type": "component"

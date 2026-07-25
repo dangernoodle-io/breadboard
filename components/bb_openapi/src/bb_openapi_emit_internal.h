@@ -1,14 +1,13 @@
 #pragma once
-// Private interface shared between the two bb_openapi emitter translation
-// units — the device streaming emitter (bb_openapi_emit.c, ships in
-// firmware) and the host-only tree emitter
-// (platform/host/bb_openapi/bb_openapi_emit_tree.c, never linked into
-// firmware). Both walk the same route/schema registries and derive the same
-// operationId/method strings, so the shared plumbing lives in
-// bb_openapi_emit_shared.c and is declared here rather than duplicated.
-// Also carries buffer-sizing constants shared with host tests, plus
-// test-only accessors. Not for external consumers, not part of the public
-// bb_openapi API surface (components/bb_openapi/include/bb_openapi.h).
+// Private interface for the bb_openapi device streaming emitter
+// (bb_openapi_emit.c, ships in firmware). Previously also shared with an
+// in-memory tree emitter (bb_openapi_emit(), removed in B1-1054 once the
+// streaming path reached full parity); the plumbing that walks the
+// route/schema registries and derives operationId/method strings still
+// lives in bb_openapi_emit_shared.c and is declared here rather than
+// duplicated. Also carries buffer-sizing constants shared with host tests,
+// plus test-only accessors. Not for external consumers, not part of the
+// public bb_openapi API surface (components/bb_openapi/include/bb_openapi.h).
 
 #include "bb_openapi.h"
 #include <stdbool.h>

@@ -1360,13 +1360,6 @@ void test_prov_parse_ssid_only(void);
 void test_prov_parse_ssid_and_pass(void);
 void test_prov_parse_urlencoded_special(void);
 
-// Forward declarations from test_bb_http_send_json.c
-void test_bb_json_get_kind_object(void);
-void test_bb_json_get_kind_array(void);
-void test_bb_json_get_kind_scalar(void);
-void test_bb_json_walk_children_object(void);
-void test_bb_json_walk_children_array(void);
-
 // Forward declarations from test_bb_http_json_obj_stream.c
 void test_resp_no_content_sets_204_empty_body(void);
 void test_json_obj_begin_null_req(void);
@@ -2182,39 +2175,6 @@ void test_stream_malformed_mid_stream_after_tag_found(void);
 void test_stream_tag_buffer_too_small_returns_no_space(void);
 void test_stream_truncated_mid_url_leaves_no_partial_url(void);
 
-// Forward declarations from test_bb_json.c
-void test_bb_json_obj_string_roundtrip(void);
-void test_bb_json_obj_number_roundtrip(void);
-void test_bb_json_obj_bool_true_roundtrip(void);
-void test_bb_json_obj_bool_false_roundtrip(void);
-void test_bb_json_obj_null_roundtrip(void);
-void test_bb_json_obj_multiple_fields(void);
-void test_bb_json_nested_obj_in_obj(void);
-void test_bb_json_arr_in_obj(void);
-void test_bb_json_arr_of_strings(void);
-void test_bb_json_arr_of_numbers(void);
-void test_bb_json_arr_of_objects(void);
-void test_bb_json_number_zero(void);
-void test_bb_json_number_negative(void);
-void test_bb_json_number_large(void);
-void test_bb_json_number_decimal(void);
-void test_bb_json_get_missing_string_returns_false(void);
-void test_bb_json_get_missing_number_returns_false(void);
-void test_bb_json_get_missing_bool_returns_false(void);
-void test_bb_json_parse_invalid_returns_null(void);
-void test_bb_json_parse_with_length(void);
-void test_bb_json_serialize_null_returns_null(void);
-void test_bb_json_serialize_fail_after_countdown_decrements_before_triggering(void);
-void test_bb_json_type_mismatch_string_vs_number(void);
-void test_bb_json_obj_get_item_returns_handle(void);
-void test_bb_json_arr_size_and_get_item(void);
-void test_bb_json_item_is_array_and_object(void);
-void test_bb_json_item_serialize_subtree(void);
-void test_bb_json_item_null_handle_is_safe(void);
-void test_bb_json_arr_append_string_n_basic(void);
-void test_bb_json_arr_append_string_n_null_arr_is_safe(void);
-void test_bb_json_arr_append_string_n_null_str_is_safe(void);
-
 // Forward declarations from test_route_registry.c
 void test_route_registry_count_starts_at_zero(void);
 void test_route_registry_add_increments_count(void);
@@ -2230,8 +2190,6 @@ void test_route_registry_count_after_clear_and_readd(void);
 void test_route_schemas_telemetry_patch_200_parses(void);
 void test_route_schemas_registry_all_valid(void);
 void test_route_schemas_walker_flags_malformed(void);
-void test_set_raw_writes_null_on_malformed_json(void);
-void test_set_raw_writes_parsed_object_on_valid_json(void);
 void test_wifi_patch_request_schema_requires_ssid(void);
 void test_wifi_patch_route_descriptor_has_request_schema(void);
 // B1-413 request body schemas
@@ -2489,9 +2447,7 @@ void test_openapi_emit_bar_post_request_body_schema_is_object(void);
 void test_openapi_emit_foo_response_schema_is_object(void);
 void test_openapi_emit_baz_derived_operation_id(void);
 void test_openapi_emit_baz_no_tags_array(void);
-void test_openapi_emit_null_meta_returns_null(void);
 void test_openapi_emit_stream_null_meta_returns_invalid_arg(void);
-void test_openapi_emit_defaults_for_omitted_fields(void);
 void test_openapi_emit_servers_present_when_url_set(void);
 void test_openapi_emit_servers_absent_when_no_url(void);
 void test_openapi_emit_patch_method_operation_id(void);
@@ -2514,21 +2470,6 @@ void test_openapi_emit_route_null_responses_array(void);
 void test_openapi_emit_request_schema_without_content_type(void);
 void test_openapi_emit_request_content_type_without_schema(void);
 void test_openapi_emit_invalid_method_defaults_to_get(void);
-void test_openapi_emit_oom_root_alloc_returns_null(void);
-void test_openapi_emit_oom_info_alloc_returns_null(void);
-void test_openapi_emit_oom_servers_arr_skips(void);
-void test_openapi_emit_oom_server_entry_frees_arr(void);
-void test_openapi_emit_oom_paths_obj_returns_null(void);
-void test_openapi_emit_oom_path_item_skips_path(void);
-void test_openapi_emit_oom_op_alloc_skips_operation(void);
-void test_openapi_emit_oom_tags_alloc_omits_tags(void);
-void test_openapi_emit_oom_req_body_alloc_skips_request(void);
-void test_openapi_emit_oom_req_content_alloc_frees_req_body(void);
-void test_openapi_emit_oom_req_media_alloc_frees_req_body_and_content(void);
-void test_openapi_emit_oom_responses_alloc_omits_responses(void);
-void test_openapi_emit_oom_resp_obj_alloc_skips_response(void);
-void test_openapi_emit_oom_resp_content_alloc_omits_content(void);
-void test_openapi_emit_oom_resp_media_alloc_omits_content(void);
 void test_openapi_emit_response_null_description(void);
 void test_openapi_emit_response_null_content_type_defaults_to_json(void);
 void test_openapi_emit_long_path_truncates_operation_id(void);
@@ -2540,9 +2481,6 @@ void test_openapi_emit_multiple_params_on_route(void);
 void test_openapi_emit_param_count_zero_omits_parameters(void);
 void test_openapi_emit_param_null_name_defaults_to_empty(void);
 void test_openapi_emit_param_null_in_defaults_to_query(void);
-void test_openapi_emit_oom_params_arr_skips_parameters(void);
-void test_openapi_emit_oom_param_obj_skips_entry(void);
-void test_openapi_emit_oom_schema_obj_skips_schema(void);
 void test_openapi_emit_stream_produces_valid_openapi_doc(void);
 void test_openapi_emit_stream_null_args_return_invalid_arg(void);
 void test_openapi_emit_stream_includes_servers_and_description(void);
@@ -2559,23 +2497,6 @@ void test_openapi_emit_stream_sse_zero_topics_omits_content(void);
 void test_openapi_emit_stream_obj_begin_fails_returns_err(void);
 void test_openapi_emit_components_schemas_present(void);
 void test_openapi_emit_ref_literal_passthrough(void);
-void test_openapi_emit_oom_components_section(void);
-
-// Forward declarations from test_openapi_emit_equivalence.c
-void test_openapi_emit_equivalence_no_routes(void);
-void test_openapi_emit_equivalence_single_get_route(void);
-void test_openapi_emit_equivalence_route_with_parameters(void);
-void test_openapi_emit_equivalence_route_with_request_schema(void);
-void test_openapi_emit_equivalence_multi_method_same_path(void);
-void test_openapi_emit_equivalence_multi_path(void);
-void test_openapi_emit_equivalence_sse_oneof_synthesis(void);
-void test_openapi_emit_equivalence_components_schemas_populated(void);
-void test_openapi_emit_equivalence_components_schemas_empty(void);
-void test_openapi_emit_equivalence_servers_and_description(void);
-void test_openapi_emit_equivalence_null_responses(void);
-void test_openapi_emit_equivalence_deeply_nested_schema(void);
-void test_openapi_emit_equivalence_null_title_defaults_agree(void);
-void test_openapi_emit_equivalence_null_version_defaults_agree(void);
 
 // Forward declarations from test_openapi_capture_selftest.c
 void test_openapi_capture_returns_parsed_doc_on_success(void);
@@ -2600,21 +2521,16 @@ void test_sse_schema_log_payload_bad_level_enum_fails(void);
 void test_sse_schema_emit_has_components_schemas(void);
 void test_sse_schema_emit_no_schemas_no_components(void);
 void test_sse_schema_oneof_synthesized_in_events(void);
-void test_sse_schema_no_sse_topic_no_oneof(void);
 void test_sse_schema_stream_has_components_schemas(void);
 void test_sse_schema_stream_no_schemas_no_components(void);
 void test_sse_schema_registry_get_valid_idx_null_out_returns_false(void);
 void test_sse_schema_oneof_skips_non_sse_schema_in_registry(void);
 void test_sse_schema_stream_two_schemas_has_comma_separator(void);
-void test_sse_schema_oom_oneof_content_skips_block(void);
-void test_sse_schema_oom_oneof_media_skips_block(void);
-void test_sse_schema_oom_components_obj_skips_section(void);
 void test_sse_schema_oneof_fragment_single_topic(void);
 void test_sse_schema_oneof_fragment_max_cap_topics(void);
 void test_sse_schema_oneof_fragment_mixed_sse_and_rest_only(void);
-void test_sse_schema_oneof_fragment_overflow_omits_content(void);
 void test_sse_schema_oneof_fragment_overflow_omits_content_stream(void);
-void test_sse_schema_oneof_fragment_long_name_truncation_omits_content(void);
+void test_sse_schema_oneof_fragment_long_name_truncation_omits_content_stream(void);
 void test_sse_schema_oneof_fragment_opener_overflow(void);
 void test_sse_schema_oneof_fragment_closing_overflow(void);
 void test_sse_schema_wifi_telemetry_payload_valid(void);
@@ -6318,11 +6234,6 @@ int main(void) {
     RUN_TEST(test_prov_parse_urlencoded_special);
 
     // JSON walker and HTTP send_json tests
-    RUN_TEST(test_bb_json_get_kind_object);
-    RUN_TEST(test_bb_json_get_kind_array);
-    RUN_TEST(test_bb_json_get_kind_scalar);
-    RUN_TEST(test_bb_json_walk_children_object);
-    RUN_TEST(test_bb_json_walk_children_array);
 
     // Streaming JSON object tests
     RUN_TEST(test_resp_no_content_sets_204_empty_body);
@@ -6637,8 +6548,6 @@ int main(void) {
     RUN_TEST(test_route_schemas_telemetry_patch_200_parses);
     RUN_TEST(test_route_schemas_registry_all_valid);
     RUN_TEST(test_route_schemas_walker_flags_malformed);
-    RUN_TEST(test_set_raw_writes_null_on_malformed_json);
-    RUN_TEST(test_set_raw_writes_parsed_object_on_valid_json);
     RUN_TEST(test_wifi_patch_request_schema_requires_ssid);
     RUN_TEST(test_wifi_patch_route_descriptor_has_request_schema);
     // B1-413 request body schemas
@@ -6730,39 +6639,6 @@ int main(void) {
     RUN_TEST(test_wildcard_root_maps_to_index_html);
     RUN_TEST(test_wildcard_gzip_asset_content_type);
     RUN_TEST(test_wildcard_query_string_stripped);
-
-    // bb_json tests
-    RUN_TEST(test_bb_json_obj_string_roundtrip);
-    RUN_TEST(test_bb_json_obj_number_roundtrip);
-    RUN_TEST(test_bb_json_obj_bool_true_roundtrip);
-    RUN_TEST(test_bb_json_obj_bool_false_roundtrip);
-    RUN_TEST(test_bb_json_obj_null_roundtrip);
-    RUN_TEST(test_bb_json_obj_multiple_fields);
-    RUN_TEST(test_bb_json_nested_obj_in_obj);
-    RUN_TEST(test_bb_json_arr_in_obj);
-    RUN_TEST(test_bb_json_arr_of_strings);
-    RUN_TEST(test_bb_json_arr_of_numbers);
-    RUN_TEST(test_bb_json_arr_of_objects);
-    RUN_TEST(test_bb_json_number_zero);
-    RUN_TEST(test_bb_json_number_negative);
-    RUN_TEST(test_bb_json_number_large);
-    RUN_TEST(test_bb_json_number_decimal);
-    RUN_TEST(test_bb_json_get_missing_string_returns_false);
-    RUN_TEST(test_bb_json_get_missing_number_returns_false);
-    RUN_TEST(test_bb_json_get_missing_bool_returns_false);
-    RUN_TEST(test_bb_json_parse_invalid_returns_null);
-    RUN_TEST(test_bb_json_parse_with_length);
-    RUN_TEST(test_bb_json_serialize_null_returns_null);
-    RUN_TEST(test_bb_json_serialize_fail_after_countdown_decrements_before_triggering);
-    RUN_TEST(test_bb_json_type_mismatch_string_vs_number);
-    RUN_TEST(test_bb_json_obj_get_item_returns_handle);
-    RUN_TEST(test_bb_json_arr_size_and_get_item);
-    RUN_TEST(test_bb_json_item_is_array_and_object);
-    RUN_TEST(test_bb_json_item_serialize_subtree);
-    RUN_TEST(test_bb_json_item_null_handle_is_safe);
-    RUN_TEST(test_bb_json_arr_append_string_n_basic);
-    RUN_TEST(test_bb_json_arr_append_string_n_null_arr_is_safe);
-    RUN_TEST(test_bb_json_arr_append_string_n_null_str_is_safe);
 
     // bb_wifi tests
     RUN_TEST(test_bb_wifi_set_hostname_null);
@@ -6932,9 +6808,7 @@ int main(void) {
     RUN_TEST(test_openapi_emit_foo_response_schema_is_object);
     RUN_TEST(test_openapi_emit_baz_derived_operation_id);
     RUN_TEST(test_openapi_emit_baz_no_tags_array);
-    RUN_TEST(test_openapi_emit_null_meta_returns_null);
     RUN_TEST(test_openapi_emit_stream_null_meta_returns_invalid_arg);
-    RUN_TEST(test_openapi_emit_defaults_for_omitted_fields);
     RUN_TEST(test_openapi_emit_servers_present_when_url_set);
     RUN_TEST(test_openapi_emit_servers_absent_when_no_url);
     RUN_TEST(test_openapi_emit_patch_method_operation_id);
@@ -6957,21 +6831,6 @@ int main(void) {
     RUN_TEST(test_openapi_emit_request_schema_without_content_type);
     RUN_TEST(test_openapi_emit_request_content_type_without_schema);
     RUN_TEST(test_openapi_emit_invalid_method_defaults_to_get);
-    RUN_TEST(test_openapi_emit_oom_root_alloc_returns_null);
-    RUN_TEST(test_openapi_emit_oom_info_alloc_returns_null);
-    RUN_TEST(test_openapi_emit_oom_servers_arr_skips);
-    RUN_TEST(test_openapi_emit_oom_server_entry_frees_arr);
-    RUN_TEST(test_openapi_emit_oom_paths_obj_returns_null);
-    RUN_TEST(test_openapi_emit_oom_path_item_skips_path);
-    RUN_TEST(test_openapi_emit_oom_op_alloc_skips_operation);
-    RUN_TEST(test_openapi_emit_oom_tags_alloc_omits_tags);
-    RUN_TEST(test_openapi_emit_oom_req_body_alloc_skips_request);
-    RUN_TEST(test_openapi_emit_oom_req_content_alloc_frees_req_body);
-    RUN_TEST(test_openapi_emit_oom_req_media_alloc_frees_req_body_and_content);
-    RUN_TEST(test_openapi_emit_oom_responses_alloc_omits_responses);
-    RUN_TEST(test_openapi_emit_oom_resp_obj_alloc_skips_response);
-    RUN_TEST(test_openapi_emit_oom_resp_content_alloc_omits_content);
-    RUN_TEST(test_openapi_emit_oom_resp_media_alloc_omits_content);
     RUN_TEST(test_openapi_emit_response_null_description);
     RUN_TEST(test_openapi_emit_response_null_content_type_defaults_to_json);
     RUN_TEST(test_openapi_emit_long_path_truncates_operation_id);
@@ -6983,9 +6842,6 @@ int main(void) {
     RUN_TEST(test_openapi_emit_param_count_zero_omits_parameters);
     RUN_TEST(test_openapi_emit_param_null_name_defaults_to_empty);
     RUN_TEST(test_openapi_emit_param_null_in_defaults_to_query);
-    RUN_TEST(test_openapi_emit_oom_params_arr_skips_parameters);
-    RUN_TEST(test_openapi_emit_oom_param_obj_skips_entry);
-    RUN_TEST(test_openapi_emit_oom_schema_obj_skips_schema);
     RUN_TEST(test_openapi_emit_stream_produces_valid_openapi_doc);
     RUN_TEST(test_openapi_emit_stream_null_args_return_invalid_arg);
     RUN_TEST(test_openapi_emit_stream_includes_servers_and_description);
@@ -7002,23 +6858,6 @@ int main(void) {
     RUN_TEST(test_openapi_emit_stream_obj_begin_fails_returns_err);
     RUN_TEST(test_openapi_emit_components_schemas_present);
     RUN_TEST(test_openapi_emit_ref_literal_passthrough);
-    RUN_TEST(test_openapi_emit_oom_components_section);
-
-    // test_openapi_emit_equivalence tests
-    RUN_TEST(test_openapi_emit_equivalence_no_routes);
-    RUN_TEST(test_openapi_emit_equivalence_single_get_route);
-    RUN_TEST(test_openapi_emit_equivalence_route_with_parameters);
-    RUN_TEST(test_openapi_emit_equivalence_route_with_request_schema);
-    RUN_TEST(test_openapi_emit_equivalence_multi_method_same_path);
-    RUN_TEST(test_openapi_emit_equivalence_multi_path);
-    RUN_TEST(test_openapi_emit_equivalence_sse_oneof_synthesis);
-    RUN_TEST(test_openapi_emit_equivalence_components_schemas_populated);
-    RUN_TEST(test_openapi_emit_equivalence_components_schemas_empty);
-    RUN_TEST(test_openapi_emit_equivalence_servers_and_description);
-    RUN_TEST(test_openapi_emit_equivalence_null_responses);
-    RUN_TEST(test_openapi_emit_equivalence_deeply_nested_schema);
-    RUN_TEST(test_openapi_emit_equivalence_null_title_defaults_agree);
-    RUN_TEST(test_openapi_emit_equivalence_null_version_defaults_agree);
 
     // test_openapi_capture_selftest tests
     RUN_TEST(test_openapi_capture_returns_parsed_doc_on_success);
@@ -7043,21 +6882,16 @@ int main(void) {
     RUN_TEST(test_sse_schema_emit_has_components_schemas);
     RUN_TEST(test_sse_schema_emit_no_schemas_no_components);
     RUN_TEST(test_sse_schema_oneof_synthesized_in_events);
-    RUN_TEST(test_sse_schema_no_sse_topic_no_oneof);
     RUN_TEST(test_sse_schema_stream_has_components_schemas);
     RUN_TEST(test_sse_schema_stream_no_schemas_no_components);
     RUN_TEST(test_sse_schema_registry_get_valid_idx_null_out_returns_false);
     RUN_TEST(test_sse_schema_oneof_skips_non_sse_schema_in_registry);
     RUN_TEST(test_sse_schema_stream_two_schemas_has_comma_separator);
-    RUN_TEST(test_sse_schema_oom_oneof_content_skips_block);
-    RUN_TEST(test_sse_schema_oom_oneof_media_skips_block);
-    RUN_TEST(test_sse_schema_oom_components_obj_skips_section);
     RUN_TEST(test_sse_schema_oneof_fragment_single_topic);
     RUN_TEST(test_sse_schema_oneof_fragment_max_cap_topics);
     RUN_TEST(test_sse_schema_oneof_fragment_mixed_sse_and_rest_only);
-    RUN_TEST(test_sse_schema_oneof_fragment_overflow_omits_content);
     RUN_TEST(test_sse_schema_oneof_fragment_overflow_omits_content_stream);
-    RUN_TEST(test_sse_schema_oneof_fragment_long_name_truncation_omits_content);
+    RUN_TEST(test_sse_schema_oneof_fragment_long_name_truncation_omits_content_stream);
     RUN_TEST(test_sse_schema_oneof_fragment_opener_overflow);
     RUN_TEST(test_sse_schema_oneof_fragment_closing_overflow);
     RUN_TEST(test_sse_schema_wifi_telemetry_payload_valid);

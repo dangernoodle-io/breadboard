@@ -1,40 +1,10 @@
-// NOTE: this file intentionally still references bb_json_* (bb_json.h,
-// bb_json_test_hooks.h) for a handful of deliberately-retained tests --
-// B1-1054 PR 5 (this port). platform/host/bb_openapi/bb_openapi_emit_tree.c
-// (the TREE emitter) is still present until B1-1054 PR 6 deletes it, so a
-// test that is the SOLE cover for one of its lines/branches must keep
-// driving bb_openapi_emit() (tree) rather than move to the stream path --
-// same rule PR 4 applied to test_openapi_emit.c's 19 OOM tests. Retained
-// here, each commented at its call site:
-//   - the 3 OOM tests (content/media/components alloc-failure) -- sole
-//     cover for the tree emitter's SSE-response alloc-failure cleanup arms.
-//   - test_sse_schema_oneof_fragment_overflow_omits_content and
-//     test_sse_schema_oneof_fragment_long_name_truncation_omits_content --
-//     sole cover for the tree emitter's own
-//     "build_sse_oneof_fragment() returned false" glue branch
-//     (bb_openapi_emit_tree.c's build_operation(), not the shared
-//     build_sse_oneof_fragment() helper itself, which the ported
-//     stream-path counterpart below already exercises independently).
-//   - test_sse_schema_no_sse_topic_no_oneof -- sole cover for the tree
-//     emitter's `if (sse_schema_count() > 0)` FALSE arm (bb_openapi_emit_
-//     tree.c:139); this is branch-only (the line itself always executes),
-//     so it doesn't show up as an uncovered LINE, only as a lost branch hit
-//     -- exactly the shape that slipped past the local gate on PR #1069.
-//     The stream-path arm has its own dedicated counterpart,
-//     test_openapi_emit_stream_sse_zero_topics_omits_content in
-//     test_openapi_emit.c, which cross-references this test by name.
-// Every other test in this file ports 1:1 onto test_openapi_capture()
-// (bb_openapi_emit_stream()).
 #include "unity.h"
 #include "bb_openapi.h"
 #include "bb_openapi_emit_internal.h"
-#include "bb_openapi_emit_tree_priv.h"
 #include "bb_openapi_validate_priv.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_http_host.h"
-#include "bb_json.h"
-#include "bb_json_test_hooks.h"
 #include "test_openapi_capture.h"
 
 #include <cJSON.h>
@@ -263,35 +233,6 @@ void test_sse_schema_oneof_synthesized_in_events(void)
     test_openapi_capture_free(&r);
 }
 
-// Deliberately retained on the TREE path (bb_openapi_emit()), not ported --
-// sole cover for bb_openapi_emit_tree.c:139's `if (sse_schema_count() > 0)`
-// FALSE arm (no SSE-topic schemas registered, so build_operation() skips the
-// oneOf-fragment block entirely). The stream emitter's equivalent arm already
-// has its own dedicated counterpart --
-// test_openapi_emit_stream_sse_zero_topics_omits_content in
-// test_openapi_emit.c, which cross-references this test by name. Retained
-// until B1-1054 PR 6 deletes the tree emitter.
-void test_sse_schema_no_sse_topic_no_oneof(void)
-{
-    bb_http_route_registry_clear();
-    bb_http_register_described_route(NULL, &s_sse_route);
-    // Register schema with NULL sse_topic — REST-only, must NOT appear in oneOf.
-    bb_openapi_register_schema("WifiInfo", k_wifi_schema, NULL);
-
-    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-
-    char *s = bb_json_serialize(doc);
-    bb_json_free(doc);
-    TEST_ASSERT_NOT_NULL(s);
-
-    // No SSE topics → no oneOf in the SSE response content block.
-    TEST_ASSERT_NULL(strstr(s, "\"oneOf\""));
-
-    bb_json_free_str(s);
-}
-
 // ---------------------------------------------------------------------------
 // Stream path has components/schemas
 // ---------------------------------------------------------------------------
@@ -412,96 +353,6 @@ void test_sse_schema_stream_two_schemas_has_comma_separator(void)
     TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"schemas\":{"));
 
     bb_http_host_capture_free(&cap);
-}
-
-// ---------------------------------------------------------------------------
-// OOM: oneOf block — content/media alloc failures
-// Line 424: components alloc failure
-//
-// Alloc sequence for s_sse_route (tag="events") + 1 LogEvent SSE schema:
-//   root=0, info=1, paths_obj=2, path_item=3, op=4, tags=5, responses=6,
-//   resp_obj=7, content=8, media=9, components=10, schemas=11.
-// The oneOf fragment itself is a plain string (build_sse_oneof_fragment +
-// bb_json_obj_set_raw) — no separate schema/one_of/ref bb_json_t allocations
-// remain to fail independently.
-// ---------------------------------------------------------------------------
-
-// Deliberately retained on the TREE path (bb_openapi_emit()), not ported --
-// sole cover for the tree emitter's SSE-response alloc-failure cleanup arms.
-// Retained until B1-1054 PR 6 deletes the tree emitter.
-// content=NULL → if(NULL && ...) → else cleanup (line 305 branch 1)
-void test_sse_schema_oom_oneof_content_skips_block(void)
-{
-    bb_http_route_registry_clear();
-    bb_http_register_described_route(NULL, &s_sse_route);
-    bb_openapi_register_schema("LogEvent", k_log_schema, "log");
-
-    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_host_force_alloc_fail_after(8);
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-    bb_json_host_force_alloc_fail_after(-1);
-
-    bb_json_t paths    = bb_json_obj_get_item(doc, "paths");
-    bb_json_t pi       = bb_json_obj_get_item(paths, "/api/events");
-    bb_json_t get_op   = bb_json_obj_get_item(pi, "get");
-    bb_json_t resps    = bb_json_obj_get_item(get_op, "responses");
-    bb_json_t r200     = bb_json_obj_get_item(resps, "200");
-    TEST_ASSERT_NOT_NULL(r200);
-    // content alloc failed → SSE response has no content key
-    TEST_ASSERT_NULL(bb_json_obj_get_item(r200, "content"));
-
-    bb_json_free(doc);
-}
-
-// Deliberately retained on the TREE path (bb_openapi_emit()), not ported --
-// sole cover for the tree emitter's SSE-response alloc-failure cleanup arms.
-// Retained until B1-1054 PR 6 deletes the tree emitter.
-// media=NULL → if(content && NULL && ...) → else cleanup (line 305 branch 3)
-void test_sse_schema_oom_oneof_media_skips_block(void)
-{
-    bb_http_route_registry_clear();
-    bb_http_register_described_route(NULL, &s_sse_route);
-    bb_openapi_register_schema("LogEvent", k_log_schema, "log");
-
-    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_host_force_alloc_fail_after(9);
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-    bb_json_host_force_alloc_fail_after(-1);
-
-    bb_json_t paths  = bb_json_obj_get_item(doc, "paths");
-    bb_json_t pi     = bb_json_obj_get_item(paths, "/api/events");
-    bb_json_t get_op = bb_json_obj_get_item(pi, "get");
-    bb_json_t resps  = bb_json_obj_get_item(get_op, "responses");
-    bb_json_t r200   = bb_json_obj_get_item(resps, "200");
-    TEST_ASSERT_NOT_NULL(r200);
-    TEST_ASSERT_NULL(bb_json_obj_get_item(r200, "content"));
-
-    bb_json_free(doc);
-}
-
-// Deliberately retained on the TREE path (bb_openapi_emit()), not ported --
-// sole cover for the tree emitter's SSE-response alloc-failure cleanup arms.
-// Retained until B1-1054 PR 6 deletes the tree emitter.
-// components=NULL → if(NULL && schemas) short-circuits (line 424 branch 1)
-void test_sse_schema_oom_components_obj_skips_section(void)
-{
-    bb_http_route_registry_clear();
-    bb_http_register_described_route(NULL, &s_sse_route);
-    bb_openapi_register_schema("LogEvent", k_log_schema, "log");
-
-    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    // content=8, media=9 succeed; components=10 fails
-    bb_json_host_force_alloc_fail_after(10);
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-    bb_json_host_force_alloc_fail_after(-1);
-
-    // components alloc failed → section gracefully skipped
-    TEST_ASSERT_NULL(bb_json_obj_get_item(doc, "components"));
-
-    bb_json_free(doc);
 }
 
 // ---------------------------------------------------------------------------
@@ -1124,85 +975,6 @@ void test_sse_schema_oneof_fragment_mixed_sse_and_rest_only(void)
     test_openapi_capture_free(&r);
 }
 
-// 24 registry-cap entries, each with a component name at the widest length
-// that still fits ref_val's own 80-byte budget untruncated (58 chars): the
-// resulting fragment (~2195 bytes) exceeds BB_OPENAPI_SSE_ONEOF_BUF_SIZE
-// (~1933 bytes) — the pathological case the buffer is NOT sized for. Content
-// must be omitted, never emitted as truncated (malformed) JSON.
-// Deliberately retained on the TREE path (bb_openapi_emit()), not ported --
-// sole cover for the tree emitter's own fragment glue at
-// bb_openapi_emit_tree.c:154-165 (distinct from the shared
-// build_sse_oneof_fragment() helper, which the stream-path counterpart below
-// already exercises independently). Retained until B1-1054 PR 6 deletes the
-// tree emitter.
-void test_sse_schema_oneof_fragment_overflow_omits_content(void)
-{
-    bb_http_route_registry_clear();
-    bb_http_register_described_route(NULL, &s_sse_route);
-
-    static char names[BB_OPENAPI_SCHEMA_REGISTRY_CAP][64];
-    for (size_t i = 0; i < BB_OPENAPI_SCHEMA_REGISTRY_CAP; i++) {
-        // 2-digit index + 56 zero-padded digits = 58 chars.
-        snprintf(names[i], sizeof(names[i]), "%02zu%056d", i, 0);
-        TEST_ASSERT_EQUAL(BB_OK,
-            bb_openapi_register_schema(names[i], k_log_schema, names[i]));
-    }
-    TEST_ASSERT_EQUAL_size_t(BB_OPENAPI_SCHEMA_REGISTRY_CAP, bb_openapi_schema_count());
-
-    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-
-    bb_json_t paths  = bb_json_obj_get_item(doc, "paths");
-    bb_json_t pi     = bb_json_obj_get_item(paths, "/api/events");
-    bb_json_t get_op = bb_json_obj_get_item(pi, "get");
-    bb_json_t resps  = bb_json_obj_get_item(get_op, "responses");
-    bb_json_t r200   = bb_json_obj_get_item(resps, "200");
-    TEST_ASSERT_NOT_NULL(r200);
-    // Fragment overflowed the bounded buffer — content omitted, not truncated.
-    TEST_ASSERT_NULL(bb_json_obj_get_item(r200, "content"));
-
-    bb_json_free(doc);
-}
-
-// A component name long enough that "#/components/schemas/<name>" truncates
-// inside ref_val's own 80-byte budget (name > 58 chars) must not silently
-// splice a truncated (wrong-but-valid-looking) $ref into the fragment —
-// that would be worse than the overflow case above, since the output reads
-// as valid JSON while pointing at the wrong schema. Content must be omitted.
-// Deliberately retained on the TREE path (bb_openapi_emit()), not ported --
-// sole cover for the tree emitter's own fragment glue at
-// bb_openapi_emit_tree.c:154-165 (distinct from the shared
-// build_sse_oneof_fragment() helper, which the stream-path counterpart below
-// already exercises independently). Retained until B1-1054 PR 6 deletes the
-// tree emitter.
-void test_sse_schema_oneof_fragment_long_name_truncation_omits_content(void)
-{
-    bb_http_route_registry_clear();
-    bb_http_register_described_route(NULL, &s_sse_route);
-
-    static char long_name[70];
-    memset(long_name, 'A', sizeof(long_name) - 1);
-    long_name[sizeof(long_name) - 1] = '\0';
-
-    TEST_ASSERT_EQUAL(BB_OK,
-        bb_openapi_register_schema(long_name, k_log_schema, "log"));
-
-    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-
-    bb_json_t paths  = bb_json_obj_get_item(doc, "paths");
-    bb_json_t pi     = bb_json_obj_get_item(paths, "/api/events");
-    bb_json_t get_op = bb_json_obj_get_item(pi, "get");
-    bb_json_t resps  = bb_json_obj_get_item(get_op, "responses");
-    bb_json_t r200   = bb_json_obj_get_item(resps, "200");
-    TEST_ASSERT_NOT_NULL(r200);
-    TEST_ASSERT_NULL(bb_json_obj_get_item(r200, "content"));
-
-    bb_json_free(doc);
-}
-
 // ---------------------------------------------------------------------------
 // build_sse_oneof_fragment() branch coverage via the direct test seam
 // (bb_openapi_build_sse_oneof_fragment_for_test) — driving out_size directly
@@ -1265,6 +1037,44 @@ void test_sse_schema_oneof_fragment_overflow_omits_content_stream(void)
     TEST_ASSERT_NOT_NULL(s_r200);
     // Fragment overflowed the bounded buffer — content omitted, not truncated.
     TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(s_r200, "content"));
+
+    test_openapi_capture_free(&r);
+}
+
+// Stream-path counterpart to the deleted tree-path
+// test_sse_schema_oneof_fragment_long_name_truncation_omits_content (B1-1054
+// PR 6 removed the tree emitter): a component name long enough that
+// "#/components/schemas/<name>" truncates inside ref_val's own 80-byte
+// budget (name > 58 chars) must not silently splice a truncated
+// (wrong-but-valid-looking) $ref into the fragment. This is the sole
+// remaining cover for build_sse_oneof_fragment()'s ref_n overflow branch
+// (components/bb_openapi/src/bb_openapi_emit_shared.c) shared by both
+// emitters — losing it would drop that branch's coverage with no code
+// removal to offset it.
+void test_sse_schema_oneof_fragment_long_name_truncation_omits_content_stream(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_sse_route);
+
+    static char long_name[70];
+    memset(long_name, 'A', sizeof(long_name) - 1);
+    long_name[sizeof(long_name) - 1] = '\0';
+
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_openapi_register_schema(long_name, k_log_schema, "log"));
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
+
+    cJSON *paths  = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *pi     = cJSON_GetObjectItemCaseSensitive(paths, "/api/events");
+    cJSON *get_op = cJSON_GetObjectItemCaseSensitive(pi, "get");
+    cJSON *resps  = cJSON_GetObjectItemCaseSensitive(get_op, "responses");
+    cJSON *r200   = cJSON_GetObjectItemCaseSensitive(resps, "200");
+    TEST_ASSERT_NOT_NULL(r200);
+    TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(r200, "content"));
 
     test_openapi_capture_free(&r);
 }

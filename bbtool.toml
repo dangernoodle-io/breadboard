@@ -13,12 +13,7 @@ severity = "error"
 [lint.rules.raw-allocator]
 severity = "error"
 # Allowlist: path strings or "path:line" keys for intentional raw-allocator uses.
-# bb_json_cjson.c uses a stack-overflow-safe temp malloc inside the cJSON adapter layer;
-# these are not bb_mem allocations and must not be migrated.
-allow = [
-    "platform/espidf/bb_json/bb_json_cjson.c",
-    "platform/host/bb_json/bb_json_cjson.c",
-]
+allow = []
 
 [lint.rules.raw-esp-timer]
 severity = "error"
@@ -140,7 +135,7 @@ components = [
     "bb_diag_http",
     "bb_display",
     "bb_fan", "bb_filter", "bb_fmt", "bb_fsm", "bb_health", "bb_http",
-    "bb_http_client", "bb_http_server", "bb_i2c", "bb_json",
+    "bb_http_client", "bb_http_server", "bb_i2c",
     "bb_led", "bb_led_anim", "bb_led_apa102", "bb_led_gpio",
     "bb_led_pwm", "bb_led_rgb_pwm", "bb_lifecycle", "bb_log", "bb_log_event", "bb_mdns",
     "bb_mdns_cache", "bb_mem_arena", "bb_mem_arena_tls", "bb_mqtt_client",
