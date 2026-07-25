@@ -139,12 +139,23 @@ bb_err_t bb_task_base_upsert(void *handle, const char *name,
     // pool slot is only ever occupied by this exact call, and only ever
     // freed by bb_task_base_remove alongside the matching deregister_ptr),
     // and `handle` was confirmed absent from the registry under this same
-    // lock above -- so bb_registry_register_ptr cannot fail here (neither
-    // BB_ERR_NO_SPACE nor a duplicate-key BB_ERR_INVALID_STATE is
-    // reachable). Register unconditionally rather than gate on an
-    // unreachable (and therefore untestable) error branch (mirrors
-    // bb_task_base_remove's identical rationale below).
-    bb_registry_register_ptr(&s_base_registry, handle, entry);
+    // lock above -- so NO_SPACE and a duplicate-key BB_ERR_INVALID_STATE are
+    // unreachable. The lazy bb_lock_init() behind bb_registry_register_ptr
+    // can still fail transiently (lock-unavailable, not host-reproducible --
+    // see bb_registry.c); left unguarded that would leave this slot claimed
+    // (in_use=true) but never linked into the registry, so
+    // bb_task_base_remove could never find it to free it -- a permanent
+    // pool-slot leak, and the task would be invisible to
+    // bb_task_base_foreach (never swept, wdt_arm'd, or stack-reconciled).
+    // Free the slot and propagate on any failure instead.
+    bb_err_t reg_rc = bb_registry_register_ptr(&s_base_registry, handle, entry);
+    if (reg_rc != BB_OK) {  // LCOV_EXCL_BR_LINE -- lock-unavailable only; not host-reproducible (see bb_registry.c).
+        // LCOV_EXCL_START
+        pool_free_locked(entry);
+        pthread_mutex_unlock(&s_lock);
+        return reg_rc;
+        // LCOV_EXCL_STOP
+    }
 
     pthread_mutex_unlock(&s_lock);
     return BB_OK;
@@ -237,7 +248,16 @@ bb_err_t bb_task_base_touch_or_insert(void *handle, const char *name, uint32_t n
             race_entry->stack_bytes = s_test_race_payload.stack_bytes;
             race_entry->wdt_arm     = s_test_race_payload.wdt_arm;
             race_entry->seen_tick   = 0;
-            bb_registry_register_ptr(&s_base_registry, s_test_race_payload.handle, race_entry);
+            // Same lock-unavailable/slot-leak exposure as the two
+            // production register_ptr call sites above -- gate this
+            // test-only injection identically rather than carve out an
+            // inconsistent exception.
+            bb_err_t race_reg_rc = bb_registry_register_ptr(&s_base_registry, s_test_race_payload.handle, race_entry);
+            if (race_reg_rc != BB_OK) {  // LCOV_EXCL_BR_LINE -- lock-unavailable only; not host-reproducible (see bb_registry.c).
+                // LCOV_EXCL_START
+                pool_free_locked(race_entry);
+                // LCOV_EXCL_STOP
+            }
         }
         existing = bb_registry_lookup_ptr(&s_base_registry, handle);
     }
@@ -266,11 +286,22 @@ bb_err_t bb_task_base_touch_or_insert(void *handle, const char *name, uint32_t n
     entry->wdt_arm     = false;
     entry->seen_tick   = now_tick;
 
-    // Same "cannot fail" rationale as bb_task_base_upsert's new-handle path
-    // above: `handle` was confirmed absent from the registry under this
-    // same lock (including the test-only re-check), and the pool slot was
-    // just allocated -- register unconditionally.
-    bb_registry_register_ptr(&s_base_registry, handle, entry);
+    // Same NO_SPACE/duplicate-key unreachability rationale as
+    // bb_task_base_upsert's new-handle path above: `handle` was confirmed
+    // absent from the registry under this same lock (including the
+    // test-only re-check), and the pool slot was just allocated. The lazy
+    // bb_lock_init() behind bb_registry_register_ptr can still fail
+    // transiently (lock-unavailable) -- same slot-leak consequence as
+    // bb_task_base_upsert, so free the slot and propagate on failure here
+    // too.
+    bb_err_t reg_rc = bb_registry_register_ptr(&s_base_registry, handle, entry);
+    if (reg_rc != BB_OK) {  // LCOV_EXCL_BR_LINE -- lock-unavailable only; not host-reproducible (see bb_registry.c).
+        // LCOV_EXCL_START
+        pool_free_locked(entry);
+        pthread_mutex_unlock(&s_lock);
+        return reg_rc;
+        // LCOV_EXCL_STOP
+    }
 
     pthread_mutex_unlock(&s_lock);
     return BB_OK;

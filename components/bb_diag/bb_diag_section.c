@@ -177,7 +177,7 @@ bb_err_t bb_diag_register_section(const bb_diag_section_t *section)
     slot->name[sizeof(slot->name) - 1] = '\0';
 
     rc = bb_registry_register(&s_bb_diag_section_registry, slot->name, slot);
-    if (rc != BB_OK) return rc;  // LCOV_EXCL_BR_LINE -- the lookup+find_free_slot pair above already proved this name is absent and a slot is free; bb_registry_register() cannot fail here.
+    if (rc != BB_OK) return rc;  // LCOV_EXCL_BR_LINE -- the lookup+find_free_slot pair above already proved this name is absent and a slot is free, ruling out NO_SPACE/duplicate-key; the lazy lock-init behind bb_registry_register() can still fail transiently (lock-unavailable), a real but not host-reproducible branch (see bb_registry.c) -- the checked return above is what propagates it.
 
     slot->in_use = true;
     slot->section = *section;

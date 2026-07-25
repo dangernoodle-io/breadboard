@@ -15,7 +15,8 @@ extern "C" {
 //
 // Declare file-scope instances with BB_CLAIM_INIT; no explicit init call
 // needed — the underlying bb_lock_t is lazily bb_lock_init()'d (via
-// bb_once_run) on first use, so no platform mutex header/type appears here.
+// bb_lock_once_ensure()) on first use, so no platform mutex header/type
+// appears here.
 
 typedef struct {
     const char *holder;
@@ -32,9 +33,12 @@ typedef struct {
 #define BB_CLAIM_INIT { .holder = NULL, .lock_once = BB_ONCE_INIT }
 
 // Acquire the claim for id.
-// Returns BB_OK          if the slot was free (now held by id).
-// Returns BB_OK          if already held by id (idempotent).
-// Returns BB_ERR_CONFLICT if held by a different id (logs a warning).
+// Returns BB_OK             if the slot was free (now held by id).
+// Returns BB_OK             if already held by id (idempotent).
+// Returns BB_ERR_CONFLICT   if held by a different id (logs a warning).
+// Returns BB_ERR_INVALID_ARG if c or id is NULL.
+// Returns any error from the underlying lazy bb_lock_init() (e.g.
+// BB_ERR_NO_MEM) if the lock could not be initialized -- retry later.
 // Never blocks.
 bb_err_t    bb_claim_acquire(bb_claim_t *c, const char *id);
 

@@ -93,6 +93,8 @@ typedef void (*bb_collection_cb_t)(const bb_collection_entry_t *entry, void *ctx
 // Returns BB_ERR_INVALID_ARG if c or name is NULL.
 // Returns BB_ERR_NO_SPACE if count == capacity (loud, fail-fast — mirrors
 // bb_cache's KEY_MAX policy: no silent drop, no overwrite).
+// Returns any error from the underlying lazy bb_lock_init() (e.g.
+// BB_ERR_NO_MEM) if the lock could not be initialized -- retry later.
 bb_err_t bb_collection_add(bb_collection_t *c, const char *name,
                             const void *item, int order);
 
@@ -103,10 +105,12 @@ bb_err_t bb_collection_add(bb_collection_t *c, const char *name,
 // per entry lock-free — item pointers are caller-owned and stable across the
 // callback, so this is safe even if cb runs long. Do NOT call
 // bb_collection_add from within cb (stale snapshot).
-// No-op (cb never invoked) if c or cb is NULL, or the collection is empty.
+// No-op (cb never invoked) if c or cb is NULL, the collection is empty, or
+// the underlying lock could not be lazily initialized.
 void bb_collection_foreach(bb_collection_t *c, bb_collection_cb_t cb, void *ctx);
 
-// Return the current entry count (lock-guarded). Returns 0 if c is NULL.
+// Return the current entry count (lock-guarded). Returns 0 if c is NULL or
+// the underlying lock could not be lazily initialized.
 size_t bb_collection_count(bb_collection_t *c);
 
 // ---------------------------------------------------------------------------

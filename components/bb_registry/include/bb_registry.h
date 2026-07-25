@@ -89,12 +89,25 @@ typedef struct {
 
 // ---------------------------------------------------------------------------
 // Operations
+//
+// Silent-degradation note: several ops below (freeze, foreach/foreach_ptr,
+// count, lookup/lookup_ptr) have no bb_err_t to report through and instead
+// fold a lock-unavailable failure into an already-valid "nothing happened"
+// result (no-op / 0 / NULL). This is NOT the same class of thing as this
+// header's NULL-argument convention: a NULL argument is a caller bug,
+// detectable and fixable at the call site. Lock-unavailable is a genuine,
+// if narrow and transient (effectively boot-window-only), runtime condition
+// that is indistinguishable from "count is actually 0" / "name is actually
+// absent" — a caller must not read count()==0 or lookup()==NULL as
+// definitive proof of emptiness/absence on that basis alone.
 // ---------------------------------------------------------------------------
 
 // Register a name→value pair.
 // Returns BB_ERR_INVALID_ARG if name or value is NULL.
 // Returns BB_ERR_INVALID_STATE if the registry is frozen or name is duplicate.
 // Returns BB_ERR_NO_SPACE if count == capacity.
+// Returns any error from the underlying lazy bb_lock_init() (e.g.
+// BB_ERR_NO_MEM) if the lock could not be initialized -- retry later.
 // Emits a one-time HWM bb_log_w when count transitions to capacity-1
 // (one slot still free), so callers have notice before the registry fills.
 bb_err_t bb_registry_register(bb_registry_t *r, const char *name, void *value);
@@ -103,10 +116,13 @@ bb_err_t bb_registry_register(bb_registry_t *r, const char *name, void *value);
 // Returns BB_ERR_INVALID_ARG if name is NULL.
 // Returns BB_ERR_NOT_FOUND if the name is not present.
 // Returns BB_ERR_INVALID_STATE if the registry is frozen.
+// Returns any error from the underlying lazy bb_lock_init() (e.g.
+// BB_ERR_NO_MEM) if the lock could not be initialized -- retry later.
 bb_err_t bb_registry_deregister(bb_registry_t *r, const char *name);
 
 // Freeze the registry. Idempotent. After freezing, register/deregister
-// return BB_ERR_INVALID_STATE.
+// return BB_ERR_INVALID_STATE. No-op if the underlying lock could not be
+// lazily initialized (see the silent-degradation note below).
 void bb_registry_freeze(bb_registry_t *r);
 
 // Iterate all entries. Acquires the lock, snapshots entries to a fixed-size
@@ -116,6 +132,9 @@ void bb_registry_freeze(bb_registry_t *r);
 // register/deregister from within cb (stale snapshot — newly registered
 // entries are not visited this pass; deregistered entries are still visited
 // via the snapshot).
+// No-op (cb never invoked) if the underlying lock could not be lazily
+// initialized (see the silent-degradation note below) — indistinguishable
+// here from "registry genuinely empty".
 // WARNING: on a pointer-keyed instance (see below) `name` is an opaque
 // identity pointer, NOT a valid C string — do not %s/strcmp/strlen it.
 // Use bb_registry_foreach_ptr on pointer-keyed instances instead.
@@ -123,18 +142,28 @@ void bb_registry_foreach(bb_registry_t *r,
                          void (*cb)(const char *name, void *value, void *ctx),
                          void *ctx);
 
-// Return the current entry count (lock-guarded).
+// Return the current entry count (lock-guarded). Returns 0 if the underlying
+// lock could not be lazily initialized (see the silent-degradation note
+// below) — indistinguishable here from "registry genuinely empty".
 uint16_t bb_registry_count(bb_registry_t *r);
 
 // Copy the entry at index idx into *out (lock-guarded).
 // Returns BB_ERR_INVALID_ARG if out is NULL.
 // Returns BB_ERR_NOT_FOUND if idx >= count.
+// Returns any error from the underlying lazy bb_lock_init() (e.g.
+// BB_ERR_NO_MEM) if the lock could not be initialized -- retry later.
 // WARNING: on a pointer-keyed instance (see below) out->name is an opaque
 // identity pointer, NOT a valid C string — do not %s/strcmp/strlen it.
 bb_err_t bb_registry_get_by_index(bb_registry_t *r, uint16_t idx,
                                    bb_registry_entry_t *out);
 
-// Return the value for name, or NULL if not found (lock-guarded).
+// Return the value for name, or NULL if not found (lock-guarded), or if the
+// underlying lock could not be lazily initialized (see the silent-
+// degradation note below) — a lock-unavailable NULL is indistinguishable
+// here from "genuinely not found"; a real caller (e.g. bb_data_get/
+// bb_data_apply, bb_serialize_format_lookup) reads it exactly as "not
+// found", so this is a narrower, transient risk than the caller-bug
+// NULL-argument convention below and must not be conflated with it.
 // Safe on frozen registries; on live registries the caller is responsible
 // for ensuring the value lifetime outlasts use of the returned pointer.
 // Prefer foreach for churn consumers.
@@ -158,6 +187,8 @@ void *bb_registry_lookup(bb_registry_t *r, const char *name);
 // Returns BB_ERR_INVALID_ARG if key or value is NULL.
 // Returns BB_ERR_INVALID_STATE if the registry is frozen or key is duplicate.
 // Returns BB_ERR_NO_SPACE if count == capacity.
+// Returns any error from the underlying lazy bb_lock_init() (e.g.
+// BB_ERR_NO_MEM) if the lock could not be initialized -- retry later.
 // Emits the same one-time HWM bb_log_w as bb_registry_register.
 bb_err_t bb_registry_register_ptr(bb_registry_t *r, void *key, void *value);
 
@@ -165,16 +196,24 @@ bb_err_t bb_registry_register_ptr(bb_registry_t *r, void *key, void *value);
 // Returns BB_ERR_INVALID_ARG if key is NULL.
 // Returns BB_ERR_NOT_FOUND if the key is not present.
 // Returns BB_ERR_INVALID_STATE if the registry is frozen.
+// Returns any error from the underlying lazy bb_lock_init() (e.g.
+// BB_ERR_NO_MEM) if the lock could not be initialized -- retry later.
 bb_err_t bb_registry_deregister_ptr(bb_registry_t *r, const void *key);
 
-// Return the value for key, or NULL if not found (lock-guarded).
+// Return the value for key, or NULL if not found (lock-guarded), or if the
+// underlying lock could not be lazily initialized (see the silent-
+// degradation note above) — same "not distinguishable from absent, and
+// narrower/more transient than a NULL-argument caller bug" caveat as
+// bb_registry_lookup.
 void *bb_registry_lookup_ptr(bb_registry_t *r, const void *key);
 
 // Iterate all entries of a pointer-keyed registry. Same copy-out/lock
 // semantics as bb_registry_foreach, but cb's first parameter is typed
 // `void *key` (the identity pointer) instead of `const char *name` — use
 // this on pointer-keyed instances so callers get compiler help and never
-// mistake the key for a C string.
+// mistake the key for a C string. No-op (cb never invoked) if the underlying
+// lock could not be lazily initialized (see the silent-degradation note
+// above).
 void bb_registry_foreach_ptr(bb_registry_t *r,
                              void (*cb)(void *key, void *value, void *ctx),
                              void *ctx);

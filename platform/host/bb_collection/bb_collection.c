@@ -8,25 +8,23 @@
 // held — same shape as bb_registry_foreach.
 
 #include "bb_collection.h"
+#include "bb_lock_once.h"
 #include "bb_log.h"
 
 #include <string.h>
 
 static const char *TAG = "bb_collection";
 
-// Lazily bb_lock_init() c->lock exactly once (bb_once_run) — mirrors
-// BB_COLLECTION_DEFINE's "no explicit init call needed" contract while
-// keeping the platform mutex type out of bb_collection.h.
-static void collection_init_lock(void *ctx)
+// Lazily bb_lock_init() c->lock exactly once via bb_lock_once_ensure() —
+// mirrors BB_COLLECTION_DEFINE's "no explicit init call needed" contract
+// while keeping the platform mutex type out of bb_collection.h. Unlike the
+// plain bb_once_run() this replaced, a transient bb_lock_init() failure
+// resets to IDLE instead of latching DONE forever, so a later caller
+// genuinely retries (B1-1203, mirrors B1-524).
+static inline bb_err_t collection_ensure_lock(bb_collection_t *c)
 {
-    bb_collection_t *c = ctx;
     bb_lock_config_t cfg = { .name = "bb_collection" };
-    bb_lock_init(&cfg, &c->lock);
-}
-
-static inline void collection_ensure_lock(bb_collection_t *c)
-{
-    bb_once_run(&c->lock_once, collection_init_lock, c);
+    return bb_lock_once_ensure(&c->lock_once, &cfg, &c->lock);
 }
 
 bb_err_t bb_collection_add(bb_collection_t *c, const char *name,
@@ -36,7 +34,16 @@ bb_err_t bb_collection_add(bb_collection_t *c, const char *name,
         return BB_ERR_INVALID_ARG;
     }
 
-    collection_ensure_lock(c);
+    bb_err_t lock_rc = collection_ensure_lock(c);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible
+    // (same rationale as bb_lock_once.c's own LCOV_EXCL comment); this is a
+    // defensive path, not a real branch the test suite can drive. HIL-only
+    // equivalent tracked as B1-692.
+    if (lock_rc != BB_OK) {
+        bb_log_e(TAG, "add('%s'): lock unavailable", name);
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&c->lock);
 
     if (c->count >= c->capacity) {
@@ -59,7 +66,12 @@ bb_err_t bb_collection_add(bb_collection_t *c, const char *name,
 static size_t collection_snapshot(bb_collection_t *c,
                                    bb_collection_entry_t snapshot[BB_COLLECTION_SNAPSHOT_MAX])
 {
-    collection_ensure_lock(c);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see collection_ensure_lock() callers' shared rationale above.
+    if (collection_ensure_lock(c) != BB_OK) {
+        return 0;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&c->lock);
     size_t count = c->count;
 
@@ -115,7 +127,12 @@ size_t bb_collection_count(bb_collection_t *c)
         return 0;
     }
 
-    collection_ensure_lock(c);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see collection_ensure_lock() callers' shared rationale above.
+    if (collection_ensure_lock(c) != BB_OK) {
+        return 0;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&c->lock);
     size_t count = c->count;
     bb_lock_unlock(&c->lock);
