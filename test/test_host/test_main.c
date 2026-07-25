@@ -3641,6 +3641,7 @@ void test_bb_vcore_wd_oc_fault_collapse_latches_fault_hold(void);
 void test_bb_vcore_wd_fault_hold_persists_on_healthy_reading(void);
 void test_bb_vcore_wd_fault_hold_early_out_when_already_held(void);
 void test_bb_vcore_wd_clear_hold_rearms_recoverable_path(void);
+void test_bb_vcore_wd_clear_hold_resets_burst_tracking(void);
 void test_bb_vcore_wd_no_oc_fault_collapse_still_recovers(void);
 void test_bb_vcore_wd_is_held_reflects_state(void);
 
@@ -3815,6 +3816,8 @@ void test_decode_fault_bits_clean(void);
 void test_decode_fault_bits_0x0840_unit_off(void);
 void test_decode_fault_bits_iout_oc(void);
 void test_decode_fault_bits_iout_oc_only(void);
+void test_decode_fault_bits_iout_oc_incident_0xa0(void);
+void test_decode_fault_bits_iout_uc_does_not_trigger_oc(void);
 void test_decode_fault_bits_ot(void);
 void test_decode_fault_bits_vin_uv(void);
 void test_decode_fault_bits_vin_ov(void);
@@ -3882,6 +3885,8 @@ void test_program_protection_writes_have_essential_false(void);
 void test_program_ton_delay_written_when_nonzero(void);
 void test_program_ton_max_fault_written_when_nonzero(void);
 void test_program_ton_max_fault_response_written_when_nonzero(void);
+void test_program_vout_uv_fault_response_written_when_nonzero(void);
+void test_program_vout_uv_fault_response_skipped_when_zero(void);
 void test_program_overflow_on_essential_byte_write(void);
 void test_program_overflow_on_block5_write(void);
 
@@ -7726,6 +7731,7 @@ int main(void) {
     RUN_TEST(test_bb_vcore_wd_fault_hold_persists_on_healthy_reading);
     RUN_TEST(test_bb_vcore_wd_fault_hold_early_out_when_already_held);
     RUN_TEST(test_bb_vcore_wd_clear_hold_rearms_recoverable_path);
+    RUN_TEST(test_bb_vcore_wd_clear_hold_resets_burst_tracking);
     RUN_TEST(test_bb_vcore_wd_no_oc_fault_collapse_still_recovers);
     RUN_TEST(test_bb_vcore_wd_is_held_reflects_state);
 
@@ -7897,6 +7903,8 @@ int main(void) {
     RUN_TEST(test_decode_fault_bits_0x0840_unit_off);
     RUN_TEST(test_decode_fault_bits_iout_oc);
     RUN_TEST(test_decode_fault_bits_iout_oc_only);
+    RUN_TEST(test_decode_fault_bits_iout_oc_incident_0xa0);
+    RUN_TEST(test_decode_fault_bits_iout_uc_does_not_trigger_oc);
     RUN_TEST(test_decode_fault_bits_ot);
     RUN_TEST(test_decode_fault_bits_vin_uv);
     RUN_TEST(test_decode_fault_bits_vin_ov);
@@ -7964,6 +7972,8 @@ int main(void) {
     RUN_TEST(test_program_ton_delay_written_when_nonzero);
     RUN_TEST(test_program_ton_max_fault_written_when_nonzero);
     RUN_TEST(test_program_ton_max_fault_response_written_when_nonzero);
+    RUN_TEST(test_program_vout_uv_fault_response_written_when_nonzero);
+    RUN_TEST(test_program_vout_uv_fault_response_skipped_when_zero);
     RUN_TEST(test_program_overflow_on_essential_byte_write);
     RUN_TEST(test_program_overflow_on_block5_write);
 
