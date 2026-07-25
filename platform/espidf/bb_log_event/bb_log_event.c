@@ -21,7 +21,7 @@
 #include "bb_http_server.h"
 #include "bb_serialize_json.h"
 #include "bb_clock.h"
-#include "bb_openapi.h"
+#include "bb_data_http.h"
 #include "bb_task.h"
 #include "bb_str.h"
 #include "freertos/FreeRTOS.h"
@@ -149,6 +149,16 @@ bb_err_t bb_log_event_gather(bb_log_event_wire_t *dst)
 // the schema is composed first, before serving the runtime-composed
 // buffer -- a compose failure is degrade-and-continue (warn, keep going),
 // not fail-loud, see the comment at the call site below.
+//
+// B1-1220 PR2 (the pilot migration): describes via bb_data_http_describe()
+// rather than the legacy bb_openapi_register_topic_schema() -- bb_log_event
+// no longer links bb_openapi at all (see CMakeLists.txt). key and topic are
+// both "log" (the bb_data key this producer binds under is also the /api/
+// events SSE topic name, see examples/floor/main/floor_app.c's producers[]
+// bind loop). A composition root that wants "log" back in /api/openapi.json
+// must wire bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach) --
+// examples/smoke now wires this seam (see its entry_espidf.c) -- see
+// bb_openapi.h's seam doc.
 bb_err_t bb_log_event_init(bb_http_handle_t server)
 {
     (void)server;
@@ -178,10 +188,26 @@ bb_err_t bb_log_event_init(bb_http_handle_t server)
     if (schema_rc != BB_OK) {
         bb_log_w(TAG, "log schema compose failed: %d", (int)schema_rc);
     } else {
-        bb_openapi_register_topic_schema("log", bb_log_event_line_get_schema(), "LogEvent");
+        // Doc-only bookkeeping (feeds /api/openapi.json schema synthesis, see
+        // bb_openapi.h's topic-source seam doc) -- this call is new with the
+        // migration, so it is born correct: a describe failure must not abort
+        // bring-up, since bb_data_http_describe()'s backing table
+        // (BB_DATA_HTTP_MAX_DESCRIBE) is shared, first-come, no-eviction, and
+        // can legitimately be full by the time this producer registers.
+        // Degrade-and-continue: log a warning and fall through so the
+        // queue/task/subscription below still comes up.
+        bb_err_t describe_rc = bb_data_http_describe("log", "log", "LogEvent",
+                                                      bb_log_event_line_get_schema());
+        if (describe_rc != BB_OK) {
+            bb_log_w(TAG, "log schema describe failed: %d", (int)describe_rc);
+        }
     }
 #else
-    bb_openapi_register_topic_schema("log", bb_log_event_line_get_schema(), "LogEvent");
+    bb_err_t describe_rc = bb_data_http_describe("log", "log", "LogEvent",
+                                                  bb_log_event_line_get_schema());
+    if (describe_rc != BB_OK) {
+        bb_log_w(TAG, "log schema describe failed: %d", (int)describe_rc);
+    }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     s_q = xQueueCreate(BB_LOG_EVENT_QUEUE_LEN, sizeof(log_event_msg_t));

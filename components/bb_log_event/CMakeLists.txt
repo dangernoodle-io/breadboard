@@ -15,7 +15,14 @@ idf_component_register(
     # bb_serialize_json: PRIV -- bb_serialize_json_render() for the internal
     # per-log-line JSON build (bb_log_event.c s_forwarder_task); replaces the
     # former bb_json (cJSON) dependency (no-heap migration).
-    REQUIRES bb_log bb_openapi bb_task
+    # bb_data_http: PRIV -- B1-1220 PR2 (B1-1221): bb_data_http_describe()
+    # call in bb_log_event.c's bb_log_event_init() (internal .c use only, no
+    # public header of this component includes bb_data_http.h). Replaces
+    # bb_openapi, which was previously in REQUIRES with no public-header
+    # justification either -- it pulled bb_openapi into every consumer's
+    # link closure (e.g. examples/floor, which has no bb_openapi dependency
+    # of its own) for a single internal registration call.
+    REQUIRES bb_log bb_task
              bb_core bb_http_server bb_serialize
-    PRIV_REQUIRES bb_str bb_data bb_serialize_json bb_serialize_meta
+    PRIV_REQUIRES bb_str bb_data bb_serialize_json bb_serialize_meta bb_data_http
 )

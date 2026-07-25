@@ -183,8 +183,8 @@ typedef void (*bb_openapi_topic_source_fn_t)(bb_openapi_topic_cb_t cb, void *ctx
 // intended pairing -- or those producers' topic schemas silently never
 // appear in /api/openapi.json. bb_openapi has no way to detect a populated-
 // but-unwired describe table without a dependency on bb_data_http, which
-// this seam exists specifically to avoid; no in-tree example wires it yet
-// (tracked as B1-1222) -- see test_sse_schema_fidelity.c's
+// this seam exists specifically to avoid; examples/smoke now wires it (see
+// its entry_espidf.c) -- see test_sse_schema_fidelity.c's
 // test_sse_schema_union_seam_unwired_describe_entry_does_not_appear /
 // test_sse_schema_union_seam_wired_describe_entry_appears_in_oneof pair for
 // the unwired-vs-wired coverage.
