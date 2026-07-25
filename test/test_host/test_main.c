@@ -3817,6 +3817,7 @@ void test_decode_fault_bits_0x0840_unit_off(void);
 void test_decode_fault_bits_iout_oc(void);
 void test_decode_fault_bits_iout_oc_only(void);
 void test_decode_fault_bits_iout_oc_incident_0xa0(void);
+void test_decode_fault_bits_iout_oc_warning_only_does_not_trigger_oc(void);
 void test_decode_fault_bits_iout_uc_does_not_trigger_oc(void);
 void test_decode_fault_bits_ot(void);
 void test_decode_fault_bits_vin_uv(void);
@@ -7904,6 +7905,7 @@ int main(void) {
     RUN_TEST(test_decode_fault_bits_iout_oc);
     RUN_TEST(test_decode_fault_bits_iout_oc_only);
     RUN_TEST(test_decode_fault_bits_iout_oc_incident_0xa0);
+    RUN_TEST(test_decode_fault_bits_iout_oc_warning_only_does_not_trigger_oc);
     RUN_TEST(test_decode_fault_bits_iout_uc_does_not_trigger_oc);
     RUN_TEST(test_decode_fault_bits_ot);
     RUN_TEST(test_decode_fault_bits_vin_uv);
