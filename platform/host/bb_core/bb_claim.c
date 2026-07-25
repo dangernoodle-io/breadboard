@@ -4,6 +4,7 @@
 // platform logging primitive directly to stay self-contained.
 
 #include "bb_claim.h"
+#include "bb_lock_once.h"
 #include <string.h>
 
 #ifdef ESP_PLATFORM
@@ -16,26 +17,32 @@
 
 static const char *TAG = "bb_claim";
 
-// Lazily bb_lock_init() c->lock exactly once (bb_once_run) — mirrors
-// BB_CLAIM_INIT's "no explicit init call needed" contract while keeping the
-// platform mutex type out of bb_claim.h.
-static void claim_init_lock(void *ctx)
+// Lazily bb_lock_init() c->lock exactly once via bb_lock_once_ensure() —
+// mirrors BB_CLAIM_INIT's "no explicit init call needed" contract while
+// keeping the platform mutex type out of bb_claim.h. Unlike the plain
+// bb_once_run() this replaced, a transient bb_lock_init() failure resets to
+// IDLE instead of latching DONE forever, so a later caller genuinely retries
+// (B1-1203, mirrors B1-524).
+static inline bb_err_t claim_ensure_lock(bb_claim_t *c)
 {
-    bb_claim_t *c = ctx;
     bb_lock_config_t cfg = { .name = "bb_claim" };
-    bb_lock_init(&cfg, &c->lock);
-}
-
-static inline void claim_ensure_lock(bb_claim_t *c)
-{
-    bb_once_run(&c->lock_once, claim_init_lock, c);
+    return bb_lock_once_ensure(&c->lock_once, &cfg, &c->lock);
 }
 
 bb_err_t bb_claim_acquire(bb_claim_t *c, const char *id)
 {
     if (!c || !id) return BB_ERR_INVALID_ARG;
 
-    claim_ensure_lock(c);
+    bb_err_t lock_rc = claim_ensure_lock(c);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible
+    // (same rationale as bb_lock_once.c's own LCOV_EXCL comment); this is a
+    // defensive path, not a real branch the test suite can drive. HIL-only
+    // equivalent tracked as B1-692.
+    if (lock_rc != BB_OK) {
+        BB_CLAIM_LOGW(TAG, "acquire('%s'): lock unavailable", id);
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&c->lock);
 
     if (c->holder == NULL) {
@@ -61,7 +68,14 @@ void bb_claim_release(bb_claim_t *c, const char *id)
 {
     if (!c || !id) return;
 
-    claim_ensure_lock(c);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_claim_acquire()'s shared rationale above. Also, when it is
+    // reached in practice, no claim could ever have been acquired either, so
+    // there is nothing to release.
+    if (claim_ensure_lock(c) != BB_OK) {
+        return;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&c->lock);
 
     if (c->holder != NULL &&
@@ -77,7 +91,12 @@ const char *bb_claim_holder(bb_claim_t *c)
 {
     if (!c) return NULL;
 
-    claim_ensure_lock(c);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_claim_acquire()'s shared rationale above.
+    if (claim_ensure_lock(c) != BB_OK) {
+        return NULL;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&c->lock);
     const char *h = c->holder;
     bb_lock_unlock(&c->lock);
@@ -88,7 +107,12 @@ const char *bb_claim_holder(bb_claim_t *c)
 void bb_claim_reset(bb_claim_t *c)
 {
     if (!c) return;
-    claim_ensure_lock(c);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_claim_acquire()'s shared rationale above.
+    if (claim_ensure_lock(c) != BB_OK) {
+        return;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&c->lock);
     c->holder = NULL;
     bb_lock_unlock(&c->lock);

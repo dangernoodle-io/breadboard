@@ -57,7 +57,7 @@ bb_err_t bb_data_bind(const bb_data_binding_t *binding)
         slot->key[sizeof(slot->key) - 1] = '\0';
 
         bb_err_t rc = bb_registry_register(&s_bb_data_registry, slot->key, slot);
-        if (rc != BB_OK) return rc;  // LCOV_EXCL_BR_LINE -- find_free_slot()'s in_use scan and the registry's own capacity move in lockstep (every register() here claims exactly one slot); this can never actually diverge.
+        if (rc != BB_OK) return rc;  // LCOV_EXCL_BR_LINE -- find_free_slot()'s in_use scan and the registry's own capacity move in lockstep (every register() here claims exactly one slot), ruling out NO_SPACE/duplicate-key; the lazy lock-init behind bb_registry_register() can still fail transiently (lock-unavailable), a real but not host-reproducible branch (see bb_registry.c) -- the checked return above is what propagates it.
         slot->in_use = true;
     }
 

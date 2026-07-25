@@ -691,11 +691,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "457",
-      "path": "platform/host/bb_task_registry/bb_task_registry.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "106",
       "path": "platform/host/bb_timer/bb_timer_host.c",
       "type": "uncovered_line"

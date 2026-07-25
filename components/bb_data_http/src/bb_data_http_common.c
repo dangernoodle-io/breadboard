@@ -92,7 +92,7 @@ bb_err_t bb_data_http_attach_ex(const char *key, const char *topic,
         bb_strlcpy(slot->key, key, sizeof(slot->key));
 
         bb_err_t rc = bb_registry_register(&s_attach_registry, slot->key, slot);
-        if (rc != BB_OK) return rc;  // LCOV_EXCL_BR_LINE -- find_free_attach_slot()'s in_use scan and the registry's own capacity move in lockstep; cannot actually diverge.
+        if (rc != BB_OK) return rc;  // LCOV_EXCL_BR_LINE -- find_free_attach_slot()'s in_use scan and the registry's own capacity move in lockstep, ruling out NO_SPACE/duplicate-key; the lazy lock-init behind bb_registry_register() can still fail transiently (lock-unavailable), a real but not host-reproducible branch (see bb_registry.c) -- the checked return above is what propagates it.
         slot->in_use = true;
     }
 

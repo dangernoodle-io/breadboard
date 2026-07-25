@@ -341,22 +341,32 @@ bb_err_t bb_task_registry_deregister(void *handle)
     } else {
         // scan.found_name was resolved from this same table under this same
         // lock, and s_task_registry is never frozen (bb_registry_freeze is
-        // not called on it), so bb_registry_deregister cannot fail here —
-        // free the pool slot unconditionally rather than gate on an
-        // unreachable (and therefore untestable) error branch.
+        // not called on it), so a frozen/duplicate BB_ERR_INVALID_STATE
+        // cannot occur here. The lazy bb_lock_init() behind
+        // bb_registry_deregister can still fail transiently
+        // (lock-unavailable, not host-reproducible -- see bb_registry.c);
+        // on that path the name->entry mapping is NOT removed, so the
+        // wdt-unsubscribe/generation-bump/pool-free below must be gated on
+        // success -- otherwise the slot is freed and reusable by a future
+        // register() while the registry still points at it, a dangling
+        // alias worse than a leak. Mirrors bb_task_registry_register()'s own
+        // failure-branch rollback above.
         err = bb_registry_deregister(&s_task_registry, scan.found_name);
-        if (scan.found_entry->wdt_subscribed) {
-            hw_wdt_unsubscribe(handle);
-            scan.found_entry->wdt_subscribed = false;
+        if (err == BB_OK) {  // LCOV_EXCL_BR_LINE -- lock-unavailable only; not host-reproducible (see bb_registry.c).
+            if (scan.found_entry->wdt_subscribed) {
+                hw_wdt_unsubscribe(handle);
+                scan.found_entry->wdt_subscribed = false;
+            }
+            // Bump generation BEFORE freeing the slot so any outstanding
+            // token referencing this slot (held by a task that has not yet
+            // noticed the deregister) is invalidated even if the slot is
+            // immediately reused by a subsequent register().
+            // memory_order_release pairs with the memory_order_acquire load
+            // in bb_task_registry_feed() — see the seqlock/generation
+            // protocol comment in register().
+            atomic_fetch_add_explicit(&scan.found_entry->generation, 1, memory_order_release);
+            pool_free_locked(scan.found_entry);
         }
-        // Bump generation BEFORE freeing the slot so any outstanding token
-        // referencing this slot (held by a task that has not yet noticed
-        // the deregister) is invalidated even if the slot is immediately
-        // reused by a subsequent register(). memory_order_release pairs
-        // with the memory_order_acquire load in bb_task_registry_feed() —
-        // see the seqlock/generation protocol comment in register().
-        atomic_fetch_add_explicit(&scan.found_entry->generation, 1, memory_order_release);
-        pool_free_locked(scan.found_entry);
     }
 
     pthread_mutex_unlock(&s_task_reg_lock);
@@ -454,7 +464,7 @@ static void sw_wdt_snapshot_cb(const char *name, void *value, void *ctx)
         // BB_TASK_REGISTRY_MAX, the SAME constant that bounds the pool this
         // foreach iterates, so sc->n cannot reach sc->max mid-iteration —
         // not reachable/testable given the current 1:1 sizing.
-        return;
+        return;  // LCOV_EXCL_LINE -- unreachable, see comment above
     }
     bb_task_entry_t *entry = (bb_task_entry_t *)value;
     if (entry->sw_wdt_timeout_ms == 0) {

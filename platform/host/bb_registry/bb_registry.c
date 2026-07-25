@@ -7,6 +7,7 @@
 // foreach uses a stack copy-out so callbacks run without the lock held.
 
 #include "bb_registry.h"
+#include "bb_lock_once.h"
 #include "bb_log.h"
 
 #include <inttypes.h>
@@ -21,19 +22,16 @@ static inline const char *s_tag(const bb_registry_t *r)
     return r->tag ? r->tag : s_default_tag;
 }
 
-// Lazily bb_lock_init() r->lock exactly once (bb_once_run) — mirrors
-// BB_REGISTRY_DEFINE's "no explicit init call needed" contract while keeping
-// the platform mutex type out of bb_registry.h.
-static void registry_init_lock(void *ctx)
+// Lazily bb_lock_init() r->lock exactly once via bb_lock_once_ensure() —
+// mirrors BB_REGISTRY_DEFINE's "no explicit init call needed" contract while
+// keeping the platform mutex type out of bb_registry.h. Unlike the plain
+// bb_once_run() this replaced, a transient bb_lock_init() failure resets to
+// IDLE instead of latching DONE forever, so a later caller genuinely retries
+// (B1-1203, mirrors B1-524).
+static inline bb_err_t registry_ensure_lock(bb_registry_t *r)
 {
-    bb_registry_t *r = ctx;
     bb_lock_config_t cfg = { .name = "bb_registry", .category = r->tag };
-    bb_lock_init(&cfg, &r->lock);
-}
-
-static inline void registry_ensure_lock(bb_registry_t *r)
-{
-    bb_once_run(&r->lock_once, registry_init_lock, r);
+    return bb_lock_once_ensure(&r->lock_once, &cfg, &r->lock);
 }
 
 // Scan entries[] for the slot matching key. by_ptr selects the comparison:
@@ -63,7 +61,21 @@ static bb_err_t registry_register_common(bb_registry_t *r, const void *key,
                                           void *value, bool by_ptr,
                                           const char *log_prefix)
 {
-    registry_ensure_lock(r);
+    bb_err_t lock_rc = registry_ensure_lock(r);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible
+    // (same rationale as bb_lock_once.c's own LCOV_EXCL comment); this is a
+    // defensive path, not a real branch the test suite can drive. HIL-only
+    // equivalent tracked as B1-692.
+    if (lock_rc != BB_OK) {
+        if (by_ptr) {
+            bb_log_e(s_tag(r), "%s(%p): lock unavailable", log_prefix, key);
+        } else {
+            bb_log_e(s_tag(r), "%s('%s'): lock unavailable", log_prefix,
+                      (const char *)key);
+        }
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&r->lock);
 
     if (r->frozen) {
@@ -121,7 +133,19 @@ static bb_err_t registry_register_common(bb_registry_t *r, const void *key,
 static bb_err_t registry_deregister_common(bb_registry_t *r, const void *key,
                                             bool by_ptr, const char *log_prefix)
 {
-    registry_ensure_lock(r);
+    bb_err_t lock_rc = registry_ensure_lock(r);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see registry_register_common()'s shared rationale above.
+    if (lock_rc != BB_OK) {
+        if (by_ptr) {
+            bb_log_e(s_tag(r), "%s(%p): lock unavailable", log_prefix, key);
+        } else {
+            bb_log_e(s_tag(r), "%s('%s'): lock unavailable", log_prefix,
+                      (const char *)key);
+        }
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&r->lock);
 
     if (r->frozen) {
@@ -156,7 +180,12 @@ static bb_err_t registry_deregister_common(bb_registry_t *r, const void *key,
 // Caller holds no lock; key has already been checked non-NULL.
 static void *registry_lookup_common(bb_registry_t *r, const void *key, bool by_ptr)
 {
-    registry_ensure_lock(r);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see registry_register_common()'s shared rationale above.
+    if (registry_ensure_lock(r) != BB_OK) {
+        return NULL;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&r->lock);
     int idx = registry_find_index(r, key, by_ptr);
     void *v = (idx >= 0) ? r->entries[idx].value : NULL;
@@ -194,7 +223,12 @@ bb_err_t bb_registry_deregister(bb_registry_t *r, const char *name)
 
 void bb_registry_freeze(bb_registry_t *r)
 {
-    registry_ensure_lock(r);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see registry_register_common()'s shared rationale above.
+    if (registry_ensure_lock(r) != BB_OK) {
+        return;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&r->lock);
     r->frozen = true;
     bb_lock_unlock(&r->lock);
@@ -209,7 +243,12 @@ void bb_registry_freeze(bb_registry_t *r)
 static uint16_t registry_snapshot(bb_registry_t *r,
                                    bb_registry_entry_t snapshot[BB_REGISTRY_SNAPSHOT_MAX])
 {
-    registry_ensure_lock(r);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see registry_register_common()'s shared rationale above.
+    if (registry_ensure_lock(r) != BB_OK) {
+        return 0;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&r->lock);
     uint16_t count = r->count;
 
@@ -261,7 +300,12 @@ void bb_registry_foreach_ptr(bb_registry_t *r,
 
 uint16_t bb_registry_count(bb_registry_t *r)
 {
-    registry_ensure_lock(r);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see registry_register_common()'s shared rationale above.
+    if (registry_ensure_lock(r) != BB_OK) {
+        return 0;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&r->lock);
     uint16_t c = r->count;
     bb_lock_unlock(&r->lock);
@@ -279,7 +323,13 @@ bb_err_t bb_registry_get_by_index(bb_registry_t *r, uint16_t idx,
         return BB_ERR_INVALID_ARG;
     }
 
-    registry_ensure_lock(r);
+    bb_err_t lock_rc = registry_ensure_lock(r);
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see registry_register_common()'s shared rationale above.
+    if (lock_rc != BB_OK) {
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&r->lock);
     if (idx >= r->count) {
         bb_lock_unlock(&r->lock);
