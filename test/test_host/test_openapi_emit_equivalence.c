@@ -25,14 +25,11 @@
 // object key order as irrelevant and array order as significant — exactly
 // the invariant this suite needs.
 //
-// NOT covered here (deliberately): meta->title == NULL. The two emitters
-// disagree on that default today (bb_openapi_emit defaults NULL title to
-// "" at :379-380; bb_openapi_emit_stream defaults it to "breadboard device"
-// at :511-512) — a real divergence, but a production fix, not a test-only
-// change. meta->version does NOT diverge: both emitters default a NULL
-// version to "0.0.0". The title fix is tracked as an immediate follow-up
-// PR; every fixture below supplies an explicit title so this suite doesn't
-// mask that bug as "passing".
+// meta->title == NULL and meta->version == NULL are both covered below
+// (fixtures 12/13): both emitters now default a NULL title to
+// "breadboard device" and a NULL version to "0.0.0", reconciled in the
+// immediate B1-1116 follow-up that fixed the tree emitter's prior ""
+// title default (components/bb_openapi/src/bb_openapi_emit.c).
 // ---------------------------------------------------------------------------
 
 static bb_err_t stub_handler(bb_http_request_t *req) { (void)req; return BB_OK; }
@@ -422,4 +419,52 @@ void test_openapi_emit_equivalence_deeply_nested_schema(void)
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
     assert_stream_equivalent_to_tree(&meta);
+}
+
+// ---------------------------------------------------------------------------
+// Fixture 12: meta->title == NULL — both emitters must default to
+// "breadboard device" (components/bb_openapi/src/bb_openapi_emit.c).
+// ---------------------------------------------------------------------------
+
+void test_openapi_emit_equivalence_null_title_defaults_agree(void)
+{
+    bb_http_route_registry_clear();
+    bb_openapi_schema_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_get);
+
+    bb_openapi_meta_t meta = { .title = NULL, .version = "1.0.0" };
+    assert_stream_equivalent_to_tree(&meta);
+
+    char *tree_str = tree_doc_str(&meta);
+    bb_http_host_capture_t cap = stream_doc_capture(&meta);
+
+    TEST_ASSERT_NOT_NULL(strstr(tree_str, "\"title\":\"breadboard device\""));
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"title\":\"breadboard device\""));
+
+    bb_json_free_str(tree_str);
+    bb_http_host_capture_free(&cap);
+}
+
+// ---------------------------------------------------------------------------
+// Fixture 13: meta->version == NULL — pins the symmetry that already holds
+// (both emitters default a NULL version to "0.0.0").
+// ---------------------------------------------------------------------------
+
+void test_openapi_emit_equivalence_null_version_defaults_agree(void)
+{
+    bb_http_route_registry_clear();
+    bb_openapi_schema_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_get);
+
+    bb_openapi_meta_t meta = { .title = "Test", .version = NULL };
+    assert_stream_equivalent_to_tree(&meta);
+
+    char *tree_str = tree_doc_str(&meta);
+    bb_http_host_capture_t cap = stream_doc_capture(&meta);
+
+    TEST_ASSERT_NOT_NULL(strstr(tree_str, "\"version\":\"0.0.0\""));
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"version\":\"0.0.0\""));
+
+    bb_json_free_str(tree_str);
+    bb_http_host_capture_free(&cap);
 }

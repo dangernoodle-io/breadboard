@@ -376,7 +376,7 @@ bb_json_t bb_openapi_emit(const bb_openapi_meta_t *meta)
     // info object
     bb_json_t info = bb_json_obj_new();
     if (!info) { bb_json_free(root); return NULL; }
-    bb_json_obj_set_string(info, "title",   meta->title   ? meta->title   : "");
+    bb_json_obj_set_string(info, "title",   meta->title   ? meta->title   : "breadboard device");
     bb_json_obj_set_string(info, "version", meta->version ? meta->version : "0.0.0");
     if (meta->description) {
         bb_json_obj_set_string(info, "description", meta->description);
