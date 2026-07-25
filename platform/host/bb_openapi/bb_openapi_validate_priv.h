@@ -20,7 +20,8 @@
 // additionalProperties (false only). Unknown keywords are logged and ignored.
 
 #include "bb_core.h"
-#include "bb_json.h"
+
+#include <cJSON.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,8 +34,8 @@ typedef struct {
     char message[192];  // human-readable failure reason
 } bb_openapi_validate_err_t;
 
-// Validate `value` (already-parsed JSON tree, as a bb_json_t handle) against
-// `schema_json` (raw JSON Schema string literal).
+// Validate `value` (already-parsed JSON tree) against `schema_json` (raw
+// JSON Schema string literal).
 //
 // Returns BB_OK if valid; err is untouched.
 // Returns BB_ERR_VALIDATION if invalid; err (if non-NULL) is filled with
@@ -44,7 +45,7 @@ typedef struct {
 // Memory: schema_json is parsed internally and freed before return.
 //   The caller retains ownership of value and schema_json.
 bb_err_t bb_openapi_validate(const char *schema_json,
-                             bb_json_t value,
+                             const cJSON *value,
                              bb_openapi_validate_err_t *err);
 
 #ifdef __cplusplus
