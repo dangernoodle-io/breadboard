@@ -46,13 +46,6 @@ void test_url_decode_percent_at_end(void)
     TEST_ASSERT_EQUAL_STRING("abc%2", out);
 }
 
-void test_bb_url_decode_field_not_first(void)
-{
-    char out[256];
-    bb_url_decode_field("a=1&b=2&c=3", "b", out, sizeof(out));
-    TEST_ASSERT_EQUAL_STRING("2", out);
-}
-
 void test_url_decode_field_not_first(void)
 {
     char out[256];
@@ -68,13 +61,6 @@ void test_url_decode_empty_value(void)
 }
 
 void test_url_decode_field_at_end(void)
-{
-    char out[256];
-    bb_url_decode_field("a=1&b=2", "b", out, sizeof(out));
-    TEST_ASSERT_EQUAL_STRING("2", out);
-}
-
-void test_bb_url_decode_field_at_end(void)
 {
     char out[256];
     bb_url_decode_field("a=1&b=2", "b", out, sizeof(out));
