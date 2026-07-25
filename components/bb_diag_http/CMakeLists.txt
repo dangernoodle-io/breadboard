@@ -174,3 +174,11 @@ endif()
 # three source hints, carried over from bb_storage_http's own CMakeLists.txt,
 # B1-1154).
 # bbtool-scaffold-hint: source=platform/espidf/bb_diag_http/bb_storage_http_routes.c
+#
+# bb_log_http.c is also portable (no ESP-IDF/FreeRTOS includes -- see its own
+# #ifdef ESP_PLATFORM guard around sdkconfig.h) but filed under
+# platform/espidf/ for the same directory-convention reason as
+# bb_storage_http_routes.c above (B1-1214); this hint pulls it into host test
+# builds so test_route_schema_literals_live.c's live-registry walk can reach
+# GET/POST /api/log/level's route descriptors.
+# bbtool-scaffold-hint: source=platform/espidf/bb_diag_http/bb_log_http.c
