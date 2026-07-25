@@ -1,3 +1,15 @@
+// NOTE: this file intentionally still references bb_json_* (bb_json.h,
+// bb_json_test_hooks.h) -- the 19 test_openapi_emit_oom_* functions below
+// deliberately were NOT ported in this PR. They exercise
+// bb_json_host_force_alloc_fail_after()-driven allocation-failure branches
+// inside the TREE emitter's build_operation()/build_response() -- the
+// stream path never allocates a tree node, so there is no stream analogue.
+// Deleting them now (before platform/host/bb_openapi/bb_openapi_emit_tree.c
+// itself is deleted in B1-1054 PR 6) would drop bb_openapi_emit_tree.c's own
+// branch coverage with no code removal to offset it. They stay, unported,
+// until PR 6 deletes the tree emitter and these tests together. See
+// test_openapi_capture.h for the stream-path helper the other 58 functions
+// in this file were ported onto.
 #include "unity.h"
 #include "bb_openapi.h"
 #include "bb_openapi_emit_tree_priv.h"
@@ -5,7 +17,9 @@
 #include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_json_test_hooks.h"
+#include "test_openapi_capture.h"
 
+#include <cJSON.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -121,15 +135,15 @@ void test_openapi_emit_openapi_version(void)
         .title   = "Test",
         .version = "1.0.0",
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    char ver[16];
-    bool ok = bb_json_obj_get_string(doc, "openapi", ver, sizeof(ver));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("3.1.0", ver);
+    cJSON *ver = cJSON_GetObjectItemCaseSensitive(r.doc, "openapi");
+    TEST_ASSERT_TRUE(cJSON_IsString(ver));
+    TEST_ASSERT_EQUAL_STRING("3.1.0", cJSON_GetStringValue(ver));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_info_title(void)
@@ -140,18 +154,18 @@ void test_openapi_emit_info_title(void)
         .title   = "Test",
         .version = "1.0.0",
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t info = bb_json_obj_get_item(doc, "info");
+    cJSON *info = cJSON_GetObjectItemCaseSensitive(r.doc, "info");
     TEST_ASSERT_NOT_NULL(info);
 
-    char title[64];
-    bool ok = bb_json_obj_get_string(info, "title", title, sizeof(title));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("Test", title);
+    cJSON *title = cJSON_GetObjectItemCaseSensitive(info, "title");
+    TEST_ASSERT_TRUE(cJSON_IsString(title));
+    TEST_ASSERT_EQUAL_STRING("Test", cJSON_GetStringValue(title));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_paths_count(void)
@@ -162,21 +176,22 @@ void test_openapi_emit_paths_count(void)
         .title   = "Test",
         .version = "1.0.0",
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths = bb_json_obj_get_item(doc, "paths");
+    cJSON *paths = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
     TEST_ASSERT_NOT_NULL(paths);
 
     // 3 fixtures = 3 unique paths
-    bb_json_t foo_path = bb_json_obj_get_item(paths, "/api/foo");
-    bb_json_t bar_path = bb_json_obj_get_item(paths, "/api/bar");
-    bb_json_t baz_path = bb_json_obj_get_item(paths, "/api/baz");
+    cJSON *foo_path = cJSON_GetObjectItemCaseSensitive(paths, "/api/foo");
+    cJSON *bar_path = cJSON_GetObjectItemCaseSensitive(paths, "/api/bar");
+    cJSON *baz_path = cJSON_GetObjectItemCaseSensitive(paths, "/api/baz");
     TEST_ASSERT_NOT_NULL(foo_path);
     TEST_ASSERT_NOT_NULL(bar_path);
     TEST_ASSERT_NOT_NULL(baz_path);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_foo_get_summary(void)
@@ -187,20 +202,20 @@ void test_openapi_emit_foo_get_summary(void)
         .title   = "Test",
         .version = "1.0.0",
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t foo     = bb_json_obj_get_item(paths, "/api/foo");
-    bb_json_t get_op  = bb_json_obj_get_item(foo, "get");
+    cJSON *paths   = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *foo     = cJSON_GetObjectItemCaseSensitive(paths, "/api/foo");
+    cJSON *get_op  = cJSON_GetObjectItemCaseSensitive(foo, "get");
     TEST_ASSERT_NOT_NULL(get_op);
 
-    char summary[64];
-    bool ok = bb_json_obj_get_string(get_op, "summary", summary, sizeof(summary));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("Get foo resource", summary);
+    cJSON *summary = cJSON_GetObjectItemCaseSensitive(get_op, "summary");
+    TEST_ASSERT_TRUE(cJSON_IsString(summary));
+    TEST_ASSERT_EQUAL_STRING("Get foo resource", cJSON_GetStringValue(summary));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_bar_post_request_body_schema_is_object(void)
@@ -211,29 +226,30 @@ void test_openapi_emit_bar_post_request_body_schema_is_object(void)
         .title   = "Test",
         .version = "1.0.0",
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t bar     = bb_json_obj_get_item(paths, "/api/bar");
-    bb_json_t post_op = bb_json_obj_get_item(bar, "post");
+    cJSON *paths   = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *bar     = cJSON_GetObjectItemCaseSensitive(paths, "/api/bar");
+    cJSON *post_op = cJSON_GetObjectItemCaseSensitive(bar, "post");
     TEST_ASSERT_NOT_NULL(post_op);
 
-    bb_json_t req_body = bb_json_obj_get_item(post_op, "requestBody");
+    cJSON *req_body = cJSON_GetObjectItemCaseSensitive(post_op, "requestBody");
     TEST_ASSERT_NOT_NULL(req_body);
 
-    bb_json_t content = bb_json_obj_get_item(req_body, "content");
+    cJSON *content = cJSON_GetObjectItemCaseSensitive(req_body, "content");
     TEST_ASSERT_NOT_NULL(content);
 
-    bb_json_t media = bb_json_obj_get_item(content, "application/json");
+    cJSON *media = cJSON_GetObjectItemCaseSensitive(content, "application/json");
     TEST_ASSERT_NOT_NULL(media);
 
     // schema must be a JSON object (raw injection), not a string
-    bb_json_t schema = bb_json_obj_get_item(media, "schema");
+    cJSON *schema = cJSON_GetObjectItemCaseSensitive(media, "schema");
     TEST_ASSERT_NOT_NULL(schema);
-    TEST_ASSERT_TRUE(bb_json_item_is_object(schema));
+    TEST_ASSERT_TRUE(cJSON_IsObject(schema));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_foo_response_schema_is_object(void)
@@ -244,23 +260,24 @@ void test_openapi_emit_foo_response_schema_is_object(void)
         .title   = "Test",
         .version = "1.0.0",
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t foo     = bb_json_obj_get_item(paths, "/api/foo");
-    bb_json_t get_op  = bb_json_obj_get_item(foo, "get");
-    bb_json_t resps   = bb_json_obj_get_item(get_op, "responses");
-    bb_json_t r200    = bb_json_obj_get_item(resps, "200");
-    bb_json_t content = bb_json_obj_get_item(r200, "content");
-    bb_json_t media   = bb_json_obj_get_item(content, "application/json");
-    bb_json_t schema  = bb_json_obj_get_item(media, "schema");
+    cJSON *paths   = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *foo     = cJSON_GetObjectItemCaseSensitive(paths, "/api/foo");
+    cJSON *get_op  = cJSON_GetObjectItemCaseSensitive(foo, "get");
+    cJSON *resps   = cJSON_GetObjectItemCaseSensitive(get_op, "responses");
+    cJSON *r200    = cJSON_GetObjectItemCaseSensitive(resps, "200");
+    cJSON *content = cJSON_GetObjectItemCaseSensitive(r200, "content");
+    cJSON *media   = cJSON_GetObjectItemCaseSensitive(content, "application/json");
+    cJSON *schema  = cJSON_GetObjectItemCaseSensitive(media, "schema");
 
     TEST_ASSERT_NOT_NULL(schema);
     // Must be an object (raw JSON injection), not a string
-    TEST_ASSERT_TRUE(bb_json_item_is_object(schema));
+    TEST_ASSERT_TRUE(cJSON_IsObject(schema));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_baz_derived_operation_id(void)
@@ -271,21 +288,21 @@ void test_openapi_emit_baz_derived_operation_id(void)
         .title   = "Test",
         .version = "1.0.0",
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths  = bb_json_obj_get_item(doc, "paths");
-    bb_json_t baz    = bb_json_obj_get_item(paths, "/api/baz");
-    bb_json_t get_op = bb_json_obj_get_item(baz, "get");
+    cJSON *paths  = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *baz    = cJSON_GetObjectItemCaseSensitive(paths, "/api/baz");
+    cJSON *get_op = cJSON_GetObjectItemCaseSensitive(baz, "get");
     TEST_ASSERT_NOT_NULL(get_op);
 
-    char op_id[64];
-    bool ok = bb_json_obj_get_string(get_op, "operationId", op_id, sizeof(op_id));
-    TEST_ASSERT_TRUE(ok);
+    cJSON *op_id = cJSON_GetObjectItemCaseSensitive(get_op, "operationId");
+    TEST_ASSERT_TRUE(cJSON_IsString(op_id));
     // GET /api/baz -> "getApiBaz"
-    TEST_ASSERT_EQUAL_STRING("getApiBaz", op_id);
+    TEST_ASSERT_EQUAL_STRING("getApiBaz", cJSON_GetStringValue(op_id));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_baz_no_tags_array(void)
@@ -296,25 +313,159 @@ void test_openapi_emit_baz_no_tags_array(void)
         .title   = "Test",
         .version = "1.0.0",
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths  = bb_json_obj_get_item(doc, "paths");
-    bb_json_t baz    = bb_json_obj_get_item(paths, "/api/baz");
-    bb_json_t get_op = bb_json_obj_get_item(baz, "get");
+    cJSON *paths  = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *baz    = cJSON_GetObjectItemCaseSensitive(paths, "/api/baz");
+    cJSON *get_op = cJSON_GetObjectItemCaseSensitive(baz, "get");
     TEST_ASSERT_NOT_NULL(get_op);
 
     // no tag on s_route_baz -> no "tags" key
-    bb_json_t tags = bb_json_obj_get_item(get_op, "tags");
+    cJSON *tags = cJSON_GetObjectItemCaseSensitive(get_op, "tags");
     TEST_ASSERT_NULL(tags);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
+// Retained deliberately (unported, like the 19 oom_* functions above): this
+// is the SOLE cover for bb_openapi_emit()'s own NULL-meta guard
+// (platform/host/bb_openapi/bb_openapi_emit_tree.c's `if (!meta) { ...
+// return NULL; }`) -- the stream path's NULL-meta handling is a distinct
+// early return in a different file (bb_openapi_emit_stream(), asserted by
+// test_openapi_emit_stream_null_meta_returns_invalid_arg below) and does not
+// exercise these two tree-emitter lines. Deleting or porting this test would
+// drop bb_openapi_emit_tree.c's own branch coverage with no code removal to
+// offset it. Stays until PR 6 deletes the tree emitter and this test
+// together.
 void test_openapi_emit_null_meta_returns_null(void)
 {
     bb_json_t doc = bb_openapi_emit(NULL);
     TEST_ASSERT_NULL(doc);
+}
+
+// Stream-path counterpart: bb_openapi_emit_stream() (via test_openapi_capture())
+// returns BB_ERR_INVALID_ARG on a NULL meta before it ever touches the route
+// registry, so the outcome doesn't depend on registry state.
+void test_openapi_emit_stream_null_meta_returns_invalid_arg(void)
+{
+    test_openapi_capture_result_t r = test_openapi_capture(NULL);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, r.status);
+    TEST_ASSERT_NULL(r.doc);
+
+    test_openapi_capture_free(&r);
+}
+
+// ---------------------------------------------------------------------------
+// build_operation() defaults — retained tree-path fixture (unported, like
+// the NULL-meta test above and the 19 oom_* functions). The 223 ported
+// assertions used to hit these "field is NULL/absent -> emit a default"
+// arms incidentally while driving bb_openapi_emit() with fixtures that
+// happened to omit those fields; porting them onto the stream path took
+// that incidental cover with them, dropping 8 branches in build_operation()
+// with no equivalent stream-path loss (the stream emitter's own defaulting
+// is covered separately by its own tests). Deleted alongside the tree
+// emitter in PR 6.
+// ---------------------------------------------------------------------------
+
+static const bb_route_param_t s_retained_param_all_null[] = {
+    { .name = NULL, .in = NULL, .description = NULL, .required = false, .schema_type = NULL },
+};
+
+static const bb_route_response_t s_retained_responses_defaults[] = {
+    // schema set, content_type NULL -> defaults to "application/json"; description NULL -> ""
+    { .status = 200, .content_type = NULL, .schema = "{\"type\":\"object\"}", .description = NULL },
+    // schema NULL, content_type set but not SSE -> no content block emitted
+    { .status = 201, .content_type = "text/plain", .schema = NULL, .description = "no schema, non-SSE" },
+    { .status = 0 },
+};
+
+static const bb_route_t s_retained_route_defaults = {
+    .method               = BB_HTTP_POST,
+    .path                 = "/api/retained-defaults",
+    .tag                  = "retained",
+    .summary              = "Retained tree-path defaults fixture",
+    .operation_id         = "postRetainedDefaults",
+    .request_content_type = NULL,
+    .request_schema       = "{\"type\":\"object\"}",
+    .responses            = s_retained_responses_defaults,
+    .handler              = stub_handler,
+    .parameters           = s_retained_param_all_null,
+    .parameters_count     = 1,
+};
+
+// Non-NULL parameters pointer with parameters_count == 0 -- distinct route
+// because a single bb_route_t can't carry both a populated and an empty
+// parameters array at once.
+static const bb_route_param_t s_retained_empty_params[] = { /* intentionally empty */ };
+
+static const bb_route_response_t s_retained_responses_minimal[] = {
+    { .status = 200, .content_type = "application/json", .schema = NULL, .description = "minimal" },
+    { .status = 0 },
+};
+
+static const bb_route_t s_retained_route_empty_params = {
+    .method            = BB_HTTP_GET,
+    .path              = "/api/retained-empty-params",
+    .tag               = "retained",
+    .summary           = "Retained empty-parameters fixture",
+    .operation_id      = "getRetainedEmptyParams",
+    .responses         = s_retained_responses_minimal,
+    .handler           = stub_handler,
+    .parameters        = s_retained_empty_params,
+    .parameters_count  = 0,
+};
+
+void test_openapi_emit_defaults_for_omitted_fields(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_retained_route_defaults);
+    bb_http_register_described_route(NULL, &s_retained_route_empty_params);
+
+    bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    cJSON *paths = cJSON_GetObjectItemCaseSensitive(doc, "paths");
+
+    // route with populated parameters (name/in/schema_type all NULL) + request
+    // schema without an explicit content type + two response default arms.
+    cJSON *defaults_path = cJSON_GetObjectItemCaseSensitive(paths, "/api/retained-defaults");
+    cJSON *post_op       = cJSON_GetObjectItemCaseSensitive(defaults_path, "post");
+    TEST_ASSERT_NOT_NULL(post_op);
+
+    cJSON *params = cJSON_GetObjectItemCaseSensitive(post_op, "parameters");
+    TEST_ASSERT_NOT_NULL(params);
+    cJSON *p0 = cJSON_GetArrayItem(params, 0);
+    TEST_ASSERT_NOT_NULL(p0);
+    TEST_ASSERT_EQUAL_STRING("", cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(p0, "name")));
+    TEST_ASSERT_EQUAL_STRING("query", cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(p0, "in")));
+    TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(p0, "schema"));
+
+    cJSON *req_body = cJSON_GetObjectItemCaseSensitive(post_op, "requestBody");
+    cJSON *req_content = cJSON_GetObjectItemCaseSensitive(req_body, "content");
+    TEST_ASSERT_NOT_NULL(cJSON_GetObjectItemCaseSensitive(req_content, "application/json"));
+
+    cJSON *responses = cJSON_GetObjectItemCaseSensitive(post_op, "responses");
+    cJSON *resp_200   = cJSON_GetObjectItemCaseSensitive(responses, "200");
+    TEST_ASSERT_EQUAL_STRING("", cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(resp_200, "description")));
+    cJSON *resp_200_content = cJSON_GetObjectItemCaseSensitive(resp_200, "content");
+    TEST_ASSERT_NOT_NULL(cJSON_GetObjectItemCaseSensitive(resp_200_content, "application/json"));
+
+    // schema-less, non-SSE response -> no content block emitted at all
+    cJSON *resp_201 = cJSON_GetObjectItemCaseSensitive(responses, "201");
+    TEST_ASSERT_NOT_NULL(resp_201);
+    TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(resp_201, "content"));
+
+    // route with a non-NULL, zero-length parameters array -> no "parameters" key
+    cJSON *empty_params_path = cJSON_GetObjectItemCaseSensitive(paths, "/api/retained-empty-params");
+    cJSON *get_op            = cJSON_GetObjectItemCaseSensitive(empty_params_path, "get");
+    TEST_ASSERT_NOT_NULL(get_op);
+    TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(get_op, "parameters"));
+
+    bb_json_free(doc);
+    bb_http_route_registry_clear();
 }
 
 void test_openapi_emit_servers_present_when_url_set(void)
@@ -326,23 +477,23 @@ void test_openapi_emit_servers_present_when_url_set(void)
         .version    = "1.0.0",
         .server_url = "http://miner.local",
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t servers = bb_json_obj_get_item(doc, "servers");
+    cJSON *servers = cJSON_GetObjectItemCaseSensitive(r.doc, "servers");
     TEST_ASSERT_NOT_NULL(servers);
-    TEST_ASSERT_TRUE(bb_json_item_is_array(servers));
-    TEST_ASSERT_EQUAL(1, bb_json_arr_size(servers));
+    TEST_ASSERT_TRUE(cJSON_IsArray(servers));
+    TEST_ASSERT_EQUAL(1, cJSON_GetArraySize(servers));
 
-    bb_json_t entry = bb_json_arr_get_item(servers, 0);
+    cJSON *entry = cJSON_GetArrayItem(servers, 0);
     TEST_ASSERT_NOT_NULL(entry);
 
-    char url[64];
-    bool ok = bb_json_obj_get_string(entry, "url", url, sizeof(url));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("http://miner.local", url);
+    cJSON *url = cJSON_GetObjectItemCaseSensitive(entry, "url");
+    TEST_ASSERT_TRUE(cJSON_IsString(url));
+    TEST_ASSERT_EQUAL_STRING("http://miner.local", cJSON_GetStringValue(url));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_servers_absent_when_no_url(void)
@@ -353,13 +504,14 @@ void test_openapi_emit_servers_absent_when_no_url(void)
         .title   = "Test",
         .version = "1.0.0",
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t servers = bb_json_obj_get_item(doc, "servers");
+    cJSON *servers = cJSON_GetObjectItemCaseSensitive(r.doc, "servers");
     TEST_ASSERT_NULL(servers);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -389,20 +541,20 @@ void test_openapi_emit_patch_method_operation_id(void)
     bb_http_register_described_route(NULL, &s_route_patch);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/patch-test");
-    bb_json_t patch_op = bb_json_obj_get_item(path_item, "patch");
+    cJSON *paths       = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item   = cJSON_GetObjectItemCaseSensitive(paths, "/api/patch-test");
+    cJSON *patch_op    = cJSON_GetObjectItemCaseSensitive(path_item, "patch");
     TEST_ASSERT_NOT_NULL(patch_op);
 
-    char op_id[64];
-    bool ok = bb_json_obj_get_string(patch_op, "operationId", op_id, sizeof(op_id));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("patchTest", op_id);
+    cJSON *op_id = cJSON_GetObjectItemCaseSensitive(patch_op, "operationId");
+    TEST_ASSERT_TRUE(cJSON_IsString(op_id));
+    TEST_ASSERT_EQUAL_STRING("patchTest", cJSON_GetStringValue(op_id));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 static const bb_route_t s_route_put = {
@@ -423,20 +575,20 @@ void test_openapi_emit_put_method_operation_id(void)
     bb_http_register_described_route(NULL, &s_route_put);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/put-test");
-    bb_json_t put_op = bb_json_obj_get_item(path_item, "put");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/put-test");
+    cJSON *put_op    = cJSON_GetObjectItemCaseSensitive(path_item, "put");
     TEST_ASSERT_NOT_NULL(put_op);
 
-    char op_id[64];
-    bool ok = bb_json_obj_get_string(put_op, "operationId", op_id, sizeof(op_id));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("putTest", op_id);
+    cJSON *op_id = cJSON_GetObjectItemCaseSensitive(put_op, "operationId");
+    TEST_ASSERT_TRUE(cJSON_IsString(op_id));
+    TEST_ASSERT_EQUAL_STRING("putTest", cJSON_GetStringValue(op_id));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 static const bb_route_t s_route_delete = {
@@ -457,20 +609,20 @@ void test_openapi_emit_delete_method_operation_id(void)
     bb_http_register_described_route(NULL, &s_route_delete);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/delete-test");
-    bb_json_t delete_op = bb_json_obj_get_item(path_item, "delete");
+    cJSON *paths       = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item   = cJSON_GetObjectItemCaseSensitive(paths, "/api/delete-test");
+    cJSON *delete_op   = cJSON_GetObjectItemCaseSensitive(path_item, "delete");
     TEST_ASSERT_NOT_NULL(delete_op);
 
-    char op_id[64];
-    bool ok = bb_json_obj_get_string(delete_op, "operationId", op_id, sizeof(op_id));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("deleteTest", op_id);
+    cJSON *op_id = cJSON_GetObjectItemCaseSensitive(delete_op, "operationId");
+    TEST_ASSERT_TRUE(cJSON_IsString(op_id));
+    TEST_ASSERT_EQUAL_STRING("deleteTest", cJSON_GetStringValue(op_id));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 static const bb_route_t s_route_options = {
@@ -491,20 +643,20 @@ void test_openapi_emit_options_method_operation_id(void)
     bb_http_register_described_route(NULL, &s_route_options);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/options-test");
-    bb_json_t options_op = bb_json_obj_get_item(path_item, "options");
+    cJSON *paths        = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item    = cJSON_GetObjectItemCaseSensitive(paths, "/api/options-test");
+    cJSON *options_op   = cJSON_GetObjectItemCaseSensitive(path_item, "options");
     TEST_ASSERT_NOT_NULL(options_op);
 
-    char op_id[64];
-    bool ok = bb_json_obj_get_string(options_op, "operationId", op_id, sizeof(op_id));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("optionsTest", op_id);
+    cJSON *op_id = cJSON_GetObjectItemCaseSensitive(options_op, "operationId");
+    TEST_ASSERT_TRUE(cJSON_IsString(op_id));
+    TEST_ASSERT_EQUAL_STRING("optionsTest", cJSON_GetStringValue(op_id));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -529,19 +681,19 @@ void test_openapi_emit_derives_operation_id_with_dashes(void)
     bb_http_register_described_route(NULL, &s_route_path_with_dashes);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/foo-bar-baz");
-    bb_json_t get_op = bb_json_obj_get_item(path_item, "get");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/foo-bar-baz");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
 
-    char op_id[64];
-    bool ok = bb_json_obj_get_string(get_op, "operationId", op_id, sizeof(op_id));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("getApiFooBarBaz", op_id);
+    cJSON *op_id = cJSON_GetObjectItemCaseSensitive(get_op, "operationId");
+    TEST_ASSERT_TRUE(cJSON_IsString(op_id));
+    TEST_ASSERT_EQUAL_STRING("getApiFooBarBaz", cJSON_GetStringValue(op_id));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 static const bb_route_t s_route_path_with_underscores = {
@@ -562,19 +714,19 @@ void test_openapi_emit_derives_operation_id_with_underscores(void)
     bb_http_register_described_route(NULL, &s_route_path_with_underscores);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/test_item_foo");
-    bb_json_t post_op = bb_json_obj_get_item(path_item, "post");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/test_item_foo");
+    cJSON *post_op   = cJSON_GetObjectItemCaseSensitive(path_item, "post");
 
-    char op_id[64];
-    bool ok = bb_json_obj_get_string(post_op, "operationId", op_id, sizeof(op_id));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("postApiTestItemFoo", op_id);
+    cJSON *op_id = cJSON_GetObjectItemCaseSensitive(post_op, "operationId");
+    TEST_ASSERT_TRUE(cJSON_IsString(op_id));
+    TEST_ASSERT_EQUAL_STRING("postApiTestItemFoo", cJSON_GetStringValue(op_id));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 static const bb_route_t s_route_path_no_api_prefix = {
@@ -595,19 +747,19 @@ void test_openapi_emit_derives_operation_id_without_api_prefix(void)
     bb_http_register_described_route(NULL, &s_route_path_no_api_prefix);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/foo/bar");
-    bb_json_t get_op = bb_json_obj_get_item(path_item, "get");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/foo/bar");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
 
-    char op_id[64];
-    bool ok = bb_json_obj_get_string(get_op, "operationId", op_id, sizeof(op_id));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("getFooBar", op_id);
+    cJSON *op_id = cJSON_GetObjectItemCaseSensitive(get_op, "operationId");
+    TEST_ASSERT_TRUE(cJSON_IsString(op_id));
+    TEST_ASSERT_EQUAL_STRING("getFooBar", cJSON_GetStringValue(op_id));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 static const bb_route_t s_route_path_multiple_slashes = {
@@ -628,20 +780,20 @@ void test_openapi_emit_derives_operation_id_with_consecutive_slashes(void)
     bb_http_register_described_route(NULL, &s_route_path_multiple_slashes);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/users//foo");
-    bb_json_t get_op = bb_json_obj_get_item(path_item, "get");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/users//foo");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
 
-    char op_id[64];
-    bool ok = bb_json_obj_get_string(get_op, "operationId", op_id, sizeof(op_id));
-    TEST_ASSERT_TRUE(ok);
+    cJSON *op_id = cJSON_GetObjectItemCaseSensitive(get_op, "operationId");
+    TEST_ASSERT_TRUE(cJSON_IsString(op_id));
     // Consecutive slashes should still produce valid camelCase
-    TEST_ASSERT_EQUAL_STRING("getApiUsersFoo", op_id);
+    TEST_ASSERT_EQUAL_STRING("getApiUsersFoo", cJSON_GetStringValue(op_id));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -679,19 +831,20 @@ void test_openapi_emit_multiple_methods_same_path(void)
     bb_http_register_described_route(NULL, &s_route_multi_post);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/multi-endpoint");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/multi-endpoint");
     TEST_ASSERT_NOT_NULL(path_item);
 
-    bb_json_t get_op = bb_json_obj_get_item(path_item, "get");
-    bb_json_t post_op = bb_json_obj_get_item(path_item, "post");
+    cJSON *get_op = cJSON_GetObjectItemCaseSensitive(path_item, "get");
+    cJSON *post_op = cJSON_GetObjectItemCaseSensitive(path_item, "post");
     TEST_ASSERT_NOT_NULL(get_op);
     TEST_ASSERT_NOT_NULL(post_op);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -732,20 +885,21 @@ void test_openapi_emit_multiple_response_codes(void)
     bb_http_register_described_route(NULL, &s_route_multi_response);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/multi-response");
-    bb_json_t post_op = bb_json_obj_get_item(path_item, "post");
-    bb_json_t responses = bb_json_obj_get_item(post_op, "responses");
+    cJSON *paths       = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item   = cJSON_GetObjectItemCaseSensitive(paths, "/api/multi-response");
+    cJSON *post_op     = cJSON_GetObjectItemCaseSensitive(path_item, "post");
+    cJSON *responses   = cJSON_GetObjectItemCaseSensitive(post_op, "responses");
 
-    bb_json_t r200 = bb_json_obj_get_item(responses, "200");
-    bb_json_t r400 = bb_json_obj_get_item(responses, "400");
+    cJSON *r200 = cJSON_GetObjectItemCaseSensitive(responses, "200");
+    cJSON *r400 = cJSON_GetObjectItemCaseSensitive(responses, "400");
     TEST_ASSERT_NOT_NULL(r200);
     TEST_ASSERT_NOT_NULL(r400);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 static const bb_route_response_t s_response_no_schema[] = {
@@ -776,20 +930,21 @@ void test_openapi_emit_response_without_schema(void)
     bb_http_register_described_route(NULL, &s_route_no_schema_response);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/no-schema");
-    bb_json_t delete_op = bb_json_obj_get_item(path_item, "delete");
-    bb_json_t responses = bb_json_obj_get_item(delete_op, "responses");
-    bb_json_t r204 = bb_json_obj_get_item(responses, "204");
+    cJSON *paths       = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item   = cJSON_GetObjectItemCaseSensitive(paths, "/api/no-schema");
+    cJSON *delete_op   = cJSON_GetObjectItemCaseSensitive(path_item, "delete");
+    cJSON *responses   = cJSON_GetObjectItemCaseSensitive(delete_op, "responses");
+    cJSON *r204        = cJSON_GetObjectItemCaseSensitive(responses, "204");
 
     TEST_ASSERT_NOT_NULL(r204);
-    bb_json_t content = bb_json_obj_get_item(r204, "content");
+    cJSON *content = cJSON_GetObjectItemCaseSensitive(r204, "content");
     TEST_ASSERT_NULL(content);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -805,16 +960,16 @@ void test_openapi_emit_null_title_defaults_to_breadboard_device(void)
         .version     = "1.0.0",
         .description = NULL,
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t info = bb_json_obj_get_item(doc, "info");
-    char title[64];
-    bool ok = bb_json_obj_get_string(info, "title", title, sizeof(title));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("breadboard device", title);
+    cJSON *info  = cJSON_GetObjectItemCaseSensitive(r.doc, "info");
+    cJSON *title = cJSON_GetObjectItemCaseSensitive(info, "title");
+    TEST_ASSERT_TRUE(cJSON_IsString(title));
+    TEST_ASSERT_EQUAL_STRING("breadboard device", cJSON_GetStringValue(title));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_null_version_defaults_to_0_0_0(void)
@@ -826,16 +981,16 @@ void test_openapi_emit_null_version_defaults_to_0_0_0(void)
         .version     = NULL,
         .description = NULL,
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t info = bb_json_obj_get_item(doc, "info");
-    char version[64];
-    bool ok = bb_json_obj_get_string(info, "version", version, sizeof(version));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("0.0.0", version);
+    cJSON *info    = cJSON_GetObjectItemCaseSensitive(r.doc, "info");
+    cJSON *version = cJSON_GetObjectItemCaseSensitive(info, "version");
+    TEST_ASSERT_TRUE(cJSON_IsString(version));
+    TEST_ASSERT_EQUAL_STRING("0.0.0", cJSON_GetStringValue(version));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_null_description_omitted(void)
@@ -847,14 +1002,15 @@ void test_openapi_emit_null_description_omitted(void)
         .version     = "1.0.0",
         .description = NULL,
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t info = bb_json_obj_get_item(doc, "info");
-    bb_json_t desc = bb_json_obj_get_item(info, "description");
+    cJSON *info = cJSON_GetObjectItemCaseSensitive(r.doc, "info");
+    cJSON *desc = cJSON_GetObjectItemCaseSensitive(info, "description");
     TEST_ASSERT_NULL(desc);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_description_present_when_provided(void)
@@ -866,16 +1022,16 @@ void test_openapi_emit_description_present_when_provided(void)
         .version     = "1.0.0",
         .description = "A test API",
     };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t info = bb_json_obj_get_item(doc, "info");
-    char desc[64];
-    bool ok = bb_json_obj_get_string(info, "description", desc, sizeof(desc));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("A test API", desc);
+    cJSON *info = cJSON_GetObjectItemCaseSensitive(r.doc, "info");
+    cJSON *desc = cJSON_GetObjectItemCaseSensitive(info, "description");
+    TEST_ASSERT_TRUE(cJSON_IsString(desc));
+    TEST_ASSERT_EQUAL_STRING("A test API", cJSON_GetStringValue(desc));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -905,17 +1061,18 @@ void test_openapi_emit_route_null_summary_omitted(void)
     bb_http_register_described_route(NULL, &s_route_no_summary);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/no-summary");
-    bb_json_t get_op = bb_json_obj_get_item(path_item, "get");
-    bb_json_t summary = bb_json_obj_get_item(get_op, "summary");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/no-summary");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
+    cJSON *summary   = cJSON_GetObjectItemCaseSensitive(get_op, "summary");
 
     TEST_ASSERT_NULL(summary);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 static const bb_route_t s_route_null_responses = {
@@ -936,17 +1093,18 @@ void test_openapi_emit_route_null_responses_array(void)
     bb_http_register_described_route(NULL, &s_route_null_responses);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/null-responses");
-    bb_json_t get_op = bb_json_obj_get_item(path_item, "get");
-    bb_json_t responses = bb_json_obj_get_item(get_op, "responses");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/null-responses");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
+    cJSON *responses = cJSON_GetObjectItemCaseSensitive(get_op, "responses");
 
     TEST_ASSERT_NOT_NULL(responses);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 static const bb_route_t s_route_request_schema_only = {
@@ -967,19 +1125,20 @@ void test_openapi_emit_request_schema_without_content_type(void)
     bb_http_register_described_route(NULL, &s_route_request_schema_only);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/schema-only");
-    bb_json_t post_op = bb_json_obj_get_item(path_item, "post");
-    bb_json_t req_body = bb_json_obj_get_item(post_op, "requestBody");
-    bb_json_t content = bb_json_obj_get_item(req_body, "content");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/schema-only");
+    cJSON *post_op   = cJSON_GetObjectItemCaseSensitive(path_item, "post");
+    cJSON *req_body  = cJSON_GetObjectItemCaseSensitive(post_op, "requestBody");
+    cJSON *content   = cJSON_GetObjectItemCaseSensitive(req_body, "content");
 
-    bb_json_t media = bb_json_obj_get_item(content, "application/json");
+    cJSON *media = cJSON_GetObjectItemCaseSensitive(content, "application/json");
     TEST_ASSERT_NOT_NULL(media);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 static const bb_route_t s_route_content_type_only = {
@@ -1000,22 +1159,25 @@ void test_openapi_emit_request_content_type_without_schema(void)
     bb_http_register_described_route(NULL, &s_route_content_type_only);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths   = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/ct-only");
-    bb_json_t post_op = bb_json_obj_get_item(path_item, "post");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/ct-only");
+    cJSON *post_op   = cJSON_GetObjectItemCaseSensitive(path_item, "post");
 
     // requestBody is only emitted when request_schema is set; content_type without schema is ignored
-    bb_json_t req_body = bb_json_obj_get_item(post_op, "requestBody");
+    cJSON *req_body = cJSON_GetObjectItemCaseSensitive(post_op, "requestBody");
     TEST_ASSERT_NULL(req_body);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
 // Fault-injection tests — exercise OOM cleanup paths in bb_openapi_emit
+// (tree emitter). Deliberately NOT ported onto the stream path -- see the
+// file-top NOTE. Kept verbatim against bb_openapi_emit()/bb_json_*.
 // ---------------------------------------------------------------------------
 
 // Minimal route for OOM tests: no tag, no request, no response schema.
@@ -1388,7 +1550,13 @@ void test_openapi_emit_invalid_method_defaults_to_get(void)
 {
     bb_http_route_registry_clear();
 
-    // Cast an out-of-range value to bb_http_method_t to hit the default branch
+    // Cast an out-of-range value to bb_http_method_t to hit the default
+    // branch. Reuses s_oom_responses (declared above, in the still-present
+    // OOM fixture block) rather than a near-identical local copy -- no
+    // reason to duplicate a trivial one-entry fixture while it's in scope.
+    // If PR 6 deletes s_oom_responses along with the OOM section, repoint
+    // this test at a small local fixture then (it is not itself an OOM
+    // test and must survive that deletion).
     bb_route_t route_invalid = {
         .method               = (bb_http_method_t)99,
         .path                 = "/api/invalid-method",
@@ -1403,18 +1571,19 @@ void test_openapi_emit_invalid_method_defaults_to_get(void)
     bb_http_register_described_route(NULL, &route_invalid);
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/invalid-method");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/invalid-method");
     TEST_ASSERT_NOT_NULL(path_item);
 
     // method_str default branch returns "get"
-    bb_json_t get_op = bb_json_obj_get_item(path_item, "get");
+    cJSON *get_op = cJSON_GetObjectItemCaseSensitive(path_item, "get");
     TEST_ASSERT_NOT_NULL(get_op);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -1444,15 +1613,14 @@ void test_openapi_emit_response_null_description(void)
     bb_http_register_described_route(NULL, &s_route_null_desc);
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
-    char *s = bb_json_serialize(doc);
-    TEST_ASSERT_NOT_NULL(s);
     // description is emitted as empty string when NULL
-    TEST_ASSERT_TRUE(strstr(s, "\"description\":\"\"") != NULL);
-    bb_json_free_str(s);
-    bb_json_free(doc);
+    TEST_ASSERT_TRUE(strstr(r.cap.body, "\"description\":\"\"") != NULL);
+
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -1482,15 +1650,14 @@ void test_openapi_emit_response_null_content_type_defaults_to_json(void)
     bb_http_register_described_route(NULL, &s_route_null_ct);
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
-    char *s = bb_json_serialize(doc);
-    TEST_ASSERT_NOT_NULL(s);
     // missing content_type falls back to application/json
-    TEST_ASSERT_TRUE(strstr(s, "\"application/json\"") != NULL);
-    bb_json_free_str(s);
-    bb_json_free(doc);
+    TEST_ASSERT_TRUE(strstr(r.cap.body, "\"application/json\"") != NULL);
+
+    test_openapi_capture_free(&r);
 }
 
 
@@ -1519,9 +1686,11 @@ void test_openapi_emit_long_path_truncates_operation_id(void)
     bb_http_register_described_route(NULL, &s_route_long_path);
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
-    bb_json_free(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
+
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -1561,41 +1730,39 @@ void test_openapi_emit_parameters_array_present(void)
     bb_http_register_described_route(NULL, &s_route_with_params);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/param-test");
-    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/param-test");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
     TEST_ASSERT_NOT_NULL(get_op);
 
-    bb_json_t params = bb_json_obj_get_item(get_op, "parameters");
+    cJSON *params = cJSON_GetObjectItemCaseSensitive(get_op, "parameters");
     TEST_ASSERT_NOT_NULL(params);
-    TEST_ASSERT_TRUE(bb_json_item_is_array(params));
-    TEST_ASSERT_EQUAL(1, bb_json_arr_size(params));
+    TEST_ASSERT_TRUE(cJSON_IsArray(params));
+    TEST_ASSERT_EQUAL(1, cJSON_GetArraySize(params));
 
-    bb_json_t p0 = bb_json_arr_get_item(params, 0);
+    cJSON *p0 = cJSON_GetArrayItem(params, 0);
     TEST_ASSERT_NOT_NULL(p0);
 
-    char name[32];
-    bool ok = bb_json_obj_get_string(p0, "name", name, sizeof(name));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("topic", name);
+    cJSON *name = cJSON_GetObjectItemCaseSensitive(p0, "name");
+    TEST_ASSERT_TRUE(cJSON_IsString(name));
+    TEST_ASSERT_EQUAL_STRING("topic", cJSON_GetStringValue(name));
 
-    char in_val[16];
-    ok = bb_json_obj_get_string(p0, "in", in_val, sizeof(in_val));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("query", in_val);
+    cJSON *in_val = cJSON_GetObjectItemCaseSensitive(p0, "in");
+    TEST_ASSERT_TRUE(cJSON_IsString(in_val));
+    TEST_ASSERT_EQUAL_STRING("query", cJSON_GetStringValue(in_val));
 
     // schema.type should be "string"
-    bb_json_t schema = bb_json_obj_get_item(p0, "schema");
+    cJSON *schema = cJSON_GetObjectItemCaseSensitive(p0, "schema");
     TEST_ASSERT_NOT_NULL(schema);
-    char stype[16];
-    ok = bb_json_obj_get_string(schema, "type", stype, sizeof(stype));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("string", stype);
+    cJSON *stype = cJSON_GetObjectItemCaseSensitive(schema, "type");
+    TEST_ASSERT_TRUE(cJSON_IsString(stype));
+    TEST_ASSERT_EQUAL_STRING("string", cJSON_GetStringValue(stype));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_parameters_absent_when_null(void)
@@ -1604,18 +1771,19 @@ void test_openapi_emit_parameters_absent_when_null(void)
     bb_http_register_described_route(NULL, &s_route_foo);  // no parameters field
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
-    bb_json_t foo       = bb_json_obj_get_item(paths, "/api/foo");
-    bb_json_t get_op    = bb_json_obj_get_item(foo, "get");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *foo       = cJSON_GetObjectItemCaseSensitive(paths, "/api/foo");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(foo, "get");
     TEST_ASSERT_NOT_NULL(get_op);
 
-    bb_json_t params = bb_json_obj_get_item(get_op, "parameters");
+    cJSON *params = cJSON_GetObjectItemCaseSensitive(get_op, "parameters");
     TEST_ASSERT_NULL(params);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -1647,27 +1815,28 @@ void test_openapi_emit_param_null_description_omitted(void)
     bb_http_register_described_route(NULL, &s_route_param_minimal);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/param-minimal");
-    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
-    bb_json_t params    = bb_json_obj_get_item(get_op, "parameters");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/param-minimal");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
+    cJSON *params    = cJSON_GetObjectItemCaseSensitive(get_op, "parameters");
     TEST_ASSERT_NOT_NULL(params);
 
-    bb_json_t p0 = bb_json_arr_get_item(params, 0);
+    cJSON *p0 = cJSON_GetArrayItem(params, 0);
     TEST_ASSERT_NOT_NULL(p0);
 
     // description NULL → key not emitted
-    bb_json_t desc = bb_json_obj_get_item(p0, "description");
+    cJSON *desc = cJSON_GetObjectItemCaseSensitive(p0, "description");
     TEST_ASSERT_NULL(desc);
 
     // schema_type NULL → schema key not emitted
-    bb_json_t schema = bb_json_obj_get_item(p0, "schema");
+    cJSON *schema = cJSON_GetObjectItemCaseSensitive(p0, "schema");
     TEST_ASSERT_NULL(schema);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -1699,25 +1868,25 @@ void test_openapi_emit_param_in_path(void)
     bb_http_register_described_route(NULL, &s_route_path_param);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/devices/{device_id}");
-    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
-    bb_json_t params    = bb_json_obj_get_item(get_op, "parameters");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/devices/{device_id}");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
+    cJSON *params    = cJSON_GetObjectItemCaseSensitive(get_op, "parameters");
     TEST_ASSERT_NOT_NULL(params);
-    TEST_ASSERT_EQUAL(1, bb_json_arr_size(params));
+    TEST_ASSERT_EQUAL(1, cJSON_GetArraySize(params));
 
-    bb_json_t p0 = bb_json_arr_get_item(params, 0);
+    cJSON *p0 = cJSON_GetArrayItem(params, 0);
     TEST_ASSERT_NOT_NULL(p0);
 
-    char in_val[16];
-    bool ok = bb_json_obj_get_string(p0, "in", in_val, sizeof(in_val));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("path", in_val);
+    cJSON *in_val = cJSON_GetObjectItemCaseSensitive(p0, "in");
+    TEST_ASSERT_TRUE(cJSON_IsString(in_val));
+    TEST_ASSERT_EQUAL_STRING("path", cJSON_GetStringValue(in_val));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -1756,35 +1925,35 @@ void test_openapi_emit_multiple_params_on_route(void)
     bb_http_register_described_route(NULL, &s_route_multi_params);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/multi-params");
-    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
-    bb_json_t params    = bb_json_obj_get_item(get_op, "parameters");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/multi-params");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
+    cJSON *params    = cJSON_GetObjectItemCaseSensitive(get_op, "parameters");
     TEST_ASSERT_NOT_NULL(params);
-    TEST_ASSERT_EQUAL(2, bb_json_arr_size(params));
+    TEST_ASSERT_EQUAL(2, cJSON_GetArraySize(params));
 
-    bb_json_t p0 = bb_json_arr_get_item(params, 0);
-    bb_json_t p1 = bb_json_arr_get_item(params, 1);
+    cJSON *p0 = cJSON_GetArrayItem(params, 0);
+    cJSON *p1 = cJSON_GetArrayItem(params, 1);
     TEST_ASSERT_NOT_NULL(p0);
     TEST_ASSERT_NOT_NULL(p1);
 
-    char name[32];
-    bool ok = bb_json_obj_get_string(p0, "name", name, sizeof(name));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("page", name);
+    cJSON *name0 = cJSON_GetObjectItemCaseSensitive(p0, "name");
+    TEST_ASSERT_TRUE(cJSON_IsString(name0));
+    TEST_ASSERT_EQUAL_STRING("page", cJSON_GetStringValue(name0));
 
-    ok = bb_json_obj_get_string(p1, "name", name, sizeof(name));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("limit", name);
+    cJSON *name1 = cJSON_GetObjectItemCaseSensitive(p1, "name");
+    TEST_ASSERT_TRUE(cJSON_IsString(name1));
+    TEST_ASSERT_EQUAL_STRING("limit", cJSON_GetStringValue(name1));
 
     // p1 has NULL description → key absent
-    bb_json_t desc = bb_json_obj_get_item(p1, "description");
+    cJSON *desc = cJSON_GetObjectItemCaseSensitive(p1, "description");
     TEST_ASSERT_NULL(desc);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -1808,19 +1977,20 @@ void test_openapi_emit_param_count_zero_omits_parameters(void)
     bb_http_register_described_route(NULL, &s_route_params_count_zero);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/params-zero");
-    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/params-zero");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
     TEST_ASSERT_NOT_NULL(get_op);
 
     // parameters != NULL but count == 0 -> no "parameters" key emitted
-    bb_json_t params = bb_json_obj_get_item(get_op, "parameters");
+    cJSON *params = cJSON_GetObjectItemCaseSensitive(get_op, "parameters");
     TEST_ASSERT_NULL(params);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -1853,24 +2023,24 @@ void test_openapi_emit_param_null_name_defaults_to_empty(void)
     bb_http_register_described_route(NULL, &s_route_param_null_name_in);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/param-null-name-in");
-    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
-    bb_json_t params    = bb_json_obj_get_item(get_op, "parameters");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/param-null-name-in");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
+    cJSON *params    = cJSON_GetObjectItemCaseSensitive(get_op, "parameters");
     TEST_ASSERT_NOT_NULL(params);
 
-    bb_json_t p0 = bb_json_arr_get_item(params, 0);
+    cJSON *p0 = cJSON_GetArrayItem(params, 0);
     TEST_ASSERT_NOT_NULL(p0);
 
-    char name[16];
-    bool ok = bb_json_obj_get_string(p0, "name", name, sizeof(name));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("", name);
+    cJSON *name = cJSON_GetObjectItemCaseSensitive(p0, "name");
+    TEST_ASSERT_TRUE(cJSON_IsString(name));
+    TEST_ASSERT_EQUAL_STRING("", cJSON_GetStringValue(name));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_param_null_in_defaults_to_query(void)
@@ -1879,28 +2049,29 @@ void test_openapi_emit_param_null_in_defaults_to_query(void)
     bb_http_register_described_route(NULL, &s_route_param_null_name_in);
 
     bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/param-null-name-in");
-    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
-    bb_json_t params    = bb_json_obj_get_item(get_op, "parameters");
-    bb_json_t p0        = bb_json_arr_get_item(params, 0);
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/param-null-name-in");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
+    cJSON *params    = cJSON_GetObjectItemCaseSensitive(get_op, "parameters");
+    cJSON *p0        = cJSON_GetArrayItem(params, 0);
     TEST_ASSERT_NOT_NULL(p0);
 
-    char in_val[16];
-    bool ok = bb_json_obj_get_string(p0, "in", in_val, sizeof(in_val));
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("query", in_val);
+    cJSON *in_val = cJSON_GetObjectItemCaseSensitive(p0, "in");
+    TEST_ASSERT_TRUE(cJSON_IsString(in_val));
+    TEST_ASSERT_EQUAL_STRING("query", cJSON_GetStringValue(in_val));
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
 // OOM: params array alloc failure skips parameters (line 163 branch 1)
 // OOM: param_obj alloc failure skips that entry (line 167 branch 1)
 // OOM: schema obj alloc failure skips schema (line 176 branch 0)
+// Deliberately NOT ported -- see the file-top NOTE.
 // ---------------------------------------------------------------------------
 
 // Route with one param (no tag, no req_body) for OOM targeting.
@@ -2015,33 +2186,25 @@ void test_openapi_emit_stream_produces_valid_openapi_doc(void)
 {
     register_fixtures();
 
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-
     bb_openapi_meta_t meta = { .title = "Stream", .version = "9.9.9" };
-    bb_err_t err = bb_openapi_emit_stream(req, &meta);
-    TEST_ASSERT_EQUAL(BB_OK, err);
-
-    bb_http_host_capture_t cap = {0};
-    bb_http_host_capture_end(req, &cap);
-    TEST_ASSERT_NOT_NULL(cap.body);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
     // Sanity: doc starts/ends correctly and contains the three fixture paths.
-    TEST_ASSERT_EQUAL_STRING_LEN("{\"openapi\":\"3.1.0\"", cap.body, 18);
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"title\":\"Stream\""));
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"version\":\"9.9.9\""));
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"/api/foo\""));
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"/api/bar\""));
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"/api/baz\""));
+    TEST_ASSERT_EQUAL_STRING_LEN("{\"openapi\":\"3.1.0\"", r.cap.body, 18);
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"title\":\"Stream\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"version\":\"9.9.9\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"/api/foo\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"/api/bar\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"/api/baz\""));
     // tail
-    TEST_ASSERT_EQUAL_STRING_LEN("}}", cap.body + cap.body_len - 2, 2);
+    TEST_ASSERT_EQUAL_STRING_LEN("}}", r.cap.body + r.cap.body_len - 2, 2);
 
-    // Parses as valid JSON
-    bb_json_t parsed = bb_json_parse(cap.body, cap.body_len);
-    TEST_ASSERT_NOT_NULL(parsed);
-    bb_json_free(parsed);
+    // Parses as valid JSON (test_openapi_capture() already parsed it via cJSON)
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_http_host_capture_free(&cap);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_stream_null_args_return_invalid_arg(void)
@@ -2061,48 +2224,36 @@ void test_openapi_emit_stream_includes_servers_and_description(void)
 {
     register_fixtures();
 
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-
     bb_openapi_meta_t meta = {
         .title = "Stream2",
         .version = "1.0.0",
         .description = "test description",
         .server_url = "http://example.invalid",
     };
-    bb_err_t err = bb_openapi_emit_stream(req, &meta);
-    TEST_ASSERT_EQUAL(BB_OK, err);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
-    bb_http_host_capture_t cap = {0};
-    bb_http_host_capture_end(req, &cap);
-    TEST_ASSERT_NOT_NULL(cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"description\":\"test description\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"servers\":[{\"url\":\"http://example.invalid\"}]"));
 
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"description\":\"test description\""));
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"servers\":[{\"url\":\"http://example.invalid\"}]"));
-
-    bb_http_host_capture_free(&cap);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_stream_applies_defaults_when_meta_fields_missing(void)
 {
     register_fixtures();
 
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-
     bb_openapi_meta_t meta = {0};  // title + version both NULL
-    bb_err_t err = bb_openapi_emit_stream(req, &meta);
-    TEST_ASSERT_EQUAL(BB_OK, err);
-
-    bb_http_host_capture_t cap = {0};
-    bb_http_host_capture_end(req, &cap);
-    TEST_ASSERT_NOT_NULL(cap.body);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
     // Defaults applied
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"title\":\"breadboard device\""));
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"version\":\"0.0.0\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"title\":\"breadboard device\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"version\":\"0.0.0\""));
 
-    bb_http_host_capture_free(&cap);
+    test_openapi_capture_free(&r);
 }
 
 // Fixture: two methods on the same path — exercises the multi-method branch
@@ -2126,22 +2277,17 @@ void test_openapi_emit_stream_handles_multiple_methods_per_path(void)
     bb_http_register_described_route(NULL, &s_stream_route_multi_get);
     bb_http_register_described_route(NULL, &s_stream_route_multi_post);
 
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
-
-    bb_http_host_capture_t cap = {0};
-    bb_http_host_capture_end(req, &cap);
-    TEST_ASSERT_NOT_NULL(cap.body);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
     // Both methods present under the single path
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"/api/stream-multi\":{"));
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"get\":"));
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"post\":"));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"/api/stream-multi\":{"));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"get\":"));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"post\":"));
 
-    bb_http_host_capture_free(&cap);
+    test_openapi_capture_free(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -2158,19 +2304,14 @@ void test_openapi_emit_stream_route_null_summary_omitted(void)
     bb_http_route_registry_clear();
     bb_http_register_described_route(NULL, &s_route_no_summary);
 
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
-    bb_http_host_capture_t cap = {0};
-    bb_http_host_capture_end(req, &cap);
-    TEST_ASSERT_NOT_NULL(cap.body);
+    TEST_ASSERT_NULL(strstr(r.cap.body, "\"summary\""));
 
-    TEST_ASSERT_NULL(strstr(cap.body, "\"summary\""));
-
-    bb_http_host_capture_free(&cap);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_stream_param_count_zero_omits_parameters(void)
@@ -2178,20 +2319,15 @@ void test_openapi_emit_stream_param_count_zero_omits_parameters(void)
     bb_http_route_registry_clear();
     bb_http_register_described_route(NULL, &s_route_params_count_zero);
 
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
-
-    bb_http_host_capture_t cap = {0};
-    bb_http_host_capture_end(req, &cap);
-    TEST_ASSERT_NOT_NULL(cap.body);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
     // parameters != NULL but count == 0 -> no "parameters" key emitted
-    TEST_ASSERT_NULL(strstr(cap.body, "\"parameters\""));
+    TEST_ASSERT_NULL(strstr(r.cap.body, "\"parameters\""));
 
-    bb_http_host_capture_free(&cap);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_stream_param_null_description_and_schema_type_omitted(void)
@@ -2199,33 +2335,24 @@ void test_openapi_emit_stream_param_null_description_and_schema_type_omitted(voi
     bb_http_route_registry_clear();
     bb_http_register_described_route(NULL, &s_route_param_minimal);
 
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_http_host_capture_t cap = {0};
-    bb_http_host_capture_end(req, &cap);
-    TEST_ASSERT_NOT_NULL(cap.body);
-
-    bb_json_t doc = bb_json_parse(cap.body, cap.body_len);
-    TEST_ASSERT_NOT_NULL(doc);
-
-    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/param-minimal");
-    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
-    bb_json_t params    = bb_json_obj_get_item(get_op, "parameters");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/param-minimal");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
+    cJSON *params    = cJSON_GetObjectItemCaseSensitive(get_op, "parameters");
     TEST_ASSERT_NOT_NULL(params);
-    bb_json_t p0 = bb_json_arr_get_item(params, 0);
+    cJSON *p0 = cJSON_GetArrayItem(params, 0);
     TEST_ASSERT_NOT_NULL(p0);
 
     // description NULL -> key not emitted; schema_type NULL -> schema not emitted
-    TEST_ASSERT_NULL(bb_json_obj_get_item(p0, "description"));
-    TEST_ASSERT_NULL(bb_json_obj_get_item(p0, "schema"));
+    TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(p0, "description"));
+    TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(p0, "schema"));
 
-    bb_json_free(doc);
-    bb_http_host_capture_free(&cap);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_stream_param_null_name_and_in_default(void)
@@ -2233,21 +2360,16 @@ void test_openapi_emit_stream_param_null_name_and_in_default(void)
     bb_http_route_registry_clear();
     bb_http_register_described_route(NULL, &s_route_param_null_name_in);
 
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
-
-    bb_http_host_capture_t cap = {0};
-    bb_http_host_capture_end(req, &cap);
-    TEST_ASSERT_NOT_NULL(cap.body);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
     // NULL name -> "", NULL in -> "query" (falls back, not omitted)
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"name\":\"\""));
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"in\":\"query\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"name\":\"\""));
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"in\":\"query\""));
 
-    bb_http_host_capture_free(&cap);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_stream_request_schema_without_content_type_defaults_to_json(void)
@@ -2255,19 +2377,14 @@ void test_openapi_emit_stream_request_schema_without_content_type_defaults_to_js
     bb_http_route_registry_clear();
     bb_http_register_described_route(NULL, &s_route_request_schema_only);
 
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
-    bb_http_host_capture_t cap = {0};
-    bb_http_host_capture_end(req, &cap);
-    TEST_ASSERT_NOT_NULL(cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"requestBody\":{\"content\":{\"application/json\""));
 
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"requestBody\":{\"content\":{\"application/json\""));
-
-    bb_http_host_capture_free(&cap);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_stream_response_null_description_defaults_to_empty(void)
@@ -2275,19 +2392,14 @@ void test_openapi_emit_stream_response_null_description_defaults_to_empty(void)
     bb_http_route_registry_clear();
     bb_http_register_described_route(NULL, &s_route_null_desc);
 
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
-    bb_http_host_capture_t cap = {0};
-    bb_http_host_capture_end(req, &cap);
-    TEST_ASSERT_NOT_NULL(cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"description\":\"\""));
 
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"description\":\"\""));
-
-    bb_http_host_capture_free(&cap);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_stream_response_null_content_type_defaults_to_json(void)
@@ -2295,19 +2407,14 @@ void test_openapi_emit_stream_response_null_content_type_defaults_to_json(void)
     bb_http_route_registry_clear();
     bb_http_register_described_route(NULL, &s_route_null_ct);
 
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
 
-    bb_http_host_capture_t cap = {0};
-    bb_http_host_capture_end(req, &cap);
-    TEST_ASSERT_NOT_NULL(cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"application/json\""));
 
-    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"application/json\""));
-
-    bb_http_host_capture_free(&cap);
+    test_openapi_capture_free(&r);
 }
 
 // SSE route with zero registered SSE-topic schemas — the sse_count == 0 arm
@@ -2329,29 +2436,20 @@ void test_openapi_emit_stream_sse_zero_topics_omits_content(void)
     bb_openapi_schema_registry_clear();
     bb_http_register_described_route(NULL, &s_stream_route_sse);
 
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_http_host_capture_t cap = {0};
-    bb_http_host_capture_end(req, &cap);
-    TEST_ASSERT_NOT_NULL(cap.body);
-
-    bb_json_t doc = bb_json_parse(cap.body, cap.body_len);
-    TEST_ASSERT_NOT_NULL(doc);
-
-    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
-    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/stream-events");
-    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
-    bb_json_t resps     = bb_json_obj_get_item(get_op, "responses");
-    bb_json_t r200      = bb_json_obj_get_item(resps, "200");
+    cJSON *paths     = cJSON_GetObjectItemCaseSensitive(r.doc, "paths");
+    cJSON *path_item = cJSON_GetObjectItemCaseSensitive(paths, "/api/stream-events");
+    cJSON *get_op    = cJSON_GetObjectItemCaseSensitive(path_item, "get");
+    cJSON *resps     = cJSON_GetObjectItemCaseSensitive(get_op, "responses");
+    cJSON *r200      = cJSON_GetObjectItemCaseSensitive(resps, "200");
     TEST_ASSERT_NOT_NULL(r200);
-    TEST_ASSERT_NULL(bb_json_obj_get_item(r200, "content"));
+    TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(r200, "content"));
 
-    bb_json_free(doc);
-    bb_http_host_capture_free(&cap);
+    test_openapi_capture_free(&r);
 }
 
 // bb_http_resp_json_obj_begin() itself fails (e.g. Content-Type can't be
@@ -2379,7 +2477,7 @@ void test_openapi_emit_stream_obj_begin_fails_returns_err(void)
 }
 
 // ---------------------------------------------------------------------------
-// components/schemas — tree path
+// components/schemas
 // ---------------------------------------------------------------------------
 
 static const char k_component_schema[] =
@@ -2392,24 +2490,25 @@ void test_openapi_emit_components_schemas_present(void)
     bb_openapi_register_schema("Foo", k_component_schema, NULL);
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.doc);
 
-    bb_json_t components = bb_json_obj_get_item(doc, "components");
+    cJSON *components = cJSON_GetObjectItemCaseSensitive(r.doc, "components");
     TEST_ASSERT_NOT_NULL(components);
-    bb_json_t schemas = bb_json_obj_get_item(components, "schemas");
+    cJSON *schemas = cJSON_GetObjectItemCaseSensitive(components, "schemas");
     TEST_ASSERT_NOT_NULL(schemas);
-    bb_json_t foo_schema = bb_json_obj_get_item(schemas, "Foo");
+    cJSON *foo_schema = cJSON_GetObjectItemCaseSensitive(schemas, "Foo");
     TEST_ASSERT_NOT_NULL(foo_schema);
 
-    bb_json_free(doc);
+    test_openapi_capture_free(&r);
 }
 
 void test_openapi_emit_ref_literal_passthrough(void)
 {
     bb_http_route_registry_clear();
     // Route whose 200 schema is a $ref — verifies the literal flows through
-    // bb_json_obj_set_raw unchanged.
+    // bb_http_resp_json_obj_set_raw unchanged.
     static const bb_route_response_t ref_responses[] = {
         { .status = 200, .content_type = "application/json",
           .schema = "{\"$ref\":\"#/components/schemas/Foo\"}",
@@ -2424,16 +2523,15 @@ void test_openapi_emit_ref_literal_passthrough(void)
     bb_http_register_described_route(NULL, &ref_route);
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
-    bb_json_t doc = bb_openapi_emit(&meta);
-    TEST_ASSERT_NOT_NULL(doc);
+    test_openapi_capture_result_t r = test_openapi_capture(&meta);
+    TEST_ASSERT_EQUAL(BB_OK, r.status);
+    TEST_ASSERT_NOT_NULL(r.cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(r.cap.body, "\"$ref\":\"#/components/schemas/Foo\""));
 
-    char *s = bb_json_serialize(doc);
-    bb_json_free(doc);
-    TEST_ASSERT_NOT_NULL(s);
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/Foo\""));
-    bb_json_free_str(s);
+    test_openapi_capture_free(&r);
 }
 
+// Deliberately NOT ported -- see the file-top NOTE.
 void test_openapi_emit_oom_components_section(void)
 {
     bb_http_route_registry_clear();

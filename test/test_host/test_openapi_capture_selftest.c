@@ -2,6 +2,10 @@
 #include "test_openapi_capture.h"
 #include "bb_http_server.h"
 
+#include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
+
 // ---------------------------------------------------------------------------
 // Self-test for test_openapi_capture()/test_openapi_capture_free() (B1-1054
 // PR2). Proves the shared helper itself works correctly -- does NOT repoint
@@ -104,4 +108,53 @@ void test_openapi_capture_free_is_idempotent(void)
 void test_openapi_capture_free_handles_null_result(void)
 {
     test_openapi_capture_free(NULL);
+}
+
+// Guards the single-slot invariant: a second test_openapi_capture() call
+// while the first result is still live must fail loudly (TEST_FAIL_MESSAGE)
+// instead of silently overwriting s_live and orphaning the first capture.
+// TEST_PROTECT()/Unity.CurrentTestFailed catch the expected abort locally so
+// this self-test itself still reports a pass. stdout is swapped to
+// /dev/null for the guarded call: PlatformIO's own (untrusted, substring-
+// scanning) test reader flags any "FAIL:" text it sees regardless of the
+// test's real outcome (exactly the misreading run_host_tests.py's direct-
+// binary check exists to route around), and that misreading surfaces as a
+// nonzero `pio test` exit code -- which run_host_tests.py DOES still trust,
+// short-circuiting before the authoritative direct-binary verdict ever runs.
+// Suppressing the expected message keeps this true-positive guard test from
+// tripping that false negative.
+void test_openapi_capture_guards_double_capture_without_free(void)
+{
+    bb_http_route_registry_clear();
+    bb_openapi_schema_registry_clear();
+
+    bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
+    test_openapi_capture_result_t first = test_openapi_capture(&meta);
+    TEST_ASSERT_NOT_NULL(first.doc);
+
+    fflush(stdout);
+    int saved_stdout = dup(STDOUT_FILENO);
+    TEST_ASSERT_TRUE_MESSAGE(saved_stdout >= 0, "dup(STDOUT_FILENO) failed while saving stdout");
+    int devnull = open("/dev/null", O_WRONLY);
+    TEST_ASSERT_TRUE_MESSAGE(devnull >= 0, "open(\"/dev/null\") failed while redirecting stdout");
+    TEST_ASSERT_TRUE_MESSAGE(dup2(devnull, STDOUT_FILENO) >= 0, "dup2() to /dev/null failed while redirecting stdout");
+
+    bool guard_fired = false;
+    if (TEST_PROTECT()) {
+        test_openapi_capture(&meta); // expected to longjmp via the guard above
+    } else {
+        guard_fired = true;
+        Unity.CurrentTestFailed = 0; // the guard's abort is this test's expected outcome, not a failure of it
+    }
+
+    fflush(stdout);
+    TEST_ASSERT_TRUE_MESSAGE(dup2(saved_stdout, STDOUT_FILENO) >= 0,
+        "dup2() restoring stdout failed -- subsequent test output may be silently lost");
+    close(saved_stdout);
+    close(devnull);
+
+    TEST_ASSERT_TRUE_MESSAGE(guard_fired,
+        "test_openapi_capture() must refuse a second capture while one is still live");
+
+    test_openapi_capture_free(&first);
 }

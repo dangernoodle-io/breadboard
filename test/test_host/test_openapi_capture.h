@@ -48,6 +48,12 @@ typedef struct {
 // Drive bb_openapi_emit_stream(&meta) through a fresh bb_http_host capture
 // slot and parse the resulting body with cJSON.
 //
+// Single-slot invariant: only one capture may be live at a time. Calling this
+// again before the previous result is freed (test_openapi_capture_free() or
+// test_openapi_capture_teardown()) fails the current test loudly via
+// TEST_FAIL_MESSAGE rather than silently overwriting the still-live result
+// and orphaning its doc/cap.body.
+//
 // result.doc == NULL if:
 //   - result.status (the emitter's own return) is not BB_OK, or
 //   - the capture produced no body (cap.body == NULL or empty), or
@@ -62,6 +68,20 @@ test_openapi_capture_result_t test_openapi_capture(const bb_openapi_meta_t *meta
 // buffer. Safe to call on a partially-initialised or all-zero result, and
 // safe to call twice (idempotent).
 void test_openapi_capture_free(test_openapi_capture_result_t *result);
+
+// tearDown-driven safety net: test_openapi_capture() records the most
+// recently produced result's doc/body pointers internally. If a
+// TEST_ASSERT between test_openapi_capture() and test_openapi_capture_free()
+// fails, Unity longjmps out of the test and the explicit free never runs --
+// leaking result.doc + result.cap.body for that one test run (pre-existing
+// exposure; the old tree-emitter bb_json_free(doc) call sites had the same
+// gap). Call this from the shared tearDown() (test_main.c) so a failed
+// assertion can never leak past the test that caused it. Safe to call when
+// no capture is live (no-op), and safe alongside an explicit
+// test_openapi_capture_free() call in the test body -- that call already
+// clears the internally tracked pointers, so this becomes a no-op too (no
+// double free).
+void test_openapi_capture_teardown(void);
 
 #ifdef __cplusplus
 }
