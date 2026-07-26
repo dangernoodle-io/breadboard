@@ -158,12 +158,12 @@ void test_bb_serialize_meta_openapi_root_close_overflow_null_out_len(void);
 void test_bb_serialize_meta_openapi_root_close_success_null_out_len(void);
 
 // From test_bb_mqtt_client_health_schema_wiring.c
-void test_bb_mqtt_client_health_register_offline_on_compose_failure(void);
+void test_bb_mqtt_client_health_register_degrades_on_compose_failure(void);
 void test_bb_mqtt_client_health_register_composes_matching_schema(void);
 void test_bb_mqtt_client_health_register_idempotent_same_content(void);
 
 // From test_bb_temp_health_schema_wiring.c
-void test_bb_temp_register_info_offline_on_compose_failure(void);
+void test_bb_temp_register_info_degrades_on_compose_failure(void);
 void test_bb_temp_register_info_composes_matching_schema(void);
 void test_bb_temp_register_info_idempotent_same_content(void);
 
@@ -415,11 +415,11 @@ int main(void)
     // component's success tests -- see each test's own comment (the
     // compose-and-patch step is guarded/idempotent, so a prior successful
     // compose would make the fail-injection seam a no-op).
-    RUN_TEST(test_bb_mqtt_client_health_register_offline_on_compose_failure);
+    RUN_TEST(test_bb_mqtt_client_health_register_degrades_on_compose_failure);
     RUN_TEST(test_bb_mqtt_client_health_register_composes_matching_schema);
     RUN_TEST(test_bb_mqtt_client_health_register_idempotent_same_content);
 
-    RUN_TEST(test_bb_temp_register_info_offline_on_compose_failure);
+    RUN_TEST(test_bb_temp_register_info_degrades_on_compose_failure);
     RUN_TEST(test_bb_temp_register_info_composes_matching_schema);
     RUN_TEST(test_bb_temp_register_info_idempotent_same_content);
 

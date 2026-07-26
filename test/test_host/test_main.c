@@ -3662,6 +3662,7 @@ void test_bb_health_section_count_reflects_registrations(void);
 void test_bb_health_section_get_by_index_returns_registration_order(void);
 void test_bb_health_section_get_by_index_out_of_range_returns_null(void);
 void test_bb_health_section_get_by_index_empty_registry_returns_null(void);
+void test_bb_health_section_test_find_returns_null_when_not_registered(void);
 
 // Forward declarations from test_bb_health_compose.c
 void test_bb_health_compose_null_req_returns_invalid_arg(void);
@@ -7790,6 +7791,7 @@ int main(void) {
     RUN_TEST(test_bb_health_section_get_by_index_returns_registration_order);
     RUN_TEST(test_bb_health_section_get_by_index_out_of_range_returns_null);
     RUN_TEST(test_bb_health_section_get_by_index_empty_registry_returns_null);
+    RUN_TEST(test_bb_health_section_test_find_returns_null_when_not_registered);
 
     // bb_health_compose tests (B1-1100 -- gather-then-stream composer)
     RUN_TEST(test_bb_health_compose_null_req_returns_invalid_arg);
