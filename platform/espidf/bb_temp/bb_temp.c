@@ -114,8 +114,16 @@ bb_err_t bb_temp_health_fill(void *dst, const bb_health_fill_args_t *args)
 void bb_temp_register_info(void)
 {
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
-    if (ensure_temp_health_schema_patched() != BB_OK) { bb_log_e(TAG, "temp health schema compose failed, section offline"); return; }
-    const char *schema_props = s_temp_health_schema_buf;
+    // Documentation-only: a compose failure here must not take the temp
+    // health section (and its dispatch-table entry) offline -- degrade by
+    // registering the section with no schema fragment (NULL, omitted by
+    // bb_health_schema's pointer-NULL gate) and continuing rather than
+    // aborting registration.
+    bb_err_t schema_rc = ensure_temp_health_schema_patched();
+    const char *schema_props = (schema_rc == BB_OK) ? s_temp_health_schema_buf : NULL;
+    if (schema_rc != BB_OK) {
+        bb_log_w(TAG, "temp health section schema compose failed (rc=%d), section ships without a schema", (int)schema_rc);
+    }
 #else
     const char *schema_props = k_temp_schema;
 #endif

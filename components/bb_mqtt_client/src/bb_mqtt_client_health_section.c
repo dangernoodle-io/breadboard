@@ -101,8 +101,16 @@ bb_err_t bb_mqtt_client_health_section_fill(void *dst, const bb_health_fill_args
 void bb_mqtt_client_health_register(void)
 {
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
-    if (ensure_mqtt_health_schema_patched() != BB_OK) { bb_log_e(TAG, "mqtt health schema compose failed, section offline"); return; }
-    const char *schema_props = s_mqtt_health_schema_buf;
+    // Documentation-only: a compose failure here must not take the mqtt
+    // health section (and its dispatch-table entry) offline -- degrade by
+    // registering the section with no schema fragment (NULL, omitted by
+    // bb_health_schema's pointer-NULL gate) and continuing rather than
+    // aborting registration.
+    bb_err_t schema_rc = ensure_mqtt_health_schema_patched();
+    const char *schema_props = (schema_rc == BB_OK) ? s_mqtt_health_schema_buf : NULL;
+    if (schema_rc != BB_OK) {
+        bb_log_w(TAG, "mqtt health section schema compose failed (rc=%d), section ships without a schema", (int)schema_rc);
+    }
 #else
     const char *schema_props = k_mqtt_schema;
 #endif

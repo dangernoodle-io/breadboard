@@ -265,3 +265,13 @@ void test_bb_health_section_get_by_index_empty_registry_returns_null(void)
     hs_reset();
     TEST_ASSERT_NULL(bb_health_section_get_by_index(0));
 }
+
+// ---------------------------------------------------------------------------
+// bb_health_section_test_find
+// ---------------------------------------------------------------------------
+
+void test_bb_health_section_test_find_returns_null_when_not_registered(void)
+{
+    hs_reset();
+    TEST_ASSERT_NULL(bb_health_section_test_find("does-not-exist"));
+}
