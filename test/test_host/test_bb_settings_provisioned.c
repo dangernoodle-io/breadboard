@@ -73,6 +73,37 @@ void test_bb_settings_wifi_pending_promote_provisions_and_fires_once(void)
     bb_settings_wifi_set_provisioned_cb(NULL);
 }
 
+// B1-1235: promote now stages ssid/pass/try/provisioned as ONE atomic 4-key
+// commit (previously provisioned was a separate sequential write after a
+// 3-key commit). This test proves all four land TOGETHER from a single
+// promote call, not just that the flag eventually reads true -- ssid/pass
+// land on the LIVE fields, try clears, and provisioned flips, all as one
+// unit, plus the seam fires exactly once.
+void test_bb_settings_wifi_pending_promote_lands_ssid_pass_try_provisioned_atomically(void)
+{
+    reset_all();
+    bb_settings_wifi_set_provisioned_cb(provisioned_fixture);
+    s_fire_count = 0;
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_settings_wifi_pending_set("MyNetwork", "hunter2"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_settings_wifi_pending_promote());
+
+    char ssid[40] = {0};
+    size_t len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_settings_wifi_ssid_get(ssid, sizeof(ssid), &len));
+    TEST_ASSERT_EQUAL_STRING_LEN("MyNetwork", ssid, len);
+
+    char pass[70] = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_settings_wifi_pass_get(pass, sizeof(pass), &len));
+    TEST_ASSERT_EQUAL_STRING_LEN("hunter2", pass, len);
+
+    TEST_ASSERT_FALSE(bb_settings_wifi_pending_active());  // try cleared
+    TEST_ASSERT_TRUE(bb_settings_wifi_provisioned_get());
+    TEST_ASSERT_EQUAL(1, s_fire_count);
+
+    bb_settings_wifi_set_provisioned_cb(NULL);
+}
+
 // (4) re-promote on an already-provisioned board -> stays true, seam does
 // NOT fire again. This is the RED-if-inverted bite-proof: if the edge-gate
 // in bb_settings_wifi_pending_promote were inverted (firing when
@@ -160,11 +191,13 @@ void test_bb_settings_wifi_pending_promote_failure_leaves_flag_unchanged(void)
 }
 
 // The OTHER promote failure branch: a pending ssid/pass/try IS staged (so
-// the two read-guards above pass), but the atomic 3-key commit itself fails
+// the two read-guards above pass), but the atomic 4-key commit itself fails
 // (platform/host/bb_settings/bb_settings.c's `if (err != BB_OK) return
-// err;` right after bb_config_staged_commit). The provisioned-flag write
-// that follows in source order must never run -- proven here by zero seam
-// invocations, not just by code-reading the source order.
+// err;` right after bb_config_staged_commit). B1-1235: the provisioned flag
+// is now staged INSIDE that same commit (no longer a separate write that
+// merely follows it in source order), so a commit failure must leave it
+// untouched by construction, not just by ordering -- proven here by zero
+// seam invocations AND (implicitly) an unlanded flag.
 void test_bb_settings_wifi_pending_promote_commit_failure_leaves_flag_unchanged(void)
 {
     reset_all();
