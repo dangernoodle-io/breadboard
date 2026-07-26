@@ -794,6 +794,16 @@ _SCHEMA_FIELD_RE = re.compile(r'\.request_schema\s*=')
 _SCHEMA_NULL_RE = re.compile(r'\.request_schema\s*=\s*NULL\b')
 _SCHEMA_LITERAL_START_RE = re.compile(r'\.request_schema\s*=\s*"')
 _SCHEMA_VAR_RE = re.compile(r'\.request_schema\s*=\s*([A-Za-z_]\w*)\b')
+# `.request_schema = NULL /* patched at init */` — the same NULL-then-
+# runtime-patched convention CONFIG_BB_OPENAPI_RUNTIME_META already uses for
+# response schemas throughout this ruleset's own repo (see e.g.
+# bb_ota_check_common.c's s_config_get_responses/s_config_post_responses):
+# the field is intentionally NULL at compile time and patched in once,
+# before the route is ever registered/served, guarded on compose success.
+# Trusted like a variable reference (can't inspect the runtime patch
+# statically) rather than flagged as a missing/bare schema.
+_SCHEMA_NULL_PATCHED_RE = re.compile(
+    r'\.request_schema\s*=\s*NULL\s*/\*[^*]*\bpatched\b[^*]*\*/', re.IGNORECASE)
 
 
 def _check_mutating_route_needs_body_schema(ctx: Context) -> list:
@@ -845,6 +855,10 @@ def _check_mutating_route_needs_body_schema(ctx: Context) -> list:
 
             # Schema explicitly NULL
             if _SCHEMA_NULL_RE.search(block_stripped):
+                # NULL-then-runtime-patched (marked with a "patched" comment)
+                # is trusted, same as a variable reference below.
+                if _SCHEMA_NULL_PATCHED_RE.search(block_orig):
+                    continue
                 violations.append(ctx.violation(
                     path, line_no,
                     "mutating route with body has .request_schema = NULL"))

@@ -26,31 +26,31 @@ static const char *const k_expected_config_get_schema =
     "\"required\":[\"enabled\"],"
     "\"additionalProperties\":false}";
 
-// Exercises the fail-loud `if (config_get_schema_rc != BB_OK) return
-// config_get_schema_rc;` branch in bb_ota_check_init() (bb_ota_check_common.c)
-// -- forces the engine (bb_serialize_meta, via BB_SERIALIZE_META_TESTING's
-// fail-injection seam) to return BB_ERR_NO_SPACE and asserts init()
-// propagates that error with the route left unpatched (NULL schema), rather
-// than registering a partial/stale schema. MUST run before the two success
-// tests below: the compose-and-patch step is guarded/idempotent (a
-// non-empty schema buffer short-circuits a second real compose), so once a
-// prior test has successfully composed it this seam can no longer force a
-// re-compose.
+// Exercises the degrade-and-continue arm in bb_ota_check_init()
+// (bb_ota_check_common.c) guarding ensure_config_get_schema_patched() --
+// forces the engine (bb_serialize_meta, via BB_SERIALIZE_META_TESTING's
+// fail-injection seam) to return BB_ERR_NO_SPACE and asserts init() warns
+// and continues (returns BB_OK) with the route left unpatched (NULL
+// schema), rather than propagating the error or registering a
+// partial/stale schema. MUST run before the two success tests below: the
+// compose-and-patch step is guarded/idempotent (a non-empty schema buffer
+// short-circuits a second real compose), so once a prior test has
+// successfully composed it this seam can no longer force a re-compose.
 //
 // update_available and config_get share ONE init() call site
 // (bb_ota_check_init()), and update_available's own compose call sits
-// EARLIER in that function than this site's -- a bare bb_ota_check_init()
-// call under force_no_space would trip update_available's guard first (if
-// its buffer is still unpatched) and return before ever reaching THIS
-// site's own compose call, leaving this branch uncovered. Primes
-// update_available's buffer directly first (bypassing the full init(), so
-// config_get's own buffer stays untouched) rather than relying on
-// test_bb_ota_check_update_available_wiring.c's own success test to have
-// already done so -- MUST run before that test regardless (see
-// test_main.c's RUN_TEST order): once ANY full successful bb_ota_check_
-// init() call has happened anywhere in this suite, it composes config_get's
-// buffer too as a side effect (the same shared function), permanently
-// defeating this test's own fail-injection.
+// EARLIER in that function than this site's -- both arms are now
+// degrade-and-continue, so a bare bb_ota_check_init() call under
+// force_no_space would leave update_available's own schema unpatched TOO
+// (as a side effect of the same forced failure) rather than isolating this
+// site's own compose call. Primes update_available's buffer directly first
+// (bypassing the full init(), so config_get's own buffer stays untouched)
+// rather than relying on test_bb_ota_check_update_available_wiring.c's own
+// success test to have already done so -- MUST run before that test
+// regardless (see test_main.c's RUN_TEST order): once ANY full successful
+// bb_ota_check_init() call has happened anywhere in this suite, it composes
+// config_get's buffer too as a side effect (the same shared function),
+// permanently defeating this test's own fail-injection.
 void test_bb_ota_check_config_get_schema_offline_on_compose_failure(void)
 {
     bb_data_test_reset();
@@ -61,7 +61,7 @@ void test_bb_ota_check_config_get_schema_offline_on_compose_failure(void)
 
     bb_err_t rc = bb_ota_check_init(NULL);
 
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_NULL(bb_ota_check_get_config_get_schema_for_test());
 
     bb_serialize_meta_openapi_test_set_force_no_space(false);

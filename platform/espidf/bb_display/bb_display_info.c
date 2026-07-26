@@ -68,17 +68,35 @@ void bb_display_register_info(void)
     // Register the OpenAPI schema for the "health.display" bb_cache key.
     // Compose-then-register (B1-1059 SSE PR-4): the hand literal moved to
     // bb_display_info_wire.c (relocation, see its own banner) -- config-OFF
-    // this register call serves that literal unchanged; config-ON, ensure
-    // the schema is composed first (fail-loud) before serving the
-    // runtime-composed buffer.
+    // this register call serves that literal unchanged; config-ON, the
+    // schema is composed first, before serving the runtime-composed
+    // buffer -- a compose failure is degrade-and-continue (warn, keep
+    // going), not fail-loud, see the comment below.
+    //
+    // Doc-only bookkeeping (feeds /api/openapi.json schema synthesis) -- a
+    // compose failure here must not abort bring-up: schema composition is
+    // documentation-only and must never block the bb_data bind +
+    // s_registered flag below. Degrade and continue -- log a warning and
+    // fall through. But a compose failure must degrade to "no DisplayInfo
+    // entry in the document", never "an invalid entry that poisons the
+    // whole document": on failure, bb_display_info_ensure_schema_patched()
+    // guarantees the schema buffer is left EMPTY, and
+    // bb_openapi_register_schema() rejects only a NULL literal, not "" --
+    // an empty literal would still register and later get spliced raw
+    // into the JSON document as `"DisplayInfo":` with no value,
+    // corrupting every topic's entry, not just this one. So skip
+    // registration entirely when compose failed (see
+    // bb_log_event_init()'s identical rationale, #1083).
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t schema_rc = bb_display_info_ensure_schema_patched();
     if (schema_rc != BB_OK) {
         bb_log_w(TAG, "health.display schema compose failed: %d", (int)schema_rc);
-        return;
+    } else {
+        bb_openapi_register_topic_schema(BB_DISPLAY_INFO_TOPIC, bb_display_info_get_schema(), "DisplayInfo");
     }
-#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+#else
     bb_openapi_register_topic_schema(BB_DISPLAY_INFO_TOPIC, bb_display_info_get_schema(), "DisplayInfo");
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     // Bind "health.display" to bb_data (B1-1146a) so a future REST/SSE
     // reader (B1-1119/B1-1150: bb_system's diag endpoint, once

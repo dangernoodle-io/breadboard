@@ -24,11 +24,12 @@ static const char *const k_expected_config_post_schema =
     "\"required\":[\"enabled\"],"
     "\"additionalProperties\":false}";
 
-// Exercises the fail-loud `if (config_post_request_schema_rc != BB_OK)
-// return config_post_request_schema_rc;` branch in bb_ota_check_init()
-// (bb_ota_check_common.c) -- forces the engine to return BB_ERR_NO_SPACE
-// and asserts init() propagates that error with the request schema left
-// unpatched (NULL), rather than registering a partial/stale schema.
+// Exercises the degrade-and-continue arm in bb_ota_check_init()
+// (bb_ota_check_common.c) guarding ensure_config_post_request_schema_patched()
+// -- forces the engine to return BB_ERR_NO_SPACE and asserts init() warns
+// and continues (returns BB_OK) with the request schema left unpatched
+// (NULL), rather than propagating the error or registering a partial/stale
+// schema.
 //
 // update_available, config_get, and config_post's request/response compose
 // calls all share ONE init() call site, in that fixed order -- primes
@@ -50,8 +51,14 @@ void test_bb_ota_check_config_post_request_schema_offline_on_compose_failure(voi
 
     bb_err_t rc = bb_ota_check_init(NULL);
 
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_NULL(bb_ota_check_get_config_post_request_schema_for_test());
+    // The accessor above and the ACTUAL struct field the emitter dereferences
+    // (bb_openapi_emit.c's `if (route->request_schema)`) must never diverge --
+    // assert against bb_ota_check_config_post_route() too, the same getter
+    // bb_ota_check_register_init() (bb_ota_check_espidf.c) hands to
+    // bb_http_register_described_route() for real registration/serving.
+    TEST_ASSERT_NULL(bb_ota_check_config_post_route()->request_schema);
 
     bb_serialize_meta_openapi_test_set_force_no_space(false);
     bb_ota_check_reset_for_test();
@@ -61,7 +68,10 @@ void test_bb_ota_check_config_post_request_schema_offline_on_compose_failure(voi
 // primes update_available, config_get, AND config_post's request (this
 // site's own EARLIER sibling) so force_no_space reaches THIS site's
 // response compose call specifically. MUST run before every success test
-// below -- see test_main.c's RUN_TEST order.
+// below -- see test_main.c's RUN_TEST order. Exercises the
+// degrade-and-continue arm guarding
+// ensure_config_post_response_schema_patched(): init() warns and continues
+// (returns BB_OK) rather than propagating the error.
 void test_bb_ota_check_config_post_response_schema_offline_on_compose_failure(void)
 {
     bb_data_test_reset();
@@ -74,7 +84,7 @@ void test_bb_ota_check_config_post_response_schema_offline_on_compose_failure(vo
 
     bb_err_t rc = bb_ota_check_init(NULL);
 
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_NULL(bb_ota_check_get_config_post_response_schema_for_test());
 
     bb_serialize_meta_openapi_test_set_force_no_space(false);
@@ -91,6 +101,11 @@ void test_bb_ota_check_config_post_request_schema_matches_expected_content(void)
     const char *schema = bb_ota_check_get_config_post_request_schema_for_test();
     TEST_ASSERT_NOT_NULL(schema);
     TEST_ASSERT_EQUAL_STRING(k_expected_config_post_schema, schema);
+    // Same registration-path getter as the offline-failure test above --
+    // confirms the pointer bb_http_register_described_route() is handed on
+    // success is the SAME non-NULL, composed buffer, not just this
+    // producer's own test accessor.
+    TEST_ASSERT_EQUAL_PTR(schema, bb_ota_check_config_post_route()->request_schema);
 }
 
 void test_bb_ota_check_config_post_response_schema_matches_expected_content(void)
