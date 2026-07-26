@@ -4,9 +4,12 @@
 #include "bb_ws_server_diag.h"
 
 #include "bb_http.h"
+#include "bb_log.h"
 #include "bb_ws_server.h"
 
 #include <stddef.h>
+
+static const char *TAG = "bb_ws_server_diag";
 
 static const bb_serialize_field_t s_snap_fields[] = {
     { .key = "open_connections", .type = BB_TYPE_I64,
@@ -141,8 +144,17 @@ static const bb_route_t s_ws_server_diag_describe_route = {
 bb_err_t bb_ws_server_diag_register(void)
 {
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
-    bb_err_t patch_rc = ensure_schema_patched();
-    if (patch_rc != BB_OK) return patch_rc;
+    // Documentation-only: a compose failure here must not take the
+    // websocket section (and its dispatch-table entry) offline -- degrade
+    // by leaving the describe-route schema unpatched (NULL, omitted by
+    // bb_openapi_emit.c's pointer-NULL gate) and register anyway.
+    // This register fn is ESP_PLATFORM-gated and not host-testable, same
+    // constraint documented at cddd5624 (bb_ota_hooks / bb_health_stack /
+    // bb_diag_http / bb_display sites).
+    bb_err_t schema_rc = ensure_schema_patched();
+    if (schema_rc != BB_OK) {
+        bb_log_w(TAG, "websocket schema compose failed (rc=%d), describe route ships without a schema", (int)schema_rc);
+    }
 #endif
 
     bb_diag_section_t section = {
