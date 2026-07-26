@@ -28,8 +28,8 @@ void test_bb_storage_rtc_txn_begin_set_commit_round_trip(void)
 {
     reset_all();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "ssid", BB_STORAGE_ENC_STR, "MyNet", 5));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "pass", BB_STORAGE_ENC_STR, "hunter2", 7));
     uint8_t provisioned = 1;
@@ -64,8 +64,8 @@ void test_bb_storage_rtc_txn_abort_leaves_region_untouched(void)
 
     bb_storage_rtc_region_t before = *bb_storage_rtc_region_for_test();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "pass", BB_STORAGE_ENC_STR, "newpass", 7));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_abort(&txn));
 
@@ -91,8 +91,8 @@ void test_bb_storage_rtc_txn_abort_before_commit_never_leaves_torn_mix(void)
     uint8_t provisioned = 1;
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_set(&prov_addr, &provisioned, sizeof(provisioned)));
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "ssid", BB_STORAGE_ENC_STR, "B", 1));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "pass", BB_STORAGE_ENC_STR, "B", 1));
     // Simulate a crash before commit ever runs -- abort() is what a real
@@ -125,8 +125,8 @@ void test_bb_storage_rtc_txn_overflow_set_poisons_and_commit_returns_sticky_erro
     char long_ssid[40];
     memset(long_ssid, 'A', sizeof(long_ssid));
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
                        bb_storage_txn_set(&txn, "ssid", BB_STORAGE_ENC_STR, long_ssid, sizeof(long_ssid)));
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_storage_txn_commit(&txn));
@@ -144,8 +144,8 @@ void test_bb_storage_rtc_txn_on_cold_region_zeroes_unstaged_fields(void)
 {
     reset_all();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "ssid", BB_STORAGE_ENC_STR, "ColdNet", 7));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_commit(&txn));
 
@@ -182,8 +182,8 @@ void test_bb_storage_rtc_txn_partial_key_preserves_prior_provisioned(void)
     uint8_t provisioned = 1;
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_set(&prov_addr, &provisioned, sizeof(provisioned)));
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "ssid", BB_STORAGE_ENC_STR, "NewNet", 6));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "pass", BB_STORAGE_ENC_STR, "newpass", 7));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_commit(&txn));
@@ -210,8 +210,8 @@ void test_bb_storage_rtc_txn_duplicate_key_last_wins(void)
 {
     reset_all();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "ssid", BB_STORAGE_ENC_STR, "First", 5));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "ssid", BB_STORAGE_ENC_STR, "Second", 6));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_commit(&txn));
@@ -237,14 +237,55 @@ void test_bb_storage_rtc_txn_unknown_key_invalid_arg(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_set(&ssid_addr, "Existing", 8));
     bb_storage_rtc_region_t before = *bb_storage_rtc_region_for_test();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
                        bb_storage_txn_set(&txn, "bogus", BB_STORAGE_ENC_STR, "x", 1));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_txn_commit(&txn));
 
     bb_storage_rtc_region_t *after = bb_storage_rtc_region_for_test();
     TEST_ASSERT_EQUAL_MEMORY(&before, after, sizeof(before));
+}
+
+/* ---------------------------------------------------------------------------
+ * B1-1235 CRITICAL: bb_storage_txn_begin() must zero the caller-owned slots
+ * array itself -- the old `bb_storage_txn_t txn = {0};` zeroed an EMBEDDED
+ * slot array, but B1-1235 made that array caller-owned, and rtc (unlike ram)
+ * has no defensive memset of its own in rtc_txn_begin. Deliberately pre-dirty
+ * every slot as if reused from a prior, never-cleared transaction: if begin()
+ * ever stops clearing .used, staging below spuriously fails with
+ * BB_ERR_NO_SPACE instead of succeeding.
+ * ---------------------------------------------------------------------------*/
+void test_bb_storage_rtc_txn_begin_zeroes_dirty_caller_slots(void)
+{
+    reset_all();
+
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    memset(txn_slots, 0xFF, sizeof(txn_slots));
+    for (size_t i = 0; i < sizeof(txn_slots) / sizeof(txn_slots[0]); i++) {
+        txn_slots[i].used = true;
+    }
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("rtc", "", &txn, txn_slots,
+                                                   sizeof(txn_slots) / sizeof(txn_slots[0])));
+    // Full capacity must be available -- without the begin()-side memset,
+    // every slot still looks occupied and this set() spuriously fails with
+    // BB_ERR_NO_SPACE.
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "ssid", BB_STORAGE_ENC_STR, "CleanNet", 8));
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "pass", BB_STORAGE_ENC_STR, "cleanpass", 9));
+    uint8_t provisioned = 1;
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "provisioned", BB_STORAGE_ENC_U8,
+                                                 &provisioned, sizeof(provisioned)));
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_commit(&txn));
+
+    bb_storage_addr_t ssid_addr = { .backend = "rtc", .ns_or_dir = NULL, .key = "ssid" };
+    bb_storage_addr_t pass_addr = { .backend = "rtc", .ns_or_dir = NULL, .key = "pass" };
+    char             buf[64]    = {0};
+    size_t           len        = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_get(&ssid_addr, buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL_STRING_LEN("CleanNet", buf, len);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_get(&pass_addr, buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL_STRING_LEN("cleanpass", buf, len);
 }
 
 /* ---------------------------------------------------------------------------
@@ -261,8 +302,8 @@ void test_bb_storage_rtc_txn_for_test_forwarders_round_trip(void)
 {
     reset_all();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_set_for_test(&txn, "ssid", BB_STORAGE_ENC_STR, "FwdNet", 6));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_commit_for_test(&txn));
 
@@ -273,12 +314,54 @@ void test_bb_storage_rtc_txn_for_test_forwarders_round_trip(void)
     TEST_ASSERT_EQUAL_STRING_LEN("FwdNet", buf, len);
 }
 
+/* ---------------------------------------------------------------------------
+ * B1-1235 MEDIUM: bb_storage_rtc_txn_begin_for_test() bypasses the facade
+ * (bb_storage_txn_begin()) entirely, so the facade's own caller-owned-slots
+ * memset (see test_bb_storage_rtc_txn_begin_zeroes_dirty_caller_slots above)
+ * never runs on this path -- the backend's for_test seam must zero the
+ * array itself. Same technique as that test: deliberately pre-dirty every
+ * slot as if reused from a prior, never-cleared transaction; if the
+ * for_test seam ever stops clearing .used, staging below spuriously fails
+ * with BB_ERR_NO_SPACE instead of succeeding.
+ * ---------------------------------------------------------------------------*/
+void test_bb_storage_rtc_txn_for_test_begin_zeroes_dirty_caller_slots(void)
+{
+    reset_all();
+
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    memset(txn_slots, 0xFF, sizeof(txn_slots));
+    for (size_t i = 0; i < sizeof(txn_slots) / sizeof(txn_slots[0]); i++) {
+        txn_slots[i].used = true;
+    }
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL, txn_slots,
+                                                                sizeof(txn_slots) / sizeof(txn_slots[0])));
+    // Full capacity must be available -- without the for_test seam's own
+    // memset, every slot still looks occupied and this set() spuriously
+    // fails with BB_ERR_NO_SPACE.
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_set_for_test(&txn, "ssid", BB_STORAGE_ENC_STR, "CleanNet", 8));
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_set_for_test(&txn, "pass", BB_STORAGE_ENC_STR, "cleanpass", 9));
+    uint8_t provisioned = 1;
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_set_for_test(&txn, "provisioned", BB_STORAGE_ENC_U8,
+                                                              &provisioned, sizeof(provisioned)));
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_commit_for_test(&txn));
+
+    bb_storage_addr_t ssid_addr = { .backend = "rtc", .ns_or_dir = NULL, .key = "ssid" };
+    bb_storage_addr_t pass_addr = { .backend = "rtc", .ns_or_dir = NULL, .key = "pass" };
+    char             buf[64]    = {0};
+    size_t           len        = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_get(&ssid_addr, buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL_STRING_LEN("CleanNet", buf, len);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_get(&pass_addr, buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL_STRING_LEN("cleanpass", buf, len);
+}
+
 void test_bb_storage_rtc_txn_for_test_abort_forwarder(void)
 {
     reset_all();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_set_for_test(&txn, "ssid", BB_STORAGE_ENC_STR, "FwdNet", 6));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_abort_for_test(&txn));
 
@@ -318,14 +401,33 @@ void test_bb_storage_rtc_txn_for_test_abort_on_unopened_is_ok_noop(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_abort_for_test(&txn));
 }
 
+/* ---------------------------------------------------------------------------
+ * B1-1235: cap == 0 with slots == NULL is LEGAL on the _for_test seam too
+ * (bypasses the facade's own cap>0-guarded memset entirely -- see
+ * bb_storage_rtc.c's begin_for_test comment). begin() must succeed with no
+ * backing storage; a subsequent stage attempt must then fail cleanly with
+ * BB_ERR_NO_SPACE (no free slot exists at cap 0), never crash on the NULL
+ * slots pointer.
+ * ---------------------------------------------------------------------------*/
+void test_bb_storage_rtc_txn_for_test_begin_zero_cap_null_slots_is_legal_and_stage_fails_no_space(void)
+{
+    reset_all();
+
+    bb_storage_txn_t txn = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL, NULL, 0));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
+                       bb_storage_rtc_txn_set_for_test(&txn, "ssid", BB_STORAGE_ENC_STR, "x", 1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_abort_for_test(&txn));
+}
+
 // A literal NULL key -- rtc_txn_classify's own guard, ahead of the
 // backend-agnostic key-name check in bb_storage_txn_slot_stage.
 void test_bb_storage_rtc_txn_for_test_null_key_returns_invalid_arg(void)
 {
     reset_all();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
                        bb_storage_rtc_txn_set_for_test(&txn, NULL, BB_STORAGE_ENC_STR, "x", 1));
 }
@@ -338,8 +440,8 @@ void test_bb_storage_rtc_txn_for_test_sticky_error_short_circuits_second_set(voi
 {
     reset_all();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_rtc_txn_begin_for_test(&txn, NULL, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
                        bb_storage_rtc_txn_set_for_test(&txn, NULL, BB_STORAGE_ENC_STR, "x", 1));
 

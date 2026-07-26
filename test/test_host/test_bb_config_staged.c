@@ -210,6 +210,19 @@ void test_bb_config_staged_type_mismatch_returns_invalid_arg(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_bool(&h, &F_U8, true));
 }
 
+// set_blob's own precheck() rc != BB_OK short-circuit (type mismatch): the
+// str/blob setters call precheck() directly (unlike the scalar setters,
+// which go through stage_scalar()) -- exercised separately so this path has
+// its own direct coverage rather than only the scalar-path variant above.
+void test_bb_config_staged_blob_type_mismatch_returns_invalid_arg(void)
+{
+    reset_all();
+
+    bb_config_staged_t h = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_blob(&h, &F_U8, "x", 1));
+}
+
 /* ---------------------------------------------------------------------------
  * 5b. Cross-namespace / cross-backend field precheck.
  * ---------------------------------------------------------------------------*/

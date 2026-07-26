@@ -283,7 +283,7 @@ static bb_err_t rtc_txn_commit(void *impl, bb_storage_txn_t *txn)
         memset(&tmp, 0, sizeof(tmp));
     }
 
-    for (int i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+    for (size_t i = 0; i < txn->_cap; i++) {
         if (!txn->_slots[i].used) {
             continue;
         }
@@ -329,15 +329,28 @@ static bb_err_t rtc_txn_abort(void *impl, bb_storage_txn_t *txn)
     }
 
     // Discard staged slots -- s_region was never touched by set(), so
-    // nothing to undo there.
-    memset(txn->_slots, 0, sizeof(txn->_slots));
+    // nothing to undo there. txn->_slots is caller-owned backing storage
+    // (B1-1235) -- size the clear by txn->_cap, NOT sizeof(txn->_slots) (a
+    // pointer now, not an array).
+    memset(txn->_slots, 0, txn->_cap * sizeof(txn->_slots[0]));
     txn->_open = 0;
     return BB_OK;
 }
 
 #ifdef BB_STORAGE_RTC_TESTING
-bb_err_t bb_storage_rtc_txn_begin_for_test(bb_storage_txn_t *txn, const char *ns_or_dir)
+bb_err_t bb_storage_rtc_txn_begin_for_test(bb_storage_txn_t *txn, const char *ns_or_dir,
+                                            bb_storage_txn_slot_t *slots, size_t cap)
 {
+    // Bypasses bb_storage_txn_begin() (the facade), so this wires
+    // slots/cap onto txn itself AND zeroes the caller-owned array --
+    // same contract as the facade's own wiring (see bb_storage.h): the
+    // caller must not rely on pre-zeroing slots, this hook is the one
+    // place that clears it on this path.
+    txn->_slots = slots;
+    txn->_cap   = cap;
+    if (cap > 0) {
+        memset(slots, 0, cap * sizeof(*slots));
+    }
     return rtc_txn_begin(NULL, txn, ns_or_dir);
 }
 

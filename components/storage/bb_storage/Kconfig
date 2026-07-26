@@ -10,18 +10,25 @@ config BB_STORAGE_MAX_BACKENDS
         than this returns BB_ERR_NO_SPACE.
 
 config BB_STORAGE_TXN_MAX_KEYS
-    int "Multi-key transaction slot capacity"
+    int "Multi-key transaction default slot capacity"
     default 3
-    range 3 32
+    range 1 32
     help
-        Maximum number of distinct keys a single bb_storage_txn_t can stage
-        (matches wifi-pending ssid/pass/try). Staging a new key once a
-        transaction's slot table is full returns BB_ERR_NO_SPACE.
+        Default capacity (element count) for a bb_storage_txn_t declared via
+        BB_STORAGE_TXN_DECLARE_DEFAULT() -- NOT a repo-wide ceiling (B1-1235):
+        a bb_storage_txn_t's real capacity is caller-sized, set per-txn by
+        the slots/cap arguments passed to bb_storage_txn_begin() (see
+        bb_storage.h). This knob only sizes the DEFAULT-macro's array and
+        (for now) bb_config_staged's own internal default-capacity backing
+        array. Staging a new key once a transaction's slot table is full
+        returns BB_ERR_NO_SPACE.
 
-        Floored at 3: bb_storage_rtc (components/bb_storage_rtc) stages
-        exactly 3 fixed keys (ssid/pass/provisioned) per commit -- a lower
-        cap would make its transaction path always spuriously fail with
-        BB_ERR_NO_SPACE.
+        No longer floored at 3: that floor existed only to protect
+        bb_storage_rtc's fixed 3-key (ssid/pass/provisioned) commit under the
+        old single-global-cap model. That constraint is now a RUNTIME,
+        BACKEND-SCOPED contract instead of a compile-time one -- a caller
+        declaring cap < 3 against the "rtc" backend gets BB_ERR_NO_SPACE on
+        the 3rd key (see bb_storage_rtc.h).
 
 config BB_STORAGE_TXN_VALUE_MAX_BYTES
     int "Multi-key transaction max staged value size (bytes)"

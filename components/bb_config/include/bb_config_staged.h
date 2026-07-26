@@ -33,10 +33,13 @@
 //
 // No heap: h is caller-allocated (stack/static) and MUST be zero-initialized
 // before bb_config_staged_begin(), matching bb_storage_txn_t's own caller-init
-// convention (h->txn is zeroed as part of h's zero-init). Capacity is
-// entirely bb_storage's txn caps (BB_STORAGE_TXN_MAX_KEYS/_VALUE_MAX_BYTES/
-// _KEY_MAX_BYTES) -- no second buffer here, so no capacity knobs of this
-// sub-namespace's own.
+// convention (h->txn is zeroed as part of h's zero-init). Capacity: h owns a
+// private, BB_STORAGE_TXN_MAX_KEYS-sized default slot array (B1-1235's
+// caller-sized bb_storage_txn_t needs SOME caller-owned backing storage --
+// this wraps the default rather than exposing a slots/cap parameter on
+// bb_config_staged_begin() itself, so every existing caller's capacity is
+// unchanged and this header's public API stays stable). Exposing a
+// caller-chosen capacity here is a later PR's scope, not this one's.
 //
 // Composition-only: no global state, no init function, nothing self-
 // registers (see the DI legacy fence in breadboard/CLAUDE.md).
@@ -67,6 +70,12 @@ extern "C" {
 // close the wrapped txn.
 typedef struct {
     bb_storage_txn_t txn;      // wrapped, unmodified -- never inspect its private fields
+    // Private backing storage for txn's caller-owned slot table (B1-1235) --
+    // wired onto txn at begin(); never inspect/set directly. Fixed at the
+    // house default (BB_STORAGE_TXN_MAX_KEYS) for now -- see this header's
+    // file comment above for why bb_config_staged doesn't yet expose a
+    // caller-chosen capacity.
+    bb_storage_txn_slot_t _default_slots[BB_STORAGE_TXN_MAX_KEYS];
     const char *backend;       // session group key, set at begin()
     const char *ns_or_dir;     // session group key, set at begin()
     bb_err_t    _local_err;    // this layer's sticky error (first-wins)

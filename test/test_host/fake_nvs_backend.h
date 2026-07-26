@@ -172,7 +172,10 @@ static inline bb_err_t fake_nvs_txn_begin(void *impl, bb_storage_txn_t *txn, con
 {
     (void)impl;
     (void)ns_or_dir;
-    memset(txn->_slots, 0, sizeof(txn->_slots));
+    // txn->_slots is caller-owned backing storage (B1-1235) -- size the
+    // clear by txn->_cap, NOT sizeof(txn->_slots) (a pointer now, not an
+    // array).
+    memset(txn->_slots, 0, txn->_cap * sizeof(txn->_slots[0]));
     txn->_open = 1;
     txn->_err = BB_OK;
     return BB_OK;
@@ -185,7 +188,7 @@ static inline bb_err_t fake_nvs_txn_set(void *impl, bb_storage_txn_t *txn, const
     (void)enc;
     if (len > FAKE_NVS_MAX_VALUE) return BB_ERR_NO_SPACE;
 
-    for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+    for (size_t i = 0; i < txn->_cap; i++) {
         if (txn->_slots[i].used && strcmp(txn->_slots[i].key, key) == 0) {
             if (len > 0) memcpy(txn->_slots[i].value, buf, len);
             txn->_slots[i].len = len;
@@ -193,7 +196,7 @@ static inline bb_err_t fake_nvs_txn_set(void *impl, bb_storage_txn_t *txn, const
             return BB_OK;
         }
     }
-    for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+    for (size_t i = 0; i < txn->_cap; i++) {
         if (!txn->_slots[i].used) {
             strncpy(txn->_slots[i].key, key, sizeof(txn->_slots[i].key) - 1);
             txn->_slots[i].key[sizeof(txn->_slots[i].key) - 1] = '\0';
@@ -219,7 +222,7 @@ static inline bb_err_t fake_nvs_txn_commit(void *impl, bb_storage_txn_t *txn)
         txn->_open = 0;
         return txn->_err;
     }
-    for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+    for (size_t i = 0; i < txn->_cap; i++) {
         if (!txn->_slots[i].used) continue;
         bb_err_t err = fake_nvs_set(NULL, &(bb_storage_addr_t){ .key = txn->_slots[i].key },
                                      txn->_slots[i].value, txn->_slots[i].len);

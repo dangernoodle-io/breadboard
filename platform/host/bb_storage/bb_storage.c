@@ -238,9 +238,10 @@ bb_err_t bb_storage_set_typed(const bb_storage_addr_t *addr, bb_storage_enc_t en
  * bb_storage_txn_t ahead of its own definition for exactly this reason) —
  * assigned directly below, no function-pointer cast.
  * ---------------------------------------------------------------------------*/
-bb_err_t bb_storage_txn_begin(const char *backend, const char *ns_or_dir, bb_storage_txn_t *txn)
+bb_err_t bb_storage_txn_begin(const char *backend, const char *ns_or_dir, bb_storage_txn_t *txn,
+                               bb_storage_txn_slot_t *slots, size_t cap)
 {
-    if (backend == NULL || ns_or_dir == NULL || txn == NULL) {
+    if (backend == NULL || ns_or_dir == NULL || txn == NULL || (cap > 0 && slots == NULL)) {
         return BB_ERR_INVALID_ARG;
     }
 
@@ -273,6 +274,23 @@ bb_err_t bb_storage_txn_begin(const char *backend, const char *ns_or_dir, bb_sto
     txn->_txn_abort  = entry->vt.txn_abort;
     txn->_impl       = entry->impl;
     txn->_err        = BB_OK;
+    // Caller-owned backing storage (B1-1235) — wired onto txn BEFORE the
+    // vtable's txn_begin() call below, so the backend's own begin() hook
+    // sees a fully-wired txn without ever taking slots/cap as arguments
+    // itself (see bb_storage.h's txn_begin contract).
+    txn->_slots      = slots;
+    txn->_cap        = cap;
+    // Zero the caller-owned slot array here, at the facade, rather than
+    // relying on BB_STORAGE_TXN_DECLARE's `{0}` (which only zeroed the old
+    // embedded array, never the caller-owned one) or on each backend's own
+    // txn_begin to defensively memset it (the rtc backend doesn't). begin()
+    // is the one place that already validates both slots and cap, so
+    // clearing here covers every caller — macro-declared or hand-rolled —
+    // and removes the caller's/backend's obligation instead of relocating
+    // it. Do not also zero in the macro: one authoritative place, not two.
+    if (cap > 0) {
+        memset(slots, 0, cap * sizeof(*slots));
+    }
 
     return entry->vt.txn_begin(entry->impl, txn, ns_or_dir);
 }
@@ -403,14 +421,14 @@ bb_err_t bb_storage_txn_slot_stage(bb_storage_txn_t *txn, const char *key, bb_st
     // Reuse an already-staged slot for this key (last-write-wins within the
     // txn, rather than consuming a second slot), else the first free slot.
     int slot_idx = -1;
-    for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+    for (size_t i = 0; i < txn->_cap; i++) {
         if (txn->_slots[i].used && strcmp(txn->_slots[i].key, key) == 0) {
             slot_idx = (int)i;
             break;
         }
     }
     if (slot_idx < 0) {
-        for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+        for (size_t i = 0; i < txn->_cap; i++) {
             if (!txn->_slots[i].used) {
                 slot_idx = (int)i;
                 break;

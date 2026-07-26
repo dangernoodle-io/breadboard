@@ -45,6 +45,15 @@
 // no-init region) still owns the live write/heal duty end to end — the two
 // regions coexist, deliberately, until PR3b relocates bb_nv's mirror
 // read/write/heal call sites onto this backend and collapses to one region.
+//
+// Txn capacity contract (B1-1235): this backend's txn_commit stages exactly
+// 3 fixed keys (ssid/pass/provisioned) into txn->_slots. A caller that opens
+// a txn against backend "rtc" with a caller-declared capacity below 3 (see
+// bb_storage_txn_begin()'s slots/cap contract in bb_storage.h) will get
+// BB_ERR_NO_SPACE from bb_storage_txn_slot_stage() as soon as staging the
+// 3rd key is attempted — this is now a RUNTIME, backend-scoped contract
+// (previously enforced at compile time by a repo-wide
+// BB_STORAGE_TXN_MAX_KEYS floor of 3, which this ticket removed).
 
 #include "bb_core.h"
 
@@ -82,7 +91,14 @@ bb_storage_rtc_region_t *bb_storage_rtc_region_for_test(void);
 // testing-only direct-drive seam, mirroring bb_storage_nvs's
 // _txn_*_for_test pattern. Never call these from production code; a real
 // consumer always goes through bb_storage_txn_begin("rtc", ...).
-bb_err_t bb_storage_rtc_txn_begin_for_test(bb_storage_txn_t *txn, const char *ns_or_dir);
+//
+// _begin_for_test bypasses the facade's own slots/cap wiring, so it takes
+// them directly (same caller-owned-storage contract as
+// bb_storage_txn_begin(), see bb_storage.h) and wires them onto `txn` itself
+// -- including zeroing the caller-owned array before calling into the
+// backend's begin() hook -- same contract as the facade's own wiring.
+bb_err_t bb_storage_rtc_txn_begin_for_test(bb_storage_txn_t *txn, const char *ns_or_dir,
+                                            bb_storage_txn_slot_t *slots, size_t cap);
 bb_err_t bb_storage_rtc_txn_set_for_test(bb_storage_txn_t *txn, const char *key, bb_storage_enc_t enc,
                                           const void *buf, size_t len);
 bb_err_t bb_storage_rtc_txn_commit_for_test(bb_storage_txn_t *txn);

@@ -61,11 +61,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "213",
-      "path": "platform/host/bb_config/bb_config_staged.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "28",
       "path": "platform/host/bb_config/bb_config_staged.c",
       "type": "uncovered_line"
