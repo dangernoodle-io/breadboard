@@ -963,12 +963,17 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
-    // Compose (config ON only) before registering -- see the panic-get site
-    // below for the full rationale (mirrored here).
+    // Doc-only schema compose (config ON only) -- see the panic-get site
+    // below for the full rationale (mirrored here): a compose failure here
+    // is documentation-only and must never abort real route registration;
+    // degrade and continue, leaving this response's schema unpatched (NULL).
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t boot_get_schema_rc = bb_diag_http_boot_wire_ensure_schema_patched();
-    if (boot_get_schema_rc != BB_OK) return boot_get_schema_rc;
-    s_boot_get_responses[0].schema = bb_diag_http_boot_wire_get_schema();
+    if (boot_get_schema_rc != BB_OK) {
+        bb_log_w(TAG, "diag boot get schema compose failed: %d", (int)boot_get_schema_rc);
+    } else {
+        s_boot_get_responses[0].schema = bb_diag_http_boot_wire_get_schema();
+    }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     bb_err_t err = bb_http_register_described_route(server, &s_boot_get_route);
@@ -977,16 +982,23 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     err = bb_http_register_described_route(server, &s_boot_delete_route);
     if (err != BB_OK) return err;
 
-    // Compose (config ON only) before registering -- never interleave
-    // compose and register (avoids a partial-registration on a
-    // mid-sequence compose failure). bb_diag_panic_get_wire_get_schema() is
-    // ALWAYS declared (B1-1059 emit batch C, site C1 wire.c pattern) and
-    // already returns the right content for config OFF, so only the
-    // ensure_schema_patched() call and the response patch are gated.
+    // Doc-only schema compose (config ON only) -- feeds /api/openapi.json
+    // schema synthesis only, never the served response body. A compose
+    // failure here must not abort real route registration (every route
+    // after this one, plus the diag.boot bb_data bind/publish/reboot-record
+    // wiring at the tail of this function) -- degrade and continue: log a
+    // warning and leave this response's schema unpatched (NULL) rather than
+    // aborting. bb_diag_panic_get_wire_get_schema() is ALWAYS declared
+    // (B1-1059 emit batch C, site C1 wire.c pattern) and already returns the
+    // right content for config OFF, so only the ensure_schema_patched() call
+    // and the response patch are gated.
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t panic_schema_rc = bb_diag_panic_get_wire_ensure_schema_patched();
-    if (panic_schema_rc != BB_OK) return panic_schema_rc;
-    s_panic_get_responses[0].schema = bb_diag_panic_get_wire_get_schema();
+    if (panic_schema_rc != BB_OK) {
+        bb_log_w(TAG, "diag panic get schema compose failed: %d", (int)panic_schema_rc);
+    } else {
+        s_panic_get_responses[0].schema = bb_diag_panic_get_wire_get_schema();
+    }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     err = bb_http_register_described_route(server, &s_panic_get_route);
@@ -1003,36 +1015,48 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
 #endif
 
-    // Compose (config ON only) before registering -- see the panic-get site
-    // above for the full rationale (mirrored here).
+    // Doc-only schema compose (config ON only) -- see the panic-get site
+    // above for the full rationale (mirrored here): degrade and continue on
+    // a compose failure, leaving this response's schema unpatched (NULL).
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t heap_check_schema_rc = bb_diag_heap_check_wire_ensure_schema_patched();
-    if (heap_check_schema_rc != BB_OK) return heap_check_schema_rc;
-    s_heap_check_get_responses[0].schema = bb_diag_heap_check_wire_get_schema();
+    if (heap_check_schema_rc != BB_OK) {
+        bb_log_w(TAG, "diag heap-check schema compose failed: %d", (int)heap_check_schema_rc);
+    } else {
+        s_heap_check_get_responses[0].schema = bb_diag_heap_check_wire_get_schema();
+    }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     err = bb_http_register_described_route(server, &s_heap_check_get_route);
     if (err != BB_OK) return err;
 
 #if CONFIG_FREERTOS_USE_TRACE_FACILITY
-    // Compose (config ON only) before registering -- see the panic-get site
-    // above for the full rationale (mirrored here).
+    // Doc-only schema compose (config ON only) -- see the panic-get site
+    // above for the full rationale (mirrored here): degrade and continue on
+    // a compose failure, leaving this response's schema unpatched (NULL).
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t tasks_schema_rc = bb_diag_tasks_get_wire_ensure_schema_patched();
-    if (tasks_schema_rc != BB_OK) return tasks_schema_rc;
-    s_tasks_get_responses[0].schema = bb_diag_tasks_get_wire_get_schema();
+    if (tasks_schema_rc != BB_OK) {
+        bb_log_w(TAG, "diag tasks schema compose failed: %d", (int)tasks_schema_rc);
+    } else {
+        s_tasks_get_responses[0].schema = bb_diag_tasks_get_wire_get_schema();
+    }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     err = bb_http_register_described_route(server, &s_tasks_get_route);
     if (err != BB_OK) return err;
 #endif
 
-    // Compose (config ON only) before registering -- see the panic-get site
-    // above for the full rationale (mirrored here).
+    // Doc-only schema compose (config ON only) -- see the panic-get site
+    // above for the full rationale (mirrored here): degrade and continue on
+    // a compose failure, leaving this response's schema unpatched (NULL).
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t sockets_schema_rc = bb_diag_sockets_get_wire_ensure_schema_patched();
-    if (sockets_schema_rc != BB_OK) return sockets_schema_rc;
-    s_sockets_get_responses[0].schema = bb_diag_sockets_get_wire_get_schema();
+    if (sockets_schema_rc != BB_OK) {
+        bb_log_w(TAG, "diag sockets schema compose failed: %d", (int)sockets_schema_rc);
+    } else {
+        s_sockets_get_responses[0].schema = bb_diag_sockets_get_wire_get_schema();
+    }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     err = bb_http_register_described_route(server, &s_sockets_get_route);
