@@ -269,16 +269,30 @@ bb_err_t bb_ota_validator_init(bb_http_handle_t server)
     bb_err_t rc = bb_http_register_described_route(server, &s_mark_valid_route);
     if (rc != BB_OK) return BB_ERR_INVALID_STATE;
 
-    // Compose (config ON only) before registering -- never interleave
-    // compose and register (avoids a partial-registration on a
-    // mid-sequence compose failure). bb_ota_validator_partitions_wire_get_schema()
+    // Compose (config ON only) before registering. bb_ota_validator_partitions_wire_get_schema()
     // is ALWAYS declared (B1-1059 emit batch D, site D1 wire.c pattern) and
     // already returns the right content for config OFF, so only the
     // ensure_schema_patched() call and the response patch are gated.
+    //
+    // Documentation-only degrade (was fatal-abort): a compose failure here
+    // used to make bb_ota_validator_init() return early, which aborted
+    // BEFORE GET /api/update/partitions and POST /api/update/recover were
+    // ever registered -- an OpenAPI-doc-only defect took down the OTA
+    // rollback/recovery HTTP surface. s_partitions_responses[0].schema starts
+    // NULL (see its declaration above) and bb_openapi_emit.c's route-response
+    // emitter already gates on `if (r->schema)`, so leaving it unpatched on
+    // failure means the route registers and serves normally, just omitted
+    // from the emitted OpenAPI document.
+    //
+    // Coverage gap (B1-1231): this branch is not exercised by any host
+    // test -- not via bb_ota_validator_init(), which is ESP_PLATFORM-gated
+    // and not host-testable.
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
-    bb_err_t partitions_schema_rc = bb_ota_validator_partitions_wire_ensure_schema_patched();
-    if (partitions_schema_rc != BB_OK) return partitions_schema_rc;
-    s_partitions_responses[0].schema = bb_ota_validator_partitions_wire_get_schema();
+    if (bb_ota_validator_partitions_wire_ensure_schema_patched() != BB_OK) {
+        bb_log_w(TAG, "partitions schema compose failed, GET /api/update/partitions ships undocumented");
+    } else {
+        s_partitions_responses[0].schema = bb_ota_validator_partitions_wire_get_schema();
+    }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     rc = bb_http_register_described_route(server, &s_partitions_route);
