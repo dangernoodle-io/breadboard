@@ -37,6 +37,11 @@ const char *bb_sensor_http_wire_get_fan_describe_request_schema_for_test(void);
 const char *bb_sensor_http_wire_get_power_describe_schema_for_test(void);
 const char *bb_sensor_http_wire_get_thermal_describe_schema_for_test(void);
 
+// Registers the real production PATCH /api/sensors/fan describe route
+// (bb_http_register_route_descriptor_only) so a test can drive
+// bb_openapi_emit_stream() over it directly.
+bb_err_t bb_sensor_http_wire_register_fan_patch_route_for_test(void);
+
 #ifdef __cplusplus
 }
 #endif

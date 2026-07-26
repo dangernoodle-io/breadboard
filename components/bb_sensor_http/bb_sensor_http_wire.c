@@ -11,10 +11,13 @@
 
 #include "bb_http.h"
 #include "bb_http_server.h"
+#include "bb_log.h"
 #include "bb_sensor.h"
 
 #include <stddef.h>
 #include <string.h>
+
+static const char *TAG = "bb_sensor_http_wire";
 
 // ---------------------------------------------------------------------------
 // Fan
@@ -577,28 +580,24 @@ static const bb_route_response_t s_sensors_fan_patch_responses[] = {
     { .status = 0 },
 };
 
-// `.request_schema` points DIRECTLY at the compose buffer above (a
-// link-time-constant array address, valid in a static initializer) rather
-// than starting NULL-then-patched like the `.schema` sites above -- the
-// mutating-route-needs-body-schema lint (B1-413) flags a literal
-// `.request_schema = NULL` on any POST/PATCH/PUT route with a JSON body
-// unconditionally (it has no "patched at init" exemption, unlike this
-// engine's own buf[0] idempotency-sentinel idiom), but trusts an identifier
-// reference (can't inspect a runtime-composed schema's content statically)
-// -- exactly this case. The route struct itself stays `static const`: only
-// the BYTES the pointer targets change at runtime (via
-// ensure_fan_request_schema_patched() below), never the pointer value.
-// Before the first compose, the buffer is all-zero (`buf[0] == '\0'`, an
-// empty string, never a NULL pointer) -- ensure_fan_request_schema_patched()
-// and its test accessor treat that empty-string state as "not yet composed",
-// matching bb_serialize_meta_ensure_composed()'s own sentinel contract.
-static const bb_route_t s_sensors_fan_patch_describe_route = {
+// Mutable (`.data`, not `.rodata`) with this config on -- `.request_schema`
+// starts NULL and is patched in once by ensure_fan_request_schema_patched()
+// below (only on that composer's SUCCESS path), same NULL-then-patch shape
+// as every `.schema` site in this file. Do NOT point this directly at
+// s_sensors_fan_request_schema_buf in the initializer: that link-time-
+// constant address is always non-NULL even before the first compose, so a
+// compose failure would leave bb_openapi_emit.c's `if (route->request_schema)`
+// pointer-null check seeing a truthy-but-empty buffer and emitting a
+// schema-less requestBody instead of omitting it entirely -- see
+// bb_ota_check_common.c's s_config_post_route for the documented precedent
+// (and the failure mode this exact file used to have, B1-1242).
+static bb_route_t s_sensors_fan_patch_describe_route = {
     .method               = BB_HTTP_PATCH,
     .path                 = "/api/sensors/fan",
     .tag                  = "sensors",
     .summary              = "update fan configuration (partial update)",
     .request_content_type = "application/json",
-    .request_schema       = s_sensors_fan_request_schema_buf,
+    .request_schema       = NULL /* patched at init */,
     .responses            = s_sensors_fan_patch_responses,
     .handler              = NULL,
 };
@@ -713,16 +712,15 @@ static bb_err_t ensure_fan_schema_patched(void)
     return BB_OK;
 }
 
-// No field-patch step here (unlike the three siblings) -- the const
-// s_sensors_fan_patch_describe_route's `.request_schema` already points
-// directly at s_sensors_fan_request_schema_buf (see that route's own doc
-// comment above); composing into the buffer is the only work needed.
 static bb_err_t ensure_fan_request_schema_patched(void)
 {
-    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
-                                              &bb_sensor_http_fan_wire_desc, &bb_sensor_http_fan_request_meta,
-                                              s_sensors_fan_request_schema_buf,
-                                              sizeof(s_sensors_fan_request_schema_buf));
+    bb_err_t rc = bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+                                                      &bb_sensor_http_fan_wire_desc, &bb_sensor_http_fan_request_meta,
+                                                      s_sensors_fan_request_schema_buf,
+                                                      sizeof(s_sensors_fan_request_schema_buf));
+    if (rc != BB_OK) return rc;  // fail loud -- never patch a partial/NULL schema in
+    s_sensors_fan_patch_describe_route.request_schema = s_sensors_fan_request_schema_buf;
+    return BB_OK;
 }
 
 static bb_err_t ensure_power_schema_patched(void)
@@ -752,17 +750,40 @@ static bb_err_t ensure_thermal_schema_patched(void)
 bb_err_t bb_sensor_http_describe_routes(void)
 {
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
-    // Compose ALL FOUR schemas first, then register all four -- never
-    // interleave (avoids partial-registration on a mid-sequence compose
-    // failure).
+    // Documentation-only: a compose failure here must not take any of the
+    // four sensors routes' registration below offline -- degrade by leaving
+    // that one route's schema field NULL (every ensure_*_patched() call,
+    // including the fan PATCH request_schema one, only patches its route's
+    // field on the SUCCESS path -- see each route's own doc comment) so
+    // bb_openapi_emit.c's `if (route->request_schema)`/`if (response->schema)`
+    // gates omit it cleanly, and keep going to the next site independently.
+    // Each ensure_*_patched() call targets
+    // its own dedicated buffer and touches no shared state, so one site's
+    // failure can't corrupt or skip another's compose. This fn is
+    // ESP_PLATFORM-gated and not host-testable, same constraint documented
+    // at cddd5624 (bb_ota_hooks / bb_health_stack / bb_diag_http /
+    // bb_display sites) and bb_diag_meminfo_register() above it -- the
+    // per-site compose-failure behavior itself is already covered by
+    // test_bb_sensor_http_wire_route_wiring.c's four
+    // *_offline_on_compose_failure tests, which exercise these same
+    // ensure_*_patched() calls via the BB_SENSOR_HTTP_WIRE_TESTING
+    // accessors below.
     bb_err_t compose_rc = ensure_fan_schema_patched();
-    if (compose_rc != BB_OK) return compose_rc;
+    if (compose_rc != BB_OK) {
+        bb_log_w(TAG, "sensors fan GET response schema compose failed (rc=%d), route ships without a schema", (int)compose_rc);
+    }
     compose_rc = ensure_fan_request_schema_patched();
-    if (compose_rc != BB_OK) return compose_rc;
+    if (compose_rc != BB_OK) {
+        bb_log_w(TAG, "sensors fan PATCH request schema compose failed (rc=%d), route ships without a schema", (int)compose_rc);
+    }
     compose_rc = ensure_power_schema_patched();
-    if (compose_rc != BB_OK) return compose_rc;
+    if (compose_rc != BB_OK) {
+        bb_log_w(TAG, "sensors power GET response schema compose failed (rc=%d), route ships without a schema", (int)compose_rc);
+    }
     compose_rc = ensure_thermal_schema_patched();
-    if (compose_rc != BB_OK) return compose_rc;
+    if (compose_rc != BB_OK) {
+        bb_log_w(TAG, "sensors thermal GET response schema compose failed (rc=%d), route ships without a schema", (int)compose_rc);
+    }
 #endif
 
     bb_err_t rc = bb_http_register_route_descriptor_only(&s_sensors_fan_get_describe_route);
@@ -828,16 +849,13 @@ const char *bb_sensor_http_wire_get_fan_describe_schema_for_test(void)
 
 const char *bb_sensor_http_wire_get_fan_describe_request_schema_for_test(void)
 {
-#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
-    // s_sensors_fan_patch_describe_route.request_schema always points at
-    // s_sensors_fan_request_schema_buf (see that route's own doc comment) --
-    // an empty buffer (buf[0] == '\0') means "not yet composed", the same
-    // sentinel bb_serialize_meta_ensure_composed() itself uses, so report it
-    // as NULL rather than an empty string.
-    return s_sensors_fan_request_schema_buf[0] != '\0' ? s_sensors_fan_request_schema_buf : NULL;
-#else
+    // Reads the actual struct field the emitter dereferences
+    // (bb_openapi_emit.c's `if (route->request_schema)`), not a buffer-
+    // content proxy that can diverge from it --
+    // s_sensors_fan_patch_describe_route.request_schema is NULL-then-patched
+    // (see that route's own doc comment), same shape as every response
+    // schema in this file.
     return s_sensors_fan_patch_describe_route.request_schema;
-#endif
 }
 
 const char *bb_sensor_http_wire_get_power_describe_schema_for_test(void)
@@ -848,5 +866,16 @@ const char *bb_sensor_http_wire_get_power_describe_schema_for_test(void)
 const char *bb_sensor_http_wire_get_thermal_describe_schema_for_test(void)
 {
     return s_sensors_thermal_get_responses[0].schema;
+}
+
+// Registers the REAL production PATCH /api/sensors/fan describe route
+// (portable -- not ESP_PLATFORM-gated, unlike bb_sensor_http_describe_
+// routes() itself) so a host test can drive bb_openapi_emit_stream() over
+// the exact same s_sensors_fan_patch_describe_route struct production
+// registers, rather than a hand-built twin -- proves what the emitter
+// actually does with this route's `.request_schema` field, NULL or patched.
+bb_err_t bb_sensor_http_wire_register_fan_patch_route_for_test(void)
+{
+    return bb_http_register_route_descriptor_only(&s_sensors_fan_patch_describe_route);
 }
 #endif /* BB_SENSOR_HTTP_WIRE_TESTING */

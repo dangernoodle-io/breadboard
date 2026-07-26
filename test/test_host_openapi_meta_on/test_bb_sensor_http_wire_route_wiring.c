@@ -2,7 +2,11 @@
 #include "../../../components/bb_sensor_http/bb_sensor_http_wire_priv.h"
 #include "bb_sensor_http_wire_test.h"
 #include "bb_serialize_meta_test.h"
+#include "bb_http_server.h"
+#include "bb_openapi.h"
+#include "bb_http_host.h"
 
+#include <cJSON.h>
 #include <string.h>
 
 // Dedicated PlatformIO test env (native_openapi_runtime_meta, see
@@ -78,6 +82,57 @@ void test_bb_sensor_http_wire_assemble_fan_request_schema_offline_on_compose_fai
     TEST_ASSERT_NULL(bb_sensor_http_wire_get_fan_describe_request_schema_for_test());
 
     bb_serialize_meta_openapi_test_set_force_no_space(false);
+}
+
+// B1-1242 HIGH-fix regression: proves what bb_openapi_emit_stream() actually
+// EMITS for the real production route after a compose failure -- not just
+// that the test accessor/struct field reads NULL (the offline_on_compose_
+// failure test above already covers that), but that bb_openapi_emit.c's
+// `if (route->request_schema)` gate genuinely omits requestBody for PATCH
+// /api/sensors/fan, rather than emitting a schema-less
+// `"application/json": {}` (the pre-fix bug: s_sensors_fan_patch_describe_
+// route.request_schema pointed DIRECTLY at s_sensors_fan_request_schema_buf,
+// a link-time-constant address that's always non-NULL even when that buffer
+// is left empty by a failed compose). Registers the REAL production route
+// struct (bb_sensor_http_wire_register_fan_patch_route_for_test(), not a
+// hand-built twin) so this exercises production's own s_sensors_fan_patch_
+// describe_route, not a copy. MUST run before the success test right below
+// (compose is guarded/idempotent -- a non-empty buffer short-circuits a
+// second real assemble once one has succeeded).
+void test_bb_sensor_http_wire_fan_patch_route_omits_request_body_on_compose_failure(void)
+{
+    bb_http_route_registry_clear();
+    bb_serialize_meta_openapi_test_set_force_no_space(true);
+
+    bb_err_t compose_rc = bb_sensor_http_wire_assemble_fan_request_schema_for_test();
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, compose_rc);
+
+    bb_serialize_meta_openapi_test_set_force_no_space(false);
+
+    TEST_ASSERT_NULL(bb_sensor_http_wire_get_fan_describe_request_schema_for_test());
+    TEST_ASSERT_EQUAL(BB_OK, bb_sensor_http_wire_register_fan_patch_route_for_test());
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
+    bb_err_t emit_rc = bb_openapi_emit_stream(req, &meta);
+    bb_http_host_capture_t cap = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_host_capture_end(req, &cap));
+    TEST_ASSERT_EQUAL(BB_OK, emit_rc);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    cJSON *doc = cJSON_Parse(cap.body);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    cJSON *fan_path = cJSON_GetObjectItemCaseSensitive(
+        cJSON_GetObjectItemCaseSensitive(doc, "paths"), "/api/sensors/fan");
+    TEST_ASSERT_NOT_NULL(fan_path);
+    cJSON *fan_patch = cJSON_GetObjectItemCaseSensitive(fan_path, "patch");
+    TEST_ASSERT_NOT_NULL(fan_patch);
+    TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(fan_patch, "requestBody"));
+
+    cJSON_Delete(doc);
+    bb_http_host_capture_free(&cap);
 }
 
 void test_bb_sensor_http_wire_assemble_fan_request_schema_patches_matching_content(void)
