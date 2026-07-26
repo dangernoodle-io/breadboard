@@ -49,6 +49,17 @@ bool wifi_reconn_is_active(void);
 void wifi_reconn_on_disconnect(uint8_t reason);
 void wifi_reconn_on_got_ip(void);
 
+// Non-blocking notifier: post EV_CREDS_ARRIVED to the manager's queue and
+// return. Callable from any task context (not just the WiFi event task --
+// this is intended to be called by the provisioning lifecycle orchestrator,
+// B1-809, a distinct task). Drop on full queue. No-op if the manager isn't
+// running (s_queue unset). Moves a parked WR_NO_CREDS instance to
+// WR_CONNECTING via the existing FSM table row ({WR_NO_CREDS,
+// EV_CREDS_ARRIVED, NULL, act_reset_state, WR_CONNECTING} --
+// wifi_reconn_policy.c); act_reset_state resets policy counters, clears
+// self_disconnect, and issues the actual connect_fn().
+void wifi_reconn_on_creds_arrived(void);
+
 // Lock-free diagnostic reads of manager-owned state.
 void wifi_reconn_get_disconnect(bb_wifi_disc_reason_t *reason, int64_t *age_us);
 int  wifi_reconn_get_retry_count(void);

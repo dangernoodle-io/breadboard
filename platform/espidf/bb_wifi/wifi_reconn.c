@@ -192,6 +192,15 @@ void wifi_reconn_on_got_ip(void)
     }
 }
 
+void wifi_reconn_on_creds_arrived(void)
+{
+    if (!s_queue) return;
+    reconn_evt_t evt = { .fsm_event = EV_CREDS_ARRIVED, .reason = 0 };
+    if (xQueueSend(s_queue, &evt, 0) != pdTRUE) {
+        bb_log_w(TAG, "queue full, dropping creds-arrived event");
+    }
+}
+
 void wifi_reconn_on_lost_ip(void)
 {
     // LOG-ONLY (R11): IP_EVENT_STA_LOST_IP is a 120s-debounced, Espressif-
