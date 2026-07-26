@@ -1978,6 +1978,18 @@ void test_bb_settings_wifi_rtc_mirror_seed_gate_true_when_live_creds_and_empty_m
 void test_bb_settings_wifi_rtc_mirror_seed_gate_false_when_mirror_already_valid(void);
 void test_bb_settings_wifi_rtc_mirror_seed_gate_false_when_no_live_creds(void);
 
+// Forward declarations from test_bb_settings_provisioned.c
+void test_bb_settings_wifi_provisioned_get_false_on_fresh_board(void);
+void test_bb_settings_wifi_set_alone_does_not_provision(void);
+void test_bb_settings_wifi_pending_promote_provisions_and_fires_once(void);
+void test_bb_settings_wifi_pending_promote_reconfigure_does_not_refire(void);
+void test_bb_settings_wifi_provisioned_mark_connected_after_direct_commit(void);
+void test_bb_settings_wifi_provisioned_mark_connected_idempotent(void);
+void test_bb_settings_wifi_pending_promote_failure_leaves_flag_unchanged(void);
+void test_bb_settings_wifi_pending_promote_commit_failure_leaves_flag_unchanged(void);
+void test_bb_settings_wifi_provisioned_mark_connected_write_failure_leaves_flag_unchanged(void);
+void test_bb_settings_wifi_provisioned_get_false_on_backend_error(void);
+
 // Forward declarations from test_bb_settings_wifi_pending.c
 void test_bb_settings_wifi_pending_set_stages_ssid_pass_try(void);
 void test_bb_settings_wifi_pending_set_null_pass_treated_as_empty(void);
@@ -9014,6 +9026,18 @@ int main(void) {
     RUN_TEST(test_bb_settings_wifi_rtc_mirror_seed_gate_true_when_live_creds_and_empty_mirror);
     RUN_TEST(test_bb_settings_wifi_rtc_mirror_seed_gate_false_when_mirror_already_valid);
     RUN_TEST(test_bb_settings_wifi_rtc_mirror_seed_gate_false_when_no_live_creds);
+
+    // bb_settings durable "provisioned" flag (B1-807, corrected design)
+    RUN_TEST(test_bb_settings_wifi_provisioned_get_false_on_fresh_board);
+    RUN_TEST(test_bb_settings_wifi_set_alone_does_not_provision);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_provisions_and_fires_once);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_reconfigure_does_not_refire);
+    RUN_TEST(test_bb_settings_wifi_provisioned_mark_connected_after_direct_commit);
+    RUN_TEST(test_bb_settings_wifi_provisioned_mark_connected_idempotent);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_failure_leaves_flag_unchanged);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_commit_failure_leaves_flag_unchanged);
+    RUN_TEST(test_bb_settings_wifi_provisioned_mark_connected_write_failure_leaves_flag_unchanged);
+    RUN_TEST(test_bb_settings_wifi_provisioned_get_false_on_backend_error);
 
     // bb_storage_typed (get_typed/set_typed facade) tests
     RUN_TEST(test_bb_storage_get_typed_falls_back_to_get_on_ram_backend);

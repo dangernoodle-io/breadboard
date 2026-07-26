@@ -129,6 +129,13 @@ bb_err_t bb_settings_update_check_enabled_set(bool en);
 // availability contract) -- a failure there never affects this call's
 // BB_OK return, since the NVS commit already succeeded and is
 // authoritative.
+//
+// This call alone does NOT mark the device provisioned (see the "WiFi
+// provisioned flag" section below) -- the captive-portal direct-commit
+// caller (bb_wifi_prov) writes creds here with no validated connect yet;
+// the flag is set later, at the FIRST validated connect that follows
+// (bb_settings_wifi_provisioned_mark_connected, called from bb_wifi's
+// IP_EVENT_STA_GOT_IP handler).
 bb_err_t bb_settings_wifi_set(const char *ssid, const char *pass);
 
 // ---------------------------------------------------------------------------
@@ -181,6 +188,25 @@ bool bb_settings_wifi_pending_active(void);
 // A backend error or no "rtc" backend registered at all is silently
 // swallowed (fail-open) -- the mirror is a recovery cache, not required for
 // correctness.
+//
+// F1 SET POLICY (B1-807): immediately AFTER the 3-key atomic commit above
+// succeeds, this calls bb_settings_wifi_provisioned_mark_connected() --
+// the SAME writer the captive-portal direct-commit path uses (see "WiFi
+// provisioned flag" below) -- rather than staging the flag as a 4th key in
+// the SAME session: BB_STORAGE_TXN_MAX_KEYS is 3, and this ssid/pass/try
+// triple already uses every slot. A 4th bb_storage_txn_set/stage call would
+// fail LOUDLY and ATOMICALLY (BB_ERR_NO_SPACE, poisoning the txn so every
+// backend's commit refuses to write anything at all) -- not silently
+// corrupt anything; the storage primitive is safe either way. The actual
+// cost of widening BB_STORAGE_TXN_MAX_KEYS to fit a 4th key here is that
+// the cap is GLOBAL: every unrelated bb_storage_txn_t consumer repo-wide
+// pays the extra static/stack footprint, well outside this ticket's
+// flag-and-seam scope (B1-1235 tracks making txn capacity caller-sized,
+// the proper fix). This is a sequential follow-up write, not part of the
+// atomic commit -- see bb_settings_wifi_provisioned_mark_connected's own
+// doc for why a crash in that narrow gap never strands the flag false
+// permanently (the very next validated connect converges it, via that same
+// writer).
 bb_err_t bb_settings_wifi_pending_promote(void);
 
 // Discard any pending reconfigure attempt: clears the try flag, then
@@ -188,6 +214,101 @@ bb_err_t bb_settings_wifi_pending_promote(void);
 // ignored, same rationale as bb_settings_wifi_pending_promote). Idempotent
 // -- returns BB_OK whether or not a pending attempt was active.
 bb_err_t bb_settings_wifi_pending_clear(void);
+
+// ---------------------------------------------------------------------------
+// WiFi provisioned flag (B1-807, corrected design). The DURABLE (NVS,
+// "bb_cfg"/"provisioned") flag -- distinct from
+// bb_settings_wifi_rtc_mirror_provisioned_get below, which reads the RTC
+// MIRROR's own copy. That mirror copy is explicitly VOLATILE (lost on a
+// full power-off, see bb_storage_rtc.h) AND degenerate:
+// bb_settings_wifi_rtc_mirror_write hardcodes provisioned=1 on EVERY mirror
+// write (including a plain creds-save with no validated connect), so it
+// means "the ssid/pass/provisioned mirror triple committed atomically",
+// never "this device has completed a validated connect". Conflating the
+// two is the exact fleet-breaking bug class this flag closes -- do not
+// repurpose the RTC mirror accessor as a substitute for the getter below.
+//
+// F1 SET POLICY: set on the FIRST validated WiFi connect, covering BOTH
+// creds paths through a SINGLE writer, bb_settings_wifi_provisioned_mark_
+// connected below -- bb_settings_wifi_pending_promote calls it right after
+// its own atomic ssid/pass/try commit succeeds (see its doc for why it
+// isn't staged as a 4th key in that same commit), and bb_wifi's
+// IP_EVENT_STA_GOT_IP handler calls it directly for the captive-portal
+// direct-commit path (bb_settings_wifi_set has no validated-connect step
+// of its own). ONE writer, ONE edge-gate policy, two call sites -- never
+// two independent writers with divergent rules: the flag write itself is
+// unconditional/idempotent (sticky-for-life -- a reconfigure of an
+// already-provisioned board re-stamps true harmlessly), but the callback
+// below fires exactly once, only on the false->true transition, only
+// after a successful write.
+//
+// F2 CLEAR: factory reset only, and requires ZERO code here --
+// bb_storage_erase_all("nvs") (platform/espidf/bb_diag_http) wipes the
+// entire "bb_cfg" NVS namespace this flag lives in. Deliberately no
+// clear-side seam/auto-de-provision path exists in this component.
+//
+// ONE writer covers both connect paths above via mark_connected -- but
+// note bb_settings_creds_boot_init's boot-time heal branch (PRE-EXISTING,
+// not touched by B1-807) writes this same field DIRECTLY via
+// bb_config_set_bool, bypassing mark_connected entirely: no edge-gate, no
+// seam fire. That is deliberate -- an RTC-mirror-driven restore of
+// already-committed creds at boot is not itself "a first validated
+// connect", so it must not fire the connect-time notify -- but it means
+// "one writer" describes the connect-time SET policy, not literally every
+// place this NVS key is ever written. See that function's own comment for
+// the heal branch's full rationale.
+// ---------------------------------------------------------------------------
+
+// True iff the device has completed at least one validated WiFi connect
+// since its last factory reset. Fail-CLOSED (false) on ANY backend error or
+// an unset key -- a storage error must NEVER read as "provisioned" (same
+// posture bb_settings_wifi_rtc_mirror_provisioned_get documents for its own,
+// separate, volatile flag).
+//
+// Any future boot-time gate deciding WHETHER TO ATTEMPT AN STA CONNECT AT
+// ALL must key off wifi_has_creds(), never off this flag: the crash-window
+// self-healing property (see bb_settings_wifi_pending_promote's doc) relies
+// on the next boot still attempting a connect, and a "portal iff
+// !provisioned" gate would strand a board with valid committed creds whose
+// flag write was interrupted by a crash.
+bool bb_settings_wifi_provisioned_get(void);
+
+// F1 SET POLICY, direct-commit path: marks the flag true (idempotent,
+// sticky-for-life) and fires the edge-gated notify below exactly once, on
+// the false->true transition only. This is the writer for a connect that
+// did NOT go through bb_settings_wifi_pending_promote (the captive-portal
+// direct-commit path, or any plain boot-time STA connect with no pending
+// reconfigure try active) -- called from bb_wifi's IP_EVENT_STA_GOT_IP
+// handler. See bb_settings_wifi_pending_promote's doc for the promote
+// path's own sequential follow-up call to this SAME writer -- ONE shared
+// edge-gate policy, two call sites, no divergent rules. NOT a
+// general-purpose setter: it can only ever move the flag false->true,
+// never clear it (see F2 CLEAR above) -- there is no second, ungated write
+// path here that could bypass the F1 policy.
+void bb_settings_wifi_provisioned_mark_connected(void);
+
+// Caller-registered notification for the provisioned SET transition
+// (false->true), fired at most once ever per device lifetime between
+// factory resets (F2 is sticky-for-life; a later reconfigure of an
+// already-provisioned board never re-fires this).
+//
+// CALL CONTEXT: fires SYNCHRONOUSLY on the ESP-IDF default event-loop task
+// (the WiFi/IP event task -- the same task bb_wifi's IP_EVENT_STA_GOT_IP
+// handler runs on), the same "safe to call from the WiFi event task
+// context" convention documented in platform/espidf/bb_wifi/wifi_reconn.h
+// (e.g. wifi_reconn_on_disconnect/wifi_reconn_on_lost_ip). The callback
+// MUST NOT block and MUST NOT recurse back into bb_wifi/bb_settings
+// synchronously -- defer any heavy work to the consumer's own task/queue.
+//
+// Composition-only -- bb_settings does not self-register a default and has
+// no dependency on any consumer. Pass NULL to clear. Setter + public invoke
+// generated by the bb_core "single-slot injected callback" macro
+// (bb_callback_slot.h, BB_CALLBACK_SLOT_VOID0), instantiated directly in
+// platform/host/bb_settings/bb_settings.c (host+esp compiled) -- reuse of
+// the existing idiom per the consolidation rule, not a hand-rolled second
+// instance.
+typedef void (*bb_settings_wifi_provisioned_fn)(void);
+void bb_settings_wifi_set_provisioned_cb(bb_settings_wifi_provisioned_fn cb);
 
 // ---------------------------------------------------------------------------
 // RTC warm-reboot mirror accessors (B1: bb_nv creds-cluster relocation --

@@ -473,8 +473,21 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 #if CONFIG_BB_WIFI_RECONFIGURE
         if (s_pending_try) {
             s_pending_try = false;
+            // Marks the provisioned flag as part of its own call (B1-807)
+            // -- see bb_settings_wifi_pending_promote's doc.
             bb_settings_wifi_pending_promote();
+        } else {
+            // B1-807 F1 SET POLICY, direct-commit path: no promote ran on
+            // this connect (captive-portal direct-commit creds, or a plain
+            // boot-time reconnect with no pending try) -- mark the flag on
+            // this, the FIRST validated connect. Idempotent/edge-gated, see
+            // bb_settings.h.
+            bb_settings_wifi_provisioned_mark_connected();
         }
+#else
+        // B1-807 F1 SET POLICY: reconfigure-promote is compiled out, so
+        // every validated connect goes through this direct-commit marker.
+        bb_settings_wifi_provisioned_mark_connected();
 #endif
         bb_system_boot_count_reset();
         if (s_wifi_event_group) {
