@@ -174,6 +174,53 @@ class ComponentIndex:
         return None
 
 
+def _resolve_dir(d: Path, ancestors: frozenset):
+    """Returns `d`'s realpath if `d` is a directory and not already among
+    `ancestors` (i.e. safe to examine/descend into), else `None`. `ancestors`
+    is the realpath-keyed, ANCESTOR-SCOPED (never a global visited set) set
+    of directories already on the current recursion branch — see
+    `_leaf_component_dirs`'s docstring for why ancestor-scoping (as opposed
+    to a shared/mutated global set) is load-bearing: a global set would
+    silently suppress a non-cyclic symlink DIAMOND, turning a should-be-loud
+    duplicate-leaf collision into a silent single-pick. The single guard
+    shared by `_iter_child_dirs`, `_leaf_component_dirs`, and
+    `find_orphan_component_dirs`'s inner walk."""
+    if not d.is_dir():
+        return None
+    real = os.path.realpath(str(d))
+    if real in ancestors:
+        return None
+    return real
+
+
+def _iter_child_dirs(d: Path, ancestors: frozenset, skip_names: frozenset = frozenset()):
+    """Yields `(child, child_ancestors)` for every direct subdirectory of
+    `d` that is a real directory, not `.`-prefixed, and not named in
+    `skip_names` — sorted for determinism. `child_ancestors` is `ancestors`
+    plus `d`'s own realpath, ready to pass to a recursive call over `child`.
+    Yields nothing if `_resolve_dir(d, ancestors)` returns `None` (not a
+    directory, or a symlink cycle back to an ancestor on this branch).
+
+    The cycle-guard/sort/dot-skip iteration shared by `_leaf_component_dirs`
+    and `find_orphan_component_dirs` — previously two hand-rolled, near-
+    identical copies of this loop; extracted per the Consolidation
+    convention (CLAUDE.md) rather than left as a second instance.
+    `skip_names` exists solely for `find_orphan_component_dirs`, which
+    excludes `include`/`src` as independent candidate nodes (see that
+    function's docstring); `_leaf_component_dirs` passes the default empty
+    set, which excludes nothing beyond the dot-dir skip."""
+    real = _resolve_dir(d, ancestors)
+    if real is None:
+        return
+    child_ancestors = ancestors | {real}
+    for child in sorted(d.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        if child.name in skip_names:
+            continue
+        yield child, child_ancestors
+
+
 def _leaf_component_dirs(base: Path, _ancestors: frozenset = frozenset()):
     """Yield each leaf-component directory under `base`, depth-first: the
     innermost directory (per branch, walking down from `base`) that
@@ -207,20 +254,127 @@ def _leaf_component_dirs(base: Path, _ancestors: frozenset = frozenset()):
     aliases and the duplicate is still discovered; only an actual
     self/mutual cycle (a realpath repeating within one branch's own
     ancestor chain) is skipped. Do not "simplify" this back to a shared/
-    mutated set — that reintroduces the diamond-suppression bug."""
-    if not base.is_dir():
-        return
-    real = os.path.realpath(str(base))
-    if real in _ancestors:
-        return
-    child_ancestors = _ancestors | {real}
-    for child in sorted(base.iterdir()):
-        if not child.is_dir() or child.name.startswith("."):
-            continue
+    mutated set — that reintroduces the diamond-suppression bug.
+
+    Delegates the cycle-guard/sort/dot-skip iteration to the shared
+    `_iter_child_dirs` (also used by `find_orphan_component_dirs`) rather
+    than hand-rolling it here a second time."""
+    for child, child_ancestors in _iter_child_dirs(base, _ancestors):
         if (child / "CMakeLists.txt").is_file():
             yield child
         else:
             yield from _leaf_component_dirs(child, child_ancestors)
+
+
+_HEADER_EXTS = frozenset({".h", ".hpp"})
+
+
+def _is_header_file(p: Path) -> bool:
+    """True when `p` is a regular file whose extension is `.h`/`.hpp`,
+    matched CASE-INSENSITIVELY (`.H`, `.Hpp`, etc. all count) by lower-
+    casing `p.suffix` before comparing against `_HEADER_EXTS` — never a
+    glob pattern (`*.h`/`*.hpp` are case-sensitive on POSIX, so a directory
+    whose only header used an uppercase/mixed-case extension would
+    otherwise silently fail to signal, and never surface as an orphan)."""
+    return p.is_file() and p.suffix.lower() in _HEADER_EXTS
+
+
+def _has_header_signal(d: Path) -> bool:
+    """True when `d` directly (not recursively through subdirectories other
+    than its own `include/`) contains header content: a `.h`/`.hpp` file
+    (any case) right inside `d`, or an `include/` subdirectory containing
+    (recursively) at least one such file. This is the "looks like it was
+    meant to be a component" signal `find_orphan_component_dirs` uses to
+    distinguish a genuine orphan from an incidental empty/non-component
+    directory — checked only directly on `d` itself, never on `d`'s sibling
+    subdirectories, so a grouping directory's OWN (empty, header-free) top
+    level is never confused with header content that actually lives one
+    level down inside one of its real component children."""
+    if any(_is_header_file(p) for p in d.iterdir()):
+        return True
+    inc = d / "include"
+    if inc.is_dir():
+        return any(_is_header_file(p) for p in inc.rglob("*"))
+    return False
+
+
+def find_orphan_component_dirs(comp_root: Path) -> List[Path]:
+    """Return every directory under `comp_root` (i.e. a tree's
+    `components/`) that LOOKS like a component (header content directly
+    inside it, per `_has_header_signal`) but has no `CMakeLists.txt`
+    anywhere in its own subtree — a directory the leaf rule
+    (`_leaf_component_dirs`) walks straight past without ever accepting,
+    and that therefore never appears in `ComponentIndex` at all. B1-1227:
+    this is the input to the `orphan-component-dir` lint rule
+    (`commands/docs.py::_check_orphan_component_dir`), which is the ONLY
+    consumer this closes the gap for so far — lint runs under `make check`,
+    so a hit blocks a merge. `gen_components_readme.py`'s group-member
+    listing and both `fence` baseline families remain structurally blind to
+    this shape (unchanged by this function's existence); `fence/
+    new_component.py`'s module docstring documents its own blindness as an
+    open "LATENT GAP" — see that docstring, not repeated here.
+
+    Deliberately distinguishes a genuine orphan from a legitimate GROUPING
+    directory (e.g. `components/display/`): a grouping directory has no
+    `CMakeLists.txt` of its own either, but it has one or more real leaf
+    components (directories that DO have a `CMakeLists.txt`) somewhere in
+    its subtree — this walk tracks, per directory, whether ANY descendant
+    (at any depth) is itself a leaf, and only flags a directory that (a)
+    has zero leaf descendants anywhere below it AND (b) has header content
+    directly inside it. A grouping directory's own top level normally has
+    no header content directly (only `README.md` + subdirectories), so
+    condition (b) alone already excludes it in practice; condition (a) is
+    the structural guarantee that holds even if a future grouping
+    directory ever grew a stray top-level header.
+
+    A directory that IS itself a discovered leaf (has its own
+    `CMakeLists.txt`) is never flagged, and is not walked further (mirrors
+    `_leaf_component_dirs`'s "components never nest inside components"
+    rule) — its own header content is exactly what a real component is
+    expected to have. A `.`-prefixed directory name is skipped entirely,
+    matching `_leaf_component_dirs`. `include`/`src` child directories are
+    also never walked as independent candidates in their own right (a
+    departure from `_leaf_component_dirs`, which has no such carve-out
+    since it only ever cares about `CMakeLists.txt` presence, never header
+    content) — they are reserved component-internal directory names, and
+    `_has_header_signal` already looks directly into a directory's own
+    `include/`; also walking into `include/` as a separate node would
+    double-flag the identical header content as two distinct orphans (the
+    `include/` directory itself, and its parent). Symlink-cycle-guarded
+    the same way as `_leaf_component_dirs` (ancestor-scoped, not a global
+    visited set — see that function's docstring for why a global set
+    would silently suppress a genuine symlink-diamond orphan).
+
+    Returns `[]` for a `comp_root` that doesn't exist or isn't a
+    directory. Result is sorted for determinism."""
+    orphans: List[Path] = []
+    _ORPHAN_SKIP = frozenset({"include", "src"})
+
+    def _walk(d: Path, ancestors: frozenset) -> bool:
+        """Returns True iff `d` is itself a leaf, or has a leaf anywhere in
+        its subtree. Own cycle-guard (via `_resolve_dir`) is checked
+        up front, distinct from and in addition to `_iter_child_dirs`'s
+        internal guard below: `_walk` needs to know WHETHER `d` itself is
+        safe to examine (to decide whether to flag it at all), which is a
+        different question than `_iter_child_dirs`'s "is it safe to yield
+        `d`'s children" — collapsing the two would silently flag a
+        cycled-back `d` as an orphan instead of correctly skipping it."""
+        if _resolve_dir(d, ancestors) is None:
+            return False
+        if (d / "CMakeLists.txt").is_file():
+            return True
+        has_leaf_descendant = False
+        for child, child_ancestors in _iter_child_dirs(d, ancestors, _ORPHAN_SKIP):
+            if _walk(child, child_ancestors):
+                has_leaf_descendant = True
+        if not has_leaf_descendant and _has_header_signal(d):
+            orphans.append(d)
+        return has_leaf_descendant
+
+    for child, child_ancestors in _iter_child_dirs(comp_root, frozenset()):
+        _walk(child, child_ancestors)
+
+    return sorted(orphans)
 
 
 def _scan_root(root: str, platforms) -> Dict[str, ComponentEntry]:

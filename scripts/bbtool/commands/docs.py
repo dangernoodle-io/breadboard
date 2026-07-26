@@ -119,7 +119,7 @@ from header_annot import (
     first_sentence as _first_sentence,
     escape_table_cell as _escape_table_cell,
 )
-from discovery import build_index, normalize_roots
+from discovery import build_index, find_orphan_component_dirs, normalize_roots
 
 NAME = "docs"
 HELP = "Regenerate generated marker regions in component READMEs"
@@ -885,12 +885,23 @@ def _check_component_readme(ctx: Context) -> list:
     1. The depth-1 `iterdir()` walk, UNCHANGED from the pre-hierarchy
        behaviour: every direct `components/<name>/` directory is checked,
        regardless of whether discovery.py's leaf rule recognizes it as a
-       real component. Deliberate — a bare/malformed directory (no
-       `CMakeLists.txt` anywhere under it) must still be a visible lint
-       finding (missing-README, or "not a discovered component" on its
-       brief marker), never silently dropped from this rule's coverage just
-       because it isn't a real component. See B1-1128 for the sibling gap
-       in the fence's identity fallback.
+       real component. Deliberate — a bare/malformed directory AT DEPTH 1
+       (no `CMakeLists.txt` anywhere under it) must still be a visible
+       lint finding (missing-README, or "not a discovered component" on
+       its brief marker), never silently dropped from this rule's coverage
+       just because it isn't a real component. See B1-1128 for the
+       sibling gap in the fence's identity fallback.
+
+       CAVEAT (B1-1227): this depth-1 guarantee does NOT extend to a
+       bare/malformed directory nested one or more levels DEEPER — e.g.
+       `components/<group>/<orphan>/` under a legitimate grouping
+       directory. Pass 1's `iterdir()` never descends past depth 1, and
+       pass 2 below only reaches discovery-indexed (i.e. `CMakeLists.txt`-
+       bearing) leaves, so such a nested orphan is invisible to THIS rule
+       entirely — that gap is what the separate `orphan-component-dir`
+       rule (`_check_orphan_component_dir`, `discovery.
+       find_orphan_component_dirs`) exists to close, at any depth, via
+       header-content detection rather than a directory walk depth.
     2. A supplemental discovery-SSOT pass (`discovery.build_index`) for any
        component DIRECTORY not already covered by pass 1 — i.e. a component
        nested under `components/<group>/<name>/`, unreachable by a depth-1
@@ -964,6 +975,63 @@ def _check_component_readme(ctx: Context) -> list:
     return violations
 
 
+def _check_orphan_component_dir(ctx: Context) -> list:
+    """Rule: orphan-component-dir — flags a directory under `components/`
+    that has real header content (a `.h`/`.hpp` directly inside it, or an
+    `include/` subdirectory containing one) but no `CMakeLists.txt`
+    anywhere in its own subtree — B1-1227. Such a directory is invisible to
+    `discovery.build_index()`'s leaf rule (keyed strictly on
+    `CMakeLists.txt` presence). Pass 1 of `component-readme` only catches
+    this shape at DEPTH 1 (a direct `components/<name>/` child with no
+    README); a header-only orphan nested under a legitimate GROUP directory
+    (e.g. `components/display/<orphan>/`) was invisible to lint entirely
+    until this rule. This rule is the ONLY discovery-keyed consumer that
+    now catches the nested case — `gen_components_readme.py`'s group-member
+    listing and both `fence` baseline families remain structurally blind to
+    it; `fence/new_component.py`'s own module docstring documents this as
+    an open "LATENT GAP", not closed by this PR. Because lint runs under
+    `make check`, a hit here still blocks a merge even though those other
+    consumers stay unaware of the directory.
+
+    Note on overlap with `component-readme`: a depth-1 orphan (a bare
+    `components/<name>/` child, no nesting) fires BOTH rules — this one
+    (no `CMakeLists.txt` anywhere under it) and `component-readme` (no
+    `README.md`). This is intentional, not suppressed: the two rules check
+    unrelated conditions on the same directory, and a `CMakeLists.txt`-less
+    orphan can never have a README scaffolded for it, so the redundant
+    `component-readme` hit is itself a useful nudge to add the missing
+    `CMakeLists.txt` rather than a `README.md`.
+
+    Delegates entirely to `discovery.find_orphan_component_dirs`, which
+    also carries the "genuine orphan vs. legitimate grouping directory"
+    distinction — see that function's docstring. This rule adds nothing
+    beyond turning that function's result into lint violations naming each
+    orphan's path; it deliberately does not also flag the missing README
+    (that's `component-readme`'s job, and a `CMakeLists.txt`-less orphan
+    isn't a real component that could ever have one scaffolded)."""
+    violations = []
+    root = Path(ctx.root)
+    comp_root = root / "components"
+    for orphan in find_orphan_component_dirs(comp_root):
+        # `find_orphan_component_dirs` never canonicalizes (unlike
+        # `discovery.build_index`) -- every returned path is built directly
+        # from `comp_root` (== `root / "components"`), so relative_to must
+        # use `root` verbatim, never a realpath'd form (which would raise
+        # ValueError whenever `root` itself has a symlink component, e.g.
+        # macOS's /var -> /private/var for a tempfile-based test root).
+        rel = orphan.relative_to(root).as_posix()
+        violations.append(
+            ctx.violation(
+                orphan, 1,
+                f"{rel}/ has header content (include/ or *.h) but no"
+                f" CMakeLists.txt anywhere under it — not a discovered"
+                f" component, invisible to discovery/docs/fence; either add a"
+                f" CMakeLists.txt to make it a real component, or remove it",
+            )
+        )
+    return violations
+
+
 _DOCS_RULES = [
     Rule(
         id="component-readme",
@@ -973,6 +1041,18 @@ _DOCS_RULES = [
         hint="every components/<name>/ directory should have a README.md"
              " (run `bbtool docs scaffold <name>`, or see"
              " scripts/bbtool/templates/component-readme.md)",
+    ),
+    Rule(
+        id="orphan-component-dir",
+        default_severity="error",
+        profiles={"library"},
+        check=_check_orphan_component_dir,
+        hint="add a CMakeLists.txt to make this a real component, or remove"
+             " the directory (see discovery.find_orphan_component_dirs);"
+             " the reported path is the innermost dead-end directory that"
+             " actually has the header content, which for a header nested"
+             " under a non-include/non-src subdir (e.g. <comp>/priv/) is"
+             " one level below what you'd call the component root",
     ),
 ]
 

@@ -11,7 +11,12 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
-from discovery import CollisionError, build_index, normalize_roots
+from discovery import (
+    CollisionError,
+    build_index,
+    find_orphan_component_dirs,
+    normalize_roots,
+)
 from boards import derive_component
 from composition import resolve_composition
 from commands.wire import collect_entries, collect_provides_entries
@@ -552,6 +557,96 @@ class TestRealTreeSanity(_DiscoveryTestCase):
         if entry.component_dir is not None:
             probe = entry.component_dir / "CMakeLists.txt"
             self.assertEqual(index.owner_of_path(probe), sample)
+
+
+class TestFindOrphanComponentDirs(_DiscoveryTestCase):
+    """B1-1227: `find_orphan_component_dirs` closes the discovery blind
+    spot on a `CMakeLists.txt`-less directory that nonetheless has real
+    header content — invisible to `build_index()`'s leaf rule, and
+    therefore to every discovery-keyed consumer, prior to this."""
+
+    def test_positive_headers_no_cmakelists_is_flagged(self):
+        """A directory with an `include/*.h` but no `CMakeLists.txt`
+        anywhere under it, nested under a non-component group directory,
+        is flagged as an orphan."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            comp_root = root / "components"
+            orphan = comp_root / "orphan_group" / "bb_orphan"
+            _write(orphan / "include" / "bb_orphan.h", "#pragma once\n")
+            orphans = find_orphan_component_dirs(comp_root)
+            self.assertEqual(orphans, [orphan])
+
+    def test_positive_uppercase_extension_header_is_flagged(self):
+        """A directory whose only header uses an uppercase/mixed-case
+        extension (`.H`) is still flagged — the header-extension check must
+        be case-insensitive, not a lowercase-only glob."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            comp_root = root / "components"
+            orphan = comp_root / "orphan_group" / "bb_orphan_upper"
+            _write(orphan / "BB_ORPHAN_UPPER.H", "#pragma once\n")
+            orphans = find_orphan_component_dirs(comp_root)
+            self.assertEqual(orphans, [orphan])
+
+    def test_negative_legitimate_group_dir_not_flagged(self):
+        """A legitimate grouping directory (no `CMakeLists.txt` of its
+        own, but with a real leaf-component child underneath) must NOT be
+        flagged — it is the intended, sanctioned shape (e.g.
+        `components/display/` in the real tree), not an orphan."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            comp_root = root / "components"
+            _make_nested_component(root, "display", name="bb_display_real")
+            orphans = find_orphan_component_dirs(comp_root)
+            self.assertEqual(orphans, [])
+
+    def test_negative_wellformed_component_unaffected(self):
+        """A normal, well-formed flat component (has its own
+        `CMakeLists.txt`) is never flagged, regardless of how much header
+        content it has."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            comp_root = root / "components"
+            _make_component(root, "bb_core")
+            orphans = find_orphan_component_dirs(comp_root)
+            self.assertEqual(orphans, [])
+
+    def test_headerless_dir_not_flagged(self):
+        """A `CMakeLists.txt`-less directory with NO header content (e.g.
+        an accidental empty directory, or one containing only non-header
+        files) is not a "looks like a component" orphan and must not be
+        flagged — only header content is the signal."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            comp_root = root / "components"
+            _write(comp_root / "stray" / "notes.txt", "not a header\n")
+            orphans = find_orphan_component_dirs(comp_root)
+            self.assertEqual(orphans, [])
+
+    def test_sibling_orphan_beside_real_leaf_is_flagged(self):
+        """The actual production shape motivating B1-1227: a header-only
+        orphan sitting BESIDE a real leaf component under the same
+        immediate group parent — e.g. `components/display/bb_display_real/`
+        (has CMakeLists.txt) next to
+        `components/display/bb_display_orphan/include/...` (no
+        CMakeLists.txt anywhere). The group parent itself must not be
+        flagged (it has a real leaf descendant), but the sibling orphan
+        must be, independent of its leaf sibling."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            comp_root = root / "components"
+            _make_nested_component(root, "display", name="bb_display_real")
+            orphan = comp_root / "display" / "bb_display_orphan"
+            _write(orphan / "include" / "bb_display_orphan.h", "#pragma once\n")
+            orphans = find_orphan_component_dirs(comp_root)
+            self.assertEqual(orphans, [orphan])
+
+    def test_missing_comp_root_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(os.path.realpath(tmp))
+            orphans = find_orphan_component_dirs(root / "components")
+            self.assertEqual(orphans, [])
 
 
 if __name__ == "__main__":

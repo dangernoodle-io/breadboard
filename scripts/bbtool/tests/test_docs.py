@@ -35,6 +35,7 @@ from commands.docs import (
     NestedMarkerError,
     gen_all,
     _check_component_readme,
+    _check_orphan_component_dir,
     scaffold_component,
     scaffold_group,
     GROUP_INDEX_BEGIN,
@@ -1086,6 +1087,46 @@ class TestComponentReadmeRule(unittest.TestCase):
             _make_component(td, "bb_documented", "idf_component_register()\n")  # README_TEMPLATE, no brief marker
             ctx = Context(root=td, config={})
             self.assertEqual(_check_component_readme(ctx), [])
+
+
+class TestOrphanComponentDirRule(unittest.TestCase):
+    """B1-1227: `orphan-component-dir` names the path of a header-only
+    directory that has no `CMakeLists.txt` anywhere under it -- the
+    nested-orphan gap `component-readme`'s depth-1 walk cannot reach."""
+
+    def test_fires_on_headers_no_cmakelists_nested_under_group(self):
+        with tempfile.TemporaryDirectory() as td:
+            orphan = Path(td) / "components" / "orphan_group" / "bb_orphan"
+            (orphan / "include").mkdir(parents=True)
+            (orphan / "include" / "bb_orphan.h").write_text("#pragma once\n", encoding="utf-8")
+            ctx = Context(root=td, config={})
+            violations = _check_orphan_component_dir(ctx)
+            self.assertTrue(violations)
+            self.assertIn("bb_orphan", violations[0]["path"])
+            self.assertIn("no", violations[0]["detail"])
+            self.assertIn("CMakeLists.txt", violations[0]["detail"])
+
+    def test_does_not_fire_on_legitimate_group_dir(self):
+        """A group directory with real leaf-component descendants (e.g.
+        components/display/ in the real tree) must not be flagged."""
+        with tempfile.TemporaryDirectory() as td:
+            leaf = Path(td) / "components" / "display" / "bb_display_real"
+            (leaf / "include").mkdir(parents=True)
+            (leaf / "include" / "bb_display_real.h").write_text("#pragma once\n", encoding="utf-8")
+            (leaf / "CMakeLists.txt").write_text("idf_component_register()\n", encoding="utf-8")
+            ctx = Context(root=td, config={})
+            self.assertEqual(_check_orphan_component_dir(ctx), [])
+
+    def test_wellformed_component_unaffected(self):
+        with tempfile.TemporaryDirectory() as td:
+            _make_component(td, "bb_documented", "idf_component_register()\n")
+            ctx = Context(root=td, config={})
+            self.assertEqual(_check_orphan_component_dir(ctx), [])
+
+    def test_no_components_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            ctx = Context(root=td, config={})
+            self.assertEqual(_check_orphan_component_dir(ctx), [])
 
 
 _DOCS_CONFIG = {
