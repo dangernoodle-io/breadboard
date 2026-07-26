@@ -32,6 +32,7 @@
 #include "bb_data.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
+#include "bb_log.h"
 #include "bb_serialize.h"
 #include "bb_system.h"
 
@@ -42,6 +43,13 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
+// Guarded with its sole use site below (the reboot-schema compose warning
+// log) -- CONFIG_BB_OPENAPI_RUNTIME_META off leaves TAG otherwise
+// unreferenced (same posture as bb_wifi_http_routes.c's TAG guard).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+static const char *TAG = "bb_system_routes";
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 // Bound on the request body accepted for POST /api/reboot's optional
 // {"ts": <epoch_s>, "detail": "<string>"} JSON. Both fields are optional;
@@ -510,9 +518,27 @@ bb_err_t bb_system_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
+    // Documentation-only schema compose (config ON only): a compose failure
+    // here must not abort real route registration below (the "reboot"
+    // bb_data bind + POST /api/reboot). s_reboot_route.request_schema always
+    // points at s_reboot_request_schema_buf (see that route's own doc
+    // comment above), so on failure the buffer stays empty rather than
+    // NULL -- but bb_http_resp_json_obj_set_raw() (bb_openapi_emit.c)
+    // rejects a zero-length raw value and returns before emitting the
+    // "schema" key, so an unpatched buffer degrades to an empty requestBody
+    // content block rather than corrupting the emitted document. Degrade
+    // and continue: log a warning and fall through to registration.
+    //
+    // This init fn is portable and genuinely host-compiled (see
+    // test_route_schema_literals_live.c and this component's own
+    // bbtool-scaffold-hint), unlike the sibling ESP_PLATFORM-gated sites at
+    // cddd5624 (bb_ota_hooks / bb_health_stack / bb_diag_http / bb_display) --
+    // this branch IS host-testable; see test_bb_system_reboot_route_wiring.c.
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t compose_rc = ensure_reboot_request_schema_patched();
-    if (compose_rc != BB_OK) return compose_rc;
+    if (compose_rc != BB_OK) {
+        bb_log_w(TAG, "reboot request schema compose failed (rc=%d), route ships without a schema", (int)compose_rc);
+    }
 #endif
 
     bb_data_binding_t reboot_binding = {
