@@ -1992,6 +1992,7 @@ void test_bb_settings_wifi_rtc_mirror_seed_gate_false_when_no_live_creds(void);
 void test_bb_settings_wifi_provisioned_get_false_on_fresh_board(void);
 void test_bb_settings_wifi_set_alone_does_not_provision(void);
 void test_bb_settings_wifi_pending_promote_provisions_and_fires_once(void);
+void test_bb_settings_wifi_pending_promote_lands_ssid_pass_try_provisioned_atomically(void);
 void test_bb_settings_wifi_pending_promote_reconfigure_does_not_refire(void);
 void test_bb_settings_wifi_provisioned_mark_connected_after_direct_commit(void);
 void test_bb_settings_wifi_provisioned_mark_connected_idempotent(void);
@@ -9046,6 +9047,7 @@ int main(void) {
     RUN_TEST(test_bb_settings_wifi_provisioned_get_false_on_fresh_board);
     RUN_TEST(test_bb_settings_wifi_set_alone_does_not_provision);
     RUN_TEST(test_bb_settings_wifi_pending_promote_provisions_and_fires_once);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_lands_ssid_pass_try_provisioned_atomically);
     RUN_TEST(test_bb_settings_wifi_pending_promote_reconfigure_does_not_refire);
     RUN_TEST(test_bb_settings_wifi_provisioned_mark_connected_after_direct_commit);
     RUN_TEST(test_bb_settings_wifi_provisioned_mark_connected_idempotent);

@@ -174,39 +174,32 @@ bb_err_t bb_settings_wifi_pending_pass_get(char *buf, size_t cap, size_t *out_le
 bool bb_settings_wifi_pending_active(void);
 
 // Promote the staged pending creds to live: live ssid/pass are overwritten
-// with the pending values and the try flag is cleared, atomically (3 keys,
-// one bb_config_staged commit -- the live-creds swap and try-clear cannot
-// tear). Returns BB_ERR_INVALID_STATE if no pending SSID is staged (guard
-// checked before anything is touched). After a successful atomic commit,
-// the plaintext pending bytes are erased on a BEST-EFFORT basis (their
-// return is ignored) -- try=0 already committed is the crash-safe decision
-// bit, so a failed/incomplete erase just leaves harmless stale bytes. The
-// RTC warm-reboot mirror ("rtc" bb_storage backend, ssid/pass/provisioned
-// keys) is ALSO best-effort updated after the atomic commit succeeds --
-// same rationale as bb_settings_wifi_set: the NVS commit is authoritative,
-// the mirror write's own success/failure never changes this call's return.
-// A backend error or no "rtc" backend registered at all is silently
-// swallowed (fail-open) -- the mirror is a recovery cache, not required for
-// correctness.
+// with the pending values, the try flag is cleared, AND the provisioned flag
+// is set, all atomically (4 keys, one bb_config_staged commit -- B1-1235:
+// txn capacity is caller-sized, so this no longer needs a separate
+// sequential write after the commit -- ssid/pass/try/provisioned land
+// together or none do). Returns BB_ERR_INVALID_STATE if no pending SSID is
+// staged (guard checked before anything is touched). After a successful
+// atomic commit, the plaintext pending bytes are erased on a BEST-EFFORT
+// basis (their return is ignored) -- try=0 already committed is the
+// crash-safe decision bit, so a failed/incomplete erase just leaves
+// harmless stale bytes. The RTC warm-reboot mirror ("rtc" bb_storage
+// backend, ssid/pass/provisioned keys) is ALSO best-effort updated after the
+// atomic commit succeeds -- same rationale as bb_settings_wifi_set: the NVS
+// commit is authoritative, the mirror write's own success/failure never
+// changes this call's return. A backend error or no "rtc" backend
+// registered at all is silently swallowed (fail-open) -- the mirror is a
+// recovery cache, not required for correctness.
 //
-// F1 SET POLICY (B1-807): immediately AFTER the 3-key atomic commit above
-// succeeds, this calls bb_settings_wifi_provisioned_mark_connected() --
-// the SAME writer the captive-portal direct-commit path uses (see "WiFi
-// provisioned flag" below) -- rather than staging the flag as a 4th key in
-// the SAME session: BB_STORAGE_TXN_MAX_KEYS is 3, and this ssid/pass/try
-// triple already uses every slot. A 4th bb_storage_txn_set/stage call would
-// fail LOUDLY and ATOMICALLY (BB_ERR_NO_SPACE, poisoning the txn so every
-// backend's commit refuses to write anything at all) -- not silently
-// corrupt anything; the storage primitive is safe either way. The actual
-// cost of widening BB_STORAGE_TXN_MAX_KEYS to fit a 4th key here is that
-// the cap is GLOBAL: every unrelated bb_storage_txn_t consumer repo-wide
-// pays the extra static/stack footprint, well outside this ticket's
-// flag-and-seam scope (B1-1235 tracks making txn capacity caller-sized,
-// the proper fix). This is a sequential follow-up write, not part of the
-// atomic commit -- see bb_settings_wifi_provisioned_mark_connected's own
-// doc for why a crash in that narrow gap never strands the flag false
-// permanently (the very next validated connect converges it, via that same
-// writer).
+// F1 SET POLICY (B1-807, atomic since B1-1235): the provisioned flag's PRIOR
+// value is read BEFORE the atomic commit above, and the shared false->true
+// edge-gate notify (the SAME policy bb_settings_wifi_provisioned_mark_
+// connected uses for the direct-commit path -- see "WiFi provisioned flag"
+// below) fires immediately AFTER the commit succeeds, and only on that
+// transition. ONE shared edge-gate implementation, two write sites (this
+// atomic commit, and mark_connected's own direct bb_config_set_bool) --
+// the two paths' policy cannot drift apart, even though each now writes the
+// flag through its own storage call.
 bb_err_t bb_settings_wifi_pending_promote(void);
 
 // Discard any pending reconfigure attempt: clears the try flag, then
@@ -229,34 +222,38 @@ bb_err_t bb_settings_wifi_pending_clear(void);
 // repurpose the RTC mirror accessor as a substitute for the getter below.
 //
 // F1 SET POLICY: set on the FIRST validated WiFi connect, covering BOTH
-// creds paths through a SINGLE writer, bb_settings_wifi_provisioned_mark_
-// connected below -- bb_settings_wifi_pending_promote calls it right after
-// its own atomic ssid/pass/try commit succeeds (see its doc for why it
-// isn't staged as a 4th key in that same commit), and bb_wifi's
-// IP_EVENT_STA_GOT_IP handler calls it directly for the captive-portal
-// direct-commit path (bb_settings_wifi_set has no validated-connect step
-// of its own). ONE writer, ONE edge-gate policy, two call sites -- never
-// two independent writers with divergent rules: the flag write itself is
-// unconditional/idempotent (sticky-for-life -- a reconfigure of an
-// already-provisioned board re-stamps true harmlessly), but the callback
-// below fires exactly once, only on the false->true transition, only
-// after a successful write.
+// creds paths through a SHARED edge-gate/notify policy (the private
+// bb_settings_provisioned_notify_transition in
+// platform/host/bb_settings/bb_settings.c) -- bb_settings_wifi_pending_
+// promote stages the flag as a 4th key in its own atomic ssid/pass/try
+// commit and invokes the shared notify right after that commit succeeds
+// (B1-1235; see its doc), while bb_wifi's IP_EVENT_STA_GOT_IP handler calls
+// bb_settings_wifi_provisioned_mark_connected below directly for the
+// captive-portal direct-commit path (bb_settings_wifi_set has no
+// validated-connect step of its own). Two write sites (promote's atomic
+// commit, and mark_connected's own direct bb_config_set_bool), ONE shared
+// edge-gate policy -- never two independently-derived transition checks:
+// the flag write itself is unconditional/idempotent (sticky-for-life -- a
+// reconfigure of an already-provisioned board re-stamps true harmlessly),
+// but the callback below fires exactly once, only on the false->true
+// transition, only after the write/commit that lands it has durably
+// succeeded.
 //
 // F2 CLEAR: factory reset only, and requires ZERO code here --
 // bb_storage_erase_all("nvs") (platform/espidf/bb_diag_http) wipes the
 // entire "bb_cfg" NVS namespace this flag lives in. Deliberately no
 // clear-side seam/auto-de-provision path exists in this component.
 //
-// ONE writer covers both connect paths above via mark_connected -- but
-// note bb_settings_creds_boot_init's boot-time heal branch (PRE-EXISTING,
-// not touched by B1-807) writes this same field DIRECTLY via
-// bb_config_set_bool, bypassing mark_connected entirely: no edge-gate, no
-// seam fire. That is deliberate -- an RTC-mirror-driven restore of
-// already-committed creds at boot is not itself "a first validated
-// connect", so it must not fire the connect-time notify -- but it means
-// "one writer" describes the connect-time SET policy, not literally every
-// place this NVS key is ever written. See that function's own comment for
-// the heal branch's full rationale.
+// The shared edge-gate policy above covers both connect-time write sites --
+// but note bb_settings_creds_boot_init's boot-time heal branch
+// (PRE-EXISTING, not touched by B1-807/B1-1235) writes this same field
+// DIRECTLY via bb_config_set_bool, bypassing both write sites and the shared
+// notify entirely: no edge-gate, no seam fire. That is deliberate -- an
+// RTC-mirror-driven restore of already-committed creds at boot is not
+// itself "a first validated connect", so it must not fire the connect-time
+// notify -- but it means "one shared policy" describes the connect-time SET
+// behavior, not literally every place this NVS key is ever written. See
+// that function's own comment for the heal branch's full rationale.
 // ---------------------------------------------------------------------------
 
 // True iff the device has completed at least one validated WiFi connect
@@ -266,11 +263,10 @@ bb_err_t bb_settings_wifi_pending_clear(void);
 // separate, volatile flag).
 //
 // Any future boot-time gate deciding WHETHER TO ATTEMPT AN STA CONNECT AT
-// ALL must key off wifi_has_creds(), never off this flag: the crash-window
-// self-healing property (see bb_settings_wifi_pending_promote's doc) relies
-// on the next boot still attempting a connect, and a "portal iff
-// !provisioned" gate would strand a board with valid committed creds whose
-// flag write was interrupted by a crash.
+// ALL must key off wifi_has_creds(), never off this flag: a "portal iff
+// !provisioned" gate would strand a board that has valid committed creds
+// but has not yet completed a validated connect (e.g. first boot after a
+// captive-portal save, before IP_EVENT_STA_GOT_IP has fired).
 bool bb_settings_wifi_provisioned_get(void);
 
 // F1 SET POLICY, direct-commit path: marks the flag true (idempotent,
@@ -280,11 +276,13 @@ bool bb_settings_wifi_provisioned_get(void);
 // direct-commit path, or any plain boot-time STA connect with no pending
 // reconfigure try active) -- called from bb_wifi's IP_EVENT_STA_GOT_IP
 // handler. See bb_settings_wifi_pending_promote's doc for the promote
-// path's own sequential follow-up call to this SAME writer -- ONE shared
-// edge-gate policy, two call sites, no divergent rules. NOT a
-// general-purpose setter: it can only ever move the flag false->true,
-// never clear it (see F2 CLEAR above) -- there is no second, ungated write
-// path here that could bypass the F1 policy.
+// path's own atomic write to this SAME flag -- ONE shared edge-gate policy
+// (bb_settings_provisioned_notify_transition, private to
+// platform/host/bb_settings/bb_settings.c), two write sites, no divergent
+// rules — the shared helper gates the notify only; each write site gates its own write.
+// NOT a general-purpose setter: it can only ever move the flag
+// false->true, never clear it (see F2 CLEAR above) -- there is no second,
+// ungated write path here that could bypass the F1 policy.
 void bb_settings_wifi_provisioned_mark_connected(void);
 
 // Caller-registered notification for the provisioned SET transition

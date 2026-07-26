@@ -489,6 +489,19 @@ bool bb_settings_wifi_provisioned_get(void)
     return err == BB_OK && val;
 }
 
+// Shared F1 edge-gate + seam-invoke policy (B1-1235): the ONE place that
+// decides whether the false->true transition notify fires. `was_provisioned`
+// is the flag's value read BEFORE the write that just landed; callers invoke
+// this ONLY after their own write/commit has already succeeded, so the seam
+// never fires ahead of a durable write. Both write sites below (the
+// direct-commit path and the atomic-promote path) share this single
+// implementation rather than each re-deriving the false->true check --
+// keeping the two paths' policy from drifting apart (B1-807's whole point).
+static void bb_settings_provisioned_notify_transition(bool was_provisioned)
+{
+    if (!was_provisioned) bb_settings_provisioned_invoke();
+}
+
 // F1 SET POLICY, direct-commit path (bb_settings.h has the full contract).
 // Edge-gated: reads the PRIOR value before writing so the notify only fires
 // on a genuine false->true transition, and only once the write itself has
@@ -497,9 +510,10 @@ bool bb_settings_wifi_provisioned_get(void)
 // caller in production).
 void bb_settings_wifi_provisioned_mark_connected(void)
 {
-    if (bb_settings_wifi_provisioned_get()) return;  // already true -- sticky, no refire
+    bool was_provisioned = bb_settings_wifi_provisioned_get();
+    if (was_provisioned) return;  // already true -- sticky, no refire, no redundant write
     if (bb_config_set_bool(&s_wifi_provisioned_field, true) == BB_OK) {
-        bb_settings_provisioned_invoke();
+        bb_settings_provisioned_notify_transition(was_provisioned);
     }
 }
 
@@ -625,37 +639,36 @@ bb_err_t bb_settings_wifi_pending_promote(void)
     if (perr != BB_OK) return perr;
     (void)pass_len;
 
-    BB_CONFIG_STAGED_DECLARE(h, 3);  // ssid + pass + try
+    // F1 SET POLICY (B1-1235): read the provisioned flag's PRIOR value
+    // BEFORE the atomic commit below, so the false->true transition can be
+    // judged against the state that existed before this call's write --
+    // the same edge-gate contract bb_settings_wifi_provisioned_mark_connected
+    // uses for the direct-commit path. Deferred until AFTER the commit
+    // succeeds (see bb_settings_provisioned_notify_transition's call below).
+    bool was_provisioned = bb_settings_wifi_provisioned_get();
+
+    // 4 keys, one atomic bb_config_staged commit (B1-1235: txn capacity is
+    // now caller-sized, so the provisioned flag stages alongside ssid/pass/
+    // try in the SAME session instead of a separate sequential write --
+    // ssid/pass/try/provisioned now land or none do, closing the crash
+    // window the prior sequential-write design documented).
+    BB_CONFIG_STAGED_DECLARE(h, 4);  // ssid + pass + try + provisioned
     bb_err_t err = bb_config_staged_begin(&h, "nvs", BB_SETTINGS_WIFI_NS, h_slots, sizeof(h_slots) / sizeof(h_slots[0]));
     if (err != BB_OK) return err;
 
     bb_config_staged_set_str(&h, &s_wifi_ssid_field, ssid);
     bb_config_staged_set_str(&h, &s_wifi_pass_field, pass);
     bb_config_staged_set_u8(&h, &s_wifi_try_field, 0);
+    // Always stages true, unlike mark_connected which early-returns when already true — both correct under F2.
+    bb_config_staged_set_bool(&h, &s_wifi_provisioned_field, true);
     err = bb_config_staged_commit(&h);
     if (err != BB_OK) return err;
 
-    // F1 SET POLICY (B1-807): stamp the provisioned flag via the SAME
-    // writer the direct-commit path uses (bb_settings_wifi_provisioned_
-    // mark_connected) -- ONE policy, ONE write path, two call sites, rather
-    // than a second hand-rolled edge-gate here. NOT staged as a 4th key in
-    // the atomic commit above: BB_STORAGE_TXN_MAX_KEYS is 3, and the
-    // wifi-pending ssid/pass/try triple already uses all 3 slots. A 4th key
-    // would fail LOUDLY and ATOMICALLY (bb_storage_txn_slot_stage bounds-
-    // checks and returns BB_ERR_NO_SPACE, poisoning the txn so every
-    // backend's commit refuses to write anything at all) -- the storage
-    // primitive is not at risk either way. The reason to avoid it is that
-    // BB_STORAGE_TXN_MAX_KEYS is a GLOBAL cap: widening it to fit a 4th key
-    // here would grow every unrelated bb_storage_txn_t consumer's static
-    // footprint repo-wide, well outside this ticket's flag-and-seam scope
-    // (B1-1235 tracks making txn capacity caller-sized instead). The
-    // benefit of the sequential write below is narrow but sufficient: a
-    // crash in the gap between the two writes only delays the flag
-    // reaching true by, at most, until the very next validated connect
-    // (try=0 has already committed, so that next connect runs THIS SAME
-    // direct-commit marker, never a stale promote) -- never a torn
-    // CREDS/try state, and never a permanently-stuck-unprovisioned board.
-    bb_settings_wifi_provisioned_mark_connected();
+    // Seam fires ONLY after the atomic commit above has durably succeeded,
+    // and ONLY on the false->true transition -- same shared policy
+    // bb_settings_wifi_provisioned_mark_connected uses (this is the ONE
+    // place that decides the transition; not reimplemented here).
+    bb_settings_provisioned_notify_transition(was_provisioned);
 
     // Best-effort -- see settings_wifi_rtc_mirror_write's own comment.
     bb_settings_wifi_rtc_mirror_write(ssid, pass);
