@@ -44,6 +44,7 @@ python3 scripts/bbtool.py lint [--root DIR] [--profile consumer|library] [--rule
 | `pragma-once` | library | Flags public headers (`components/*/include/*.h`) that do not contain a `#pragma once` line — use `#pragma once` instead of `#ifndef`/`#define` include guards |
 | `no-arduino-string` | library | Flags Arduino `String` type usage in library sources (`.c`/`.cpp`/`.h` under `platform/` and `components/`, excluding `.pio`/`.claude`/`test/`) — use `const char*` + length instead |
 | `component-readme` | library | Flags `components/<name>/` directories with no `README.md` (see the `docs` command below for the README template). Default severity `warn` — fires broadly on undocumented components today by design; flips to `error` once the fill lands (B1-646) |
+| `orphan-component-dir` | library | Flags a `components/` directory with real header content (`.h`/`.hpp` directly inside it, or an `include/` subdir containing one) but no `CMakeLists.txt` anywhere in its own subtree — invisible to `discovery.build_index()`'s `CMakeLists.txt`-keyed leaf rule. This lint rule is the only discovery-keyed consumer that catches it; `gen_components_readme.py` and both `fence` baselines remain blind to this shape (see the `orphan-component-dir` section below). Distinguishes this from a legitimate grouping directory (e.g. `components/display/`, which has no `CMakeLists.txt` of its own but DOES have real leaf-component descendants) — see `discovery.find_orphan_component_dirs` (B1-1227) |
 | `kconfig-bridge-shadow` | all | Flags a bare `#ifndef BB_X`/`#define BB_X <literal>` C fallback for a name X that also has a `config BB_X` int declared in Kconfig, when the same file has no `CONFIG_BB_X` bridge tying the C macro to the Kconfig symbol — the knob is silently inert (shipped 3×, see CLAUDE.md "Avoiding audit-class regressions") |
 | `raw-timestamp-divide` | all | Flags raw millisecond conversions (`esp_timer_get_time()/1000` or `bb_timer_now_us()/1000`, any C integer suffix) that bypass the canonical `bb_clock` helper, outside the real `bb_clock.c`/`bb_clock.h` files and any `bb_timer/` component directory — use `bb_clock_now_ms64()`/`bb_clock_now_ms()` instead. Default severity `warn`; allowlist via `[lint.rules.raw-timestamp-divide] allow=[...]` |
 
@@ -381,6 +382,9 @@ severity = "error"
 [lint.rules.component-readme]
 severity = "warn"             # fires broadly on undocumented components today; flip to "error" once the fill lands (B1-646)
 
+[lint.rules.orphan-component-dir]
+severity = "error"
+
 [lint.rules.kconfig-bridge-shadow]
 severity = "error"
 
@@ -647,6 +651,38 @@ any `components/<name>/` directory with no `README.md`. It runs at `warn`
 severity — deliberately non-blocking, since a large majority of components
 have no README today pending the taxonomy decision (B1-644) and open forks;
 a later PR flips it to `error` once the fill lands (B1-646).
+
+### `orphan-component-dir` lint rule (B1-1227)
+
+Component discovery (`discovery.build_index`) is `CMakeLists.txt`-keyed: a
+directory under `components/` with no `CMakeLists.txt` anywhere in its own
+subtree is invisible to it. `component-readme`'s pass 1 only catches this
+at depth 1 (a direct `components/<name>/` child with no `CMakeLists.txt`
+still gets a missing-README finding); a header-only orphan nested one or
+more levels DEEPER under a legitimate grouping directory (e.g.
+`components/<group>/<orphan>/`) was invisible to lint entirely.
+
+`orphan-component-dir` flags this nested case: it fires on any directory
+under `components/` (at any depth) that has real header content (`.h`/
+`.hpp` directly inside it, or a populated `include/` subdirectory) but no
+`CMakeLists.txt` anywhere in its own subtree — via
+`discovery.find_orphan_component_dirs`, which walks the same tree
+`_leaf_component_dirs` does but tracks, per directory, whether it or any
+descendant is a real leaf. A legitimate grouping directory (no
+`CMakeLists.txt` of its own, but with real leaf-component children
+somewhere underneath) is never flagged — only a true dead end (zero leaf
+descendants anywhere below it) that also looks like it was meant to be a
+component. Runs at `error` severity: unlike `component-readme`'s
+pending-fill debt, there is no legitimate reason for this shape to exist in
+the tree.
+
+This rule is the only discovery-keyed consumer this closes the gap for.
+`gen_components_readme.py`'s group-member listing and both `fence` baseline
+families remain structurally blind to a CMakeLists-less nested directory —
+`fence/new_component.py`'s own module docstring documents this as an open
+"LATENT GAP", unchanged by this rule. Because lint runs under `make check`,
+a hit here still blocks a merge even though those other consumers never see
+the directory.
 
 ---
 
