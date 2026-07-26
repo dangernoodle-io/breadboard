@@ -1509,20 +1509,66 @@ void test_sse_schema_union_seam_external_dedup_cap_overflow_logs_once_and_degrad
     bb_openapi_set_topic_source_fn(NULL);
 }
 
-// B1-1220 PR2 (the pilot migration): bb_log_event.c's real call-site shape --
-// bb_data_http_describe("log", "log", "LogEvent", schema) with the seam
-// wired -- must emit a document byte-identical to what the legacy
-// bb_openapi_register_topic_schema("log", schema, "LogEvent") call it
-// replaced would have produced. Proves the argument mapping (key==topic==
-// "log", component_name=="LogEvent") is correct, using the SAME schema
-// literal content bb_log_event_line_wire.c actually serves (k_log_schema
-// above), not a synthetic fixture.
-// Shared idiom for the "does a migrated producer's bb_data_http_describe()
-// call emit a document byte-identical to what its legacy
-// bb_openapi_register_topic_schema() call used to produce" fidelity check
-// below -- one hand-rolled instance (the pilot) plus five near-identical
-// copies (this commit) is well past the project's second-instance
-// extraction threshold.
+// B1-1220 PR1 -- golden-file conversion (this commit). These six tests used
+// to assert ONLY that the legacy bb_openapi_register_topic_schema() path and
+// the new bb_data_http_describe() path agreed with EACH OTHER
+// (assert_describe_matches_legacy, removed by this commit). PR 2 deletes
+// bb_openapi_register_topic_schema() and its registry half entirely, which
+// would have silently downgraded that byte-identical-emission guarantee to
+// nothing at all -- a golden captured AFTER the deletion could only prove
+// the surviving describe path is STABLE, not that it is EQUIVALENT to what
+// the legacy path used to produce.
+//
+// So the golden below is captured NOW, while both paths still exist, and
+// assert_describe_matches_legacy_and_golden() asserts THREE equalities, not
+// one: legacy == describe (today's guarantee, preserved byte-for-byte),
+// legacy == golden, and describe == golden. Once PR 2 removes the legacy
+// path, the first assertion and the legacy leg of the other two drop out
+// mechanically, leaving a plain describe == golden regression test -- but
+// that golden was proven equivalent to the legacy emission at the moment it
+// was captured, so the equivalence guarantee survives the deletion instead
+// of silently evaporating with it.
+//
+// Golden convention: matches the ASSERTION IDIOM of the existing
+// test_bb_*_meta_golden.c files in this tree (e.g.
+// test_bb_ota_check_wire_meta_golden.c) -- a golden is a
+// `static const char k_golden_*[]` string literal checked into this test
+// file, asserted via TEST_ASSERT_EQUAL_STRING against real captured
+// production output, not hand-typed. It does NOT match those files' FILE
+// LAYOUT (one golden per dedicated file); these six goldens live inline in
+// this shared test file instead, because all six already share one capture
+// helper (assert_describe_matches_legacy_and_golden()) and splitting them
+// into six files would just duplicate that helper six times for no benefit.
+//
+// IMPORTANT -- what the three-way check does NOT prove: legacy and describe
+// are two REGISTRATION paths, but both route through the SAME shared
+// renderer (bb_openapi_emit_stream(), the components/schemas walker, the
+// oneOf synthesizer). legacy==describe proves the two registration paths
+// feed that shared renderer identically -- it does not independently
+// validate the renderer's output against anything external. A bug in the
+// shared emitter produces identically-wrong output on both legs; all three
+// assertions (legacy==describe, legacy==golden, describe==golden) stay
+// green regardless, and a copy-Actual regeneration would bless the bug as
+// the new golden.
+//
+// Regeneration (when an intentional emission change occurs): run
+//   pio test -e native --filter test_host -v
+// the failing assertion's Unity diff prints both the k_golden_* literal
+// (Expected) and the real captured body (Actual) in full; copy the Actual
+// string verbatim into the corresponding k_golden_* literal below (do not
+// hand-edit it), then re-run to confirm all three legs (legacy==describe,
+// legacy==golden, describe==golden) pass again. Never hand-author or
+// hand-tweak a golden literal to make a failing test pass. A golden update
+// must ALWAYS be accompanied by a stated reason visible in the same diff --
+// a producer's schema literal changed -- never a bare "test went red, I
+// copied Actual"; if the emitted content genuinely changed on purpose, the
+// freshly captured Actual output IS the new golden, but the commit must show
+// what upstream change caused it.
+//
+// Once PR 2 deletes the legacy leg, this collapses to a plain
+// describe==golden regression test with no independent cross-check left at
+// all: a golden-only diff in a PR with no corresponding schema-literal
+// change is a red flag reviewers should block on.
 //
 // The legacy and describe-table captures are snapshotted into a fixed-size
 // buffer (single-slot capture invariant, test_openapi_capture.h, forces the
@@ -1533,9 +1579,72 @@ void test_sse_schema_union_seam_external_dedup_cap_overflow_logs_once_and_degrad
 // silently masking a real divergence past the cut.
 #define FIDELITY_LEGACY_BODY_BUF_SIZE 2048
 
-static void assert_describe_matches_legacy(const char *key, const char *topic,
-                                            const char *component_name,
-                                            const char *schema_literal)
+// Goldens -- one full bb_openapi_emit_stream() document body per topic,
+// captured from actual output of assert_describe_matches_legacy_and_golden()
+// (both the legacy and describe paths agreed with this exact string at
+// capture time; see the header comment above for the regeneration
+// mechanism).
+static const char k_golden_log_event[] =
+    "{\"openapi\":\"3.1.0\",\"info\":{\"title\":\"T\",\"version\":\"1.0\"},\"paths\":{\"/api/events\":{\"get\":{\"operationId\":\"getApiEvents\","
+    "\"summary\":\"SSE stream\",\"tags\":[\"events\"],\"responses\":{\"200\":{\"description\":\"SSE stream\","
+    "\"content\":{\"text/event-stream\":{\"schema\":{\"oneOf\":[{\"$ref\":\"#/components/schemas/LogEvent\"}]}}}}}}}},"
+    "\"components\":{\"schemas\":{\"LogEvent\":{\"title\":\"LogEvent\",\"x-sse-topic\":\"log\","
+    "\"type\":\"object\",\"properties\":{\"ts\":{\"type\":\"integer\"},\"level\":{\"type\":\"string\","
+    "\"enum\":[\"I\",\"W\",\"E\",\"D\",\"V\",\"?\"]},\"tag\":{\"type\":\"string\"},\"msg\":{\"type\":\"string\"}},"
+    "\"required\":[\"ts\",\"level\",\"tag\",\"msg\"]}}}}";
+
+static const char k_golden_ota_progress[] =
+    "{\"openapi\":\"3.1.0\",\"info\":{\"title\":\"T\",\"version\":\"1.0\"},\"paths\":{\"/api/events\":{\"get\":{\"operationId\":\"getApiEvents\","
+    "\"summary\":\"SSE stream\",\"tags\":[\"events\"],\"responses\":{\"200\":{\"description\":\"SSE stream\","
+    "\"content\":{\"text/event-stream\":{\"schema\":{\"oneOf\":[{\"$ref\":\"#/components/schemas/OtaProgress\"}]}}}}}}}},"
+    "\"components\":{\"schemas\":{\"OtaProgress\":{\"title\":\"OtaProgress\",\"x-sse-topic\":\"ota.progress\","
+    "\"type\":\"object\",\"properties\":{\"via\":{\"type\":\"string\"},\"state\":{\"type\":\"string\","
+    "\"enum\":[\"start\",\"progress\",\"success\",\"fail\",\"unknown\"]},\"pct\":{\"type\":\"integer\"}},"
+    "\"required\":[\"via\",\"state\",\"pct\"]}}}}";
+
+static const char k_golden_health_stack[] =
+    "{\"openapi\":\"3.1.0\",\"info\":{\"title\":\"T\",\"version\":\"1.0\"},\"paths\":{\"/api/events\":{\"get\":{\"operationId\":\"getApiEvents\","
+    "\"summary\":\"SSE stream\",\"tags\":[\"events\"],\"responses\":{\"200\":{\"description\":\"SSE stream\","
+    "\"content\":{\"text/event-stream\":{\"schema\":{\"oneOf\":[{\"$ref\":\"#/components/schemas/HealthStack\"}]}}}}}}}},"
+    "\"components\":{\"schemas\":{\"HealthStack\":{\"title\":\"HealthStack\",\"x-sse-topic\":\"health.stack\","
+    "\"type\":\"object\",\"properties\":{\"task\":{\"type\":\"string\"},\"free_bytes\":{\"type\":\"integer\"},"
+    "\"low\":{\"type\":\"boolean\"}},\"required\":[\"task\",\"free_bytes\",\"low\"]}}}}";
+
+static const char k_golden_diag_boot[] =
+    "{\"openapi\":\"3.1.0\",\"info\":{\"title\":\"T\",\"version\":\"1.0\"},\"paths\":{\"/api/events\":{\"get\":{\"operationId\":\"getApiEvents\","
+    "\"summary\":\"SSE stream\",\"tags\":[\"events\"],\"responses\":{\"200\":{\"description\":\"SSE stream\","
+    "\"content\":{\"text/event-stream\":{\"schema\":{\"oneOf\":[{\"$ref\":\"#/components/schemas/DiagBoot\"}]}}}}}}}},"
+    "\"components\":{\"schemas\":{\"DiagBoot\":{\"title\":\"DiagBoot\",\"x-sse-topic\":\"diag.boot\","
+    "\"type\":\"object\",\"properties\":{\"reset_reason\":{\"type\":\"string\"},\"wdt_resets\":{\"type\":\"integer\"},"
+    "\"panic\":{\"type\":\"object\",\"properties\":{\"available\":{\"type\":\"boolean\"},"
+    "\"boots_since\":{\"type\":\"integer\"}}},\"pending_verify\":{\"type\":\"boolean\"},"
+    "\"rolled_back\":{\"type\":\"boolean\"}},\"required\":[\"reset_reason\",\"wdt_resets\","
+    "\"panic\",\"pending_verify\",\"rolled_back\"]}}}}";
+
+static const char k_golden_display_info[] =
+    "{\"openapi\":\"3.1.0\",\"info\":{\"title\":\"T\",\"version\":\"1.0\"},\"paths\":{\"/api/events\":{\"get\":{\"operationId\":\"getApiEvents\","
+    "\"summary\":\"SSE stream\",\"tags\":[\"events\"],\"responses\":{\"200\":{\"description\":\"SSE stream\","
+    "\"content\":{\"text/event-stream\":{\"schema\":{\"oneOf\":[{\"$ref\":\"#/components/schemas/DisplayInfo\"}]}}}}}}}},"
+    "\"components\":{\"schemas\":{\"DisplayInfo\":{\"title\":\"DisplayInfo\",\"x-sse-topic\":\"health.display\","
+    "\"type\":\"object\",\"properties\":{\"present\":{\"type\":\"boolean\"},\"panel\":{\"type\":[\"string\","
+    "\"null\"]},\"width\":{\"type\":\"integer\"},\"height\":{\"type\":\"integer\"},\"enabled\":{\"type\":\"boolean\"}},"
+    "\"required\":[\"present\"]}}}}";
+
+static const char k_golden_update_available[] =
+    "{\"openapi\":\"3.1.0\",\"info\":{\"title\":\"T\",\"version\":\"1.0\"},\"paths\":{\"/api/events\":{\"get\":{\"operationId\":\"getApiEvents\","
+    "\"summary\":\"SSE stream\",\"tags\":[\"events\"],\"responses\":{\"200\":{\"description\":\"SSE stream\","
+    "\"content\":{\"text/event-stream\":{\"schema\":{\"oneOf\":[{\"$ref\":\"#/components/schemas/UpdateAvailable\"}]}}}}}}}},"
+    "\"components\":{\"schemas\":{\"UpdateAvailable\":{\"title\":\"UpdateAvailable\","
+    "\"x-sse-topic\":\"update.available\",\"type\":\"object\",\"properties\":{\"current\":{\"type\":\"string\"},"
+    "\"latest\":{\"type\":\"string\"},\"download_url\":{\"type\":\"string\"},\"available\":{\"type\":\"boolean\"},"
+    "\"ts\":{\"type\":\"integer\"},\"last_check_ok\":{\"type\":\"boolean\"},\"enabled\":{\"type\":\"boolean\"},"
+    "\"outcome\":{\"type\":\"string\"},\"last_check_ts\":{\"type\":\"integer\"}},\"required\":[\"current\","
+    "\"latest\",\"download_url\",\"available\",\"ts\",\"last_check_ok\",\"enabled\",\"outcome\"]}}}}";
+
+static void assert_describe_matches_legacy_and_golden(const char *key, const char *topic,
+                                                        const char *component_name,
+                                                        const char *schema_literal,
+                                                        const char *golden)
 {
     bb_http_route_registry_clear();
     bb_http_register_described_route(NULL, &s_sse_route);
@@ -1564,7 +1673,15 @@ static void assert_describe_matches_legacy(const char *key, const char *topic,
     TEST_ASSERT_NOT_NULL(via_describe.cap.body);
     TEST_ASSERT_TRUE(via_describe.cap.body_len < FIDELITY_LEGACY_BODY_BUF_SIZE);
 
+    // 1. Today's guarantee, preserved byte-for-byte: legacy == describe.
     TEST_ASSERT_EQUAL_STRING(legacy_body, via_describe.cap.body);
+
+    // 2/3. Both paths also equal the golden -- this is what carries the
+    // equivalence proof above forward past PR 2's deletion of the legacy
+    // path: once legacy is gone, only the describe==golden leg survives,
+    // but it was proven equal to the (now-deleted) legacy emission here.
+    TEST_ASSERT_EQUAL_STRING(golden, legacy_body);
+    TEST_ASSERT_EQUAL_STRING(golden, via_describe.cap.body);
 
     // The migrated call-site's $ref must resolve to a real components/schemas
     // body -- exactly the B1-1220 dangling-ref defect this test would have
@@ -1576,45 +1693,49 @@ static void assert_describe_matches_legacy(const char *key, const char *topic,
     bb_data_http_reset_for_test();
 }
 
-void test_sse_schema_log_event_describe_matches_legacy_register_topic_schema_output(void)
+void test_sse_schema_log_event_describe_matches_legacy_and_golden(void)
 {
-    assert_describe_matches_legacy("log", "log", "LogEvent", k_log_schema);
+    assert_describe_matches_legacy_and_golden("log", "log", "LogEvent", k_log_schema,
+                                                k_golden_log_event);
 }
 
 // ---------------------------------------------------------------------------
 // B1-1220 PR3 (remaining five producers): each real call-site shape must
 // emit a document byte-identical to what the legacy
-// bb_openapi_register_topic_schema() call it replaced would have produced.
-// Same shape as the pilot test above -- key==topic==the bb_data key each
-// producer binds under, using the SAME schema literal content each producer
-// actually serves (the k_*_schema fixtures above), not a synthetic fixture.
+// bb_openapi_register_topic_schema() call it replaced would have produced,
+// AND to its captured golden (see the header comment above). Same shape as
+// the pilot test above -- key==topic==the bb_data key each producer binds
+// under, using the SAME schema literal content each producer actually
+// serves (the k_*_schema fixtures above), not a synthetic fixture.
 // ---------------------------------------------------------------------------
 
-void test_sse_schema_ota_hooks_describe_matches_legacy_register_topic_schema_output(void)
+void test_sse_schema_ota_hooks_describe_matches_legacy_and_golden(void)
 {
-    assert_describe_matches_legacy("ota.progress", "ota.progress", "OtaProgress",
-                                    k_ota_progress_schema);
+    assert_describe_matches_legacy_and_golden("ota.progress", "ota.progress", "OtaProgress",
+                                                k_ota_progress_schema, k_golden_ota_progress);
 }
 
-void test_sse_schema_health_stack_describe_matches_legacy_register_topic_schema_output(void)
+void test_sse_schema_health_stack_describe_matches_legacy_and_golden(void)
 {
-    assert_describe_matches_legacy("health.stack", "health.stack", "HealthStack",
-                                    k_health_stack_schema);
+    assert_describe_matches_legacy_and_golden("health.stack", "health.stack", "HealthStack",
+                                                k_health_stack_schema, k_golden_health_stack);
 }
 
-void test_sse_schema_diag_boot_describe_matches_legacy_register_topic_schema_output(void)
+void test_sse_schema_diag_boot_describe_matches_legacy_and_golden(void)
 {
-    assert_describe_matches_legacy("diag.boot", "diag.boot", "DiagBoot", k_diag_boot_schema);
+    assert_describe_matches_legacy_and_golden("diag.boot", "diag.boot", "DiagBoot",
+                                                k_diag_boot_schema, k_golden_diag_boot);
 }
 
-void test_sse_schema_display_info_describe_matches_legacy_register_topic_schema_output(void)
+void test_sse_schema_display_info_describe_matches_legacy_and_golden(void)
 {
-    assert_describe_matches_legacy("health.display", "health.display", "DisplayInfo",
-                                    k_display_info_schema);
+    assert_describe_matches_legacy_and_golden("health.display", "health.display", "DisplayInfo",
+                                                k_display_info_schema, k_golden_display_info);
 }
 
-void test_sse_schema_ota_check_describe_matches_legacy_register_topic_schema_output(void)
+void test_sse_schema_ota_check_describe_matches_legacy_and_golden(void)
 {
-    assert_describe_matches_legacy("update.available", "update.available", "UpdateAvailable",
-                                    k_update_available_schema);
+    assert_describe_matches_legacy_and_golden("update.available", "update.available",
+                                                "UpdateAvailable", k_update_available_schema,
+                                                k_golden_update_available);
 }
