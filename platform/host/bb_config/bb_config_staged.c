@@ -83,7 +83,10 @@ bb_err_t bb_config_staged_begin(bb_config_staged_t *h, const char *backend, cons
     h->ns_or_dir  = ns_or_dir;
     h->_local_err = BB_OK;
     h->_closed    = false;
-    return bb_storage_txn_begin(backend, ns_or_dir, &h->txn);
+    // Wire the wrapped txn onto h's own private default-capacity backing
+    // storage (B1-1235) -- see bb_config_staged.h's file comment.
+    return bb_storage_txn_begin(backend, ns_or_dir, &h->txn, h->_default_slots,
+                                 sizeof(h->_default_slots) / sizeof(h->_default_slots[0]));
 }
 
 bb_err_t bb_config_staged_commit(bb_config_staged_t *h)

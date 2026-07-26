@@ -174,7 +174,10 @@ static bb_err_t ram_txn_begin(void *impl, bb_storage_txn_t *txn, const char *ns_
     (void)impl;
     (void)ns_or_dir;  // ram ignores namespace, same as the plain get/set path
 
-    memset(txn->_slots, 0, sizeof(txn->_slots));
+    // txn->_slots is caller-owned backing storage (B1-1235) -- size the
+    // clear by txn->_cap, NOT sizeof(txn->_slots) (a pointer now, not an
+    // array).
+    memset(txn->_slots, 0, txn->_cap * sizeof(txn->_slots[0]));
     txn->_open = 1;
     txn->_err  = BB_OK;
     return BB_OK;
@@ -204,7 +207,7 @@ static bb_err_t ram_txn_commit(void *impl, bb_storage_txn_t *txn)
     // Pre-check: verify capacity for every staged key before any write
     // lands — a failing commit must leave s_entries completely untouched.
     size_t new_keys_needed = 0;
-    for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+    for (size_t i = 0; i < txn->_cap; i++) {
         if (!txn->_slots[i].used) continue;
         if (find_entry(txn->_slots[i].key) == NULL) {
             new_keys_needed++;
@@ -225,7 +228,7 @@ static bb_err_t ram_txn_commit(void *impl, bb_storage_txn_t *txn)
     // Apply — same find_entry/find_free_slot logic ram_set uses, inlined
     // under the already-held lock (ram_set re-locks, so it cannot be called
     // here).
-    for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+    for (size_t i = 0; i < txn->_cap; i++) {
         if (!txn->_slots[i].used) continue;
 
         bb_storage_ram_entry_t *entry = find_entry(txn->_slots[i].key);

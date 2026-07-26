@@ -1708,13 +1708,16 @@ void test_bb_storage_rtc_txn_on_cold_region_zeroes_unstaged_fields(void);
 void test_bb_storage_rtc_txn_partial_key_preserves_prior_provisioned(void);
 void test_bb_storage_rtc_txn_duplicate_key_last_wins(void);
 void test_bb_storage_rtc_txn_unknown_key_invalid_arg(void);
+void test_bb_storage_rtc_txn_begin_zeroes_dirty_caller_slots(void);
 void test_bb_storage_rtc_txn_for_test_forwarders_round_trip(void);
+void test_bb_storage_rtc_txn_for_test_begin_zeroes_dirty_caller_slots(void);
 void test_bb_storage_rtc_txn_for_test_abort_forwarder(void);
 void test_bb_storage_rtc_txn_for_test_set_on_unopened_returns_invalid_state(void);
 void test_bb_storage_rtc_txn_for_test_commit_on_unopened_returns_invalid_state(void);
 void test_bb_storage_rtc_txn_for_test_abort_on_unopened_is_ok_noop(void);
 void test_bb_storage_rtc_txn_for_test_null_key_returns_invalid_arg(void);
 void test_bb_storage_rtc_txn_for_test_sticky_error_short_circuits_second_set(void);
+void test_bb_storage_rtc_txn_for_test_begin_zero_cap_null_slots_is_legal_and_stage_fails_no_space(void);
 
 // Forward declarations from test_bb_storage_nvs_get_decision.c
 void test_bb_storage_nvs_get_decide_zero_cap_probes(void);
@@ -1829,6 +1832,8 @@ void test_bb_storage_txn_set_on_already_closed_txn_returns_invalid_state(void);
 void test_bb_storage_txn_abort_on_never_begun_txn_is_safe(void);
 void test_bb_storage_txn_abort_on_already_closed_txn_is_idempotent(void);
 void test_bb_storage_txn_begin_null_args_return_invalid_arg(void);
+void test_bb_storage_txn_begin_nonzero_cap_null_slots_returns_invalid_arg(void);
+void test_bb_storage_txn_begin_zero_cap_null_slots_is_legal_and_stage_fails_no_space(void);
 void test_bb_storage_txn_set_null_args_return_invalid_arg(void);
 void test_bb_storage_txn_commit_null_returns_invalid_arg(void);
 void test_bb_storage_txn_abort_null_returns_invalid_arg(void);
@@ -1841,6 +1846,7 @@ void test_bb_storage_txn_slot_stage_key_too_long_returns_invalid_arg(void);
 void test_bb_storage_ram_txn_commit_makes_both_keys_visible(void);
 void test_bb_storage_ram_txn_abort_leaves_neither_key_visible(void);
 void test_bb_storage_ram_txn_slot_overflow_poisons_txn_and_lands_nothing(void);
+void test_bb_storage_ram_txn_cap_one_second_key_overflows(void);
 void test_bb_storage_ram_txn_oversize_value_returns_no_space_and_lands_nothing(void);
 void test_bb_storage_ram_txn_commit_visibility_is_all_or_nothing(void);
 void test_bb_storage_ram_txn_begin_twice_without_close_returns_invalid_state(void);
@@ -1854,6 +1860,7 @@ void test_bb_config_staged_discard_lands_nothing(void);
 void test_bb_config_staged_oversize_value_poisons_txn_commit_returns_sticky_lands_nothing(void);
 void test_bb_config_staged_local_precheck_poisons_independently_of_txn(void);
 void test_bb_config_staged_type_mismatch_returns_invalid_arg(void);
+void test_bb_config_staged_blob_type_mismatch_returns_invalid_arg(void);
 void test_bb_config_staged_cross_namespace_field_returns_invalid_arg(void);
 void test_bb_config_staged_cross_backend_field_returns_invalid_arg(void);
 void test_bb_config_staged_str_over_max_len_returns_invalid_arg(void);
@@ -8867,13 +8874,16 @@ int main(void) {
     RUN_TEST(test_bb_storage_rtc_txn_partial_key_preserves_prior_provisioned);
     RUN_TEST(test_bb_storage_rtc_txn_duplicate_key_last_wins);
     RUN_TEST(test_bb_storage_rtc_txn_unknown_key_invalid_arg);
+    RUN_TEST(test_bb_storage_rtc_txn_begin_zeroes_dirty_caller_slots);
     RUN_TEST(test_bb_storage_rtc_txn_for_test_forwarders_round_trip);
+    RUN_TEST(test_bb_storage_rtc_txn_for_test_begin_zeroes_dirty_caller_slots);
     RUN_TEST(test_bb_storage_rtc_txn_for_test_abort_forwarder);
     RUN_TEST(test_bb_storage_rtc_txn_for_test_set_on_unopened_returns_invalid_state);
     RUN_TEST(test_bb_storage_rtc_txn_for_test_commit_on_unopened_returns_invalid_state);
     RUN_TEST(test_bb_storage_rtc_txn_for_test_abort_on_unopened_is_ok_noop);
     RUN_TEST(test_bb_storage_rtc_txn_for_test_null_key_returns_invalid_arg);
     RUN_TEST(test_bb_storage_rtc_txn_for_test_sticky_error_short_circuits_second_set);
+    RUN_TEST(test_bb_storage_rtc_txn_for_test_begin_zero_cap_null_slots_is_legal_and_stage_fails_no_space);
 
     // bb_storage_nvs_get_decision tests
     RUN_TEST(test_bb_storage_nvs_get_decide_zero_cap_probes);
@@ -9069,6 +9079,8 @@ int main(void) {
     RUN_TEST(test_bb_storage_txn_abort_on_never_begun_txn_is_safe);
     RUN_TEST(test_bb_storage_txn_abort_on_already_closed_txn_is_idempotent);
     RUN_TEST(test_bb_storage_txn_begin_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_storage_txn_begin_nonzero_cap_null_slots_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_txn_begin_zero_cap_null_slots_is_legal_and_stage_fails_no_space);
     RUN_TEST(test_bb_storage_txn_set_null_args_return_invalid_arg);
     RUN_TEST(test_bb_storage_txn_commit_null_returns_invalid_arg);
     RUN_TEST(test_bb_storage_txn_abort_null_returns_invalid_arg);
@@ -9081,6 +9093,7 @@ int main(void) {
     RUN_TEST(test_bb_storage_ram_txn_commit_makes_both_keys_visible);
     RUN_TEST(test_bb_storage_ram_txn_abort_leaves_neither_key_visible);
     RUN_TEST(test_bb_storage_ram_txn_slot_overflow_poisons_txn_and_lands_nothing);
+    RUN_TEST(test_bb_storage_ram_txn_cap_one_second_key_overflows);
     RUN_TEST(test_bb_storage_ram_txn_oversize_value_returns_no_space_and_lands_nothing);
     RUN_TEST(test_bb_storage_ram_txn_commit_visibility_is_all_or_nothing);
     RUN_TEST(test_bb_storage_ram_txn_begin_twice_without_close_returns_invalid_state);
@@ -9095,6 +9108,7 @@ int main(void) {
     RUN_TEST(test_bb_config_staged_oversize_value_poisons_txn_commit_returns_sticky_lands_nothing);
     RUN_TEST(test_bb_config_staged_local_precheck_poisons_independently_of_txn);
     RUN_TEST(test_bb_config_staged_type_mismatch_returns_invalid_arg);
+    RUN_TEST(test_bb_config_staged_blob_type_mismatch_returns_invalid_arg);
     RUN_TEST(test_bb_config_staged_cross_namespace_field_returns_invalid_arg);
     RUN_TEST(test_bb_config_staged_cross_backend_field_returns_invalid_arg);
     RUN_TEST(test_bb_config_staged_str_over_max_len_returns_invalid_arg);

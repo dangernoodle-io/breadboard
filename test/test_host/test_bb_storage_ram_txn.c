@@ -30,8 +30,8 @@ void test_bb_storage_ram_txn_commit_makes_both_keys_visible(void)
 {
     reset_all();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "a", BB_STORAGE_ENC_STR, "hello", 5));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "b", BB_STORAGE_ENC_STR, "world", 5));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_commit(&txn));
@@ -53,8 +53,8 @@ void test_bb_storage_ram_txn_abort_leaves_neither_key_visible(void)
 {
     reset_all();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "a", BB_STORAGE_ENC_STR, "hello", 5));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "b", BB_STORAGE_ENC_STR, "world", 5));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_abort(&txn));
@@ -66,30 +66,53 @@ void test_bb_storage_ram_txn_abort_leaves_neither_key_visible(void)
 }
 
 /* ---------------------------------------------------------------------------
- * 3. set x (MAX_KEYS+1) -> overflow set returns NO_SPACE, txn poisoned,
- *    commit returns it, no keys land.
+ * 3. set x (cap+1) -> overflow set returns NO_SPACE, txn poisoned, commit
+ *    returns it, no keys land. Declared at a NON-DEFAULT cap (5, not the
+ *    house default BB_STORAGE_TXN_MAX_KEYS==3) -- proves txn->_cap itself
+ *    drives the bound, not the old macro (a test only ever run at the
+ *    default cap could pass either way and would prove nothing).
  * ---------------------------------------------------------------------------*/
 void test_bb_storage_ram_txn_slot_overflow_poisons_txn_and_lands_nothing(void)
 {
     reset_all();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE(txn, 5);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
 
     char key[BB_STORAGE_TXN_KEY_MAX_BYTES];
-    for (int i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+    for (int i = 0; i < 5; i++) {
         snprintf(key, sizeof(key), "k%d", i);
         TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, key, BB_STORAGE_ENC_STR, "v", 1));
     }
-    /* one more than the table can hold */
+    /* one more than the declared capacity can hold */
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_storage_txn_set(&txn, "overflow", BB_STORAGE_ENC_STR, "v", 1));
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_storage_txn_commit(&txn));
 
-    for (int i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+    for (int i = 0; i < 5; i++) {
         snprintf(key, sizeof(key), "k%d", i);
         bb_storage_addr_t a = addr_for(key);
         TEST_ASSERT_FALSE(bb_storage_exists(&a));
     }
+}
+
+/* ---------------------------------------------------------------------------
+ * 3b. cap == 1: the minimum non-degenerate capacity -- one key stages fine,
+ *     a second overflows immediately. Same NON-DEFAULT-cap proof as test 3
+ *     above, at the opposite extreme.
+ * ---------------------------------------------------------------------------*/
+void test_bb_storage_ram_txn_cap_one_second_key_overflows(void)
+{
+    reset_all();
+
+    BB_STORAGE_TXN_DECLARE(txn, 1);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "only", BB_STORAGE_ENC_STR, "v", 1));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_storage_txn_set(&txn, "second", BB_STORAGE_ENC_STR, "v", 1));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_storage_txn_commit(&txn));
+
+    bb_storage_addr_t only = addr_for("only");
+    TEST_ASSERT_FALSE(bb_storage_exists(&only));
 }
 
 /* ---------------------------------------------------------------------------
@@ -99,8 +122,8 @@ void test_bb_storage_ram_txn_oversize_value_returns_no_space_and_lands_nothing(v
 {
     reset_all();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "a", BB_STORAGE_ENC_STR, "hello", 5));
 
     uint8_t big[BB_STORAGE_TXN_VALUE_MAX_BYTES + 1];
@@ -126,8 +149,8 @@ void test_bb_storage_ram_txn_commit_visibility_is_all_or_nothing(void)
     bb_storage_addr_t existing = addr_for("existing");
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_set(&existing, "old", 3));
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "existing", BB_STORAGE_ENC_STR, "new", 3));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "fresh", BB_STORAGE_ENC_STR, "val", 3));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_commit(&txn));
@@ -149,9 +172,9 @@ void test_bb_storage_ram_txn_begin_twice_without_close_returns_invalid_state(voi
 {
     reset_all();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_storage_txn_begin("ram", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_storage_txn_begin("ram", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
 
     /* clean up */
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_abort(&txn));
@@ -176,8 +199,8 @@ void test_bb_storage_ram_txn_commit_precheck_rejects_when_backend_table_full(voi
         TEST_ASSERT_EQUAL(BB_OK, bb_storage_set(&a, "v", 1));
     }
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     /* "brand-new" is not among the existing0..N-1 keys above, so committing
      * it needs one more table slot than free_count (0) provides. */
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "brand-new", BB_STORAGE_ENC_STR, "x", 1));

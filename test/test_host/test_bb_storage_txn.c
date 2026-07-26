@@ -131,8 +131,8 @@ void test_bb_storage_txn_begin_unsupported_backend_returns_unsupported(void)
     reset_all();
     register_no_txn_backend();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_storage_txn_begin("fake_no_txn", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_storage_txn_begin("fake_no_txn", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
 }
 
 /* ---------------------------------------------------------------------------
@@ -142,8 +142,8 @@ void test_bb_storage_txn_begin_unknown_backend_returns_not_found(void)
 {
     reset_all();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_storage_txn_begin("does_not_exist", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_storage_txn_begin("does_not_exist", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
 }
 
 /* ---------------------------------------------------------------------------
@@ -168,8 +168,8 @@ void test_bb_storage_txn_commit_stages_both_keys_in_order(void)
     reset_all();
     register_fake_txn_backend();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "k1", BB_STORAGE_ENC_STR, "a", 1));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "k2", BB_STORAGE_ENC_STR, "b", 1));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_commit(&txn));
@@ -190,8 +190,8 @@ void test_bb_storage_txn_commit_returns_sticky_error_from_failed_set(void)
     register_fake_txn_backend();
     s_txn_fail_second_set = true;
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "k1", BB_STORAGE_ENC_STR, "a", 1));
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_storage_txn_set(&txn, "k2", BB_STORAGE_ENC_STR, "b", 1));
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_storage_txn_commit(&txn));
@@ -209,8 +209,8 @@ void test_bb_storage_txn_set_after_poisoned_short_circuits_backend_dispatch(void
     register_fake_txn_backend();
     s_txn_fail_second_set = true;
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "k1", BB_STORAGE_ENC_STR, "a", 1));
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_storage_txn_set(&txn, "k2", BB_STORAGE_ENC_STR, "b", 1));
     TEST_ASSERT_EQUAL(2, s_txn_set_calls);
@@ -235,8 +235,8 @@ void test_bb_storage_txn_set_on_already_closed_txn_returns_invalid_state(void)
     reset_all();
     register_fake_txn_backend();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_commit(&txn));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_storage_txn_set(&txn, "k", BB_STORAGE_ENC_STR, "a", 1));
 }
@@ -259,8 +259,8 @@ void test_bb_storage_txn_double_commit_returns_invalid_state(void)
     reset_all();
     register_fake_txn_backend();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_set(&txn, "k1", BB_STORAGE_ENC_STR, "a", 1));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_commit(&txn));
     TEST_ASSERT_EQUAL(1, s_txn_commit_calls);
@@ -283,8 +283,8 @@ void test_bb_storage_txn_abort_on_already_closed_txn_is_idempotent(void)
     reset_all();
     register_fake_txn_backend();
 
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_abort(&txn));
     TEST_ASSERT_EQUAL(1, s_txn_abort_calls);
     /* second abort: already closed, no backend dispatch, still BB_OK */
@@ -298,18 +298,51 @@ void test_bb_storage_txn_abort_on_already_closed_txn_is_idempotent(void)
 void test_bb_storage_txn_begin_null_args_return_invalid_arg(void)
 {
     reset_all();
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_txn_begin(NULL, "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_txn_begin("ram", NULL, &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_txn_begin("ram", "ns", NULL, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
+}
+
+/* ---------------------------------------------------------------------------
+ * cap > 0 with slots == NULL is ALSO an invalid-arg case: the caller
+ * declared a non-zero capacity but supplied no backing storage for it.
+ * ---------------------------------------------------------------------------*/
+void test_bb_storage_txn_begin_nonzero_cap_null_slots_returns_invalid_arg(void)
+{
+    reset_all();
     bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_txn_begin(NULL, "ns", &txn));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_txn_begin("ram", NULL, &txn));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_txn_begin("ram", "ns", NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_txn_begin("ram", "ns", &txn, NULL, 3));
+}
+
+/* ---------------------------------------------------------------------------
+ * cap == 0 with slots == NULL is LEGAL (unlike cap > 0 with NULL slots,
+ * above): a zero-capacity txn has no backing storage to validate, so
+ * begin() must succeed. A subsequent stage attempt must then fail cleanly
+ * with BB_ERR_NO_SPACE (no free slot exists at cap 0) -- never crash or
+ * silently drop the write. Real "ram" backend (not the fake), so this
+ * actually exercises bb_storage_txn_slot_stage's cap-bounded slot search,
+ * not just the facade's own begin()-side guard.
+ * ---------------------------------------------------------------------------*/
+void test_bb_storage_txn_begin_zero_cap_null_slots_is_legal_and_stage_fails_no_space(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    bb_storage_txn_t txn = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("ram", "ns", &txn, NULL, 0));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_storage_txn_set(&txn, "k", BB_STORAGE_ENC_STR, "v", 1));
+    // abort is the unconditional discard escape hatch -- BB_OK regardless of
+    // the sticky error above (see bb_storage_txn_abort's own doc comment).
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_abort(&txn));
 }
 
 void test_bb_storage_txn_set_null_args_return_invalid_arg(void)
 {
     reset_all();
     register_fake_txn_backend();
-    bb_storage_txn_t txn = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn));
+    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_txn_begin("fake_txn", "ns", &txn, txn_slots, sizeof(txn_slots) / sizeof(txn_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_txn_set(NULL, "k", BB_STORAGE_ENC_STR, "a", 1));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_txn_set(&txn, NULL, BB_STORAGE_ENC_STR, "a", 1));
 }

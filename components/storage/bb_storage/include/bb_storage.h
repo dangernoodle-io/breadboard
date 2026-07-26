@@ -142,16 +142,46 @@ typedef struct {
 struct bb_storage_txn_s;
 typedef struct bb_storage_txn_s bb_storage_txn_t;
 
+// One staged (key, enc, value, len) slot in a bb_storage_txn_t's caller-
+// owned backing storage — B1-1235: txn capacity is caller-sized, so this
+// type (formerly an anonymous member of bb_storage_txn_t's _slots array) is
+// now PUBLIC, purely so a caller can declare an array of it
+// (`bb_storage_txn_slot_t my_slots[N];`) to hand to bb_storage_txn_begin().
+// This is an intentional, non-obvious consequence of caller-owned (no heap)
+// storage — going public does NOT make it part of the application-facing
+// txn API: callers must declare arrays of it (ideally via
+// BB_STORAGE_TXN_DECLARE/_DEFAULT below) but must NEVER inspect or set its
+// fields directly. It remains backend-private in spirit, same as
+// bb_storage_txn_t's other underscore-prefixed fields.
+typedef struct {
+    bool             used;
+    char             key[BB_STORAGE_TXN_KEY_MAX_BYTES];
+    uint8_t          value[BB_STORAGE_TXN_VALUE_MAX_BYTES];
+    size_t           len;
+    bb_storage_enc_t enc;
+} bb_storage_txn_slot_t;
+
 // Opaque caller-allocated (stack/static, NO HEAP) multi-key transaction
 // handle. One struct shape is shared across all backends; the dispatch
 // fn-ptrs are captured at bb_storage_txn_begin() (reentrancy-safe — multiple
 // concurrent txns are fine, each with its own handle). _handle is used by
 // native-provisional backends (e.g. nvs, which stages writes in an
-// nvs_handle_t and relies on commit/close for atomicity); _slots is used by
-// buffering backends (e.g. ram, which stages key/value pairs and applies
-// them atomically at commit). Both fields are always present so one struct
-// serves all backends. Fields are backend-private — never inspect them
-// outside a backend implementation.
+// nvs_handle_t and relies on commit/close for atomicity); _slots/_cap are
+// used by buffering backends (e.g. ram, rtc, which stage key/value pairs and
+// apply them atomically at commit). All fields are always present so one
+// struct serves all backends. Fields are backend-private — never inspect
+// them outside a backend implementation.
+//
+// _slots/_cap (B1-1235): the slot table is NO LONGER embedded — it is
+// caller-owned backing storage, wired onto the txn by bb_storage_txn_begin()
+// from the `slots`/`cap` arguments passed there (see its contract comment
+// below). This makes txn capacity caller-sized instead of one repo-wide
+// BB_STORAGE_TXN_MAX_KEYS ceiling every consumer paid for. Backends that
+// never stage into _slots (e.g. nvs, which stages directly into a native
+// handle) may be begun with cap==0/slots==NULL. bb_storage_txn_begin() zeroes
+// the caller's slots array itself before dispatching to the backend — the
+// caller does NOT need to (and must not rely on) pre-zeroing it; only the
+// txn handle below needs caller zero-init.
 //
 // The caller MUST zero-initialize this struct (e.g. `bb_storage_txn_t txn =
 // {0};`) before the first bb_storage_txn_begin() call on it — matching the
@@ -171,14 +201,28 @@ typedef struct bb_storage_txn_s {
     bb_err_t  _err;   // sticky first error, BB_OK initially
     uint8_t   _open;  // nonzero between begin and commit|abort
     uintptr_t _handle;      // backend-native handle (nvs_handle_t), 0 if unused
-    struct {
-        bool             used;
-        char             key[BB_STORAGE_TXN_KEY_MAX_BYTES];
-        uint8_t          value[BB_STORAGE_TXN_VALUE_MAX_BYTES];
-        size_t           len;
-        bb_storage_enc_t enc;
-    } _slots[BB_STORAGE_TXN_MAX_KEYS];
+    bb_storage_txn_slot_t *_slots;  // caller-owned backing storage, wired at begin()
+    size_t                 _cap;    // caller-declared capacity (elements in _slots)
 } bb_storage_txn_t;
+
+// Declares `name##_slots[n]` (the caller-owned backing storage) plus a
+// zero-initialized `bb_storage_txn_t name` ready for bb_storage_txn_begin().
+// Pass the count to begin() as `sizeof(name##_slots)/sizeof(name##_slots[0])`
+// — NEVER a re-typed numeric literal — so the declared array size and the
+// capacity handed to begin() cannot desync.
+//
+//   BB_STORAGE_TXN_DECLARE(txn, 4);
+//   bb_err_t err = bb_storage_txn_begin("nvs", "wifi", &txn, txn_slots,
+//                                        sizeof(txn_slots) / sizeof(txn_slots[0]));
+#define BB_STORAGE_TXN_DECLARE(name, n) \
+    bb_storage_txn_slot_t name##_slots[(n)]; \
+    bb_storage_txn_t      name = {0}
+
+// Same as BB_STORAGE_TXN_DECLARE, sized at the house default
+// (BB_STORAGE_TXN_MAX_KEYS) — for a consumer with no reason to declare a
+// non-default capacity.
+#define BB_STORAGE_TXN_DECLARE_DEFAULT(name) \
+    BB_STORAGE_TXN_DECLARE(name, BB_STORAGE_TXN_MAX_KEYS)
 
 // Backend implementation. The first four members must be non-NULL when
 // passed to bb_storage_register_backend() — a partial vtable is rejected
@@ -366,8 +410,13 @@ bb_err_t bb_storage_set_typed(const bb_storage_addr_t *addr, bb_storage_enc_t en
  * BB_ERR_INVALID_STATE (abort is the one exception — idempotent/safe to call
  * again on an already-closed or never-opened *zero-initialized* txn).
  *
- *   bb_storage_txn_t txn;
- *   bb_err_t err = bb_storage_txn_begin("nvs", "wifi", &txn);
+ * Capacity is caller-sized (B1-1235): the slot table backing this txn is
+ * caller-owned storage, declared via BB_STORAGE_TXN_DECLARE(_DEFAULT) and
+ * handed to bb_storage_txn_begin() as `slots`/`cap`.
+ *
+ *   BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+ *   bb_err_t err = bb_storage_txn_begin("nvs", "wifi", &txn, txn_slots,
+ *                                        sizeof(txn_slots) / sizeof(txn_slots[0]));
  *   if (err != BB_OK) return err;
  *   bb_storage_txn_set(&txn, "ssid", BB_STORAGE_ENC_STR, ssid, strlen(ssid));
  *   bb_storage_txn_set(&txn, "pass", BB_STORAGE_ENC_STR, pass, strlen(pass));
@@ -379,13 +428,39 @@ bb_err_t bb_storage_set_typed(const bb_storage_addr_t *addr, bb_storage_enc_t en
 
 // Begin a multi-key transaction against `backend`/`ns_or_dir`. `txn` is
 // zero-initialized and its dispatch fn-ptrs captured from the resolved
-// backend entry.
+// backend entry. `slots` (capacity `cap`, no heap) is the caller-owned
+// backing storage this txn stages into — wired onto `txn` (txn->_slots =
+// slots; txn->_cap = cap) and ZEROED (`memset(slots, 0, cap * sizeof(*slots))`)
+// BEFORE any vtable call, so backend txn_begin/txn_set/txn_commit/txn_abort
+// hooks never see slots/cap as arguments and never see stale slot contents;
+// they keep taking only `bb_storage_txn_t *` (see bb_storage_vtable_t's txn
+// group below). The caller does NOT need to (and must not rely on)
+// pre-zeroing `slots` — begin() is the single place that clears it,
+// regardless of whether the array came from BB_STORAGE_TXN_DECLARE(_DEFAULT)
+// or a hand-rolled declaration. `cap` is normally
+// `sizeof(arr)/sizeof(arr[0])` against a BB_STORAGE_TXN_DECLARE(_DEFAULT)-
+// declared array — never a re-typed numeric literal. `slots`/`cap` may be
+// 0/NULL for a backend that never stages into _slots (e.g. nvs, which stages
+// directly into a native handle).
+//
+// Lifetime/ownership: `slots` must outlive the transaction — it must remain
+// valid through the matching bb_storage_txn_commit()/bb_storage_txn_abort()
+// call; an array that goes out of scope (or is reused for another purpose)
+// while the txn is still open leaves txn->_slots dangling. `slots` must have
+// at least `cap` elements — a shorter array is caller UB with no runtime
+// guard possible, which is exactly why `cap` must be
+// sizeof(arr)/sizeof(arr[0]) and never a re-typed numeric literal. Re-
+// begin()ing a previously used txn/slots pair after a prior commit/abort is
+// safe: begin() unconditionally rewrites txn->_slots/_cap and re-zeroes the
+// array, so no stale state from the previous transaction survives.
 // Returns:
 //   BB_OK                 transaction opened
-//   BB_ERR_INVALID_ARG    backend, ns_or_dir, or txn is NULL
+//   BB_ERR_INVALID_ARG    backend, ns_or_dir, or txn is NULL, or cap > 0
+//                         with slots == NULL
 //   BB_ERR_NOT_FOUND       no backend registered under `backend`
 //   BB_ERR_UNSUPPORTED     the backend does not implement the txn group
-bb_err_t bb_storage_txn_begin(const char *backend, const char *ns_or_dir, bb_storage_txn_t *txn);
+bb_err_t bb_storage_txn_begin(const char *backend, const char *ns_or_dir, bb_storage_txn_t *txn,
+                               bb_storage_txn_slot_t *slots, size_t cap);
 
 // Stage a key/value write within an open transaction. Not applied until
 // bb_storage_txn_commit().
