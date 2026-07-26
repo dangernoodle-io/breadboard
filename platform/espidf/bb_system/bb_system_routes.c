@@ -467,19 +467,25 @@ const char *const bb_system_reboot_request_schema = BB_SYSTEM_REBOOT_REQUEST_SCH
 // bounded-buffer BB_ERR_NO_SPACE contract instead of silently truncating.
 static char s_reboot_request_schema_buf[192];
 
-// s_reboot_route stays `static const`: only the BYTES the
-// `.request_schema` pointer targets change at runtime (via
-// ensure_reboot_request_schema_patched() below), never the pointer value
-// itself -- same posture as bb_sensor_http_wire.c's PATCH /api/sensors/fan
-// request_schema (B1-1059 PR-3 batch 3). Before the first compose, the
-// buffer is all-zero (buf[0] == '\0', an empty string, never NULL).
-static const bb_route_t s_reboot_route = {
+// Mutable (`.data`, not `.rodata`) with this config on -- `.request_schema`
+// starts NULL and is patched in once by ensure_reboot_request_schema_patched()
+// below (only on that composer's SUCCESS path), same NULL-then-patch shape
+// as every `.request_schema`/`.schema` site in this codebase. Do NOT point
+// this directly at s_reboot_request_schema_buf in the initializer: that
+// link-time-constant address is always non-NULL even before the first
+// compose, so a compose failure would leave bb_openapi_emit.c's
+// `if (route->request_schema)` pointer-null check seeing a truthy-but-empty
+// buffer and emitting a schema-less requestBody instead of omitting it
+// entirely -- see bb_sensor_http_wire.c's PATCH /api/sensors/fan
+// s_sensors_fan_patch_describe_route for the documented precedent (B1-1244,
+// the failure mode this exact route used to have).
+static bb_route_t s_reboot_route = {
     .method               = BB_HTTP_POST,
     .path                 = "/api/reboot",
     .tag                  = "system",
     .summary              = "Reboot the device",
     .request_content_type = "application/json",
-    .request_schema       = s_reboot_request_schema_buf,
+    .request_schema       = NULL /* patched at init */,
     .responses            = s_reboot_responses,
     .handler              = reboot_handler,
 };
@@ -507,10 +513,13 @@ static const bb_route_t s_reboot_route = {
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
 static bb_err_t ensure_reboot_request_schema_patched(void)
 {
-    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+    bb_err_t rc = bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
                                               &s_reboot_desc, &bb_system_reboot_meta,
                                               s_reboot_request_schema_buf,
                                               sizeof(s_reboot_request_schema_buf));
+    if (rc != BB_OK) return rc;  // fail loud -- never patch a partial/NULL schema in
+    s_reboot_route.request_schema = s_reboot_request_schema_buf;
+    return BB_OK;
 }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
@@ -520,14 +529,13 @@ bb_err_t bb_system_routes_init(bb_http_handle_t server)
 
     // Documentation-only schema compose (config ON only): a compose failure
     // here must not abort real route registration below (the "reboot"
-    // bb_data bind + POST /api/reboot). s_reboot_route.request_schema always
-    // points at s_reboot_request_schema_buf (see that route's own doc
-    // comment above), so on failure the buffer stays empty rather than
-    // NULL -- but bb_http_resp_json_obj_set_raw() (bb_openapi_emit.c)
-    // rejects a zero-length raw value and returns before emitting the
-    // "schema" key, so an unpatched buffer degrades to an empty requestBody
-    // content block rather than corrupting the emitted document. Degrade
-    // and continue: log a warning and fall through to registration.
+    // bb_data bind + POST /api/reboot). s_reboot_route.request_schema starts
+    // NULL and is patched to s_reboot_request_schema_buf only on
+    // ensure_reboot_request_schema_patched()'s SUCCESS path (see that
+    // route's own doc comment above), so on failure the field stays NULL --
+    // and bb_openapi_emit.c's `if (route->request_schema)` gate omits
+    // requestBody entirely rather than emitting an empty content block.
+    // Degrade and continue: log a warning and fall through to registration.
     //
     // This init fn is portable and genuinely host-compiled (see
     // test_route_schema_literals_live.c and this component's own
@@ -604,15 +612,11 @@ bb_err_t bb_system_reboot_assemble_request_schema_for_test(void)
 
 const char *bb_system_reboot_get_request_schema_for_test(void)
 {
-#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
-    // s_reboot_route.request_schema always points at
-    // s_reboot_request_schema_buf (see that route's own doc comment) -- an
-    // empty buffer (buf[0] == '\0') means "not yet composed", the same
-    // sentinel bb_serialize_meta_ensure_composed() itself uses, so report it
-    // as NULL rather than an empty string.
-    return s_reboot_request_schema_buf[0] != '\0' ? s_reboot_request_schema_buf : NULL;
-#else
+    // Reads the actual struct field the emitter dereferences
+    // (bb_openapi_emit.c's `if (route->request_schema)`), not a buffer-
+    // content proxy that can diverge from it -- s_reboot_route.
+    // request_schema is NULL-then-patched (see that route's own doc
+    // comment), same shape as every request/response schema in this file.
     return s_reboot_route.request_schema;
-#endif
 }
 #endif /* BB_SYSTEM_TESTING */
