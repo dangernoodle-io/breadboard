@@ -270,7 +270,7 @@ bb_err_t bb_diag_panic_init(void)
         bb_diag_reset_result_t r = bb_diag_reset_decision(stored_fp, running_fp,
                                                            stored_count, was_panic_boot);
         s_abnormal_reset_count = r.new_count;
-        BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+        BB_STORAGE_TXN_DECLARE(txn, 2);
         if (bb_storage_txn_begin("nvs", BB_DIAG_NV_NS, &txn, txn_slots,
                                   sizeof(txn_slots) / sizeof(txn_slots[0])) == BB_OK) {
             bb_storage_txn_set(&txn, BB_DIAG_NV_KEY_RST, BB_STORAGE_ENC_U32,
@@ -486,7 +486,7 @@ bb_err_t bb_diag_panic_init(void)
     bb_diag_reset_result_t r = bb_diag_reset_decision(stored_fp, running_fp,
                                                        stored_count, was_panic_boot);
     s_abnormal_reset_count = r.new_count;
-    BB_STORAGE_TXN_DECLARE_DEFAULT(txn);
+    BB_STORAGE_TXN_DECLARE(txn, 2);
     if (bb_storage_txn_begin("nvs", BB_DIAG_NV_NS, &txn, txn_slots,
                               sizeof(txn_slots) / sizeof(txn_slots[0])) == BB_OK) {
         bb_storage_txn_set(&txn, BB_DIAG_NV_KEY_RST, BB_STORAGE_ENC_U32,
