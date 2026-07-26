@@ -5,6 +5,7 @@
 #include "bb_lifecycle_priv.h"
 #include "bb_callback_slot.h"
 #include "bb_lock.h"
+#include "bb_lock_once.h"
 #include "bb_once.h"
 #include "bb_log.h"
 
@@ -67,16 +68,14 @@ static _Atomic size_t                s_observer_count;
 static bb_lock_t  s_lock;
 static bb_once_t  s_lock_once = BB_ONCE_INIT;
 
-static void init_lock(void *ctx)
+// Lazily bb_lock_init() s_lock exactly once via bb_lock_once_ensure(). Unlike
+// the plain bb_once_run() this replaced, a transient bb_lock_init() failure
+// resets to IDLE instead of latching DONE forever, so a later caller
+// genuinely retries (B1-1203, mirrors B1-524 / #1086's bb_registry sweep).
+static inline bb_err_t ensure_lock(void)
 {
-    (void)ctx;
     bb_lock_config_t cfg = { .name = "bb_lifecycle", .category = "service" };
-    bb_lock_init(&cfg, &s_lock);
-}
-
-static void ensure_lock(void)
-{
-    bb_once_run(&s_lock_once, init_lock, NULL);
+    return bb_lock_once_ensure(&s_lock_once, &cfg, &s_lock);
 }
 
 // ---------------------------------------------------------------------------
@@ -284,8 +283,7 @@ static uint32_t commit_and_snapshot(bb_lifecycle_svc_t svc, bb_lifecycle_service
 
 bb_err_t bb_lifecycle_autoinit(void)
 {
-    ensure_lock();
-    return BB_OK;
+    return ensure_lock();
 }
 
 bb_err_t bb_lifecycle_register(const bb_lifecycle_config_t *cfg, bb_lifecycle_svc_t *out)
@@ -295,7 +293,15 @@ bb_err_t bb_lifecycle_register(const bb_lifecycle_config_t *cfg, bb_lifecycle_sv
     char name[CONFIG_BB_LIFECYCLE_NAME_MAX];
     copy_truncated(name, sizeof(name), cfg->name);
 
-    ensure_lock();
+    bb_err_t lock_rc = ensure_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible
+    // (same rationale as bb_lock_once.c's own LCOV_EXCL comment); this is a
+    // defensive path, not a real branch the test suite can drive.
+    if (lock_rc != BB_OK) {
+        bb_log_e(TAG, "register('%s'): lock unavailable", name);
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_lock);
 
     size_t count = atomic_load(&s_service_count);
@@ -332,7 +338,14 @@ bb_err_t bb_lifecycle_find(const char *name, bb_lifecycle_svc_t *out)
     char truncated[CONFIG_BB_LIFECYCLE_NAME_MAX];
     copy_truncated(truncated, sizeof(truncated), name);
 
-    ensure_lock();
+    bb_err_t lock_rc = ensure_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_lifecycle_register()'s shared rationale above.
+    if (lock_rc != BB_OK) {
+        bb_log_e(TAG, "find('%s'): lock unavailable", truncated);
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_lock);
     size_t count = atomic_load(&s_service_count);
     bb_err_t err = BB_ERR_NOT_FOUND;
@@ -349,7 +362,13 @@ bb_err_t bb_lifecycle_find(const char *name, bb_lifecycle_svc_t *out)
 
 const char *bb_lifecycle_name(bb_lifecycle_svc_t svc)
 {
-    ensure_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_lifecycle_register()'s shared rationale above. Indistinguishable
+    // here from an invalid handle -- both return "".
+    if (ensure_lock() != BB_OK) {
+        return "";
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_lock);
     const char *name = svc_valid(svc) ? s_services[svc].name : "";
     bb_lock_unlock(&s_lock);
@@ -358,7 +377,14 @@ const char *bb_lifecycle_name(bb_lifecycle_svc_t svc)
 
 bb_err_t bb_lifecycle_start(bb_lifecycle_svc_t svc)
 {
-    ensure_lock();
+    bb_err_t lock_rc = ensure_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_lifecycle_register()'s shared rationale above.
+    if (lock_rc != BB_OK) {
+        bb_log_e(TAG, "start(%d): lock unavailable", (int)svc);
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_lock);
     if (!svc_valid(svc)) {
         bb_lock_unlock(&s_lock);
@@ -382,7 +408,14 @@ bb_err_t bb_lifecycle_start(bb_lifecycle_svc_t svc)
 
 bb_err_t bb_lifecycle_stop(bb_lifecycle_svc_t svc)
 {
-    ensure_lock();
+    bb_err_t lock_rc = ensure_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_lifecycle_register()'s shared rationale above.
+    if (lock_rc != BB_OK) {
+        bb_log_e(TAG, "stop(%d): lock unavailable", (int)svc);
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_lock);
     if (!svc_valid(svc)) {
         bb_lock_unlock(&s_lock);
@@ -409,7 +442,14 @@ bb_err_t bb_lifecycle_pause_assert(bb_lifecycle_svc_t svc, const char *reason)
 {
     if (!reason) return BB_ERR_INVALID_ARG;
 
-    ensure_lock();
+    bb_err_t lock_rc = ensure_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_lifecycle_register()'s shared rationale above.
+    if (lock_rc != BB_OK) {
+        bb_log_e(TAG, "pause_assert(%d): lock unavailable", (int)svc);
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_lock);
     if (!svc_valid(svc)) {
         bb_lock_unlock(&s_lock);
@@ -442,7 +482,14 @@ bb_err_t bb_lifecycle_pause_clear(bb_lifecycle_svc_t svc, const char *reason)
 {
     if (!reason) return BB_ERR_INVALID_ARG;
 
-    ensure_lock();
+    bb_err_t lock_rc = ensure_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_lifecycle_register()'s shared rationale above.
+    if (lock_rc != BB_OK) {
+        bb_log_e(TAG, "pause_clear(%d): lock unavailable", (int)svc);
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_lock);
     if (!svc_valid(svc)) {
         bb_lock_unlock(&s_lock);
@@ -475,7 +522,12 @@ bb_err_t bb_lifecycle_pause_clear(bb_lifecycle_svc_t svc, const char *reason)
 
 bool bb_lifecycle_is_paused(bb_lifecycle_svc_t svc)
 {
-    ensure_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_lifecycle_register()'s shared rationale above.
+    if (ensure_lock() != BB_OK) {
+        return false;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_lock);
     bool paused = false;
     if (svc_valid(svc)) {
@@ -488,7 +540,12 @@ bool bb_lifecycle_is_paused(bb_lifecycle_svc_t svc)
 
 bb_lifecycle_state_t bb_lifecycle_state(bb_lifecycle_svc_t svc)
 {
-    ensure_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_lifecycle_register()'s shared rationale above.
+    if (ensure_lock() != BB_OK) {
+        return BB_LIFECYCLE_STOPPED;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_lock);
     bb_lifecycle_state_t st = BB_LIFECYCLE_STOPPED;
     if (svc_valid(svc)) {
@@ -514,7 +571,12 @@ size_t bb_lifecycle_inhibit_words(bb_lifecycle_svc_t svc, uint32_t *out, size_t 
 {
     if (!out || max_words == 0 || !svc_valid(svc)) return 0;
 
-    ensure_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_lifecycle_register()'s shared rationale above.
+    if (ensure_lock() != BB_OK) {
+        return 0;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_lock);
     // At the default MAX_REASONS<=32, BB_LIFECYCLE_INHIBIT_WORDS==1 and
     // max_words==0 is already rejected above, so the max_words<WORDS
@@ -529,7 +591,13 @@ const char *bb_lifecycle_reason_name(uint8_t bit)
 {
     if (bit >= CONFIG_BB_LIFECYCLE_MAX_REASONS) return "";
 
-    ensure_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_lifecycle_register()'s shared rationale above. Indistinguishable
+    // here from an unused bit -- both return "".
+    if (ensure_lock() != BB_OK) {
+        return "";
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_lock);
     const char *name = (bit < s_reason_count) ? s_reasons[bit].name : "";
     bb_lock_unlock(&s_lock);
@@ -540,7 +608,14 @@ bb_err_t bb_lifecycle_priv_observe_slot(bb_lifecycle_observer_fn cb, void *user,
 {
     if (!cb) return BB_ERR_INVALID_ARG;
 
-    ensure_lock();
+    bb_err_t lock_rc = ensure_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_lifecycle_register()'s shared rationale above.
+    if (lock_rc != BB_OK) {
+        bb_log_e(TAG, "observe(async=%d): lock unavailable", (int)async);
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_lock);
     size_t idx = atomic_load(&s_observer_count);
     if (idx >= CONFIG_BB_LIFECYCLE_MAX_OBSERVERS) {
@@ -612,7 +687,12 @@ bb_emit_fn bb_lifecycle_emit_binding_fn(void)
 #ifdef BB_LIFECYCLE_TESTING
 void bb_lifecycle_reset_for_test(void)
 {
-    ensure_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see bb_lifecycle_register()'s shared rationale above.
+    if (ensure_lock() != BB_OK) {
+        return;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_lock);
     memset(s_services, 0, sizeof(s_services));
     atomic_store(&s_service_count, 0);

@@ -14,7 +14,9 @@
 // documented behavior is otherwise UNCHANGED); bb_lifecycle_observe_async()
 // (bb_lifecycle_async.c) wraps it with async=true after its own lazy
 // queue/task init succeeds. NULL cb -> BB_ERR_INVALID_ARG; table full ->
-// BB_ERR_NO_SPACE.
+// BB_ERR_NO_SPACE. Also returns any error from the underlying lazy
+// bb_lock_init() (e.g. BB_ERR_NO_MEM) if the lock could not be initialized
+// -- retry later.
 bb_err_t bb_lifecycle_priv_observe_slot(bb_lifecycle_observer_fn cb, void *user, bool async);
 
 // Invoke every async-flagged observer slot with `evt` (a registry READ only

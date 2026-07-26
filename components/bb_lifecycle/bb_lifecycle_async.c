@@ -9,8 +9,7 @@
 // (like sync observers) must not call a lifecycle mutator.
 //
 // Init is mutex-guarded (bb_lock, ensure_async_lock() mirrors ensure_lock()'s
-// bb_once-guarded-init pattern in bb_lifecycle.c -- the lock ITSELF is a
-// permanent one-shot singleton, safe to latch forever) rather than a
+// bb_lock_once_ensure()-guarded-init pattern in bb_lifecycle.c) rather than a
 // permanent bb_once latch on the spawn attempt itself (B1-1044): a TRANSIENT
 // spawn failure (bb_bqueue_create()/bb_task_create() under pool exhaustion or
 // heap pressure) must be retryable by a LATER bb_lifecycle_observe_async()
@@ -18,12 +17,17 @@
 // s_async_ready only ever transitions UNINIT -> READY (on success) under
 // s_async_lock; a failed attempt leaves it UNINIT so the next caller to take
 // the lock genuinely re-attempts async_init() against a freshly-freed pool.
+// The lock ITSELF is also fallible (bb_lock_init() can fail under boot-window
+// heap pressure, same as any other bb_lock_once_ensure() consumer) -- a
+// transient failure there resets to IDLE instead of latching DONE forever,
+// so a later ensure_async_started() call genuinely retries that too
+// (B1-1203, mirrors B1-524 / #1086's bb_registry sweep).
 #include "bb_lifecycle.h"
 #include "bb_lifecycle_priv.h"
 
 #include "bb_bqueue.h"
 #include "bb_task.h"
-#include "bb_once.h"
+#include "bb_lock_once.h"
 #include "bb_lock.h"
 #include "bb_log.h"
 #include "bb_clock.h"
@@ -54,9 +58,7 @@ static const char *TAG = "bb_lifecycle_async";
 // Lazy-init state
 // ---------------------------------------------------------------------------
 
-// s_async_lock guards s_async_ready/s_async_q/s_async_init_err below --
-// permanent one-shot singleton (safe: unlike the spawn attempt it guards,
-// initializing the lock itself has no transient-failure retry requirement).
+// s_async_lock guards s_async_ready/s_async_q/s_async_init_err below.
 static bb_lock_t s_async_lock;
 static bb_once_t s_async_lock_once = BB_ONCE_INIT;
 
@@ -64,16 +66,16 @@ static bool         s_async_ready;    // true only after a SUCCESSFUL async_init
 static bb_bqueue_t  s_async_q;
 static bb_err_t     s_async_init_err = BB_OK; // result of the most recent init attempt
 
-static void init_async_lock(void *ctx)
+// Lazily bb_lock_init() s_async_lock exactly once via bb_lock_once_ensure().
+// Unlike the plain bb_once_run() this replaced, a transient bb_lock_init()
+// failure resets to IDLE instead of latching DONE forever, so a later
+// caller genuinely retries (B1-1203, mirrors B1-524 / #1086's bb_registry
+// sweep) -- see this file's header comment for why the lock itself is no
+// longer treated as infallible.
+static inline bb_err_t ensure_async_lock(void)
 {
-    (void)ctx;
     bb_lock_config_t cfg = { .name = "bb_lifecycle_async", .category = "service" };
-    bb_lock_init(&cfg, &s_async_lock);
-}
-
-static void ensure_async_lock(void)
-{
-    bb_once_run(&s_async_lock_once, init_async_lock, NULL);
+    return bb_lock_once_ensure(&s_async_lock_once, &cfg, &s_async_lock);
 }
 
 // Rate-limit timestamp for the drop-log warn below. bb_lifecycle_priv_
@@ -201,7 +203,15 @@ static void async_init(void *ctx)
 // re-attempts async_init(), not a cached replay of the old failure.
 static bb_err_t ensure_async_started(void)
 {
-    ensure_async_lock();
+    bb_err_t lock_rc = ensure_async_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible
+    // (same rationale as bb_lock_once.c's own LCOV_EXCL comment); this is a
+    // defensive path, not a real branch the test suite can drive.
+    if (lock_rc != BB_OK) {
+        bb_log_e(TAG, "ensure_async_started: lock unavailable");
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_async_lock);
     if (s_async_ready) {
         bb_lock_unlock(&s_async_lock);
@@ -287,7 +297,12 @@ size_t bb_lifecycle_async_test_dropped(void)
 
 void bb_lifecycle_async_reset_for_test(void)
 {
-    ensure_async_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible;
+    // see ensure_async_started()'s shared rationale above.
+    if (ensure_async_lock() != BB_OK) {
+        return;
+    }
+    // LCOV_EXCL_STOP
     bb_lock_lock(&s_async_lock);
     if (s_async_q) {
         bb_bqueue_destroy(s_async_q);
