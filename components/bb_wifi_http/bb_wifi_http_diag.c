@@ -5,11 +5,14 @@
 #include "bb_wifi_http_diag.h"
 
 #include "bb_http.h"
+#include "bb_log.h"
 #include "bb_wifi_http.h"
 #include "bb_wifi_http_common_priv.h"
 
 #include <stddef.h>
 #include <string.h>
+
+static const char *TAG = "bb_wifi_http_diag";
 
 // ---------------------------------------------------------------------------
 // reason_histogram present predicates -- one per non-sentinel
@@ -415,8 +418,17 @@ static const bb_route_t s_wifi_http_diag_describe_route = {
 bb_err_t bb_wifi_http_diag_register(void)
 {
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
-    bb_err_t patch_rc = ensure_schema_patched();
-    if (patch_rc != BB_OK) return patch_rc;
+    // Documentation-only: a compose failure here must not take the wifi
+    // section (and its dispatch-table entry) offline -- degrade by leaving
+    // the describe-route schema unpatched (NULL, omitted by bb_openapi_
+    // emit.c's pointer-NULL gate) and register anyway.
+    // This register fn is ESP_PLATFORM-gated and not host-testable, same
+    // constraint documented at cddd5624 (bb_ota_hooks / bb_health_stack /
+    // bb_diag_http / bb_display sites).
+    bb_err_t schema_rc = ensure_schema_patched();
+    if (schema_rc != BB_OK) {
+        bb_log_w(TAG, "wifi schema compose failed (rc=%d), describe route ships without a schema", (int)schema_rc);
+    }
 #endif
 
     bb_diag_section_t section = {

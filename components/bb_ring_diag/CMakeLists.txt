@@ -15,8 +15,10 @@
 # gated on BB_SERIALIZE_META_SHIP; B1-1059 device-shippable PR, default off
 # via CONFIG_BB_OPENAPI_RUNTIME_META); PRIV_REQUIRES doesn't propagate to a
 # hand-wired external consumer of this public header.
+# bb_log: PRIVATE -- bb_ring_diag.c logs a warning when a documentation-only
+# schema compose fails (B1-1231 PR5); the section still registers.
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/bb_ring_diag.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_queue bb_core bb_diag bb_serialize bb_serialize_meta
-    PRIV_REQUIRES bb_str bb_http)
+    PRIV_REQUIRES bb_str bb_http bb_log)
