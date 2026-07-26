@@ -77,7 +77,9 @@ typedef void (*bb_lifecycle_observer_fn)(const bb_lifecycle_event_t *evt, void *
 // fire synchronously, in registration order, AFTER the state commit and
 // OUTSIDE bb_lifecycle's internal lock — an observer may call any query
 // function here, but MUST NOT call a mutator (start/stop/pause_assert/
-// pause_clear/register) from within its callback.
+// pause_clear/register) from within its callback. Also returns any error
+// from the underlying lazy bb_lock_init() (e.g. BB_ERR_NO_MEM) if the lock
+// could not be initialized -- retry later.
 bb_err_t bb_lifecycle_observe(bb_lifecycle_observer_fn cb, void *user);
 
 // ASYNC observer registration (B1-1034): the same append-only table as
@@ -87,10 +89,14 @@ bb_err_t bb_lifecycle_observe(bb_lifecycle_observer_fn cb, void *user);
 // The "observer must not call a lifecycle mutator" rule holds for async
 // callbacks too. NULL cb -> BB_ERR_INVALID_ARG. Observer table full ->
 // BB_ERR_NO_SPACE. A bb_bqueue_create()/bb_task_create() failure on the
-// first-ever call (lazy queue/task init) is propagated as-is.
+// first-ever call (lazy queue/task init) is propagated as-is. Also returns
+// any error from the underlying lazy bb_lock_init() (e.g. BB_ERR_NO_MEM) if
+// the lock could not be initialized -- retry later.
 bb_err_t bb_lifecycle_observe_async(bb_lifecycle_observer_fn cb, void *user);
 
 // bbtool:init tier=early fn=bb_lifecycle_autoinit
+// Returns any error from the underlying lazy bb_lock_init() (e.g.
+// BB_ERR_NO_MEM) if the lock could not be initialized -- retry later.
 bb_err_t bb_lifecycle_autoinit(void);
 
 typedef struct {
@@ -99,34 +105,53 @@ typedef struct {
 
 // Register a new service, starting in BB_LIFECYCLE_STOPPED. Duplicate name
 // -> BB_ERR_CONFLICT. Table full -> BB_ERR_NO_SPACE. NULL cfg/cfg->name/out
-// -> BB_ERR_INVALID_ARG.
+// -> BB_ERR_INVALID_ARG. Also returns any error from the underlying lazy
+// bb_lock_init() (e.g. BB_ERR_NO_MEM) if the lock could not be initialized
+// -- retry later.
 bb_err_t bb_lifecycle_register(const bb_lifecycle_config_t *cfg, bb_lifecycle_svc_t *out);
 
 // Look up a previously-registered service by name. Miss -> BB_ERR_NOT_FOUND.
+// Also returns any error from the underlying lazy bb_lock_init() (e.g.
+// BB_ERR_NO_MEM) if the lock could not be initialized -- retry later.
 bb_err_t bb_lifecycle_find(const char *name, bb_lifecycle_svc_t *out);
 
-// Registered name for svc, or "" for an invalid/unregistered handle.
+// Registered name for svc, or "" for an invalid/unregistered handle, or if
+// the underlying lock could not be lazily initialized -- a lock-unavailable
+// "" is indistinguishable here from an invalid handle, a narrower and more
+// transient condition than the invalid-handle case.
 const char *bb_lifecycle_name(bb_lifecycle_svc_t svc);
 
 // Enter the started envelope. Idempotent: already-started is a no-op
 // success (no notify, no version bump). Bad handle -> BB_ERR_NOT_FOUND.
+// Also returns any error from the underlying lazy bb_lock_init() (e.g.
+// BB_ERR_NO_MEM) if the lock could not be initialized -- retry later.
 bb_err_t bb_lifecycle_start(bb_lifecycle_svc_t svc);
 
 // Leave the started envelope and CLEAR all inhibits for svc. Idempotent:
-// already-stopped is a no-op success. Bad handle -> BB_ERR_NOT_FOUND.
+// already-stopped is a no-op success. Bad handle -> BB_ERR_NOT_FOUND. Also
+// returns any error from the underlying lazy bb_lock_init() (e.g.
+// BB_ERR_NO_MEM) if the lock could not be initialized -- retry later.
 bb_err_t bb_lifecycle_stop(bb_lifecycle_svc_t svc);
 
 // Assert a pause reason (open-vocabulary string, interned on first use).
 // Setting an already-set bit is an idempotent no-op (no notify, no version
 // bump). NULL reason -> BB_ERR_INVALID_ARG. Bad handle -> BB_ERR_NOT_FOUND.
 // A brand-new reason string when the intern table is full -> BB_ERR_NO_SPACE.
+// Also returns any error from the underlying lazy bb_lock_init() (e.g.
+// BB_ERR_NO_MEM) if the lock could not be initialized -- retry later.
 bb_err_t bb_lifecycle_pause_assert(bb_lifecycle_svc_t svc, const char *reason);
 
 // Clear a previously-asserted pause reason. Lookup-only: a reason that was
 // never interned, or is already clear, is a no-op success (BB_OK). NULL
-// reason -> BB_ERR_INVALID_ARG. Bad handle -> BB_ERR_NOT_FOUND.
+// reason -> BB_ERR_INVALID_ARG. Bad handle -> BB_ERR_NOT_FOUND. Also returns
+// any error from the underlying lazy bb_lock_init() (e.g. BB_ERR_NO_MEM) if
+// the lock could not be initialized -- retry later.
 bb_err_t bb_lifecycle_pause_clear(bb_lifecycle_svc_t svc, const char *reason);
 
+// Returns false (paused/state==STOPPED respectively for the two functions
+// below) if the underlying lock could not be lazily initialized --
+// indistinguishable here from a genuinely-unpaused/stopped service, a
+// narrower and more transient condition than that default reading.
 bool                 bb_lifecycle_is_paused(bb_lifecycle_svc_t svc);
 bb_lifecycle_state_t bb_lifecycle_state(bb_lifecycle_svc_t svc);
 
@@ -138,11 +163,13 @@ size_t bb_lifecycle_count(void);
 
 // Copy up to max_words of svc's inhibit bitset into out (word 0 = bits
 // 0..31, word 1 = bits 32..63, ...). Returns the number of words actually
-// written (0 for a bad handle or max_words==0/out==NULL).
+// written (0 for a bad handle, max_words==0/out==NULL, or if the underlying
+// lock could not be lazily initialized).
 size_t bb_lifecycle_inhibit_words(bb_lifecycle_svc_t svc, uint32_t *out, size_t max_words);
 
 // Reverse lookup: the interned reason string for a bit index, or "" for an
-// unused/out-of-range bit.
+// unused/out-of-range bit, or if the underlying lock could not be lazily
+// initialized -- indistinguishable here from an unused bit.
 const char *bb_lifecycle_reason_name(uint8_t bit);
 
 // Register a generic emit sink (bb_emit_fn, bb_core/bb_emit.h) fired on
