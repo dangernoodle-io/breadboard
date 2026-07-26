@@ -70,8 +70,8 @@ void test_bb_config_staged_stage_and_commit_lands_all_fields(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_bool(&h, &F_BOOL, true));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u8(&h, &F_U8, 7));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_str(&h, &F_STR, "hi"));
@@ -96,8 +96,8 @@ void test_bb_config_staged_scalar_round_trip_u16_u32_i32(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u16(&h, &F_U16, 4321));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u32(&h, &F_U32, 0xDEADBEEFu));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_i32(&h, &F_I32, -12345));
@@ -122,8 +122,8 @@ void test_bb_config_staged_blob_round_trip(void)
     reset_all();
 
     uint8_t payload[] = {1, 2, 3, 4};
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_blob(&h, &F_BLOB, payload, sizeof(payload)));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_commit(&h));
 
@@ -141,8 +141,8 @@ void test_bb_config_staged_discard_lands_nothing(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u8(&h, &F_U8, 9));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_str(&h, &F_STR, "bye"));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_discard(&h));
@@ -164,8 +164,8 @@ void test_bb_config_staged_oversize_value_poisons_txn_commit_returns_sticky_land
     uint8_t big[100];
     memset(big, 'x', sizeof(big));
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u8(&h, &F_U8, 1));
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_config_staged_set_blob(&h, &F_BLOB_BIG, big, sizeof(big)));
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_config_staged_commit(&h));
@@ -184,8 +184,8 @@ void test_bb_config_staged_local_precheck_poisons_independently_of_txn(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u8(&h, &F_U8, 5));
     // F_STR is BB_CONFIG_STR; calling set_u16 against it is a type mismatch.
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_u16(&h, &F_STR, 1));
@@ -205,8 +205,8 @@ void test_bb_config_staged_type_mismatch_returns_invalid_arg(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_bool(&h, &F_U8, true));
 }
 
@@ -218,8 +218,8 @@ void test_bb_config_staged_blob_type_mismatch_returns_invalid_arg(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_blob(&h, &F_U8, "x", 1));
 }
 
@@ -230,8 +230,8 @@ void test_bb_config_staged_cross_namespace_field_returns_invalid_arg(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_u8(&h, &F_CROSS_NS, 1));
 }
 
@@ -239,8 +239,8 @@ void test_bb_config_staged_cross_backend_field_returns_invalid_arg(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_u8(&h, &F_CROSS_BACKEND, 1));
 }
 
@@ -251,8 +251,8 @@ void test_bb_config_staged_str_over_max_len_returns_invalid_arg(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     // F_STR.max_len == 8; "toolongstring" (13 chars) doesn't fit.
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_str(&h, &F_STR, "toolongstring"));
 }
@@ -264,8 +264,8 @@ void test_bb_config_staged_blob_over_max_len_returns_invalid_arg(void)
     uint8_t big[9]; // F_BLOB.max_len == 8
     memset(big, 0, sizeof(big));
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_blob(&h, &F_BLOB, big, sizeof(big)));
 }
 
@@ -277,8 +277,8 @@ void test_bb_config_staged_double_commit_returns_invalid_state(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u8(&h, &F_U8, 1));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_commit(&h));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_config_staged_commit(&h));
@@ -298,8 +298,8 @@ void test_bb_config_staged_discard_idempotent_after_commit(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u8(&h, &F_U8, 1));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_commit(&h));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_discard(&h));
@@ -309,8 +309,8 @@ void test_bb_config_staged_discard_idempotent_after_discard(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u8(&h, &F_U8, 1));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_discard(&h));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_discard(&h));
@@ -321,7 +321,7 @@ void test_bb_config_staged_discard_idempotent_after_discard(void)
  * ---------------------------------------------------------------------------*/
 void test_bb_config_staged_null_handle_returns_invalid_arg_for_every_verb(void)
 {
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_begin(NULL, "ram", "ns"));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_begin(NULL, "ram", "ns", NULL, 0));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_commit(NULL));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_discard(NULL));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_bool(NULL, &F_BOOL, true));
@@ -342,8 +342,8 @@ void test_bb_config_staged_null_field_scalar_returns_invalid_arg(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_u8(&h, NULL, 1));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_commit(&h));
 
@@ -354,8 +354,8 @@ void test_bb_config_staged_null_field_str_returns_invalid_arg(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_str(&h, NULL, "hi"));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_commit(&h));
 
@@ -372,8 +372,8 @@ void test_bb_config_staged_double_commit_after_poisoned_commit_returns_invalid_s
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     // F_STR is BB_CONFIG_STR; calling set_u16 against it is a type mismatch,
     // poisoning h->_local_err.
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_u16(&h, &F_STR, 1));
@@ -389,8 +389,8 @@ void test_bb_config_staged_set_after_commit_returns_invalid_state(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u8(&h, &F_U8, 1));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_commit(&h));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_config_staged_set_u8(&h, &F_U8, 2));
@@ -413,14 +413,14 @@ void test_bb_config_staged_begin_resets_reused_handle_after_commit(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u8(&h, &F_U8, 1));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_commit(&h));
 
     // h is now closed (_closed == true). Reuse the SAME struct without a
     // fresh zero-init -- begin() must reset _closed/_local_err itself.
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u16(&h, &F_U16, 4321));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_commit(&h));
 
@@ -438,15 +438,15 @@ void test_bb_config_staged_begin_resets_reused_handle_after_poisoned_commit(void
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     // F_STR is BB_CONFIG_STR; calling set_u16 against it is a type mismatch,
     // poisoning h->_local_err.
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_u16(&h, &F_STR, 1));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_commit(&h));
 
     // Reuse the SAME dirty struct (_closed=true, _local_err=INVALID_ARG).
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u8(&h, &F_U8, 42));
     TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_commit(&h));
 
@@ -462,11 +462,84 @@ void test_bb_config_staged_null_value_returns_invalid_arg(void)
 {
     reset_all();
 
-    bb_config_staged_t h = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_str(&h, &F_STR, NULL));
 
-    bb_config_staged_t h2 = {0};
-    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h2, "ram", "ns"));
+    BB_CONFIG_STAGED_DECLARE_DEFAULT(h2);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h2, "ram", "ns", h2_slots, sizeof(h2_slots) / sizeof(h2_slots[0])));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_set_blob(&h2, &F_BLOB, NULL, 4));
+}
+
+/* ---------------------------------------------------------------------------
+ * 16. Caller-sized capacity (B1-1235 PR2): bb_config_staged_begin() forwards
+ *     `slots`/`cap` straight into bb_storage_txn_begin() rather than owning
+ *     any capacity of its own. Declared at cap=5 -- wider than the house
+ *     default BB_STORAGE_TXN_MAX_KEYS==3 -- and stages 4 fields in one
+ *     session, which the OLD (fixed BB_STORAGE_TXN_MAX_KEYS-sized) private
+ *     backing storage could never have held. Proves txn->_cap (forwarded
+ *     from the caller) drives the bound here too, not a bb_config_staged-
+ *     owned ceiling.
+ * ---------------------------------------------------------------------------*/
+void test_bb_config_staged_non_default_capacity_stages_and_commits_all_fields(void)
+{
+    reset_all();
+
+    BB_CONFIG_STAGED_DECLARE(h, 5);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", h_slots, sizeof(h_slots) / sizeof(h_slots[0])));
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_bool(&h, &F_BOOL, true));
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u8(&h, &F_U8, 7));
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_u16(&h, &F_U16, 4321));
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_set_str(&h, &F_STR, "hi"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_commit(&h));
+
+    bool b = false;
+    uint8_t u8 = 0;
+    uint16_t u16 = 0;
+    char buf[16] = {0};
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_bool(&F_BOOL, &b));
+    TEST_ASSERT_TRUE(b);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_u8(&F_U8, &u8));
+    TEST_ASSERT_EQUAL(7, u8);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_u16(&F_U16, &u16));
+    TEST_ASSERT_EQUAL(4321, u16);
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_str(&F_STR, buf, sizeof(buf), &out_len));
+    TEST_ASSERT_EQUAL_STRING_LEN("hi", buf, out_len);
+}
+
+/* ---------------------------------------------------------------------------
+ * 17. bb_config_staged_begin() forwards `slots`/`cap` straight into
+ *     bb_storage_txn_begin() -- both of that call's argument-validation
+ *     edges are now reachable THROUGH this layer for the first time (B1-
+ *     1235 PR2; previously capacity was private/fixed and neither edge was
+ *     externally reachable here). cap > 0 with slots == NULL is an
+ *     invalid-arg case (mirrors test_bb_storage_txn_begin_nonzero_cap_
+ *     null_slots_returns_invalid_arg).
+ * ---------------------------------------------------------------------------*/
+void test_bb_config_staged_begin_nonzero_cap_null_slots_returns_invalid_arg(void)
+{
+    reset_all();
+
+    bb_config_staged_t h = {0};
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_config_staged_begin(&h, "ram", "ns", NULL, 3));
+}
+
+/* ---------------------------------------------------------------------------
+ * 18. cap == 0 with slots == NULL is LEGAL (unlike cap > 0 with NULL slots,
+ *     above) -- mirrors test_bb_storage_txn_begin_zero_cap_null_slots_is_
+ *     legal_and_stage_fails_no_space. begin() succeeds; a subsequent set_*
+ *     fails cleanly with the delegated txn-level BB_ERR_NO_SPACE (no free
+ *     slot exists at cap 0) -- never a crash or a silent drop.
+ * ---------------------------------------------------------------------------*/
+void test_bb_config_staged_begin_zero_cap_null_slots_is_legal_and_set_fails_no_space(void)
+{
+    reset_all();
+
+    bb_config_staged_t h = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_staged_begin(&h, "ram", "ns", NULL, 0));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_config_staged_set_u8(&h, &F_U8, 1));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_config_staged_commit(&h));
+
+    TEST_ASSERT_FALSE(bb_config_exists(&F_U8));
 }

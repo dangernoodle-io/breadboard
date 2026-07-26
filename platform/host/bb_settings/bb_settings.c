@@ -450,8 +450,8 @@ void bb_settings_wifi_rtc_mirror_write(const char *ssid, const char *pass)
     // bb_nv's mirror-seed/provisioned-repack).
     const char *p = pass ? pass : "";
 
-    bb_config_staged_t h = {0};
-    if (bb_config_staged_begin(&h, "rtc", "") != BB_OK) {
+    BB_CONFIG_STAGED_DECLARE(h, 3);  // ssid + pass + provisioned
+    if (bb_config_staged_begin(&h, "rtc", "", h_slots, sizeof(h_slots) / sizeof(h_slots[0])) != BB_OK) {
         return;  // fail-open -- no "rtc" backend registered, nothing to mirror.
     }
     bb_config_staged_set_str(&h, &s_wifi_rtc_ssid_field, ssid);
@@ -515,8 +515,8 @@ bb_err_t bb_settings_wifi_set(const char *ssid, const char *pass)
 {
     const char *p = pass ? pass : "";
 
-    bb_config_staged_t h = {0};
-    bb_err_t err = bb_config_staged_begin(&h, "nvs", BB_SETTINGS_WIFI_NS);
+    BB_CONFIG_STAGED_DECLARE(h, 2);  // ssid + pass
+    bb_err_t err = bb_config_staged_begin(&h, "nvs", BB_SETTINGS_WIFI_NS, h_slots, sizeof(h_slots) / sizeof(h_slots[0]));
     if (err != BB_OK) return err;
 
     bb_config_staged_set_str(&h, &s_wifi_ssid_field, ssid);
@@ -540,8 +540,8 @@ bb_err_t bb_settings_wifi_pending_set(const char *ssid, const char *pass)
 {
     const char *p = pass ? pass : "";
 
-    bb_config_staged_t h = {0};
-    bb_err_t err = bb_config_staged_begin(&h, "nvs", BB_SETTINGS_WIFI_NS);
+    BB_CONFIG_STAGED_DECLARE(h, 3);  // ssid + pass + try
+    bb_err_t err = bb_config_staged_begin(&h, "nvs", BB_SETTINGS_WIFI_NS, h_slots, sizeof(h_slots) / sizeof(h_slots[0]));
     if (err != BB_OK) return err;
 
     bb_config_staged_set_str(&h, &s_wifi_ssid_p_field, ssid);
@@ -625,8 +625,8 @@ bb_err_t bb_settings_wifi_pending_promote(void)
     if (perr != BB_OK) return perr;
     (void)pass_len;
 
-    bb_config_staged_t h = {0};
-    bb_err_t err = bb_config_staged_begin(&h, "nvs", BB_SETTINGS_WIFI_NS);
+    BB_CONFIG_STAGED_DECLARE(h, 3);  // ssid + pass + try
+    bb_err_t err = bb_config_staged_begin(&h, "nvs", BB_SETTINGS_WIFI_NS, h_slots, sizeof(h_slots) / sizeof(h_slots[0]));
     if (err != BB_OK) return err;
 
     bb_config_staged_set_str(&h, &s_wifi_ssid_field, ssid);
