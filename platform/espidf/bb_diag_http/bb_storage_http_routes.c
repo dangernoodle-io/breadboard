@@ -675,13 +675,20 @@ const char *const bb_storage_http_delete_request_schema = BB_STORAGE_HTTP_DELETE
 // contract instead of silently truncating.
 static char s_storage_delete_request_schema_buf[320];
 
-// s_storage_delete_route stays `static const`: only the BYTES the
-// `.request_schema` pointer targets change at runtime (via
-// ensure_storage_delete_request_schema_patched() below), never the pointer
-// value itself -- same posture as bb_sensor_http_wire.c's PATCH
-// /api/sensors/fan request_schema. Before the first compose, the buffer is
-// all-zero (buf[0] == '\0', an empty string, never NULL).
-static const bb_route_t s_storage_delete_route = {
+// Mutable (`.data`, not `.rodata`) with this config on -- `.request_schema`
+// starts NULL and is patched in once by
+// ensure_storage_delete_request_schema_patched() below (only on that
+// composer's SUCCESS path), same NULL-then-patch shape as every
+// `.request_schema`/`.schema` site in this codebase. Do NOT point this
+// directly at s_storage_delete_request_schema_buf in the initializer: that
+// link-time-constant address is always non-NULL even before the first
+// compose, so a compose failure would leave bb_openapi_emit.c's
+// `if (route->request_schema)` pointer-null check seeing a truthy-but-empty
+// buffer and emitting a schema-less requestBody instead of omitting it
+// entirely -- see bb_sensor_http_wire.c's PATCH /api/sensors/fan
+// s_sensors_fan_patch_describe_route for the documented precedent (B1-1244,
+// the failure mode this exact route used to have).
+static bb_route_t s_storage_delete_route = {
     .method           = BB_HTTP_DELETE,
     .path             = "/api/diag/storage",
     .tag              = "diag",
@@ -693,7 +700,7 @@ static const bb_route_t s_storage_delete_route = {
                         "CONFIG_BB_SETTINGS_CREDS_RTC_BACKUP is enabled). Use an array namespace to "
                         "reset multiple namespaces in one call (e.g. [\"bb_mqtt\",\"bb_udp\",\"bb_tcp\"]). "
                         "\"key\" is forbidden when namespace is an array.",
-    .request_schema   = s_storage_delete_request_schema_buf,
+    .request_schema   = NULL /* patched at init */,
     .request_content_type = "application/json",
     .responses        = s_storage_delete_responses,
     .parameters       = NULL,
@@ -733,10 +740,13 @@ static const bb_route_t s_storage_delete_route = {
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
 static bb_err_t ensure_storage_delete_request_schema_patched(void)
 {
-    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+    bb_err_t rc = bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
                                               &s_storage_delete_desc, &bb_storage_http_delete_apply_meta,
                                               s_storage_delete_request_schema_buf,
                                               sizeof(s_storage_delete_request_schema_buf));
+    if (rc != BB_OK) return rc;  // fail loud -- never patch a partial/NULL schema in
+    s_storage_delete_route.request_schema = s_storage_delete_request_schema_buf;
+    return BB_OK;
 }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
@@ -1038,19 +1048,26 @@ const char *const bb_storage_http_factory_reset_request_schema =
 // contract instead of silently truncating.
 static char s_factory_reset_request_schema_buf[160];
 
-// s_factory_reset_route stays `static const`: only the BYTES the
-// `.request_schema` pointer targets change at runtime (via
-// ensure_factory_reset_request_schema_patched() below), never the pointer
-// value itself -- same posture as bb_sensor_http_wire.c's PATCH
-// /api/sensors/fan request_schema. Before the first compose, the buffer is
-// all-zero (buf[0] == '\0', an empty string, never NULL).
-static const bb_route_t s_factory_reset_route = {
+// Mutable (`.data`, not `.rodata`) with this config on -- `.request_schema`
+// starts NULL and is patched in once by
+// ensure_factory_reset_request_schema_patched() below (only on that
+// composer's SUCCESS path), same NULL-then-patch shape as every
+// `.request_schema`/`.schema` site in this codebase. Do NOT point this
+// directly at s_factory_reset_request_schema_buf in the initializer: that
+// link-time-constant address is always non-NULL even before the first
+// compose, so a compose failure would leave bb_openapi_emit.c's
+// `if (route->request_schema)` pointer-null check seeing a truthy-but-empty
+// buffer and emitting a schema-less requestBody instead of omitting it
+// entirely -- see bb_sensor_http_wire.c's PATCH /api/sensors/fan
+// s_sensors_fan_patch_describe_route for the documented precedent (B1-1244,
+// the failure mode this exact route used to have).
+static bb_route_t s_factory_reset_route = {
     .method               = BB_HTTP_POST,
     .path                 = "/api/diag/factory-reset",
     .tag                  = "diag",
     .summary              = "Erase the whole \"nvs\" bb_storage backend and reboot to factory defaults",
     .request_content_type = "application/json",
-    .request_schema       = s_factory_reset_request_schema_buf,
+    .request_schema       = NULL /* patched at init */,
     .responses            = s_factory_reset_responses,
     .handler              = factory_reset_handler,
 };
@@ -1079,10 +1096,13 @@ static const bb_route_t s_factory_reset_route = {
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
 static bb_err_t ensure_factory_reset_request_schema_patched(void)
 {
-    return bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
+    bb_err_t rc = bb_serialize_meta_ensure_composed(bb_serialize_meta_openapi_schema,
                                               &s_factory_reset_desc, &bb_storage_http_factory_reset_meta,
                                               s_factory_reset_request_schema_buf,
                                               sizeof(s_factory_reset_request_schema_buf));
+    if (rc != BB_OK) return rc;  // fail loud -- never patch a partial/NULL schema in
+    s_factory_reset_route.request_schema = s_factory_reset_request_schema_buf;
+    return BB_OK;
 }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
@@ -1093,13 +1113,13 @@ bb_err_t bb_storage_http_factory_reset_routes_init(bb_http_handle_t server)
     // Documentation-only schema compose (config ON only): a compose failure
     // here must not abort real route registration below (bb_data_bind +
     // POST /api/diag/factory-reset). s_factory_reset_route.request_schema
-    // always points at s_factory_reset_request_schema_buf (see that route's
-    // own doc comment above), so on failure the buffer stays empty rather
-    // than NULL -- but bb_http_resp_json_obj_set_raw() (bb_openapi_emit.c)
-    // rejects a zero-length raw value and returns before emitting the
-    // "schema" key, so an unpatched buffer degrades to an empty requestBody
-    // content block rather than corrupting the emitted document. Degrade
-    // and continue: log a warning and fall through to registration.
+    // starts NULL and is patched to s_factory_reset_request_schema_buf only
+    // on ensure_factory_reset_request_schema_patched()'s SUCCESS path (see
+    // that route's own doc comment above), so on failure the field stays
+    // NULL -- and bb_openapi_emit.c's `if (route->request_schema)` gate
+    // omits requestBody entirely rather than emitting an empty content
+    // block. Degrade and continue: log a warning and fall through to
+    // registration.
     //
     // This init fn is portable and genuinely host-compiled (see
     // test_route_schema_literals_live.c and this component's own
@@ -1168,16 +1188,12 @@ bb_err_t bb_storage_http_factory_reset_assemble_request_schema_for_test(void)
 
 const char *bb_storage_http_factory_reset_get_request_schema_for_test(void)
 {
-#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
-    // s_factory_reset_route.request_schema always points at
-    // s_factory_reset_request_schema_buf (see that route's own doc
-    // comment) -- an empty buffer (buf[0] == '\0') means "not yet
-    // composed", the same sentinel bb_serialize_meta_ensure_composed()
-    // itself uses, so report it as NULL rather than an empty string.
-    return s_factory_reset_request_schema_buf[0] != '\0' ? s_factory_reset_request_schema_buf : NULL;
-#else
+    // Reads the actual struct field the emitter dereferences
+    // (bb_openapi_emit.c's `if (route->request_schema)`), not a buffer-
+    // content proxy that can diverge from it -- s_factory_reset_route.
+    // request_schema is NULL-then-patched (see that route's own doc
+    // comment), same shape as every request/response schema in this file.
     return s_factory_reset_route.request_schema;
-#endif
 }
 #endif /* BB_STORAGE_HTTP_TESTING */
 
@@ -1194,13 +1210,12 @@ bb_err_t bb_storage_http_routes_init(bb_http_handle_t server)
     // Documentation-only schema compose (config ON only): a compose failure
     // here must not abort real route registration below (bb_data_bind +
     // DELETE /api/diag/storage). s_storage_delete_route.request_schema
-    // always points at s_storage_delete_request_schema_buf (see that
-    // route's own doc comment above), so on failure the buffer stays empty
-    // rather than NULL -- but bb_http_resp_json_obj_set_raw()
-    // (bb_openapi_emit.c) rejects a zero-length raw value and returns
-    // before emitting the "schema" key, so an unpatched buffer degrades to
-    // an empty requestBody content block rather than corrupting the emitted
-    // document. Degrade and continue: log a warning and fall through.
+    // starts NULL and is patched to s_storage_delete_request_schema_buf only
+    // on ensure_storage_delete_request_schema_patched()'s SUCCESS path (see
+    // that route's own doc comment above), so on failure the field stays
+    // NULL -- and bb_openapi_emit.c's `if (route->request_schema)` gate
+    // omits requestBody entirely rather than emitting an empty content
+    // block. Degrade and continue: log a warning and fall through.
     //
     // This init fn is portable and genuinely host-compiled (see
     // test_route_schema_literals_live.c and this component's own
@@ -1289,15 +1304,11 @@ bb_err_t bb_storage_http_delete_assemble_request_schema_for_test(void)
 
 const char *bb_storage_http_delete_get_request_schema_for_test(void)
 {
-#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
-    // s_storage_delete_route.request_schema always points at
-    // s_storage_delete_request_schema_buf (see that route's own doc
-    // comment) -- an empty buffer (buf[0] == '\0') means "not yet
-    // composed", the same sentinel bb_serialize_meta_ensure_composed()
-    // itself uses, so report it as NULL rather than an empty string.
-    return s_storage_delete_request_schema_buf[0] != '\0' ? s_storage_delete_request_schema_buf : NULL;
-#else
+    // Reads the actual struct field the emitter dereferences
+    // (bb_openapi_emit.c's `if (route->request_schema)`), not a buffer-
+    // content proxy that can diverge from it -- s_storage_delete_route.
+    // request_schema is NULL-then-patched (see that route's own doc
+    // comment), same shape as every request/response schema in this file.
     return s_storage_delete_route.request_schema;
-#endif
 }
 #endif /* BB_STORAGE_HTTP_TESTING */
