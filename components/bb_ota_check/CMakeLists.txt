@@ -11,6 +11,11 @@
 # gated on BB_SERIALIZE_META_SHIP; B1-1059 device-shippable PR, default off
 # via CONFIG_BB_OPENAPI_RUNTIME_META); PRIV_REQUIRES doesn't propagate to a
 # hand-wired external consumer of this public header.
+# bb_data_http: PRIV -- B1-1220: bb_data_http_describe() call in
+# src/bb_ota_check_common.c's bb_ota_check_init() (internal .c use only, no
+# public header of this component includes bb_data_http.h). Replaces
+# bb_openapi, which pulled bb_openapi into every consumer's link closure
+# for a single internal registration call.
 idf_component_register(
     SRCS "src/bb_ota_check_common.c"
          "src/bb_ota_check_wire.c"
@@ -18,4 +23,4 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES bb_core bb_release_manifest bb_serialize bb_serialize_meta
-    PRIV_REQUIRES bb_http_client bb_data bb_http bb_http_server bb_log bb_mdns bb_settings bb_openapi bb_system esp_http_server bb_timer esp_hw_support bb_cache bb_task bb_str)
+    PRIV_REQUIRES bb_http_client bb_data bb_http bb_http_server bb_log bb_mdns bb_settings bb_data_http bb_system esp_http_server bb_timer esp_hw_support bb_cache bb_task bb_str)

@@ -120,11 +120,16 @@ endif()
 # gated on BB_SERIALIZE_META_SHIP; B1-1059 device-shippable PR, default off
 # via CONFIG_BB_OPENAPI_RUNTIME_META); PRIV_REQUIRES doesn't propagate to a
 # hand-wired external consumer of this public header.
+# bb_data_http: PRIV -- B1-1220: bb_data_http_describe() call in
+# bb_diag_http_routes.c's bb_diag_routes_init() (internal .c use only, no
+# public header of this component includes bb_data_http.h). Replaces
+# bb_openapi, which pulled bb_openapi into every consumer's link closure
+# (e.g. examples/floor) for a single internal registration call.
 idf_component_register(
     SRCS ${_diag_http_srcs}
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_diag bb_http_server bb_serialize bb_storage bb_serialize_meta
-    PRIV_REQUIRES bb_log bb_http bb_cache bb_config bb_ntp bb_openapi bb_system bb_ota_validator bb_data bb_task_registry bb_task espcoredump lwip esp_partition bb_str bb_settings bb_timer
+    PRIV_REQUIRES bb_log bb_http bb_cache bb_config bb_ntp bb_data_http bb_system bb_ota_validator bb_data bb_task_registry bb_task espcoredump lwip esp_partition bb_str bb_settings bb_timer
 )
 
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)

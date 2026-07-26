@@ -37,6 +37,7 @@ void test_bb_serialize_meta_ensure_topic_schema_dispatches_schema_composer(void)
 void test_bb_ota_check_update_available_schema_offline_on_compose_failure(void);
 void test_bb_ota_check_update_available_schema_matches_expected_content(void);
 void test_bb_ota_check_update_available_schema_idempotent_pointer_stable(void);
+void test_bb_ota_check_update_available_describe_failure_is_non_fatal(void);
 
 // From test_bb_ota_check_config_get_wiring.c (B1-1059 emit batch A, site 3)
 void test_bb_ota_check_config_get_schema_offline_on_compose_failure(void);
@@ -272,6 +273,7 @@ int main(void)
 
     RUN_TEST(test_bb_ota_check_update_available_schema_matches_expected_content);
     RUN_TEST(test_bb_ota_check_update_available_schema_idempotent_pointer_stable);
+    RUN_TEST(test_bb_ota_check_update_available_describe_failure_is_non_fatal);
 
     RUN_TEST(test_bb_ota_check_config_get_schema_matches_expected_content);
     RUN_TEST(test_bb_ota_check_config_get_schema_idempotent_pointer_stable);

@@ -1517,18 +1517,37 @@ void test_sse_schema_union_seam_external_dedup_cap_overflow_logs_once_and_degrad
 // "log", component_name=="LogEvent") is correct, using the SAME schema
 // literal content bb_log_event_line_wire.c actually serves (k_log_schema
 // above), not a synthetic fixture.
-void test_sse_schema_log_event_describe_matches_legacy_register_topic_schema_output(void)
+// Shared idiom for the "does a migrated producer's bb_data_http_describe()
+// call emit a document byte-identical to what its legacy
+// bb_openapi_register_topic_schema() call used to produce" fidelity check
+// below -- one hand-rolled instance (the pilot) plus five near-identical
+// copies (this commit) is well past the project's second-instance
+// extraction threshold.
+//
+// The legacy and describe-table captures are snapshotted into a fixed-size
+// buffer (single-slot capture invariant, test_openapi_capture.h, forces the
+// legacy capture to be freed before the second one is taken). Both captured
+// lengths are asserted strictly under the buffer size first: if either body
+// were long enough to truncate, both sides would truncate identically and
+// TEST_ASSERT_EQUAL_STRING would pass vacuously on the truncated prefixes,
+// silently masking a real divergence past the cut.
+#define FIDELITY_LEGACY_BODY_BUF_SIZE 2048
+
+static void assert_describe_matches_legacy(const char *key, const char *topic,
+                                            const char *component_name,
+                                            const char *schema_literal)
 {
     bb_http_route_registry_clear();
     bb_http_register_described_route(NULL, &s_sse_route);
-    bb_openapi_register_topic_schema("log", k_log_schema, "LogEvent");
+    bb_openapi_register_topic_schema(topic, schema_literal, component_name);
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
     test_openapi_capture_result_t legacy = test_openapi_capture(&meta);
     TEST_ASSERT_EQUAL(BB_OK, legacy.status);
     TEST_ASSERT_NOT_NULL(legacy.cap.body);
+    TEST_ASSERT_TRUE(legacy.cap.body_len < FIDELITY_LEGACY_BODY_BUF_SIZE);
     // Single-slot capture invariant (test_openapi_capture.h): must free
     // before driving a second capture, so snapshot the body first.
-    char legacy_body[2048];
+    char legacy_body[FIDELITY_LEGACY_BODY_BUF_SIZE];
     strncpy(legacy_body, legacy.cap.body, sizeof(legacy_body) - 1);
     legacy_body[sizeof(legacy_body) - 1] = '\0';
     test_openapi_capture_free(&legacy);
@@ -1539,10 +1558,11 @@ void test_sse_schema_log_event_describe_matches_legacy_register_topic_schema_out
     bb_http_register_described_route(NULL, &s_sse_route);
     bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach);
     TEST_ASSERT_EQUAL(BB_OK,
-        bb_data_http_describe("log", "log", "LogEvent", k_log_schema));
+        bb_data_http_describe(key, topic, component_name, schema_literal));
     test_openapi_capture_result_t via_describe = test_openapi_capture(&meta);
     TEST_ASSERT_EQUAL(BB_OK, via_describe.status);
     TEST_ASSERT_NOT_NULL(via_describe.cap.body);
+    TEST_ASSERT_TRUE(via_describe.cap.body_len < FIDELITY_LEGACY_BODY_BUF_SIZE);
 
     TEST_ASSERT_EQUAL_STRING(legacy_body, via_describe.cap.body);
 
@@ -1554,4 +1574,47 @@ void test_sse_schema_log_event_describe_matches_legacy_register_topic_schema_out
     test_openapi_capture_free(&via_describe);
     bb_openapi_set_topic_source_fn(NULL);
     bb_data_http_reset_for_test();
+}
+
+void test_sse_schema_log_event_describe_matches_legacy_register_topic_schema_output(void)
+{
+    assert_describe_matches_legacy("log", "log", "LogEvent", k_log_schema);
+}
+
+// ---------------------------------------------------------------------------
+// B1-1220 PR3 (remaining five producers): each real call-site shape must
+// emit a document byte-identical to what the legacy
+// bb_openapi_register_topic_schema() call it replaced would have produced.
+// Same shape as the pilot test above -- key==topic==the bb_data key each
+// producer binds under, using the SAME schema literal content each producer
+// actually serves (the k_*_schema fixtures above), not a synthetic fixture.
+// ---------------------------------------------------------------------------
+
+void test_sse_schema_ota_hooks_describe_matches_legacy_register_topic_schema_output(void)
+{
+    assert_describe_matches_legacy("ota.progress", "ota.progress", "OtaProgress",
+                                    k_ota_progress_schema);
+}
+
+void test_sse_schema_health_stack_describe_matches_legacy_register_topic_schema_output(void)
+{
+    assert_describe_matches_legacy("health.stack", "health.stack", "HealthStack",
+                                    k_health_stack_schema);
+}
+
+void test_sse_schema_diag_boot_describe_matches_legacy_register_topic_schema_output(void)
+{
+    assert_describe_matches_legacy("diag.boot", "diag.boot", "DiagBoot", k_diag_boot_schema);
+}
+
+void test_sse_schema_display_info_describe_matches_legacy_register_topic_schema_output(void)
+{
+    assert_describe_matches_legacy("health.display", "health.display", "DisplayInfo",
+                                    k_display_info_schema);
+}
+
+void test_sse_schema_ota_check_describe_matches_legacy_register_topic_schema_output(void)
+{
+    assert_describe_matches_legacy("update.available", "update.available", "UpdateAvailable",
+                                    k_update_available_schema);
 }

@@ -7,7 +7,7 @@
 
 #ifdef ESP_PLATFORM
 #include "bb_data.h"
-#include "bb_openapi.h"
+#include "bb_data_http.h"
 #include "bb_http_server.h"
 #endif
 
@@ -251,26 +251,23 @@ void bb_ota_hooks_test_reset(void)
 
 #ifdef ESP_PLATFORM
 
-// SSE topic schema for "ota.progress" (B1-1059 SSE batch PR-3): the hand
-// literal moved to bb_ota_hooks_wire.c (relocation, see its own banner) --
-// config-OFF this register call serves that literal unchanged; config-ON,
-// the schema is composed first, before serving the runtime-composed
-// buffer -- a compose failure is degrade-and-continue (warn, keep going),
-// not fail-loud, see the comment at the call site below.
+// SSE topic schema for "ota.progress" (B1-1220: migrated to the
+// bb_data_http_describe() seam -- bb_ota_hooks no longer links bb_openapi
+// at all, see CMakeLists.txt). key and topic are both "ota.progress". A
+// composition root that wants "ota.progress" back in /api/openapi.json
+// must wire bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach)
+// -- see bb_openapi.h's seam doc.
 //
 // Doc-only bookkeeping (feeds /api/openapi.json schema synthesis) -- a
 // compose failure here must not abort bring-up: schema composition is
 // documentation-only and must never take down OTA progress reporting.
-// Degrade and continue -- log a warning and fall through. But a compose
-// failure must degrade to "no OtaProgress entry in the document", never
-// "an invalid entry that poisons the whole document": on failure,
-// bb_ota_hooks_ensure_schema_patched() guarantees the schema buffer is
-// left EMPTY, and bb_openapi_register_schema() rejects only a NULL
-// literal, not "" -- an empty literal would still register and later get
-// spliced raw into the JSON document as `"OtaProgress":` with no value,
-// corrupting every topic's entry, not just this one. So skip
-// registration entirely when compose failed (see bb_log_event_init()'s
-// identical rationale, #1083).
+// Degrade and continue -- log a warning and fall through, skipping the
+// describe call entirely (never describe with an empty/poisoned schema
+// buffer). The bb_data_http_describe() call itself is also non-fatal on
+// failure: it logs a warning and falls through rather than aborting
+// bb_ota_hooks_init(), since its backing table (BB_DATA_HTTP_MAX_DESCRIBE)
+// is shared, first-come, no-eviction, and can legitimately be full by the
+// time this producer registers.
 bb_err_t bb_ota_hooks_init(bb_http_handle_t server)
 {
     (void)server;
@@ -279,10 +276,18 @@ bb_err_t bb_ota_hooks_init(bb_http_handle_t server)
     if (schema_rc != BB_OK) {
         bb_log_w(TAG, "ota.progress schema compose failed: %d", (int)schema_rc);
     } else {
-        bb_openapi_register_topic_schema("ota.progress", bb_ota_hooks_get_schema(), "OtaProgress");
+        bb_err_t describe_rc = bb_data_http_describe("ota.progress", "ota.progress",
+                                                      "OtaProgress", bb_ota_hooks_get_schema());
+        if (describe_rc != BB_OK) {
+            bb_log_w(TAG, "ota.progress schema describe failed: %d", (int)describe_rc);
+        }
     }
 #else
-    bb_openapi_register_topic_schema("ota.progress", bb_ota_hooks_get_schema(), "OtaProgress");
+    bb_err_t describe_rc = bb_data_http_describe("ota.progress", "ota.progress",
+                                                  "OtaProgress", bb_ota_hooks_get_schema());
+    if (describe_rc != BB_OK) {
+        bb_log_w(TAG, "ota.progress schema describe failed: %d", (int)describe_rc);
+    }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
     return BB_OK;
 }

@@ -23,7 +23,7 @@
 #include "bb_http_server.h"
 #include "bb_http_serialize_stream.h"
 #include "bb_log.h"
-#include "bb_openapi.h"
+#include "bb_data_http.h"
 #include "bb_config.h"
 #include "bb_nv_namespaces.h"
 #include "bb_nv_keys.h"
@@ -1072,38 +1072,43 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
         }
     }
 
-    // Register the OpenAPI schema for the "diag.boot" bb_data key, then
-    // publish the initial snapshot. Compose-then-register (B1-1059 SSE batch
-    // PR-3): the hand literal moved to bb_diag_boot_wire.c (relocation, see
-    // its own banner) -- config-OFF this register call serves that literal
-    // unchanged; config-ON, the schema is composed first, before serving
-    // the runtime-composed buffer -- a compose failure is degrade-and-
-    // continue (warn, keep going), not fail-loud, see the comment below.
+    // Describe the "diag.boot" bb_data key via the B1-1220
+    // bb_data_http_describe() seam (bb_diag_http_routes no longer links
+    // bb_openapi at all, see CMakeLists.txt), then publish the initial
+    // snapshot. key and topic are both BB_DIAG_BOOT_TOPIC. A composition
+    // root that wants "diag.boot" back in /api/openapi.json must wire
+    // bb_openapi_set_topic_source_fn(bb_data_http_describe_foreach) -- see
+    // bb_openapi.h's seam doc.
     //
     // Doc-only bookkeeping (feeds /api/openapi.json schema synthesis) -- a
     // compose failure here must not abort bring-up: schema composition is
     // documentation-only and must never block the initial snapshot publish
     // + on_validated wiring below. Degrade and continue -- log a warning
-    // and fall through. But a compose failure must degrade to "no DiagBoot
-    // entry in the document", never "an invalid entry that poisons the
-    // whole document": on failure, bb_diag_boot_ensure_schema_patched()
-    // guarantees the schema buffer is left EMPTY, and
-    // bb_openapi_register_schema() rejects only a NULL literal, not "" --
-    // an empty literal would still register and later get spliced raw
-    // into the JSON document as `"DiagBoot":` with no value, corrupting
-    // every topic's entry, not just this one. So skip registration
-    // entirely when compose failed (see bb_log_event_init()'s identical
-    // rationale, #1083).
+    // and fall through, skipping the describe call entirely (never
+    // describe with an empty/poisoned schema buffer). The
+    // bb_data_http_describe() call itself is also non-fatal on failure: it
+    // logs a warning and falls through rather than aborting
+    // bb_diag_routes_init(), since its backing table
+    // (BB_DATA_HTTP_MAX_DESCRIBE) is shared, first-come, no-eviction, and
+    // can legitimately be full by the time this producer registers.
     {
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
         bb_err_t schema_rc = bb_diag_boot_ensure_schema_patched();
         if (schema_rc != BB_OK) {
             bb_log_w(TAG, "diag.boot schema compose failed: %d", (int)schema_rc);
         } else {
-            bb_openapi_register_topic_schema(BB_DIAG_BOOT_TOPIC, bb_diag_boot_get_schema(), "DiagBoot");
+            bb_err_t describe_rc = bb_data_http_describe(BB_DIAG_BOOT_TOPIC, BB_DIAG_BOOT_TOPIC,
+                                                          "DiagBoot", bb_diag_boot_get_schema());
+            if (describe_rc != BB_OK) {
+                bb_log_w(TAG, "diag.boot schema describe failed: %d", (int)describe_rc);
+            }
         }
 #else
-        bb_openapi_register_topic_schema(BB_DIAG_BOOT_TOPIC, bb_diag_boot_get_schema(), "DiagBoot");
+        bb_err_t describe_rc = bb_data_http_describe(BB_DIAG_BOOT_TOPIC, BB_DIAG_BOOT_TOPIC,
+                                                      "DiagBoot", bb_diag_boot_get_schema());
+        if (describe_rc != BB_OK) {
+            bb_log_w(TAG, "diag.boot schema describe failed: %d", (int)describe_rc);
+        }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
         // Publish initial retained snapshot and wire the on_validated callback

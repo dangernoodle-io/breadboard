@@ -11,8 +11,13 @@ idf_component_register(
     INCLUDE_DIRS "include"
     # bb_serialize: PUBLIC -- include/bb_ota_hooks_wire.h (the "ota.progress"
     # wire descriptor, B1-1045 PR-2) includes bb_serialize.h.
+    # bb_data_http: PRIV -- B1-1220: bb_data_http_describe() call in
+    # bb_ota_hooks.c's bb_ota_hooks_init() (internal .c use only, no public
+    # header of this component includes bb_data_http.h). Replaces bb_openapi,
+    # which pulled bb_openapi into every consumer's link closure for a
+    # single internal registration call.
     REQUIRES bb_core bb_serialize bb_serialize_meta
-    PRIV_REQUIRES bb_log bb_data bb_openapi bb_http_server bb_str
+    PRIV_REQUIRES bb_log bb_data bb_data_http bb_http_server bb_str
 )
 
 # bb_ota_hooks.c is portable (guarded by #ifdef ESP_PLATFORM internally) but

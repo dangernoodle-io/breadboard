@@ -16,7 +16,12 @@ set(_display_reqs bb_core bb_http_server bb_serialize bb_serialize_meta)
 # REST exposure is being rehomed to system.display under bb_system's diag
 # endpoint (B1-1150), not this component.
 # bb_nv -> bb_settings: display_enabled moved to bb_settings (B1-750).
-set(_display_priv_reqs bb_log bb_cache bb_data bb_openapi bb_settings bb_str)
+# bb_data_http: PRIV -- B1-1220: bb_data_http_describe() call in
+# bb_display_info.c's bb_display_register_info() (internal .c use only, no
+# public header of this component includes bb_data_http.h). Replaces
+# bb_openapi, which pulled bb_openapi into every consumer's link closure
+# for a single internal registration call.
+set(_display_priv_reqs bb_log bb_cache bb_data bb_data_http bb_settings bb_str)
 
 if(CONFIG_BB_DISPLAY_FONT_8X16)
     list(APPEND SRCS "${CMAKE_CURRENT_LIST_DIR}/src/bb_display_font_8x16.c")

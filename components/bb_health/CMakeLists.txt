@@ -32,7 +32,12 @@ idf_component_register(
     # (B1-1100), a direct dependency (bb_wifi_http's public header merely
     # transitively includes bb_wifi.h, which does not satisfy REQUIRES'
     # direct-deps-only rule for this symbol usage).
+    # bb_data_http: PRIV -- B1-1220: bb_data_http_describe() call in
+    # bb_health_stack.c's bb_health_stack_monitor_init() (internal .c use
+    # only, no public header of this component includes bb_data_http.h).
+    # Replaces bb_openapi, which pulled bb_openapi into every consumer's
+    # link closure for a single internal registration call.
     REQUIRES bb_core bb_http_server bb_serialize bb_serialize_meta
-    PRIV_REQUIRES bb_http bb_wifi bb_wifi_http bb_mdns bb_openapi bb_log bb_ota_validator
+    PRIV_REQUIRES bb_http bb_wifi bb_wifi_http bb_mdns bb_data_http bb_log bb_ota_validator
                   bb_data bb_task_registry bb_str bb_registry
 )

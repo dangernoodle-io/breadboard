@@ -23,12 +23,12 @@ Public symbols use the `bb_` prefix.
 | `bb_config` | private | Typed configuration layer over `bb_storage` — gives its blob-only vtable scalar-typed meaning (bool/u8/u16/u32/i32/str/blob) via a caller-owned field descriptor table. | [bb_config](../bb_config/README.md) |
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
 | `bb_data` | private | bb_data core binding table (B1-832) -- OWNS the `key -> (desc, gather)` binding table for the future bidirectional data path (the B1-828 epic replacing bb_pub + bb_sub + all bb_sink_*). | [bb_data](../bb_data/README.md) |
+| `bb_data_http` | private | bb_data_http -- the converged HTTP SSE/WS push transport (B1-1033, design KB 1443/1444). | [bb_data_http](../bb_data_http/README.md) |
 | `bb_diag` | public | — | [bb_diag](../README.md) |
 | `bb_http` | private | — | [bb_http](../README.md) |
 | `bb_http_server` | public | — | [bb_http_server](../README.md) |
 | `bb_log` | private | — | [bb_log](../README.md) |
 | `bb_ntp` | private | — | [bb_ntp](../README.md) |
-| `bb_openapi` | private | — | [bb_openapi](../README.md) |
 | `bb_ota_validator` | private | — | [bb_ota_validator](../README.md) |
 | `bb_serialize` | public | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
 | `bb_serialize_meta` | public | Device-shippable "cold metadata" companion engine for bb_serialize_desc_t (B1-767 PR-7, B1-1059): validation constraints + JSON-Schema docs for a future runtime OpenAPI schema generator, gated off by default. | [bb_serialize_meta](../bb_serialize_meta/README.md) |
