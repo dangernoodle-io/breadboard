@@ -7,6 +7,7 @@
 // byte-compat rationale.
 
 #include "bb_settings.h"
+#include "bb_callback_slot.h"
 #include "bb_config.h"
 #include "bb_config_staged.h"
 #include "bb_storage.h"
@@ -460,6 +461,49 @@ void bb_settings_wifi_rtc_mirror_write(const char *ssid, const char *pass)
 }
 
 // ---------------------------------------------------------------------------
+// WiFi provisioned flag (B1-807, corrected design) -- see bb_settings.h for
+// the full contract, including why this is NOT the same thing as
+// bb_settings_wifi_rtc_mirror_provisioned_get (that flag is the RTC
+// mirror's own volatile/degenerate copy).
+//
+// Callback-slot instantiation placed here, ahead of its two production
+// call sites below (bb_settings_wifi_provisioned_mark_connected in this
+// file, and bb_settings_wifi_pending_promote further down) -- no forward
+// declaration needed. BB_CALLBACK_SLOT_VOID0 (bb_core's "single-slot
+// injected callback" macro, bb_callback_slot.h) generates the public setter
+// (bb_settings_wifi_set_provisioned_cb) plus this component's private
+// invoke (bb_settings_provisioned_invoke) -- reuse of the existing idiom,
+// per the consolidation rule, not a hand-rolled second instance.
+// ---------------------------------------------------------------------------
+
+BB_CALLBACK_SLOT_VOID0(provisioned, bb_settings_wifi_provisioned_fn,
+                       bb_settings_wifi_set_provisioned_cb,
+                       bb_settings_provisioned_invoke)
+
+// Fail-CLOSED (false) on ANY backend error or an unset key -- see
+// bb_settings.h.
+bool bb_settings_wifi_provisioned_get(void)
+{
+    bool val = false;
+    bb_err_t err = bb_config_get_bool(&s_wifi_provisioned_field, &val);
+    return err == BB_OK && val;
+}
+
+// F1 SET POLICY, direct-commit path (bb_settings.h has the full contract).
+// Edge-gated: reads the PRIOR value before writing so the notify only fires
+// on a genuine false->true transition, and only once the write itself has
+// actually committed -- a read/write race against a concurrent writer isn't
+// guarded here (this seam is documented as WiFi/IP-event-task-only, single
+// caller in production).
+void bb_settings_wifi_provisioned_mark_connected(void)
+{
+    if (bb_settings_wifi_provisioned_get()) return;  // already true -- sticky, no refire
+    if (bb_config_set_bool(&s_wifi_provisioned_field, true) == BB_OK) {
+        bb_settings_provisioned_invoke();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // WiFi live-creds writer (B1: bb_nv creds-cluster PR4). No validation --
 // callers pre-validate ssid/pass (same posture as the pending-creds writers
 // below).
@@ -590,6 +634,28 @@ bb_err_t bb_settings_wifi_pending_promote(void)
     bb_config_staged_set_u8(&h, &s_wifi_try_field, 0);
     err = bb_config_staged_commit(&h);
     if (err != BB_OK) return err;
+
+    // F1 SET POLICY (B1-807): stamp the provisioned flag via the SAME
+    // writer the direct-commit path uses (bb_settings_wifi_provisioned_
+    // mark_connected) -- ONE policy, ONE write path, two call sites, rather
+    // than a second hand-rolled edge-gate here. NOT staged as a 4th key in
+    // the atomic commit above: BB_STORAGE_TXN_MAX_KEYS is 3, and the
+    // wifi-pending ssid/pass/try triple already uses all 3 slots. A 4th key
+    // would fail LOUDLY and ATOMICALLY (bb_storage_txn_slot_stage bounds-
+    // checks and returns BB_ERR_NO_SPACE, poisoning the txn so every
+    // backend's commit refuses to write anything at all) -- the storage
+    // primitive is not at risk either way. The reason to avoid it is that
+    // BB_STORAGE_TXN_MAX_KEYS is a GLOBAL cap: widening it to fit a 4th key
+    // here would grow every unrelated bb_storage_txn_t consumer's static
+    // footprint repo-wide, well outside this ticket's flag-and-seam scope
+    // (B1-1235 tracks making txn capacity caller-sized instead). The
+    // benefit of the sequential write below is narrow but sufficient: a
+    // crash in the gap between the two writes only delays the flag
+    // reaching true by, at most, until the very next validated connect
+    // (try=0 has already committed, so that next connect runs THIS SAME
+    // direct-commit marker, never a stale promote) -- never a torn
+    // CREDS/try state, and never a permanently-stuck-unprovisioned board.
+    bb_settings_wifi_provisioned_mark_connected();
 
     // Best-effort -- see settings_wifi_rtc_mirror_write's own comment.
     bb_settings_wifi_rtc_mirror_write(ssid, pass);

@@ -23,6 +23,13 @@
 // fake_nvs_backend_fail_set_key(key) is the set()-side counterpart -- same
 // one-shot BB_ERR_TIMEOUT injection, for exercising a consumer's
 // write-failure branch (e.g. an HTTP handler's 500-on-NV-write-failed path).
+//
+// fake_nvs_backend_fail_commit() is the txn_commit()-side counterpart --
+// same one-shot BB_ERR_TIMEOUT injection, not keyed (a commit spans every
+// staged key in the txn, not a single one), for exercising a consumer's
+// atomic-commit-failure branch (e.g. B1-807's pending_promote: the ssid/
+// pass/try commit itself fails, so nothing -- including the sequential
+// provisioned-flag write that follows it -- must run).
 
 #include "bb_storage.h"
 
@@ -49,11 +56,16 @@ static char s_fake_nvs_fail_key[FAKE_NVS_KEY_MAX];
 // s_fake_nvs_fail_key above, applied to set() instead of get().
 static char s_fake_nvs_fail_set_key[FAKE_NVS_KEY_MAX];
 
+// One-shot txn_commit() failure injection -- not keyed, see
+// fake_nvs_backend_fail_commit() above.
+static bool s_fake_nvs_fail_commit;
+
 static inline void fake_nvs_reset(void)
 {
     memset(s_fake_nvs, 0, sizeof(s_fake_nvs));
     s_fake_nvs_fail_key[0] = '\0';
     s_fake_nvs_fail_set_key[0] = '\0';
+    s_fake_nvs_fail_commit = false;
 }
 
 // Arms one-shot get() failure injection for the given key. Pass NULL/""
@@ -78,6 +90,14 @@ static inline void fake_nvs_backend_fail_set_key(const char *key)
     }
     strncpy(s_fake_nvs_fail_set_key, key, sizeof(s_fake_nvs_fail_set_key) - 1);
     s_fake_nvs_fail_set_key[sizeof(s_fake_nvs_fail_set_key) - 1] = '\0';
+}
+
+// Arms one-shot txn_commit() failure injection -- the NEXT txn_commit()
+// call returns BB_ERR_TIMEOUT without landing any of the txn's staged
+// slots, then clears itself.
+static inline void fake_nvs_backend_fail_commit(void)
+{
+    s_fake_nvs_fail_commit = true;
 }
 
 static inline fake_nvs_entry_t *fake_nvs_find(const char *key)
@@ -190,6 +210,11 @@ static inline bb_err_t fake_nvs_txn_set(void *impl, bb_storage_txn_t *txn, const
 static inline bb_err_t fake_nvs_txn_commit(void *impl, bb_storage_txn_t *txn)
 {
     (void)impl;
+    if (s_fake_nvs_fail_commit) {
+        s_fake_nvs_fail_commit = false;  // one-shot
+        txn->_open = 0;
+        return BB_ERR_TIMEOUT;
+    }
     if (txn->_err != BB_OK) {
         txn->_open = 0;
         return txn->_err;
