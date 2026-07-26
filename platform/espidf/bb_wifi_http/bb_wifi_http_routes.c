@@ -9,6 +9,7 @@
 #include "bb_http_body.h"
 #include "bb_http_serialize_stream.h"
 #include "bb_http_server.h"
+#include "bb_log.h"
 #include "bb_openapi.h"
 #include "bb_serialize.h"
 
@@ -38,6 +39,12 @@
 
 #include <stddef.h>
 #endif
+
+// Guarded with its sole use site below (the scan-schema degrade log) --
+// CONFIG_BB_OPENAPI_RUNTIME_META off leaves TAG otherwise unreferenced.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+static const char *TAG = "bb_wifi_http_routes";
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 // GET /api/wifi: always a live read (B1-1119 -- bb_cache's legacy
 // bb_json .serialize slot, and bb_cache_get_serialized() with it, is gone;
@@ -321,28 +328,42 @@ bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
-    // Compose (config ON only) before registering -- never interleave
-    // compose and register (avoids a partial-registration on a
-    // mid-sequence compose failure). Both accessors below are ALWAYS
-    // declared (site B1/B2 wire.c pattern, see bb_wifi_http_wire_priv.h's
-    // doc comment); bb_wifi_http_info_wire_get_schema()/
-    // bb_wifi_http_scan_wire_get_schema() alone already return the right
-    // content for config OFF, so only the *_ensure_schema_patched() calls
-    // and the scan response patch are gated.
-#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
-    bb_err_t info_schema_rc = bb_wifi_http_info_wire_ensure_schema_patched();
-    if (info_schema_rc != BB_OK) return info_schema_rc;
-    bb_err_t scan_schema_rc = bb_wifi_http_scan_wire_ensure_schema_patched();
-    if (scan_schema_rc != BB_OK) return scan_schema_rc;
-    s_scan_responses[0].schema = bb_wifi_http_scan_wire_get_schema();
-#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
-
-    bb_openapi_register_schema("WifiInfo", bb_wifi_http_info_wire_get_schema(), NULL);
+    // Route registration ordered AHEAD of the fatal info-schema compose
+    // below (B1-1231 fix, mirrors bb_ota_validator_init()'s
+    // s_mark_valid_route-before-partitions-compose shape): the info-schema
+    // check stays fatal-abort (see its own doc comment further down), but a
+    // WifiInfo-schema compose failure and this fn's route registration are
+    // unrelated concerns sharing one buffer engine -- the fatal check no
+    // longer gets to take down GET /api/wifi, POST /api/wifi/scan, or (with
+    // CONFIG_BB_WIFI_RECONFIGURE) PATCH /api/wifi before they're ever
+    // registered.
     bb_err_t rc;
     rc = bb_http_register_described_route(server, &s_wifi_route);
     if (rc != BB_OK) return rc;
+
+    // Compose (config ON only) before registering the scan route. The
+    // accessor below is ALWAYS declared (site B1/B2 wire.c pattern, see
+    // bb_wifi_http_wire_priv.h's doc comment) and already returns the right
+    // content for config OFF, so only the *_ensure_schema_patched() call and
+    // the scan response patch are gated. A compose failure here degrades
+    // (logs and leaves s_scan_responses[0].schema NULL, already gated by
+    // bb_openapi_emit.c's `if (r->schema)`) rather than aborting -- see the
+    // commit introducing this degrade for the full rationale.
+    //
+    // Coverage gap (B1-1231): this branch is not exercised by any host
+    // test -- not via bb_wifi_routes_init(), which is ESP_PLATFORM-gated
+    // and not host-testable.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    if (bb_wifi_http_scan_wire_ensure_schema_patched() != BB_OK) {
+        bb_log_w(TAG, "wifi scan schema compose failed, POST /api/wifi/scan ships undocumented");
+    } else {
+        s_scan_responses[0].schema = bb_wifi_http_scan_wire_get_schema();
+    }
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
     rc = bb_http_register_described_route(server, &s_scan_route);
     if (rc != BB_OK) return rc;
+
 #if CONFIG_BB_WIFI_RECONFIGURE
     bb_data_binding_t wifi_creds_binding = {
         .key    = "wifi",
@@ -355,6 +376,31 @@ bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
     rc = bb_http_register_described_route(server, &s_wifi_patch_route);
     if (rc != BB_OK) return rc;
 #endif
+
+    // WifiInfo component schema: compose (config ON only) then register.
+    // info_schema_rc stays fatal-abort (NOT converted to degrade-and-continue,
+    // unlike the scan arm above): bb_wifi_http_info_wire_get_schema() backs
+    // bb_openapi_register_schema("WifiInfo", ..., NULL) below, which binds
+    // directly to s_wifi_info_schema_buf's static address
+    // (bb_wifi_http_wire.c) -- that pointer is non-NULL even when the
+    // compose step never ran, so an unpatched buffer would register an
+    // EMPTY "WifiInfo" component schema instead of being cleanly omitted
+    // (unlike s_scan_responses[0].schema/s_partitions_responses[0].schema,
+    // which start NULL and are gated by bb_openapi_emit.c's `if (r->schema)`
+    // route-response check). Converting this arm needs a NULL-then-patch
+    // rework of bb_wifi_http_wire.c first -- left fatal here deliberately;
+    // see B1-1231 follow-up. Deliberately last in this fn (not first, as it
+    // was pre-B1-1231): all three routes above are already registered and
+    // serving by this point, so this fatal return can no longer take the
+    // whole wifi HTTP surface down with it -- only the OpenAPI document's
+    // WifiInfo component schema (and this fn's own success return) are at
+    // stake.
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t info_schema_rc = bb_wifi_http_info_wire_ensure_schema_patched();
+    if (info_schema_rc != BB_OK) return info_schema_rc;
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+    bb_openapi_register_schema("WifiInfo", bb_wifi_http_info_wire_get_schema(), NULL);
+
     return BB_OK;
 }
 

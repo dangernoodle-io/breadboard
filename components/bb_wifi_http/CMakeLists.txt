@@ -12,9 +12,11 @@
 # gated on BB_SERIALIZE_META_SHIP; B1-1059 device-shippable PR, default off
 # via CONFIG_BB_OPENAPI_RUNTIME_META); PRIV_REQUIRES doesn't propagate to a
 # hand-wired external consumer of this public header.
-# bb_log: PRIVATE -- bb_wifi_http_diag.c logs a warning when a
+# bb_log: PRIV_REQUIRES -- bb_wifi_http_diag.c logs a warning when a
 # documentation-only schema compose fails (B1-1231 PR5); the section still
-# registers.
+# registers. bb_wifi_http_routes.c logs a warning when the scan schema's
+# documentation-only compose fails, degrading POST /api/wifi/scan to
+# undocumented-but-served rather than aborting bb_wifi_routes_init() outright.
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_wifi_http/bb_wifi_http_routes.c"
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_wifi_http/bb_wifi_http_emit.c"
