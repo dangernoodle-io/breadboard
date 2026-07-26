@@ -53,11 +53,13 @@ void test_bb_ota_check_config_post_request_schema_idempotent_pointer_stable(void
 void test_bb_ota_check_config_post_response_schema_idempotent_pointer_stable(void);
 
 // From test_bb_storage_http_delete_route_wiring.c (B1-1059 emit batch A, site 1)
+void test_bb_storage_http_routes_init_degrades_on_compose_failure(void);  // B1-1231
 void test_bb_storage_http_delete_assemble_request_schema_offline_on_compose_failure(void);
 void test_bb_storage_http_delete_assemble_request_schema_patches_matching_content(void);
 void test_bb_storage_http_delete_assemble_request_schema_idempotent_pointer_stable(void);
 
 // From test_bb_storage_http_factory_reset_route_wiring.c (B1-1059 emit batch A, site 5)
+void test_bb_storage_http_factory_reset_routes_init_degrades_on_compose_failure(void);  // B1-1231
 void test_bb_storage_http_factory_reset_assemble_request_schema_offline_on_compose_failure(void);
 void test_bb_storage_http_factory_reset_assemble_request_schema_patches_matching_content(void);
 void test_bb_storage_http_factory_reset_assemble_request_schema_idempotent_pointer_stable(void);
@@ -107,6 +109,7 @@ void test_bb_sensor_http_wire_assemble_thermal_schema_patches_matching_content(v
 void test_bb_sensor_http_wire_assemble_thermal_schema_idempotent_pointer_stable(void);
 
 // From test_bb_system_reboot_route_wiring.c (B1-1059 emit batch A, site 2)
+void test_bb_system_routes_init_degrades_on_compose_failure(void);  // B1-1231
 void test_bb_system_reboot_assemble_request_schema_offline_on_compose_failure(void);
 void test_bb_system_reboot_assemble_request_schema_patches_matching_content(void);
 void test_bb_system_reboot_assemble_request_schema_idempotent_pointer_stable(void);
@@ -305,10 +308,16 @@ int main(void)
     RUN_TEST(test_bb_serialize_meta_ensure_topic_schema_idempotent_second_call_is_noop);
     RUN_TEST(test_bb_serialize_meta_ensure_topic_schema_dispatches_schema_composer);
 
+    // B1-1231: the routes_init() degrade-branch test MUST run before this
+    // site's own offline-on-compose-failure test (and, transitively, before
+    // its success test) -- see its own comment.
+    RUN_TEST(test_bb_storage_http_routes_init_degrades_on_compose_failure);
     RUN_TEST(test_bb_storage_http_delete_assemble_request_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_storage_http_delete_assemble_request_schema_patches_matching_content);
     RUN_TEST(test_bb_storage_http_delete_assemble_request_schema_idempotent_pointer_stable);
 
+    // B1-1231: see comment above.
+    RUN_TEST(test_bb_storage_http_factory_reset_routes_init_degrades_on_compose_failure);
     RUN_TEST(test_bb_storage_http_factory_reset_assemble_request_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_storage_http_factory_reset_assemble_request_schema_patches_matching_content);
     RUN_TEST(test_bb_storage_http_factory_reset_assemble_request_schema_idempotent_pointer_stable);
@@ -357,6 +366,9 @@ int main(void)
     RUN_TEST(test_bb_sensor_http_wire_assemble_thermal_schema_patches_matching_content);
     RUN_TEST(test_bb_sensor_http_wire_assemble_thermal_schema_idempotent_pointer_stable);
 
+    // B1-1231: see the comment on test_bb_storage_http_routes_init_degrades_
+    // on_compose_failure above -- same ordering requirement.
+    RUN_TEST(test_bb_system_routes_init_degrades_on_compose_failure);
     RUN_TEST(test_bb_system_reboot_assemble_request_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_system_reboot_assemble_request_schema_patches_matching_content);
     RUN_TEST(test_bb_system_reboot_assemble_request_schema_idempotent_pointer_stable);

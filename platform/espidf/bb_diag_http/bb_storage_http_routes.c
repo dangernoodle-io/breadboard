@@ -1090,9 +1090,28 @@ bb_err_t bb_storage_http_factory_reset_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
+    // Documentation-only schema compose (config ON only): a compose failure
+    // here must not abort real route registration below (bb_data_bind +
+    // POST /api/diag/factory-reset). s_factory_reset_route.request_schema
+    // always points at s_factory_reset_request_schema_buf (see that route's
+    // own doc comment above), so on failure the buffer stays empty rather
+    // than NULL -- but bb_http_resp_json_obj_set_raw() (bb_openapi_emit.c)
+    // rejects a zero-length raw value and returns before emitting the
+    // "schema" key, so an unpatched buffer degrades to an empty requestBody
+    // content block rather than corrupting the emitted document. Degrade
+    // and continue: log a warning and fall through to registration.
+    //
+    // This init fn is portable and genuinely host-compiled (see
+    // test_route_schema_literals_live.c and this component's own
+    // bbtool-scaffold-hint), unlike the sibling ESP_PLATFORM-gated sites at
+    // cddd5624 (bb_ota_hooks / bb_health_stack / bb_diag_http / bb_display) --
+    // this branch IS host-testable; see
+    // test_bb_storage_http_factory_reset_route_wiring.c.
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t schema_rc = ensure_factory_reset_request_schema_patched();
-    if (schema_rc != BB_OK) return schema_rc;  // fail loud
+    if (schema_rc != BB_OK) {
+        bb_log_w(TAG, "factory-reset request schema compose failed (rc=%d), route ships without a schema", (int)schema_rc);
+    }
 #endif
 
     bb_data_binding_t factory_reset_binding = {
@@ -1172,17 +1191,44 @@ bb_err_t bb_storage_http_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
+    // Documentation-only schema compose (config ON only): a compose failure
+    // here must not abort real route registration below (bb_data_bind +
+    // DELETE /api/diag/storage). s_storage_delete_route.request_schema
+    // always points at s_storage_delete_request_schema_buf (see that
+    // route's own doc comment above), so on failure the buffer stays empty
+    // rather than NULL -- but bb_http_resp_json_obj_set_raw()
+    // (bb_openapi_emit.c) rejects a zero-length raw value and returns
+    // before emitting the "schema" key, so an unpatched buffer degrades to
+    // an empty requestBody content block rather than corrupting the emitted
+    // document. Degrade and continue: log a warning and fall through.
+    //
+    // This init fn is portable and genuinely host-compiled (see
+    // test_route_schema_literals_live.c and this component's own
+    // bbtool-scaffold-hint), unlike the sibling ESP_PLATFORM-gated sites at
+    // cddd5624 (bb_ota_hooks / bb_health_stack / bb_diag_http / bb_display) --
+    // this branch IS host-testable; see
+    // test_bb_storage_http_delete_route_wiring.c.
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     bb_err_t schema_rc = ensure_storage_delete_request_schema_patched();
-    if (schema_rc != BB_OK) return schema_rc;  // fail loud
+    if (schema_rc != BB_OK) {
+        bb_log_w(TAG, "storage delete request schema compose failed (rc=%d), route ships without a schema", (int)schema_rc);
+    }
 
     // Compose (config ON only) before registering -- see
     // bb_wifi_routes_init()'s own doc comment for the full rationale
     // (mirrored here). This is the 200 RESPONSE schema (B1-1059 emit batch
     // C, site C5) -- distinct from the request schema composed just above.
+    // s_storage_delete_responses[0].schema starts NULL and is patched only
+    // on success, gated by bb_openapi_emit.c's `if (r->schema)` check, so
+    // an unpatched failure here is cleanly omitted rather than emitting an
+    // empty schema. Degrade and continue rather than aborting; see
+    // test_bb_storage_http_delete_response_route_wiring.c.
     bb_err_t response_schema_rc = bb_storage_http_delete_wire_ensure_schema_patched();
-    if (response_schema_rc != BB_OK) return response_schema_rc;
-    s_storage_delete_responses[0].schema = bb_storage_http_delete_wire_get_schema();
+    if (response_schema_rc != BB_OK) {
+        bb_log_w(TAG, "storage delete response schema compose failed (rc=%d), route ships without a schema", (int)response_schema_rc);
+    } else {
+        s_storage_delete_responses[0].schema = bb_storage_http_delete_wire_get_schema();
+    }
 #endif
 
     bb_data_binding_t storage_delete_binding = {
