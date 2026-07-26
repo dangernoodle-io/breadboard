@@ -1877,6 +1877,9 @@ void test_bb_config_staged_double_commit_after_poisoned_commit_returns_invalid_s
 void test_bb_config_staged_set_after_commit_returns_invalid_state(void);
 void test_bb_config_staged_begin_resets_reused_handle_after_commit(void);
 void test_bb_config_staged_begin_resets_reused_handle_after_poisoned_commit(void);
+void test_bb_config_staged_non_default_capacity_stages_and_commits_all_fields(void);
+void test_bb_config_staged_begin_nonzero_cap_null_slots_returns_invalid_arg(void);
+void test_bb_config_staged_begin_zero_cap_null_slots_is_legal_and_set_fails_no_space(void);
 
 // Forward declarations from test_bb_storage_nvs_txn.c (BB_STORAGE_NVS_TESTING)
 #ifdef BB_STORAGE_NVS_TESTING
@@ -9125,6 +9128,9 @@ int main(void) {
     RUN_TEST(test_bb_config_staged_set_after_commit_returns_invalid_state);
     RUN_TEST(test_bb_config_staged_begin_resets_reused_handle_after_commit);
     RUN_TEST(test_bb_config_staged_begin_resets_reused_handle_after_poisoned_commit);
+    RUN_TEST(test_bb_config_staged_non_default_capacity_stages_and_commits_all_fields);
+    RUN_TEST(test_bb_config_staged_begin_nonzero_cap_null_slots_returns_invalid_arg);
+    RUN_TEST(test_bb_config_staged_begin_zero_cap_null_slots_is_legal_and_set_fails_no_space);
 
 #ifdef BB_STORAGE_NVS_TESTING
     // bb_storage_nvs's txn-primitive seam — orchestration against a fake NVS

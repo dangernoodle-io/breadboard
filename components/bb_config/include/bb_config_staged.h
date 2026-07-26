@@ -33,13 +33,11 @@
 //
 // No heap: h is caller-allocated (stack/static) and MUST be zero-initialized
 // before bb_config_staged_begin(), matching bb_storage_txn_t's own caller-init
-// convention (h->txn is zeroed as part of h's zero-init). Capacity: h owns a
-// private, BB_STORAGE_TXN_MAX_KEYS-sized default slot array (B1-1235's
-// caller-sized bb_storage_txn_t needs SOME caller-owned backing storage --
-// this wraps the default rather than exposing a slots/cap parameter on
-// bb_config_staged_begin() itself, so every existing caller's capacity is
-// unchanged and this header's public API stays stable). Exposing a
-// caller-chosen capacity here is a later PR's scope, not this one's.
+// convention (h->txn is zeroed as part of h's zero-init). Capacity is
+// caller-sized (B1-1235, mirroring bb_storage_txn_t itself): this layer owns
+// no capacity knobs of its own -- bb_config_staged_begin() forwards its
+// `slots`/`cap` arguments straight into bb_storage_txn_begin(). Declare the
+// backing storage via BB_CONFIG_STAGED_DECLARE(_DEFAULT) below.
 //
 // Composition-only: no global state, no init function, nothing self-
 // registers (see the DI legacy fence in breadboard/CLAUDE.md).
@@ -70,12 +68,6 @@ extern "C" {
 // close the wrapped txn.
 typedef struct {
     bb_storage_txn_t txn;      // wrapped, unmodified -- never inspect its private fields
-    // Private backing storage for txn's caller-owned slot table (B1-1235) --
-    // wired onto txn at begin(); never inspect/set directly. Fixed at the
-    // house default (BB_STORAGE_TXN_MAX_KEYS) for now -- see this header's
-    // file comment above for why bb_config_staged doesn't yet expose a
-    // caller-chosen capacity.
-    bb_storage_txn_slot_t _default_slots[BB_STORAGE_TXN_MAX_KEYS];
     const char *backend;       // session group key, set at begin()
     const char *ns_or_dir;     // session group key, set at begin()
     bb_err_t    _local_err;    // this layer's sticky error (first-wins)
@@ -83,10 +75,33 @@ typedef struct {
 } bb_config_staged_t;
 
 // Begin a staged-write session against `backend`/`ns_or_dir`. Eagerly opens
-// the wrapped txn via bb_storage_txn_begin() and records backend/ns_or_dir
-// on h (compared against every subsequent set_*'s field addr). Delegated
-// error contract -- same return codes as bb_storage_txn_begin().
-bb_err_t bb_config_staged_begin(bb_config_staged_t *h, const char *backend, const char *ns_or_dir);
+// the wrapped txn via bb_storage_txn_begin(&h->txn, slots, cap), forwarding
+// `slots`/`cap` straight through -- this layer owns no capacity knobs of its
+// own (see this header's file comment). Records backend/ns_or_dir on h
+// (compared against every subsequent set_*'s field addr). Delegated error
+// contract -- same return codes and slots/cap ownership/lifetime rules as
+// bb_storage_txn_begin().
+bb_err_t bb_config_staged_begin(bb_config_staged_t *h, const char *backend, const char *ns_or_dir,
+                                 bb_storage_txn_slot_t *slots, size_t cap);
+
+// Declares `name##_slots[n]` (the caller-owned backing storage) plus a
+// zero-initialized `bb_config_staged_t name` ready for
+// bb_config_staged_begin(). Pass the count to begin() as
+// `sizeof(name##_slots)/sizeof(name##_slots[0])` -- NEVER a re-typed numeric
+// literal -- same discipline as BB_STORAGE_TXN_DECLARE.
+//
+//   BB_CONFIG_STAGED_DECLARE(h, 4);
+//   bb_err_t err = bb_config_staged_begin(&h, "nvs", "wifi", h_slots,
+//                                          sizeof(h_slots) / sizeof(h_slots[0]));
+#define BB_CONFIG_STAGED_DECLARE(name, n) \
+    bb_storage_txn_slot_t name##_slots[(n)]; \
+    bb_config_staged_t    name = {0}
+
+// Same as BB_CONFIG_STAGED_DECLARE, sized at the house default
+// (BB_STORAGE_TXN_MAX_KEYS) -- for a consumer with no reason to declare a
+// non-default capacity.
+#define BB_CONFIG_STAGED_DECLARE_DEFAULT(name) \
+    BB_CONFIG_STAGED_DECLARE(name, BB_STORAGE_TXN_MAX_KEYS)
 
 // Stage field f's value for later commit. If the session is already closed
 // (a prior commit()/discard() has run), returns BB_ERR_INVALID_STATE without
