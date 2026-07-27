@@ -3798,6 +3798,11 @@ void test_wifi_prov_fsm_init_clamps_zero_settle_ms_to_one(void);
 void test_wifi_prov_fsm_init_nonzero_settle_ms_unclamped(void);
 void test_wifi_prov_direct_zero_settle_ms_write_after_init_still_floored(void);
 void test_wifi_prov_zero_settle_ms_arms_one_ms_timer_and_completes_cycle(void);
+void test_wifi_prov_entry_decision_no_creds_not_provisioned_is_first_boot(void);
+void test_wifi_prov_entry_decision_no_creds_provisioned_is_deprov_anomaly(void);
+void test_wifi_prov_entry_decision_has_creds_not_provisioned_no_portal(void);
+void test_wifi_prov_entry_decision_has_creds_provisioned_no_portal(void);
+void test_wifi_prov_entry_decision_null_out_event_is_tolerated(void);
 
 // Forward declarations from test_bb_mdns_lifecycle.c
 void bb_mdns_lifecycle_test_reset(void);
@@ -7947,6 +7952,11 @@ int main(void) {
     RUN_TEST(test_wifi_prov_fsm_init_nonzero_settle_ms_unclamped);
     RUN_TEST(test_wifi_prov_direct_zero_settle_ms_write_after_init_still_floored);
     RUN_TEST(test_wifi_prov_zero_settle_ms_arms_one_ms_timer_and_completes_cycle);
+    RUN_TEST(test_wifi_prov_entry_decision_no_creds_not_provisioned_is_first_boot);
+    RUN_TEST(test_wifi_prov_entry_decision_no_creds_provisioned_is_deprov_anomaly);
+    RUN_TEST(test_wifi_prov_entry_decision_has_creds_not_provisioned_no_portal);
+    RUN_TEST(test_wifi_prov_entry_decision_has_creds_provisioned_no_portal);
+    RUN_TEST(test_wifi_prov_entry_decision_null_out_event_is_tolerated);
 
     // bb_mdns_lifecycle tests
     RUN_TEST(test_bb_mdns_lifecycle_start_when_not_started);

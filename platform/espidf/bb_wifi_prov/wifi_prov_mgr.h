@@ -16,6 +16,7 @@
 
 #include "bb_core.h"
 #include "bb_wifi_prov.h"   // bb_http_asset_t, bb_wifi_prov_extra_routes_fn_t
+#include "wifi_prov_policy.h" // wp_event_t
 
 // Create the manager's queue + FSM ctx (wifi_prov_fsm_init, WP_IDLE) + task
 // (bb_task_create). Idempotent: a second call while already initialized is
@@ -33,3 +34,14 @@ bb_err_t wifi_prov_mgr_init(const bb_http_asset_t *assets, size_t n,
 // the manager can begin teardown. No-op if the manager isn't running
 // (s_queue unset) -- this is what keeps this PR inert.
 void wifi_prov_mgr_on_save(void);
+
+// General-purpose non-blocking notifier (B1-809 PR4): post an arbitrary
+// entry event to the manager's queue and return. Used by the public
+// bb_wifi_prov_autoinit()/bb_wifi_prov_request_portal() entry points
+// (bb_wifi_prov.c) to post EV_ENTRY_FIRST_BOOT/EV_ENTRY_DEPROV_ANOMALY
+// (autoinit, after wifi_prov_mgr_init) or EV_ENTRY_USER_REQUESTED
+// (request_portal). No-op if the manager isn't running (s_queue unset) --
+// same guard as wifi_prov_mgr_on_save, so calling this before
+// wifi_prov_mgr_init() (or when autoinit never started the manager because
+// creds were already present) is always safe.
+void wifi_prov_mgr_post_entry(wp_event_t event);

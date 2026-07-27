@@ -4,6 +4,7 @@
 #include "bb_settings.h"
 #include "bb_wifi.h"
 #include "wifi_prov_mgr.h"
+#include "wifi_prov_policy.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 
@@ -221,4 +222,37 @@ void bb_wifi_prov_stop(void)
     // Unregister provisioning handlers: /save (POST) and /* (GET catch-all)
     bb_http_unregister_route(server, BB_HTTP_POST, "/save");
     bb_http_unregister_route(server, BB_HTTP_GET, "/*");
+}
+
+// B1-809 PR4 — boot-time / user-requested provisioning entry. LANDS INERT:
+// no in-tree caller yet (see this component's README / commit for the
+// inertness note); a future consumer wires bb_wifi_prov_autoinit() into its
+// own boot sequence (codegen or handwire) once it's ready to compose the
+// provisioning portal.
+
+bb_err_t bb_wifi_prov_autoinit(const bb_http_asset_t *assets, size_t n,
+                                bb_wifi_prov_extra_routes_fn_t extra)
+{
+    bool has_creds = bb_settings_wifi_has_creds();
+    bool provisioned = bb_settings_wifi_provisioned_get();
+
+    wp_event_t entry_event;
+    if (!wifi_prov_entry_decision(has_creds, provisioned, &entry_event)) {
+        // Creds already present -- no portal, ever (see
+        // wifi_prov_entry_decision's doc). Deliberately does NOT start the
+        // manager task here -- nothing needs it (see this function's own
+        // doc in bb_wifi_prov.h for the documented request_portal tradeoff).
+        return BB_OK;
+    }
+
+    bb_err_t err = wifi_prov_mgr_init(assets, n, extra);
+    if (err != BB_OK) return err;
+
+    wifi_prov_mgr_post_entry(entry_event);
+    return BB_OK;
+}
+
+void bb_wifi_prov_request_portal(void)
+{
+    wifi_prov_mgr_post_entry(EV_ENTRY_USER_REQUESTED);
 }

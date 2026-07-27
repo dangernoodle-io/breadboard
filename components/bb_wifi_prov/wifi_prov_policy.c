@@ -228,3 +228,12 @@ void wifi_prov_fsm_drive_entry(wifi_prov_ctx_t *ctx, wp_event_t entry_event)
     // test_wifi_prov_policy.c (same rationale as hop 2's).
     bb_fsm_step(&ctx->fsm, EV_PROV_START_OK, NULL);
 }
+
+bool wifi_prov_entry_decision(bool has_creds, bool provisioned, wp_event_t *out_event)
+{
+    if (has_creds) return false; // creds present -- no portal, ever
+    if (out_event) {
+        *out_event = provisioned ? EV_ENTRY_DEPROV_ANOMALY : EV_ENTRY_FIRST_BOOT;
+    }
+    return true;
+}

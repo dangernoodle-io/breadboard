@@ -149,3 +149,43 @@ bb_err_t wifi_prov_fsm_init(wifi_prov_ctx_t *ctx, bb_fsm_state_t initial, uint32
 // into guards alone. Safe to call from WP_ACTIVE (re-entry -- a single
 // no-op hop, no further steps). NULL ctx is a no-op.
 void wifi_prov_fsm_drive_entry(wifi_prov_ctx_t *ctx, wp_event_t entry_event);
+
+// ---------------------------------------------------------------------------
+// Pure boot-time provisioning ENTRY decision (B1-809 PR4). This is the ONE
+// place bb_settings.h's bb_settings_wifi_provisioned_get() rationale is
+// encoded as code -- quoting it here so a future reader of THIS function
+// sees it without having to go find the other header:
+//
+//   "Any future boot-time gate deciding WHETHER TO ATTEMPT AN STA CONNECT AT
+//   ALL must key off wifi_has_creds(), never off this flag: a 'portal iff
+//   !provisioned' gate would strand a board that has valid committed creds
+//   but has not yet completed a validated connect (e.g. first boot after a
+//   captive-portal save, before IP_EVENT_STA_GOT_IP has fired)."
+//
+// So the gate is ONE bit -- has_creds. `provisioned` NEVER decides whether a
+// portal opens; it only selects WHICH entry reason is reported, purely for
+// diagnostics:
+//   !has_creds && !provisioned -> EV_ENTRY_FIRST_BOOT      true first boot
+//   !has_creds &&  provisioned -> EV_ENTRY_DEPROV_ANOMALY  creds absent from
+//                                  a board that HAD completed a validated
+//                                  connect -- a genuine anomaly, logged
+//                                  distinctly from a true first boot
+//    has_creds (either provisioned value) -> no portal; normal STA connect,
+//                                  wifi_reconn owns it
+//
+// A future reader may be tempted to "simplify" this into `return
+// !provisioned;` -- don't: that collapses exactly the has-creds/provisioned
+// distinction the bb_settings.h rationale above exists to prevent, and would
+// strand the first-boot-after-portal-save board described there.
+// ---------------------------------------------------------------------------
+
+// Returns true and sets *out_event to the entry reason (EV_ENTRY_FIRST_BOOT
+// or EV_ENTRY_DEPROV_ANOMALY) when a portal should open on boot; returns
+// false (never touching *out_event) when creds are already present. NULL
+// out_event is tolerated (result still correct) but the caller then has no
+// way to learn which reason applied -- pass a real pointer whenever the
+// caller cannot rule out !has_creds ahead of time. Pure: no ESP-IDF, no
+// bb_settings call inside -- both bools come from the caller (the ESP-IDF
+// shell reads bb_settings_wifi_has_creds()/bb_settings_wifi_provisioned_get()
+// and passes the results in), so this is fully host-testable.
+bool wifi_prov_entry_decision(bool has_creds, bool provisioned, wp_event_t *out_event);

@@ -104,6 +104,57 @@ bb_err_t bb_wifi_prov_start(const bb_http_asset_t *assets, size_t n,
 // routes afterward.
 void bb_wifi_prov_stop(void);
 
+// ============================================================================
+// ESP-IDF-SPECIFIC API — boot-time / user-requested provisioning entry
+// (B1-809 PR4)
+// ============================================================================
+
+/**
+ * Boot-time provisioning entry point. Reads bb_settings_wifi_has_creds()
+ * and bb_settings_wifi_provisioned_get() and, per the ONE-bit entry policy
+ * documented on wifi_prov_policy.h's wifi_prov_entry_decision() (component-
+ * private; see that header for the full rationale), starts the
+ * provisioning manager and posts EV_ENTRY_FIRST_BOOT or
+ * EV_ENTRY_DEPROV_ANOMALY ONLY when no WiFi credentials are present. The
+ * `provisioned` flag never decides whether a portal opens — only which
+ * reason is reported — so a board with valid committed creds is never
+ * stranded, whether or not it has completed a validated connect yet.
+ *
+ * Safe to call when creds already exist: does nothing but return BB_OK.
+ * Deliberately does NOT start the provisioning manager task in that case —
+ * a board with valid creds has no need for it (normal STA connect is owned
+ * by wifi_reconn, not this component). One consequence: a later
+ * bb_wifi_prov_request_portal() call is a no-op unless THIS call already
+ * started the manager (i.e. unless creds were absent at boot) — a future
+ * consumer wanting a "reprovision" trigger on an already-provisioned board
+ * needs its own path to start the manager; out of scope here.
+ *
+ * @param assets Array of static HTTP assets for the provisioning UI — see
+ *   bb_wifi_prov_start()'s doc (must contain a path="/" entry).
+ * @param n Number of entries in @p assets.
+ * @param extra Optional callback for consumer-specific dynamic routes — see
+ *   bb_wifi_prov_start()'s doc. Pass NULL if not needed.
+ *
+ * Not safe to call concurrently with itself — the provisioning manager's
+ * init guard is a plain check with no lock, so call this once, from a
+ * single task, typically at boot.
+ */
+bb_err_t bb_wifi_prov_autoinit(const bb_http_asset_t *assets, size_t n,
+                                bb_wifi_prov_extra_routes_fn_t extra);
+
+/**
+ * User-requested (re-)provisioning entry point: posts EV_ENTRY_USER_REQUESTED
+ * to the provisioning manager. Ships as a callable API ONLY — bb_wifi_prov
+ * registers no route, button, or other trigger that calls this; wiring a
+ * trigger (an HTTP route, a GPIO button, etc.) is the consumer's concern.
+ *
+ * No-op if the provisioning manager isn't running — either because
+ * bb_wifi_prov_autoinit() was never called, or because it was called while
+ * creds were already present (see its doc for why that path deliberately
+ * does not start the manager).
+ */
+void bb_wifi_prov_request_portal(void);
+
 #endif
 
 #ifdef __cplusplus
