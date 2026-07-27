@@ -58,7 +58,10 @@ void wifi_reconn_on_got_ip(void);
 // EV_CREDS_ARRIVED, NULL, act_reset_state, WR_CONNECTING} --
 // wifi_reconn_policy.c); act_reset_state resets policy counters, clears
 // self_disconnect, and issues the actual connect_fn().
-void wifi_reconn_on_creds_arrived(void);
+//
+// Declared in bb_wifi's public bb_wifi.h (included above) -- not restated
+// here, so there is exactly one prototype the compiler checks the
+// definition (wifi_reconn.c) against.
 
 // Lock-free diagnostic reads of manager-owned state.
 void wifi_reconn_get_disconnect(bb_wifi_disc_reason_t *reason, int64_t *age_us);

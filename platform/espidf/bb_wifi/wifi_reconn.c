@@ -192,7 +192,7 @@ void wifi_reconn_on_got_ip(void)
     }
 }
 
-void wifi_reconn_on_creds_arrived(void)
+void bb_wifi_on_creds_arrived(void)
 {
     if (!s_queue) return;
     reconn_evt_t evt = { .fsm_event = EV_CREDS_ARRIVED, .reason = 0 };

@@ -3,6 +3,7 @@
 #include "bb_log.h"
 #include "bb_settings.h"
 #include "bb_wifi.h"
+#include "wifi_prov_mgr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 
@@ -99,6 +100,14 @@ static bb_err_t prov_save_handler(bb_http_request_t *req)
     }
 
     bb_wifi_prov_signal_done();
+
+    // Notify the provisioning manager FSM (B1-809 PR3b) LAST, after
+    // signal_done() -- the HTTP response above is fully written/queued
+    // before the manager can begin WP_CLOSING teardown (see the "WHY THE
+    // SETTLE STATE" block in wifi_prov_policy.c). No-op (queue unset) if no
+    // manager is running -- inert until PR4 wires wifi_prov_mgr_init().
+    wifi_prov_mgr_on_save();
+
     return BB_OK;
 }
 
