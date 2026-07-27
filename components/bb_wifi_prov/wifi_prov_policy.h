@@ -22,9 +22,14 @@
 //              with no portal behind it, never leaves the portal
 //              half-started).
 //   WP_ACTIVE  AP + provisioning routes up, awaiting POST /save.
+//   WP_CLOSING save succeeded; portal teardown is deferred behind a settle
+//              timer so the in-flight httpd response can flush before
+//              ap_stop_fn tears the netif out from under it. See the
+//              "WHY THE SETTLE STATE" block below.
 typedef enum {
     WP_IDLE = 0,
     WP_ACTIVE = 1,
+    WP_CLOSING = 2,
 } wp_state_t;
 
 // FSM events.
@@ -40,7 +45,11 @@ typedef enum {
 //                            act_try_prov_start's prov_start_fn call
 //                            succeeded -- never posted by a consumer
 //                            directly.
-//   EV_SAVE_SUCCESS          POST /save completed -- close the portal.
+//   EV_SAVE_SUCCESS          POST /save completed -- start closing the
+//                            portal (enter the settle state; teardown is
+//                            deferred, not immediate -- see wifi_prov_policy.c).
+//   EV_SETTLE_TIMEOUT        settle timer (armed on WP_CLOSING entry)
+//                            expired -- actually tear the portal down now.
 typedef enum {
     EV_ENTRY_FIRST_BOOT = 0,
     EV_ENTRY_DEPROV_ANOMALY = 1,
@@ -48,6 +57,7 @@ typedef enum {
     EV_AP_START_OK = 3,
     EV_PROV_START_OK = 4,
     EV_SAVE_SUCCESS = 5,
+    EV_SETTLE_TIMEOUT = 6,
 } wp_event_t;
 
 // Structured diagnostic log events -- the single slot every guard/action/
@@ -99,21 +109,37 @@ typedef struct {
 //                entry rationale in wifi_prov_policy.c) -- never read or
 //                written by a guard (guards must stay pure) or by any
 //                other action.
+//   settle_ms    WP_CLOSING settle-timer duration, read by wp_closing_on_entry
+//                when it arms EV_SETTLE_TIMEOUT. Ctx state, not a Kconfig
+//                read -- this TU is host-compilable and must stay free of
+//                sdkconfig.h; the ESP-IDF shell (PR3b) populates it from
+//                CONFIG_BB_WIFI_PROV_SETTLE_MS before calling
+//                wifi_prov_fsm_init(), host tests pass their own value.
+//                Floored at 1 both at construction (wifi_prov_fsm_init) and
+//                at point of use (wp_closing_on_entry) -- see settle_ms_floor
+//                in wifi_prov_policy.c for why 0 must never reach
+//                bb_fsm_arm_timer. Both sites enforce it, so a direct
+//                post-init write of ctx->settle_ms = 0 is safe, not merely
+//                discouraged.
 typedef struct {
     bb_fsm_t                    fsm;
     bb_fsm_desc_t                desc;
     const wifi_prov_adapter_t  *adapter;
     bool                         last_op_ok;
+    uint32_t                     settle_ms;
 } wifi_prov_ctx_t;
 
 // Populate ctx->desc for the provisioning FSM (table + state hooks are
 // file-static const in wifi_prov_policy.c) and call bb_fsm_init(&ctx->fsm,
 // &ctx->desc). `initial` is always WP_IDLE in production (the shell only
 // ever constructs a fresh ctx before its first entry event); host tests may
-// pass WP_ACTIVE to exercise the re-entry/close-portal rows directly.
-// ctx->adapter MUST already be set (every guard/action/hook dereferences
-// it). Returns bb_fsm_init's result.
-bb_err_t wifi_prov_fsm_init(wifi_prov_ctx_t *ctx, bb_fsm_state_t initial);
+// pass WP_ACTIVE/WP_CLOSING to exercise the re-entry/close-portal rows
+// directly. `settle_ms` is stashed in ctx->settle_ms BEFORE bb_fsm_init runs
+// the initial state's on_entry, so passing WP_CLOSING as `initial` arms the
+// settle timer with this value immediately. ctx->adapter MUST already be
+// set (every guard/action/hook dereferences it). Returns bb_fsm_init's
+// result.
+bb_err_t wifi_prov_fsm_init(wifi_prov_ctx_t *ctx, bb_fsm_state_t initial, uint32_t settle_ms);
 
 // Drive one provisioning-entry attempt: up to 3 bb_fsm_step calls (entry ->
 // ap-start-ok -> prov-start-ok), stopping early on any failure. This is the

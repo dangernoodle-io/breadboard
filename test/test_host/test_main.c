@@ -3775,20 +3775,29 @@ void test_fsm_left_parks_all_stray_events(void);
 void test_fsm_left_resumes_on_reconnect_requested(void);
 void test_fsm_slow_tier_disconnect_routes_to_backoff(void);
 
-// Forward declarations from test_wifi_prov_policy.c (B1-809 PR2)
+// Forward declarations from test_wifi_prov_policy.c (B1-809 PR2/PR3a)
 void test_wifi_prov_first_boot_reaches_active(void);
 void test_wifi_prov_deprov_anomaly_reaches_active(void);
 void test_wifi_prov_user_requested_reaches_active(void);
 void test_wifi_prov_ap_start_failure_stays_idle_no_prov_start(void);
 void test_wifi_prov_prov_start_failure_rolls_back_ap(void);
 void test_wifi_prov_reentry_while_active_is_noop(void);
-void test_wifi_prov_save_success_closes_portal_in_order(void);
+void test_wifi_prov_save_success_enters_closing_without_teardown(void);
+void test_wifi_prov_settle_timeout_closes_portal_in_order(void);
+void test_wifi_prov_closing_save_success_is_noop(void);
+void test_wifi_prov_closing_entry_user_requested_is_noop(void);
+void test_wifi_prov_idle_settle_timeout_is_noop(void);
+void test_wifi_prov_active_settle_timeout_is_noop(void);
 void test_wifi_prov_unmatched_event_in_idle_is_noop(void);
 void test_wifi_prov_unmatched_event_in_active_is_noop(void);
 void test_wifi_prov_drive_entry_unmatched_entry_event_is_noop(void);
 void test_wifi_prov_drive_entry_null_ctx_is_noop(void);
 void test_wifi_prov_ap_start_ok_row_matches_unguarded_from_idle(void);
 void test_wifi_prov_prov_start_ok_row_matches_unguarded_from_idle(void);
+void test_wifi_prov_fsm_init_clamps_zero_settle_ms_to_one(void);
+void test_wifi_prov_fsm_init_nonzero_settle_ms_unclamped(void);
+void test_wifi_prov_direct_zero_settle_ms_write_after_init_still_floored(void);
+void test_wifi_prov_zero_settle_ms_arms_one_ms_timer_and_completes_cycle(void);
 
 // Forward declarations from test_bb_mdns_lifecycle.c
 void bb_mdns_lifecycle_test_reset(void);
@@ -7915,20 +7924,29 @@ int main(void) {
     RUN_TEST(test_fsm_left_resumes_on_reconnect_requested);
     RUN_TEST(test_fsm_slow_tier_disconnect_routes_to_backoff);
 
-    // wifi_prov_policy tests (B1-809 PR2)
+    // wifi_prov_policy tests (B1-809 PR2/PR3a)
     RUN_TEST(test_wifi_prov_first_boot_reaches_active);
     RUN_TEST(test_wifi_prov_deprov_anomaly_reaches_active);
     RUN_TEST(test_wifi_prov_user_requested_reaches_active);
     RUN_TEST(test_wifi_prov_ap_start_failure_stays_idle_no_prov_start);
     RUN_TEST(test_wifi_prov_prov_start_failure_rolls_back_ap);
     RUN_TEST(test_wifi_prov_reentry_while_active_is_noop);
-    RUN_TEST(test_wifi_prov_save_success_closes_portal_in_order);
+    RUN_TEST(test_wifi_prov_save_success_enters_closing_without_teardown);
+    RUN_TEST(test_wifi_prov_settle_timeout_closes_portal_in_order);
+    RUN_TEST(test_wifi_prov_closing_save_success_is_noop);
+    RUN_TEST(test_wifi_prov_closing_entry_user_requested_is_noop);
+    RUN_TEST(test_wifi_prov_idle_settle_timeout_is_noop);
+    RUN_TEST(test_wifi_prov_active_settle_timeout_is_noop);
     RUN_TEST(test_wifi_prov_unmatched_event_in_idle_is_noop);
     RUN_TEST(test_wifi_prov_unmatched_event_in_active_is_noop);
     RUN_TEST(test_wifi_prov_drive_entry_unmatched_entry_event_is_noop);
     RUN_TEST(test_wifi_prov_drive_entry_null_ctx_is_noop);
     RUN_TEST(test_wifi_prov_ap_start_ok_row_matches_unguarded_from_idle);
     RUN_TEST(test_wifi_prov_prov_start_ok_row_matches_unguarded_from_idle);
+    RUN_TEST(test_wifi_prov_fsm_init_clamps_zero_settle_ms_to_one);
+    RUN_TEST(test_wifi_prov_fsm_init_nonzero_settle_ms_unclamped);
+    RUN_TEST(test_wifi_prov_direct_zero_settle_ms_write_after_init_still_floored);
+    RUN_TEST(test_wifi_prov_zero_settle_ms_arms_one_ms_timer_and_completes_cycle);
 
     // bb_mdns_lifecycle tests
     RUN_TEST(test_bb_mdns_lifecycle_start_when_not_started);

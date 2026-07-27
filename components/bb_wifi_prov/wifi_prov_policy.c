@@ -29,6 +29,41 @@
 // failable side effects into one non-recoverable step. Don't.
 // ===========================================================================
 
+// ===========================================================================
+// WHY THE SETTLE STATE (do not collapse WP_CLOSING back into row 7):
+//
+// bb_wifi_ap_stop() (the platform ap_stop_fn behind this adapter) has zero
+// synchronization with in-flight httpd traffic -- it tears the netif out
+// from under esp_wifi immediately. If EV_SAVE_SUCCESS closed the portal
+// synchronously (as it used to), the browser's POST /save response could be
+// cut off mid-flush: the client sees a broken connection instead of the
+// "saved" confirmation it just earned.
+//
+// So EV_SAVE_SUCCESS no longer runs act_close_portal directly -- it moves to
+// WP_CLOSING and stops there. The actual teardown (act_close_portal, still
+// unchanged: prov_stop_fn, then ap_stop_fn, then creds_arrived_notify_fn, in
+// that order) only runs once EV_SETTLE_TIMEOUT fires, giving the shell's
+// httpd stack a window to flush the in-flight response first.
+//
+// The settle timer is armed in wp_closing_on_entry, an on_entry HOOK -- not
+// in row 7's action. This is load-bearing, not style: bb_fsm.h's action
+// contract says a timer armed by an action is kept only across a SAME
+// transition; row 7 has a concrete `next` (WP_CLOSING), so the post-action
+// clear would discard a timer armed there and the FSM would park in
+// WP_CLOSING forever, with no route back to WP_IDLE. Arming from the
+// destination state's on_entry sidesteps that clear entirely.
+//
+// A future reader may look at WP_CLOSING and see a state that does nothing
+// but wait, and be tempted to inline it away. Don't -- it's the only thing
+// standing between "saved" and a torn-off TCP connection.
+// ===========================================================================
+
+// WP_CLOSING's only exit is the settle timeout, and bb_fsm_arm_timer(ms==0)
+// disarms rather than fires -- a zero would strand the FSM there with the
+// portal and AP still up. Clamped at BOTH construction and point of use so
+// the invariant holds even if a future caller writes ctx->settle_ms directly.
+static uint32_t settle_ms_floor(uint32_t ms) { return ms == 0 ? 1u : ms; }
+
 static wifi_prov_log_evt_t entry_log_evt(wp_event_t event)
 {
     if (event == EV_ENTRY_FIRST_BOOT) return WIFI_PROV_LOG_ENTRY_FIRST_BOOT;
@@ -78,10 +113,15 @@ static void act_reentry_noop(bb_fsm_t *fsm, void *vctx, bb_fsm_event_t event, vo
     ctx->adapter->log_fn(WIFI_PROV_LOG_ENTRY_ALREADY_ACTIVE);
 }
 
-// Row 7 (WP_ACTIVE + EV_SAVE_SUCCESS -> WP_IDLE): close the portal. Exactly
-// these three calls, in this order -- prov_stop_fn, then ap_stop_fn, then
-// creds_arrived_notify_fn (the PR1 seam that lets the reconnect FSM pick up
-// the freshly-saved credentials).
+// Row 7 (WP_ACTIVE + EV_SAVE_SUCCESS -> WP_CLOSING): no teardown here
+// anymore -- just a state move. See the "WHY THE SETTLE STATE" block above
+// for why act_close_portal moved off this row.
+
+// Row 8 (WP_CLOSING + EV_SETTLE_TIMEOUT -> WP_IDLE): close the portal, now
+// that the settle window has elapsed. Exactly these three calls, in this
+// order -- prov_stop_fn, then ap_stop_fn, then creds_arrived_notify_fn (the
+// PR1 seam that lets the reconnect FSM pick up the freshly-saved
+// credentials) -- followed by the structured close-confirmation log.
 static void act_close_portal(bb_fsm_t *fsm, void *vctx, bb_fsm_event_t event, void *evt_data)
 {
     (void)fsm; (void)event; (void)evt_data;
@@ -89,6 +129,7 @@ static void act_close_portal(bb_fsm_t *fsm, void *vctx, bb_fsm_event_t event, vo
     ctx->adapter->prov_stop_fn();
     ctx->adapter->ap_stop_fn();
     ctx->adapter->creds_arrived_notify_fn();
+    ctx->adapter->log_fn(WIFI_PROV_LOG_PORTAL_CLOSED);
 }
 
 // --- State on_entry hooks ---
@@ -100,24 +141,45 @@ static void wp_active_on_entry(bb_fsm_t *fsm, void *vctx, bb_fsm_state_t state)
     ctx->adapter->log_fn(WIFI_PROV_LOG_PORTAL_OPEN);
 }
 
+// Arms the settle timer -- see the "WHY THE SETTLE STATE" block above for
+// why this lives in on_entry rather than in row 7's action.
+static void wp_closing_on_entry(bb_fsm_t *fsm, void *vctx, bb_fsm_state_t state)
+{
+    (void)state;
+    const wifi_prov_ctx_t *ctx = vctx;
+    bb_fsm_arm_timer(fsm, EV_SETTLE_TIMEOUT, settle_ms_floor(ctx->settle_ms));
+}
+
 // --- Table (row order is the match order -- see bb_fsm_step's contract) ---
 
 static const bb_fsm_row_t wp_rows[] = {
-    { WP_IDLE,   EV_ENTRY_FIRST_BOOT,     NULL, act_try_ap_start,   BB_FSM_STATE_SAME },
-    { WP_IDLE,   EV_ENTRY_DEPROV_ANOMALY, NULL, act_try_ap_start,   BB_FSM_STATE_SAME },
-    { WP_IDLE,   EV_ENTRY_USER_REQUESTED, NULL, act_try_ap_start,   BB_FSM_STATE_SAME },
-    { WP_IDLE,   EV_AP_START_OK,          NULL, act_try_prov_start, BB_FSM_STATE_SAME },
-    { WP_IDLE,   EV_PROV_START_OK,        NULL, NULL,               WP_ACTIVE },
-    { WP_ACTIVE, EV_ENTRY_USER_REQUESTED, NULL, act_reentry_noop,   BB_FSM_STATE_SAME },
-    { WP_ACTIVE, EV_SAVE_SUCCESS,         NULL, act_close_portal,   WP_IDLE },
+    { WP_IDLE,    EV_ENTRY_FIRST_BOOT,     NULL, act_try_ap_start,   BB_FSM_STATE_SAME },
+    { WP_IDLE,    EV_ENTRY_DEPROV_ANOMALY, NULL, act_try_ap_start,   BB_FSM_STATE_SAME },
+    { WP_IDLE,    EV_ENTRY_USER_REQUESTED, NULL, act_try_ap_start,   BB_FSM_STATE_SAME },
+    { WP_IDLE,    EV_AP_START_OK,          NULL, act_try_prov_start, BB_FSM_STATE_SAME },
+    { WP_IDLE,    EV_PROV_START_OK,        NULL, NULL,               WP_ACTIVE },
+    { WP_ACTIVE,  EV_ENTRY_USER_REQUESTED, NULL, act_reentry_noop,   BB_FSM_STATE_SAME },
+    { WP_ACTIVE,  EV_SAVE_SUCCESS,         NULL, NULL,               WP_CLOSING },
+    { WP_CLOSING, EV_SETTLE_TIMEOUT,       NULL, act_close_portal,   WP_IDLE },
 };
 
 static const bb_fsm_state_desc_t wp_states[] = {
-    { WP_ACTIVE, wp_active_on_entry, NULL },
+    { WP_ACTIVE,  wp_active_on_entry,  NULL },
+    { WP_CLOSING, wp_closing_on_entry, NULL },
 };
 
-bb_err_t wifi_prov_fsm_init(wifi_prov_ctx_t *ctx, bb_fsm_state_t initial)
+bb_err_t wifi_prov_fsm_init(wifi_prov_ctx_t *ctx, bb_fsm_state_t initial, uint32_t settle_ms)
 {
+    // Stashed BEFORE bb_fsm_init runs the initial state's on_entry -- if a
+    // caller passes WP_CLOSING as `initial` (host tests only), the settle
+    // timer must see the real value, not a zeroed/stale one.
+    //
+    // Clamped via settle_ms_floor -- see its comment above for why 0 must
+    // never reach bb_fsm_arm_timer. Also re-clamped in wp_closing_on_entry
+    // at point of use, so a future direct write to ctx->settle_ms after
+    // init can't reintroduce the hazard.
+    ctx->settle_ms = settle_ms_floor(settle_ms);
+
     // ctx->desc is embedded IN ctx (not a caller-local stack variable) --
     // bb_fsm_init() stores the pointer it's given verbatim, it does not
     // copy the pointed-to struct, so the desc must outlive the fsm. See the
