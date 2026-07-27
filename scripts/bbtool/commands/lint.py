@@ -805,6 +805,29 @@ _SCHEMA_VAR_RE = re.compile(r'\.request_schema\s*=\s*([A-Za-z_]\w*)\b')
 _SCHEMA_NULL_PATCHED_RE = re.compile(
     r'\.request_schema\s*=\s*NULL\s*/\*[^*]*\bpatched\b[^*]*\*/', re.IGNORECASE)
 
+# B1-1244: a route converted to degrade-and-continue can still point
+# .request_schema at a `static char foo[N];` buffer that is *always*
+# non-NULL, so the emitter's pointer-only gate stays true even when the
+# doc-only compose that would have filled it failed — the schema is
+# emitted as an empty (but present) requestBody instead of omitted.
+# Fixed for the three known sites in PR #1103 via NULL-then-patch; this
+# regex detects the same shape recurring: a `.request_schema` variable
+# reference that resolves, in this file, to a mutable `char foo[N]`
+# array declaration (no `const`). Resolution is done against the
+# comment/string-blanked `stripped` text (never raw `src`, else a
+# declaration merely mentioned in a comment would count), and collects
+# EVERY matching declaration in the file via finditer rather than just
+# the first textual hit (else an unrelated same-named local elsewhere in
+# the file could shadow the real one). If any matching declaration is
+# `const`, the reference is trusted — only flagged when at least one
+# declaration is found and none of them are const. A reference that
+# resolves to no declaration at all (macro, pointer, out-of-file symbol,
+# etc.) is left trusted — never flag what can't be proven mutable.
+def _mutable_char_buf_decl_re(var_name: str) -> re.Pattern:
+    return re.compile(
+        r'(?<![A-Za-z0-9_])((?:(?:static|const|volatile)\s+)*)char\s+'
+        + re.escape(var_name) + r'\s*\[')
+
 
 def _check_mutating_route_needs_body_schema(ctx: Context) -> list:
     """Rule: mutating-route-needs-body-schema — flag POST/PATCH/PUT routes whose
@@ -871,9 +894,26 @@ def _check_mutating_route_needs_body_schema(ctx: Context) -> list:
                     "mutating route with body is missing .request_schema field"))
                 continue
 
-            # Schema is a variable reference — trust it (can't inspect statically)
+            # Schema is a variable reference — trust it, UNLESS it resolves
+            # in-file to a mutable char-buffer declaration (the B1-1244
+            # shape: a static buffer that is always non-NULL, so a
+            # degrade-and-continue route silently emits an empty
+            # requestBody instead of omitting it). A reference this can't
+            # resolve in-file (macro, pointer, external symbol, ...) is
+            # left trusted — can't inspect it statically.
             var_m = _SCHEMA_VAR_RE.search(block_orig)
             if var_m and var_m.group(1) not in ('NULL',):
+                var_name = var_m.group(1)
+                decl_matches = list(
+                    _mutable_char_buf_decl_re(var_name).finditer(stripped))
+                any_const = any('const' in dm.group(1) for dm in decl_matches)
+                if decl_matches and not any_const:
+                    violations.append(ctx.violation(
+                        path, line_no,
+                        f'mutating route .request_schema references mutable buffer'
+                        f' "{var_name}" ({var_name}[...] is always non-NULL) —'
+                        f' B1-1244 defect class; use NULL-then-patch instead'
+                        f' (.request_schema = NULL /* patched at init */)'))
                 continue
 
             # Schema is a string literal — check for "properties"
@@ -2190,7 +2230,8 @@ def _register_lint_rules() -> None:
             profiles={"all"},
             check=_check_mutating_route_needs_body_schema,
             hint="POST/PATCH/PUT routes with a JSON/form body must have a non-bare"
-                 " .request_schema with properties — prevents silent OpenAPI contract gaps",
+                 " .request_schema with properties, and must not reference a mutable"
+                 " char-buffer symbol (B1-1244) — prevents silent OpenAPI contract gaps",
         ),
         Rule(
             id="event-topic-needs-schema",

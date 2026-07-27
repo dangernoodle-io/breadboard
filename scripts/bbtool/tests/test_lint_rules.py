@@ -1038,6 +1038,114 @@ class TestMutatingRouteNeedsBodySchema(unittest.TestCase):
             violations = _check_mutating_route_needs_body_schema(make_ctx(td))
             self.assertFalse(violations, "variable schema reference must NOT fire")
 
+    def test_fires_on_variable_schema_resolving_to_mutable_char_buffer(self):
+        """B1-1244: a .request_schema variable reference resolving in-file to a
+        mutable `char foo[N]` buffer (always non-NULL) must fire — this is the
+        exact defect shape fixed in PR #1103 via NULL-then-patch."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static char s_fake_schema_buf[256];\n'
+                '\n'
+                'static bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_PATCH,\n'
+                '    .path                 = "/api/fake",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = s_fake_schema_buf,\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "variable reference resolving to a mutable char buffer must fire")
+
+    def test_no_fire_on_variable_schema_resolving_to_const_char_buffer(self):
+        """A `const char foo[N]` (or `static const char foo[N]`) is not the
+        B1-1244 shape — it can never silently change after init — so it stays
+        trusted."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static const char s_fake_schema_buf[] = "{\\"type\\":\\"object\\"}";\n'
+                '\n'
+                'static bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_PATCH,\n'
+                '    .path                 = "/api/fake",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = s_fake_schema_buf,\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "variable reference resolving to a const char buffer must NOT fire")
+
+    def test_no_fire_on_variable_schema_with_comment_embedded_decl(self):
+        """A mutable-buffer declaration mentioned only inside a comment must
+        not shadow the real const declaration — resolution must run against
+        the comment-blanked text, not raw source."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '/* historical note: this used to be\n'
+                ' * static char s_fake_schema_buf[64];\n'
+                ' */\n'
+                'static const char s_fake_schema_buf[] = "{\\"type\\":\\"object\\"}";\n'
+                '\n'
+                'static bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_PATCH,\n'
+                '    .path                 = "/api/fake",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = s_fake_schema_buf,\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "comment-embedded mutable declaration must NOT shadow the"
+                " real const declaration")
+
+    def test_no_fire_on_variable_schema_shadowed_by_unrelated_local(self):
+        """A same-named mutable local in an unrelated function must not
+        shadow the real file-scope const declaration — every matching
+        declaration must be considered, not just the first textual hit."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static void unrelated_fn(void) {\n'
+                '    char s_fake_schema_buf[16];\n'
+                '    (void)s_fake_schema_buf;\n'
+                '}\n'
+                '\n'
+                'static const char s_fake_schema_buf[] = "{\\"type\\":\\"object\\"}";\n'
+                '\n'
+                'static bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_PATCH,\n'
+                '    .path                 = "/api/fake",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = s_fake_schema_buf,\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "unrelated same-named mutable local must NOT shadow the"
+                " real const declaration")
+
+    def test_no_fire_on_variable_schema_unresolvable_in_file(self):
+        """A variable reference this rule cannot resolve in-file (declared
+        elsewhere, e.g. via a shared header) must stay trusted — never flag
+        what can't be proven mutable."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_PATCH,\n'
+                '    .path                 = "/api/fake",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = k_fake_patch_schema,\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "unresolvable variable reference must NOT fire")
+
     def test_fires_on_put_with_bare_object_schema(self):
         with tempfile.TemporaryDirectory() as td:
             self._make_file(td, "components/bb_fake/src/bb_fake.c",
