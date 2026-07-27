@@ -43,6 +43,8 @@
 #include "bb_mdns.h"
 #include "bb_health.h"
 #include "bb_temp.h"
+#include "bb_wifi_prov.h"
+#include "bb_prov_default_form.h"
 #include <inttypes.h>
 #include <stdbool.h>
 
@@ -419,6 +421,29 @@ void app_main(void)
     } else {
         bb_log_w(TAG, "http not started -- with-http reading skipped");
     }
+
+    // B1-809 validation vehicle: bb_wifi_prov_autoinit() is a no-op
+    // returning BB_OK when creds already exist (see its doc), so this call
+    // is safe on every boot. It runs here -- after the "http" lifecycle
+    // service above has registered floor's own specific GET routes --
+    // because bb_wifi_prov_start() registers the captive `GET /*` wildcard,
+    // and httpd_uri_match_wildcard() matches in registration order: a
+    // first-match wildcard registered before floor's routes would shadow
+    // them for the entire provisioning window (see bb_http.c and
+    // bb_wifi_prov.h's registration-order invariant). Ordering after
+    // bb_storage_nvs_register() and bb_wifi_ensure_net_stack() above still
+    // holds, since those satisfy bb_wifi_ap_start()'s prerequisites.
+    const bb_http_asset_t *prov_asset = bb_prov_default_form_get();
+    err = bb_wifi_prov_autoinit(prov_asset, 1, NULL);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "wifi_prov_autoinit failed (%d)", (int)err);
+    }
+
+    // Delta reading: provisioning (potentially) active, layered on top of
+    // the with-http-running baseline above. When creds already exist,
+    // autoinit is a no-op and this reading is expected to simply equal the
+    // previous one -- that is fine, not a bug.
+    bb_serialize_console_heap_report("with-prov-running");
 
     bb_periodic_timer_t heap_log_timer = NULL;
     err = bb_timer_deferred_periodic_create(
