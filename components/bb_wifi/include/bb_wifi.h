@@ -531,6 +531,14 @@ bb_err_t bb_wifi_ping(uint32_t target_addr, uint32_t timeout_ms,
 // Convenience wrapper: pings the current STA default gateway. Returns false
 // if no IP/gateway info is available or if the ICMP ping times out.
 bool bb_wifi_gateway_reachable(uint32_t timeout_ms);
+
+// Notify the reconnect FSM that fresh WiFi credentials were just persisted,
+// so a parked WR_NO_CREDS instance can move to WR_CONNECTING and attempt the
+// new creds. Non-blocking (posts to the reconnect manager's queue); safe to
+// call from any task context. No-op if the reconnect task is not running.
+// Intended caller: bb_wifi_prov's provisioning lifecycle orchestrator
+// (B1-809), the first cross-component consumer of this seam.
+void bb_wifi_on_creds_arrived(void);
 #endif /* ESP_PLATFORM */
 
 // bb_wifi_emit_status (bb_json_t-based JSON emitter) moved to bb_wifi_http.h

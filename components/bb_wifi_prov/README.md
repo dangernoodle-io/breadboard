@@ -22,7 +22,9 @@ Public symbols use the `bb_` prefix.
 | `bb_http_server` | public | — | [bb_http_server](../README.md) |
 | `bb_log` | private | — | [bb_log](../README.md) |
 | `bb_settings` | private | bb's default WiFi-credentials store — a wifi-creds field table over `bb_config`, byte-compatible with the credentials `bb_nv_config` already persists. `bb_settings` is bb's opinionated bb-config authority (KB 805/806); `bb_wifi` reads its accessors directly. | [bb_settings](../bb_settings/README.md) |
-| `bb_wifi` | public | STA WiFi core: connect/reconnect lifecycle, a self-heal reconnect FSM that recovers from disconnects and no-IP stalls without a reboot, and portable diagnostics getters (RSSI, disconnect reason, scan results) that every backend (ESP-IDF, CC3000, WiFiS3/R4, host) maps onto. | [bb_wifi](../bb_wifi/README.md) |
+| `bb_task` | private | — | [bb_task](../README.md) |
+| `bb_wifi` | private | STA WiFi core: connect/reconnect lifecycle, a self-heal reconnect FSM that recovers from disconnects and no-IP stalls without a reboot, and portable diagnostics getters (RSSI, disconnect reason, scan results) that every backend (ESP-IDF, CC3000, WiFiS3/R4, host) maps onto. | [bb_wifi](../bb_wifi/README.md) |
+| `bb_wifi_ap` | private | bb_wifi_ap — SoftAP + captive-DNS primitive (KB 781): pure AP bring-up and a captive DNS responder, zero HTTP. | [bb_wifi_ap](../bb_wifi_ap/README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support

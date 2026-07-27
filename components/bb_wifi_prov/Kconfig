@@ -1,0 +1,69 @@
+menu "breadboard: bb_wifi_prov"
+
+config BB_WIFI_PROV_TASK_STACK
+    int "Provisioning manager task stack size (bytes)"
+    default 6144
+    range 4096 16384
+    help
+        Stack for the wifi_prov_mgr task that drives the WP_IDLE/WP_ACTIVE/
+        WP_CLOSING provisioning FSM (wifi_prov_policy.h). PROVISIONAL AND
+        UNMEASURED -- no on-device stack-high-water-mark reading has been
+        taken for this task yet.
+
+        See wifi_reconn's own RECONN_TASK_STACK comment
+        (platform/espidf/bb_wifi/wifi_reconn.c) for the precedent this
+        guesses from: that task shipped at 4096 and only later, after a real
+        bug (B1-330), was raised to 6144 once the escalate-reboot path's NVS
+        writes were measured to consume ~1.5-2 KB more stack than assumed.
+        Don't repeat that mistake here without measuring.
+
+        To measure: flash, let the manager task run through at least one
+        WP_ACTIVE (portal open) cycle, then GET /api/diag/tasks and read
+        stack_hwm for "wifi_prov_mgr" (every FreeRTOS task is reported
+        automatically -- see bb_diag_tasks_get_wire_fill_row's
+        usStackHighWaterMark field, platform/espidf/bb_diag_http/
+        bb_diag_http_routes.c). Adjust this default once real numbers exist.
+
+        Defaulted to 6144 (not wifi_reconn's original 4096) because this
+        task's peak call path is heavier: act_try_ap_start/act_try_prov_start
+        run esp_wifi/esp_netif AP init plus httpd_start (bb_wifi_prov_start),
+        which is a deeper/heavier call chain than the NVS-write path that
+        forced wifi_reconn up from 4096.
+
+config BB_WIFI_PROV_TASK_PRIORITY
+    int "Provisioning manager task priority"
+    default 5
+    range 1 20
+    help
+        FreeRTOS priority for the wifi_prov_mgr task. Default 5: matches
+        wifi_reconn's RECONN_TASK_PRIO peer-manager task, above background
+        worker tasks (1), well below the esp_timer service task (~22).
+
+config BB_WIFI_PROV_QUEUE_DEPTH
+    int "Provisioning manager event queue depth"
+    default 8
+    range 4 32
+    help
+        Depth of the queue between the provisioning-entry/save-success
+        notifiers and the wifi_prov_mgr task. Matches wifi_reconn's
+        RECONN_QUEUE_LEN peer default.
+
+config BB_WIFI_PROV_SETTLE_MS
+    int "WP_CLOSING settle-timer duration (ms)"
+    default 2000
+    range 100 30000
+    help
+        How long the provisioning FSM waits in WP_CLOSING (see
+        wifi_prov_policy.h) before tearing down the portal after a
+        successful POST /save, giving the in-flight HTTP response time to
+        flush before ap_stop_fn tears the netif out from under it.
+
+        Floored at 100, never 0: bb_fsm_arm_timer(fsm, event, ms==0)
+        DISARMS rather than fires (bb_fsm.h), and the settle timeout is
+        WP_CLOSING's ONLY exit -- a 0 here would strand the FSM (and the
+        portal/AP) in WP_CLOSING forever. wifi_prov_policy.c's
+        settle_ms_floor() also floors defensively at the point of use, but
+        this Kconfig range is the first line of defense against a
+        misconfigured build ever producing that value.
+
+endmenu

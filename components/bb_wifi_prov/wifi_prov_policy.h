@@ -87,7 +87,7 @@ typedef struct {
     void     (*ap_stop_fn)(void);               // bb_wifi_ap_stop()
     bb_err_t (*prov_start_fn)(void);            // bb_wifi_prov_start(assets, n, extra), closed over by the shell
     void     (*prov_stop_fn)(void);             // bb_wifi_prov_stop()
-    void     (*creds_arrived_notify_fn)(void);  // wifi_reconn_on_creds_arrived() (PR1 seam)
+    void     (*creds_arrived_notify_fn)(void);  // bb_wifi_on_creds_arrived() (PR1 seam)
     void     (*log_fn)(wifi_prov_log_evt_t);    // structured diagnostic emit
 } wifi_prov_adapter_t;
 
