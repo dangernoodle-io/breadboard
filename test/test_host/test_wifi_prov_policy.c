@@ -529,3 +529,46 @@ void test_wifi_prov_zero_settle_ms_arms_one_ms_timer_and_completes_cycle(void)
     TEST_ASSERT_EQUAL(3, s_fake.creds_notify_seq);
     TEST_ASSERT_EQUAL(WIFI_PROV_LOG_PORTAL_CLOSED, s_fake.log_hist[s_fake.log_hist_n - 1]);
 }
+
+// ===========================================================================
+// B1-809 PR4 -- wifi_prov_entry_decision: pure boot-time entry policy.
+// Exhausts all 4 (has_creds, provisioned) combinations plus the NULL
+// out_event behavior. See wifi_prov_policy.h for the full rationale this
+// pins down.
+// ===========================================================================
+
+void test_wifi_prov_entry_decision_no_creds_not_provisioned_is_first_boot(void)
+{
+    wp_event_t ev = (wp_event_t)-1;
+    TEST_ASSERT_TRUE(wifi_prov_entry_decision(false, false, &ev));
+    TEST_ASSERT_EQUAL(EV_ENTRY_FIRST_BOOT, ev);
+}
+
+void test_wifi_prov_entry_decision_no_creds_provisioned_is_deprov_anomaly(void)
+{
+    wp_event_t ev = (wp_event_t)-1;
+    TEST_ASSERT_TRUE(wifi_prov_entry_decision(false, true, &ev));
+    TEST_ASSERT_EQUAL(EV_ENTRY_DEPROV_ANOMALY, ev);
+}
+
+void test_wifi_prov_entry_decision_has_creds_not_provisioned_no_portal(void)
+{
+    wp_event_t ev = (wp_event_t)-1;
+    TEST_ASSERT_FALSE(wifi_prov_entry_decision(true, false, &ev));
+    TEST_ASSERT_EQUAL((wp_event_t)-1, ev); // untouched
+}
+
+void test_wifi_prov_entry_decision_has_creds_provisioned_no_portal(void)
+{
+    wp_event_t ev = (wp_event_t)-1;
+    TEST_ASSERT_FALSE(wifi_prov_entry_decision(true, true, &ev));
+    TEST_ASSERT_EQUAL((wp_event_t)-1, ev); // untouched
+}
+
+void test_wifi_prov_entry_decision_null_out_event_is_tolerated(void)
+{
+    TEST_ASSERT_TRUE(wifi_prov_entry_decision(false, false, NULL));
+    TEST_ASSERT_TRUE(wifi_prov_entry_decision(false, true, NULL));
+    TEST_ASSERT_FALSE(wifi_prov_entry_decision(true, false, NULL));
+    TEST_ASSERT_FALSE(wifi_prov_entry_decision(true, true, NULL));
+}

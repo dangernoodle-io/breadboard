@@ -199,11 +199,24 @@ bb_err_t wifi_prov_mgr_init(const bb_http_asset_t *assets, size_t n,
     return BB_OK;
 }
 
-void wifi_prov_mgr_on_save(void)
+// Shared by wifi_prov_mgr_on_save/wifi_prov_mgr_post_entry -- the second
+// hand-rolled "post to s_queue, no-op if unset, warn on full" instance is
+// what triggers this extraction (see wiki Conventions#reuse-or-extract).
+static void post_event(wp_event_t event, const char *drop_msg)
 {
     if (!s_queue) return;
-    prov_mgr_evt_t evt = { .fsm_event = EV_SAVE_SUCCESS };
+    prov_mgr_evt_t evt = { .fsm_event = event };
     if (xQueueSend(s_queue, &evt, 0) != pdTRUE) {
-        bb_log_w(TAG, "queue full, dropping save-success event");
+        bb_log_w(TAG, "%s", drop_msg);
     }
+}
+
+void wifi_prov_mgr_on_save(void)
+{
+    post_event(EV_SAVE_SUCCESS, "queue full, dropping save-success event");
+}
+
+void wifi_prov_mgr_post_entry(wp_event_t event)
+{
+    post_event(event, "queue full, dropping entry event");
 }
