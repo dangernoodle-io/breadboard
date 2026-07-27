@@ -21,6 +21,7 @@ Public symbols use the `bb_` prefix.
 | `bb_log` | private | — | [bb_log](../README.md) |
 | `bb_str` | private | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. | [bb_str](../bb_str/README.md) |
 | `bb_task` | private | — | [bb_task](../README.md) |
+| `bb_wifi` | private | STA WiFi core: connect/reconnect lifecycle, a self-heal reconnect FSM that recovers from disconnects and no-IP stalls without a reboot, and portable diagnostics getters (RSSI, disconnect reason, scan results) that every backend (ESP-IDF, CC3000, WiFiS3/R4, host) maps onto. | [bb_wifi](../bb_wifi/README.md) |
 | `esp_event` | private | — | esp_event |
 | `esp_netif` | private | — | esp_netif |
 | `esp_wifi` | private | — | esp_wifi |

@@ -3,6 +3,7 @@
 // bb_prov_stop_ap()/dns_task() (KB 781) -- the pure DNS packet building and
 // SSID derivation now live in components/bb_wifi_ap/src/bb_wifi_ap_core.c.
 #include "bb_wifi_ap.h"
+#include "bb_wifi.h"
 #include "bb_log.h"
 #include "bb_str.h"
 #include "bb_task.h"
@@ -16,16 +17,25 @@
 
 static const char *TAG = "bb_wifi_ap";
 
+// Bound on bb_wifi_ap_stop()'s wait for an in-flight bb_wifi scan to go
+// idle before touching the esp_wifi driver mode/lifecycle -- see the
+// bb_wifi_scan_wait_idle() call in bb_wifi_ap_stop() below. Never blocks
+// teardown forever: on timeout, teardown proceeds anyway (logged).
+#define BB_WIFI_AP_STOP_SCAN_WAIT_MS 5000
+
+// Second-chance bound after esp_wifi_scan_stop() is used to cooperatively
+// cancel a still-in-flight scan on the BB_WIFI_AP_STOP_SCAN_WAIT_MS timeout
+// path (see bb_wifi_ap_stop() below). Short: esp_wifi_scan_stop() forces the
+// blocking esp_wifi_scan_start(..., true) call on the scan task to return,
+// so the scan task only needs enough time to observe that and run its
+// cleanup (scan_worker_task in bb_wifi.c) -- not another full scan interval.
+#define BB_WIFI_AP_STOP_SCAN_CANCEL_WAIT_MS 1000
+
 // AP + captive-DNS state.
 static esp_netif_t *s_ap_netif = NULL;
 static volatile bool s_dns_running = false;
 static TaskHandle_t s_dns_task_handle = NULL;
 static char s_ap_ssid[32];
-
-// True if a STA was already associated/active when bb_wifi_ap_start() ran
-// (esp_wifi driver was already initialized) -- bb_wifi_ap_stop() restores
-// STA-only mode in that case instead of tearing the whole driver down.
-static bool s_had_sta = false;
 
 // AP SSID prefix (default "BB-").
 static char s_ap_ssid_prefix[16] = "BB-";
@@ -142,8 +152,8 @@ bb_err_t bb_wifi_ap_start(void)
         cur_mode = WIFI_MODE_NULL;
     }
 
-    s_had_sta = (cur_mode == WIFI_MODE_STA || cur_mode == WIFI_MODE_APSTA);
-    wifi_mode_t new_mode = s_had_sta ? WIFI_MODE_APSTA : WIFI_MODE_AP;
+    bool had_sta = (cur_mode == WIFI_MODE_STA || cur_mode == WIFI_MODE_APSTA);
+    wifi_mode_t new_mode = had_sta ? WIFI_MODE_APSTA : WIFI_MODE_AP;
     ESP_ERROR_CHECK(esp_wifi_set_mode(new_mode));
 
     // Initialize WiFi and set mode before reading AP MAC
@@ -233,8 +243,56 @@ void bb_wifi_ap_stop(void)
         }
     }
 
+    // Wait for any in-flight bb_wifi scan to go idle before touching the
+    // driver mode/lifecycle below (CRITICAL, B1-809): bb_wifi_scan_networks()
+    // can run a BLOCKING esp_wifi_scan_start() on a detached task
+    // (wifi_ensure_scan_capable() may even promote AP -> APSTA to make the
+    // scan possible in the first place -- see the mode re-query below).
+    // esp_wifi_stop()/esp_wifi_deinit() with a scan in flight is unsupported
+    // by the ESP-IDF driver and can assert/crash, not merely error-return.
+    // Bounded: never blocks teardown forever -- on timeout, proceed anyway
+    // (logged) rather than wedge provisioning.
+    if (!bb_wifi_scan_wait_idle(BB_WIFI_AP_STOP_SCAN_WAIT_MS)) {
+        // Timeout path only: cooperatively cancel the stalled scan before
+        // falling through to teardown, narrowing the residual window where
+        // teardown still proceeds with a scan possibly in flight.
+        // esp_wifi_scan_stop() is the documented cancel API for an in-flight
+        // esp_wifi_scan_start() (including the blocking variant used by
+        // bb_wifi_scan_networks() -- it forces the call to return on the
+        // scan task); its result here is logged only, never gated on, since
+        // a benign race (the scan finishing on its own between the timeout
+        // and this call) is expected and harmless either way.
+        esp_err_t stop_err = esp_wifi_scan_stop();
+        bb_log_w(TAG, "scan still in progress after %ums wait; sent esp_wifi_scan_stop() (%s)",
+                 (unsigned)BB_WIFI_AP_STOP_SCAN_WAIT_MS, esp_err_to_name(stop_err));
+
+        // Short second chance for the cancelled scan to actually go idle.
+        // Bounded like the wait above: teardown must never hang forever, so
+        // this proceeds regardless of the outcome -- only the log line
+        // differs, so a field log can tell "cancelled then idle" from
+        // "cancelled and still not idle, proceeding anyway".
+        if (bb_wifi_scan_wait_idle(BB_WIFI_AP_STOP_SCAN_CANCEL_WAIT_MS)) {
+            bb_log_i(TAG, "scan cancelled and went idle; proceeding with AP teardown");
+        } else {
+            bb_log_w(TAG, "scan cancelled but still not idle after %ums; proceeding with AP teardown anyway",
+                     (unsigned)BB_WIFI_AP_STOP_SCAN_CANCEL_WAIT_MS);
+        }
+    }
+
     // Mode coordination: drop AP without tearing down an active STA.
-    if (s_had_sta) {
+    // Re-query the driver's LIVE mode here rather than trusting a start-time
+    // snapshot -- bb_wifi_scan_networks() (wifi_ensure_scan_capable(),
+    // B1-809) can promote AP -> APSTA behind this component's back any time
+    // after bb_wifi_ap_start() ran, which a start-time-only snapshot would
+    // miss entirely (this now happens on EVERY blank-NVS provisioning
+    // session whose portal loads the SSID list). Mirrors
+    // bb_wifi_ap_start()'s own fresh esp_wifi_get_mode() query above -- stop
+    // is now symmetric with start.
+    wifi_mode_t cur_mode = WIFI_MODE_NULL;
+    esp_err_t mode_err = esp_wifi_get_mode(&cur_mode);
+    bool has_sta = (mode_err == ESP_OK)
+                   && (cur_mode == WIFI_MODE_STA || cur_mode == WIFI_MODE_APSTA);
+    if (has_sta) {
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     } else {
         ESP_ERROR_CHECK(esp_wifi_stop());

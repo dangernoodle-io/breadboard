@@ -79,6 +79,12 @@ static wifi_config_t s_sta_config;
 static bb_wifi_ap_t s_cached_scan[WIFI_SCAN_MAX];
 static int s_cached_scan_count = 0;
 static volatile bool s_scan_in_progress = false;
+// Handle of the detached scan_worker_task while a scan is in flight (NULL
+// otherwise). Used only defensively by bb_wifi_scan_wait_idle() to detect
+// (and refuse) a self-wait; best-effort, not synchronized beyond plain
+// pointer-write/read (a torn read only risks a missed self-wait guard, never
+// a hang -- the timeout bound still applies either way).
+static TaskHandle_t s_scan_task_handle = NULL;
 
 // Cached AP info — updated on STA_CONNECTED event and by periodic refresh timer.
 // bb_wifi_get_info reads this instead of calling esp_wifi_sta_get_ap_info (which
@@ -581,14 +587,45 @@ static void wifi_read_pending_pass(char *buf, size_t cap)
 }
 #endif
 
+// Race-free, OOM-checked STA netif creation shared by wifi_connect_sta_ex()
+// and wifi_ensure_scan_capable() -- two independent callers on different
+// tasks that both used to run an unguarded "if (!s_sta_netif) create()"
+// check-then-create: two racing callers could both observe NULL, both
+// create, and the loser leak an esp_netif_t with no owner (or clobber the
+// winner's handle). Mirrors ping_infra_init()'s bb_once_run_fallible()
+// idiom above -- exactly one esp_netif_create_default_wifi_sta() call runs
+// across all racing callers, and a transient OOM failure is NOT latched
+// permanently (resets to IDLE so the next call genuinely retries).
+static bb_once_t s_sta_netif_once = BB_ONCE_INIT;
+
+static bool sta_netif_create_once(void *ctx)
+{
+    (void)ctx;
+    s_sta_netif = esp_netif_create_default_wifi_sta();
+    if (!s_sta_netif) {
+        bb_log_e(TAG, "failed to create STA netif (OOM)");
+        return false;
+    }
+    return true;
+}
+
+static esp_err_t sta_netif_ensure(void)
+{
+    bb_once_run_fallible(&s_sta_netif_once, sta_netif_create_once, NULL);
+    return s_sta_netif ? ESP_OK : ESP_ERR_NO_MEM;
+}
+
 static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms)
 {
     s_wifi_event_group = xEventGroupCreate();
 
     ESP_ERROR_CHECK(bb_wifi_ensure_net_stack());
 
-    if (!s_sta_netif) {
-        s_sta_netif = esp_netif_create_default_wifi_sta();
+    esp_err_t netif_err = sta_netif_ensure();
+    if (netif_err != ESP_OK) {
+        vEventGroupDelete(s_wifi_event_group);
+        s_wifi_event_group = NULL;
+        return netif_err;
     }
 
     // Apply the persisted hostname now that the STA netif exists but before
@@ -703,9 +740,86 @@ bb_err_t bb_wifi_init_sta(void)
     return wifi_connect_sta_ex(CREDS_LIVE, 60000);
 }
 
+// Idempotent precondition for bb_wifi_scan_networks(): esp_wifi_scan_start()
+// is only supported in station or station/AP mode (ESP-IDF requirement), but
+// the no-creds provisioning path (bb_wifi_autoinit's early return, B1-809)
+// never brings the driver up at all, and bb_wifi_ap_start() -- the first
+// thing that DOES bring it up on that path -- selects pure AP (no STA netif)
+// since it sees ESP_ERR_WIFI_NOT_INIT and has no STA to preserve. This makes
+// scanning self-sufficient: bring the driver to whatever minimal STA-capable
+// state it needs, without ever tearing down or restarting a live AP (a
+// captive-portal client may be associated to it).
+//
+// Reuses s_sta_netif (bb_wifi's own handle) via the shared sta_netif_ensure()
+// helper rather than adding a second static -- wifi_connect_sta_ex() goes
+// through the same race-free, OOM-checked creation, so whichever of the two
+// callers runs first creates the netif and the other observes it already set.
+static esp_err_t wifi_ensure_scan_capable(void)
+{
+    esp_err_t err = bb_wifi_ensure_net_stack();
+    if (err != ESP_OK) return err;
+
+    esp_err_t netif_err = sta_netif_ensure();
+    if (netif_err != ESP_OK) return netif_err;
+
+    // Mirrors bb_wifi_ap_start()'s mode-coordination idiom (KB 781):
+    // esp_wifi_get_mode() returning ESP_ERR_WIFI_NOT_INIT means esp_wifi_init()
+    // has never run -- treat that as "not initialized yet"; any other
+    // successful read reports the mode a prior init (STA connect or AP start)
+    // already selected.
+    //
+    // Deliberately tolerant ordering: if esp_wifi_get_mode() below returns an
+    // unexpected error, this fn returns early with s_sta_netif already
+    // created (via sta_netif_ensure() above) and nothing else done. That is
+    // not a leak -- sta_netif_ensure() is idempotent and the handle is
+    // reused on the next call -- and non-fatal, since the caller (scan
+    // precondition) just logs and returns 0. Do not "fix" this by reordering
+    // the netif creation after the mode check; a future scan-capable state
+    // may want the netif to exist even on a mode-check failure.
+    wifi_mode_t cur_mode = WIFI_MODE_NULL;
+    esp_err_t mode_err = esp_wifi_get_mode(&cur_mode);
+    bool driver_inited = (mode_err == ESP_OK);
+    if (!driver_inited && mode_err != ESP_ERR_WIFI_NOT_INIT) {
+        return mode_err;
+    }
+
+    if (!driver_inited) {
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        esp_err_t init_err = esp_wifi_init(&cfg);
+        if (init_err != ESP_OK) return init_err;
+        cur_mode = WIFI_MODE_NULL;
+    }
+
+    if (cur_mode == WIFI_MODE_NULL) {
+        // Freshly initialized (or initialized-but-never-started): bring up
+        // plain STA, which esp_wifi_scan_start() supports directly.
+        esp_err_t mode_set_err = esp_wifi_set_mode(WIFI_MODE_STA);
+        if (mode_set_err != ESP_OK) return mode_set_err;
+        esp_err_t start_err = esp_wifi_start();
+        if (start_err != ESP_OK) return start_err;
+    } else if (cur_mode == WIFI_MODE_AP) {
+        // AP-only (portal already up, no STA yet): upgrade to APSTA without
+        // ever stopping/restarting the driver -- that would drop the AP's
+        // associated client(s). The driver is already started in this state
+        // (bb_wifi_ap_start() called esp_wifi_start() to bring the AP up),
+        // so switching mode alone brings the STA interface online too.
+        esp_err_t mode_set_err = esp_wifi_set_mode(WIFI_MODE_APSTA);
+        if (mode_set_err != ESP_OK) return mode_set_err;
+    }
+    // WIFI_MODE_STA / WIFI_MODE_APSTA: already scan-capable, nothing to do.
+
+    return ESP_OK;
+}
+
 int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results)
 {
     if (!results || max_results <= 0) {
+        return 0;
+    }
+
+    esp_err_t prep_err = wifi_ensure_scan_capable();
+    if (prep_err != ESP_OK) {
+        bb_log_e(TAG, "scan precondition failed: %s", esp_err_to_name(prep_err));
         return 0;
     }
 
@@ -769,6 +883,10 @@ static void scan_worker_task(void *arg)
     // count is published to readers.
     atomic_thread_fence(memory_order_release);
     s_cached_scan_count = count;
+    // Clear the task handle BEFORE dropping s_scan_in_progress, so a racing
+    // bb_wifi_scan_wait_idle() caller that observes s_scan_in_progress==false
+    // never also sees a stale (about-to-be-deleted) handle.
+    s_scan_task_handle = NULL;
     s_scan_in_progress = false;
 
     bb_log_d(TAG, "async scan complete: %d networks found", count);
@@ -799,6 +917,36 @@ void bb_wifi_scan_start_async(void)
         s_scan_in_progress = false;
         return;
     }
+    s_scan_task_handle = scan_task;
+}
+
+// See bb_wifi.h for the full contract. Bounded poll wait -- s_scan_in_progress
+// is a plain volatile bool (not a semaphore/condvar), so this deliberately
+// spins on a coarse interval rather than adding new synchronization
+// primitives purely to serialize an infrequent (portal teardown) caller
+// against a scan that normally completes in well under a second.
+bool bb_wifi_scan_wait_idle(uint32_t timeout_ms)
+{
+    if (!s_scan_in_progress) {
+        return true;
+    }
+
+    if (s_scan_task_handle != NULL && xTaskGetCurrentTaskHandle() == s_scan_task_handle) {
+        // Waiting here would deadlock: the scan can never finish while its
+        // own task is blocked waiting for itself. Should never happen in
+        // practice (bb_wifi_ap_stop() runs on the wifi_prov_mgr FSM task,
+        // not scan_worker_task) -- guard rather than hang.
+        bb_log_w(TAG, "bb_wifi_scan_wait_idle called from the scan task itself; refusing to wait");
+        return false;
+    }
+
+    const uint32_t poll_ms = 50;
+    uint32_t waited_ms = 0;
+    while (s_scan_in_progress && waited_ms < timeout_ms) {
+        vTaskDelay(pdMS_TO_TICKS(poll_ms));
+        waited_ms += poll_ms;
+    }
+    return !s_scan_in_progress;
 }
 
 int bb_wifi_scan_get_cached(bb_wifi_ap_t *results, int max_results)
