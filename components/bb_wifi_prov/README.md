@@ -18,6 +18,7 @@ Public symbols use the `bb_` prefix.
 | Component | Kind | Role | Docs |
 |-----------|------|------|------|
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
+| `bb_fsm` | private | Table-driven finite state machine primitive: consumer-owned rows (state, event, guard, action, next), entry/exit hooks, and a fixed-size timer-arm seam for the shell to reconstruct real OS timers from. | [bb_fsm](../bb_fsm/README.md) |
 | `bb_http_server` | public | — | [bb_http_server](../README.md) |
 | `bb_log` | private | — | [bb_log](../README.md) |
 | `bb_settings` | private | bb's default WiFi-credentials store — a wifi-creds field table over `bb_config`, byte-compatible with the credentials `bb_nv_config` already persists. `bb_settings` is bb's opinionated bb-config authority (KB 805/806); `bb_wifi` reads its accessors directly. | [bb_settings](../bb_settings/README.md) |
