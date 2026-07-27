@@ -438,8 +438,12 @@ static esp_err_t bb_shim_handler(httpd_req_t *req)
 }
 
 // Asset table used by the single wildcard handler.
-static const bb_http_asset_t *s_assets      = NULL;
-static size_t                 s_asset_count = 0;
+static const bb_http_asset_t *s_assets        = NULL;
+static size_t                 s_asset_count   = 0;
+// No-match fallback registered via bb_http_register_assets_with_fallback
+// (e.g. bb_wifi_prov's captive-portal redirect). NULL means "no fallback" —
+// asset_wildcard_handler keeps the plain 404 behavior.
+static bb_http_handler_fn     s_asset_fallback = NULL;
 
 // Serve a single asset: set headers and send bytes.
 static esp_err_t bb_http_serve_asset(httpd_req_t *req, const bb_http_asset_t *asset)
@@ -476,7 +480,16 @@ static esp_err_t asset_wildcard_handler(httpd_req_t *req)
         }
     }
 
-    // No match → 404
+    // No match: hand off to a registered fallback (e.g. bb_wifi_prov's
+    // captive-portal redirect) using the same bb_shim_handler bridging
+    // contract — cast req to bb_http_request_t* and translate BB_OK/error to
+    // ESP_OK/ESP_FAIL. Falls through to the plain 404 when no fallback is
+    // registered.
+    if (s_asset_fallback) {
+        return s_asset_fallback((bb_http_request_t*)req) == BB_OK ? ESP_OK : ESP_FAIL;
+    }
+
+    // No match, no fallback → 404
     httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
     return ESP_OK;
 }
@@ -618,12 +631,18 @@ bb_err_t bb_http_req_get_header(bb_http_request_t *req, const char *name,
     return BB_ERR_NOT_FOUND;
 }
 
-bb_err_t bb_http_register_assets(bb_http_handle_t server,
-                                 const bb_http_asset_t *assets,
-                                 size_t n)
+bb_err_t bb_http_register_assets_with_fallback(bb_http_handle_t server,
+                                               const bb_http_asset_t *assets,
+                                               size_t n,
+                                               bb_http_handler_fn fallback)
 {
     httpd_handle_t h = (httpd_handle_t)server;
-    if (!h || !assets) return BB_ERR_INVALID_ARG;
+    if (!h) return BB_ERR_INVALID_ARG;
+    // assets/n must agree: either a real table (assets != NULL, n may be 0
+    // for an empty table) or "no assets at all" (assets == NULL, n == 0 —
+    // the fallback-only case, e.g. a captive portal with no caller-supplied
+    // UI). assets == NULL with n > 0 is a mismatched/invalid call.
+    if (!assets && n > 0) return BB_ERR_INVALID_ARG;
 
     // Validate entries upfront
     for (size_t i = 0; i < n; i++) {
@@ -632,12 +651,11 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
         }
     }
 
-    // Store table for the wildcard handler
-    s_assets      = assets;
-    s_asset_count = n;
-
     // Register a single "/*" GET handler (registered last so specific routes
-    // registered before this call win first-match).
+    // registered before this call win first-match). Validate + register
+    // BEFORE touching the file-scope state: on failure the previously
+    // registered wildcard handler (if any) must keep dispatching against its
+    // OLD table/fallback untouched, not a half-applied new one.
     httpd_uri_t uri = {
         .uri     = "/*",
         .method  = HTTP_GET,
@@ -652,8 +670,25 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
     }
     s_registered_handlers++;
 
-    bb_log_i(TAG, "assets: %u files via single wildcard handler", (unsigned)n);
+    // Registration succeeded — now safe to commit the new table + fallback
+    // for the wildcard handler to read.
+    s_assets         = assets;
+    s_asset_count    = n;
+    s_asset_fallback = fallback;
+
+    bb_log_i(TAG, "assets: %u files via single wildcard handler%s", (unsigned)n,
+             fallback ? " (with no-match fallback)" : "");
     return BB_OK;
+}
+
+bb_err_t bb_http_register_assets(bb_http_handle_t server,
+                                 const bb_http_asset_t *assets,
+                                 size_t n)
+{
+    // Back-compat: assets is required (unlike the _with_fallback entry,
+    // which additionally allows a fallback-only NULL-assets registration).
+    if (!assets) return BB_ERR_INVALID_ARG;
+    return bb_http_register_assets_with_fallback(server, assets, n, NULL);
 }
 
 bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str)

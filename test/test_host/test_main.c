@@ -2314,6 +2314,15 @@ void test_wildcard_unknown_path_returns_404(void);
 void test_wildcard_root_maps_to_index_html(void);
 void test_wildcard_gzip_asset_content_type(void);
 void test_wildcard_query_string_stripped(void);
+// register_assets_with_fallback tests
+void test_register_assets_with_fallback_no_match_invokes_fallback(void);
+void test_register_assets_with_fallback_match_does_not_invoke_fallback(void);
+void test_register_assets_with_fallback_null_fallback_preserves_404(void);
+void test_register_assets_with_fallback_null_assets_n_zero_ok(void);
+void test_register_assets_with_fallback_null_assets_n_nonzero_invalid_arg(void);
+void test_register_assets_with_fallback_entry_with_null_field_rejected(void);
+void test_register_assets_with_fallback_entry_with_null_mime_rejected(void);
+void test_register_assets_with_fallback_entry_with_null_data_rejected(void);
 
 // Forward declarations from test_bb_wifi.c
 void test_bb_wifi_set_hostname_null(void);
@@ -6767,6 +6776,15 @@ int main(void) {
     RUN_TEST(test_wildcard_root_maps_to_index_html);
     RUN_TEST(test_wildcard_gzip_asset_content_type);
     RUN_TEST(test_wildcard_query_string_stripped);
+    // register_assets_with_fallback tests
+    RUN_TEST(test_register_assets_with_fallback_no_match_invokes_fallback);
+    RUN_TEST(test_register_assets_with_fallback_match_does_not_invoke_fallback);
+    RUN_TEST(test_register_assets_with_fallback_null_fallback_preserves_404);
+    RUN_TEST(test_register_assets_with_fallback_null_assets_n_zero_ok);
+    RUN_TEST(test_register_assets_with_fallback_null_assets_n_nonzero_invalid_arg);
+    RUN_TEST(test_register_assets_with_fallback_entry_with_null_field_rejected);
+    RUN_TEST(test_register_assets_with_fallback_entry_with_null_mime_rejected);
+    RUN_TEST(test_register_assets_with_fallback_entry_with_null_data_rejected);
 
     // bb_wifi tests
     RUN_TEST(test_bb_wifi_set_hostname_null);

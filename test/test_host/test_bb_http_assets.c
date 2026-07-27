@@ -291,6 +291,173 @@ void test_wildcard_gzip_asset_content_type(void)
     teardown_assets();
 }
 
+// ---------------------------------------------------------------------------
+// bb_http_register_assets_with_fallback tests
+//
+// Note: the espidf backend's "state mutated before validation" failure path
+// (httpd_register_uri_handler rejecting the wildcard route, e.g. because a
+// prior handler is still registered) has no host equivalent — the host
+// backend has no httpd_register_uri_handler analogue and its registration
+// call cannot itself fail once entry validation passes. That failure path is
+// espidf-only and is not exercised here.
+// ---------------------------------------------------------------------------
+
+static int s_fallback_calls = 0;
+
+static bb_err_t test_fallback_handler(bb_http_request_t *req)
+{
+    s_fallback_calls++;
+    bb_http_resp_set_status(req, 302);
+    return BB_OK;
+}
+
+// (a) no-match request invokes the fallback
+void test_register_assets_with_fallback_no_match_invokes_fallback(void)
+{
+    s_fallback_calls = 0;
+    bb_http_register_assets_with_fallback(NULL, s_test_assets,
+                                          sizeof(s_test_assets) / sizeof(s_test_assets[0]),
+                                          test_fallback_handler);
+
+    bb_http_request_t *req;
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_begin(&req);
+    bb_err_t err = bb_http_host_asset_wildcard(req, "/captive.apple.com/generate_204");
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(1, s_fallback_calls);
+    TEST_ASSERT_EQUAL(302, cap.status);
+
+    bb_http_host_capture_free(&cap);
+    teardown_assets();
+}
+
+// (b) a matched asset is served and the fallback is NOT invoked
+void test_register_assets_with_fallback_match_does_not_invoke_fallback(void)
+{
+    s_fallback_calls = 0;
+    bb_http_register_assets_with_fallback(NULL, s_test_assets,
+                                          sizeof(s_test_assets) / sizeof(s_test_assets[0]),
+                                          test_fallback_handler);
+
+    bb_http_request_t *req;
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_begin(&req);
+    bb_err_t err = bb_http_host_asset_wildcard(req, "/style.css");
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(0, s_fallback_calls);
+    TEST_ASSERT_EQUAL(200, cap.status);
+
+    bb_http_host_capture_free(&cap);
+    teardown_assets();
+}
+
+// (c) NULL fallback preserves the existing 404 behavior
+void test_register_assets_with_fallback_null_fallback_preserves_404(void)
+{
+    bb_http_register_assets_with_fallback(NULL, s_test_assets,
+                                          sizeof(s_test_assets) / sizeof(s_test_assets[0]),
+                                          NULL);
+
+    bb_http_request_t *req;
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_begin(&req);
+    bb_err_t err = bb_http_host_asset_wildcard(req, "/nonexistent.png");
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(404, cap.status);
+
+    bb_http_host_capture_free(&cap);
+    teardown_assets();
+}
+
+// (d) assets == NULL with n == 0 is a valid fallback-only registration
+void test_register_assets_with_fallback_null_assets_n_zero_ok(void)
+{
+    s_fallback_calls = 0;
+    bb_err_t err = bb_http_register_assets_with_fallback(NULL, NULL, 0, test_fallback_handler);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_http_request_t *req;
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_begin(&req);
+    bb_err_t herr = bb_http_host_asset_wildcard(req, "/anything");
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, herr);
+    TEST_ASSERT_EQUAL(1, s_fallback_calls);
+
+    bb_http_host_capture_free(&cap);
+    teardown_assets();
+}
+
+// (e) assets == NULL with n > 0 is a mismatched/invalid call
+void test_register_assets_with_fallback_null_assets_n_nonzero_invalid_arg(void)
+{
+    bb_err_t err = bb_http_register_assets_with_fallback(NULL, NULL, 3, test_fallback_handler);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+// (f) a table entry with a NULL path/mime/data is rejected — matches the
+// espidf backend's per-entry validation (regression coverage for the
+// host/espidf divergence found in review).
+void test_register_assets_with_fallback_entry_with_null_field_rejected(void)
+{
+    const bb_http_asset_t bad_assets[] = {
+        {
+            .path = NULL,
+            .mime = "text/css",
+            .encoding = NULL,
+            .data = test_css_data,
+            .len = sizeof(test_css_data)
+        },
+    };
+
+    bb_err_t err = bb_http_register_assets_with_fallback(
+        NULL, bad_assets, sizeof(bad_assets) / sizeof(bad_assets[0]), test_fallback_handler);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+// (g) a table entry with a NULL mime is rejected (covers branch arc for mime check)
+void test_register_assets_with_fallback_entry_with_null_mime_rejected(void)
+{
+    const bb_http_asset_t bad_assets[] = {
+        {
+            .path = "/test.css",
+            .mime = NULL,
+            .encoding = NULL,
+            .data = test_css_data,
+            .len = sizeof(test_css_data)
+        },
+    };
+
+    bb_err_t err = bb_http_register_assets_with_fallback(
+        NULL, bad_assets, sizeof(bad_assets) / sizeof(bad_assets[0]), test_fallback_handler);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+// (h) a table entry with a NULL data is rejected (covers branch arc for data check)
+void test_register_assets_with_fallback_entry_with_null_data_rejected(void)
+{
+    const bb_http_asset_t bad_assets[] = {
+        {
+            .path = "/test.css",
+            .mime = "text/css",
+            .encoding = NULL,
+            .data = NULL,
+            .len = 0
+        },
+    };
+
+    bb_err_t err = bb_http_register_assets_with_fallback(
+        NULL, bad_assets, sizeof(bad_assets) / sizeof(bad_assets[0]), test_fallback_handler);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
 // Query string stripped before matching
 void test_wildcard_query_string_stripped(void)
 {
