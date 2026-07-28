@@ -317,6 +317,14 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
     return BB_ERR_INVALID_STATE;
 }
 
+bb_err_t bb_http_register_assets_with_fallback(bb_http_handle_t server,
+                                               const bb_http_asset_t *assets,
+                                               size_t n,
+                                               bb_http_handler_fn fallback) {
+    (void)server; (void)assets; (void)n; (void)fallback;
+    return BB_ERR_INVALID_STATE;
+}
+
 }  // extern "C"
 
 #endif  // ARDUINO
