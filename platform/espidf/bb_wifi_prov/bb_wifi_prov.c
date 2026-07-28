@@ -157,6 +157,10 @@ void bb_wifi_prov_signal_done(void)
 // consumer's responsibility via codegen/handwire BEFORE calling this — the
 // old bb_init registry walker that used to drive it here is gone (DI
 // demolition; codegen + handwire are the only composition paths).
+//
+// This function is ESP-IDF-only (not in the host test target); its
+// registration-order and error-propagation branches (save_err/assets_err/
+// extra()-before-wildcard) are validated on hardware, not by host tests.
 bb_err_t bb_wifi_prov_start(const bb_http_asset_t *assets, size_t n,
                        bb_wifi_prov_extra_routes_fn_t extra)
 {
@@ -174,13 +178,15 @@ bb_err_t bb_wifi_prov_start(const bb_http_asset_t *assets, size_t n,
 
     // Reserve handler slots for routes registered imperatively below
     // (must happen before ensure_started — once httpd_start runs, the cap
-    // is fixed). 2 = POST /save + GET /* captive wildcard. The per-asset count
-    // (n) is no longer added: assets are served via a single GET /* wildcard
-    // registered unconditionally, already accounted for in
-    // BB_HTTP_EXPLICIT_ASSET_WILDCARD inside ensure_started().
+    // is fixed). 1 = POST /save. The captive-portal redirect no longer gets
+    // its own GET /* registration — it is folded into the asset wildcard as
+    // its no-match fallback (bb_http_register_assets_with_fallback), which
+    // is a single "/*" registration already accounted for separately (see
+    // ensure_started()'s own comment). The per-asset count (n) is likewise
+    // not added: all assets are served via that same single wildcard.
     // 8 = slack for extra() callback routes; consumers needing more must
     // reserve themselves via bb_http_reserve_routes().
-    bb_http_reserve_routes(2 + (extra ? 8 : 0));
+    bb_http_reserve_routes(1 + (extra ? 8 : 0));
 
     // Ensure the shared HTTP server is started (internal helper)
     bb_err_t err = bb_http_server_ensure_started();
@@ -189,21 +195,37 @@ bb_err_t bb_wifi_prov_start(const bb_http_asset_t *assets, size_t n,
     bb_http_handle_t server = bb_http_server_get_handle();
     if (!server) return BB_ERR_INVALID_STATE;
 
-    bb_http_register_route(server, BB_HTTP_POST, "/save", prov_save_handler);
-
-    // Register consumer assets (caller MUST supply at least one asset with path="/")
-    if (assets && n > 0) {
-        bb_http_register_assets(server, assets, n);
+    bb_err_t save_err = bb_http_register_route(server, BB_HTTP_POST, "/save", prov_save_handler);
+    if (save_err != BB_OK) {
+        bb_log_e(TAG, "failed to register POST /save: %d", (int)save_err);
+        return save_err;
     }
 
-    // Consumer's dynamic endpoints (e.g. advanced-UI backing routes).
+    // Consumer's dynamic endpoints (e.g. advanced-UI backing routes) — must be
+    // registered BEFORE the asset/fallback wildcard below so their specific
+    // routes win esp_http_server's first-registered-wins wildcard matching.
     if (extra) {
         bb_err_t rc = extra(server);
-        if (rc != BB_OK) return rc;
+        if (rc != BB_OK) {
+            bb_log_e(TAG, "extra route registration failed: %d", (int)rc);
+            return rc;
+        }
     }
 
-    // Captive-portal wildcard LAST so all specific GETs win first-match.
-    bb_http_register_route(server, BB_HTTP_GET, "/*", prov_redirect_handler);
+    // Register consumer assets (caller MUST supply at least one asset with
+    // path="/"; assets may be NULL only when n == 0, e.g. a portal with no
+    // caller-supplied UI) plus the captive-portal redirect as the wildcard's
+    // no-match fallback. This is ONE "/*" registration instead of a second,
+    // doomed GET /* registration — ESP-IDF allows only one handler per
+    // method+path, so a separate captive wildcard registered after the asset
+    // wildcard is silently rejected (ESP_ERR_HTTPD_HANDLER_EXISTS) and the
+    // redirect never fires. Registered LAST so all specific GETs above win
+    // first-match.
+    bb_err_t assets_err = bb_http_register_assets_with_fallback(server, assets, n, prov_redirect_handler);
+    if (assets_err != BB_OK) {
+        bb_log_e(TAG, "failed to register asset/captive-portal wildcard: %d", (int)assets_err);
+        return assets_err;
+    }
 
     bb_log_i(TAG, "provisioning server started on port 80");
 
