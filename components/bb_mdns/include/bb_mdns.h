@@ -17,7 +17,11 @@ void bb_mdns_init(void);
 // mdns at runtime (e.g. from a settings handler).
 void bb_mdns_deinit(void);
 
-// Set mDNS hostname. Must be called after bb_mdns_init().
+// Set mDNS hostname. Must be called BEFORE bb_mdns_init() -- bb_mdns_init()
+// is idempotent (bb_once, first-call-wins) and reads this value exactly once,
+// at that first call, to build the label it publishes via mdns_hostname_set();
+// calling this after bb_mdns_init() has already run updates the cached value
+// but has no effect on the already-published mDNS hostname.
 void bb_mdns_set_hostname(const char *hostname);
 
 // Set mDNS service type (e.g. "_taipanminer"). Must be called before bb_mdns_init().
