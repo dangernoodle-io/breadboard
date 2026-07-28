@@ -63,10 +63,12 @@ static bb_lifecycle_svc_t s_http_svc = BB_LIFECYCLE_SVC_INVALID;
 
 // B1-1045 PR-4 cutover: the "wifi" bb_lifecycle service + its caller-owned
 // emit-seam binding (bb_lifecycle_binding_t, bb_lifecycle_emit_binding_init)
-// are now STARTED and repointed onto bb_wifi's emit seam (bb_wifi_set_emit)
+// are registered and repointed onto bb_wifi's emit seam (bb_wifi_set_emit)
 // -- the PR-1 scaffolding was registered-but-dormant; this is the real
-// cutover. See the INIT-ORDER HAZARD comment on the wiring block in
-// app_main() below.
+// cutover. The service itself is left STOPPED at composition time and only
+// reaches RUNNING via the real GOT_IP edge (see the INIT-ORDER HAZARD
+// comment on the wiring block in app_main() below for why an eager start
+// there was wrong).
 static bb_lifecycle_svc_t     s_wifi_svc = BB_LIFECYCLE_SVC_INVALID;
 static bb_lifecycle_binding_t s_wifi_lifecycle_binding;
 
@@ -237,13 +239,29 @@ void app_main(void)
     bb_serialize_console_heap_report("baseline-http-stopped");
 
     // ---------------------------------------------------------------------
-    // B1-1045 PR-4 cutover -- INIT-ORDER HAZARD: register + START the
-    // "wifi" bb_lifecycle service and repoint bb_wifi's emit seam onto it
-    // BEFORE bb_wifi_autoinit() runs below. bb_wifi_autoinit() can fire its
-    // first GOT_IP synchronously from the connect path; if the trampoline
+    // B1-1045 PR-4 cutover -- INIT-ORDER HAZARD: register the "wifi"
+    // bb_lifecycle service and repoint bb_wifi's emit seam onto it BEFORE
+    // bb_wifi_autoinit() runs below. bb_wifi_autoinit() can fire its first
+    // GOT_IP synchronously from the connect path; if the trampoline
     // binding/emit seam is not wired yet, that first edge is silently
     // dropped (no retry -- bb_wifi has no event replay). The "wifi" service
     // is registered here (this PR starts what PR-1 left dormant).
+    //
+    // Deliberately NOT eagerly bb_lifecycle_start()'d here (fixed alongside
+    // this comment -- an earlier revision did, and it was a bug): starting
+    // the service at composition time -- before mDNS/MQTT's observers ever
+    // attach -- permanently flips it to RUNNING with zero observers present.
+    // The real GOT_IP, arriving later via the trampoline (bb_wifi_classify_
+    // lifecycle -> BB_LIFECYCLE_ACTION_START -> bb_lifecycle_start()), then
+    // hits bb_lifecycle_start()'s idempotent early-return (already started
+    // -> no notify, no version bump) and the STOPPED/PAUSED->RUNNING edge
+    // never fires for anyone. mDNS (bb_mdns.c mdns_wifi_observer) and MQTT
+    // (bb_mqtt_client_espidf.c) both register their observer FIRST and only
+    // THEN check bb_wifi_has_ip() to bypass-start if already connected
+    // (register-then-check, no eager start required on this end) -- so the
+    // service must stay STOPPED here and reach RUNNING only through the
+    // genuine edge, matching the "http" service's own register-observer-
+    // before-start pattern below.
     // ---------------------------------------------------------------------
     bb_lifecycle_config_t wifi_cfg = { .name = "wifi" };
     bb_err_t err = bb_lifecycle_register(&wifi_cfg, &s_wifi_svc);
@@ -256,10 +274,6 @@ void app_main(void)
             bb_log_w(TAG, "lifecycle_emit_binding_init(wifi) failed (%d)", (int)err);
         } else {
             bb_wifi_set_emit(bb_lifecycle_emit_binding_fn(), &s_wifi_lifecycle_binding);
-        }
-        err = bb_lifecycle_start(s_wifi_svc);
-        if (err != BB_OK) {
-            bb_log_w(TAG, "lifecycle_start(wifi) failed (%d)", (int)err);
         }
     }
 
