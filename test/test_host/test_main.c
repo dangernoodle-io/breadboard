@@ -1383,6 +1383,7 @@ void test_prov_html_escape_zero_out_size_is_noop(void);
 void test_prov_html_escape_truncates_without_partial_entity(void);
 void test_prov_html_escape_truncates_plain_char_at_boundary(void);
 void test_prov_render_saved_page_names_network(void);
+void test_prov_render_saved_page_states_device_finishes_and_reconnects(void);
 void test_prov_render_saved_page_no_hostname_omits_mdns_lines(void);
 void test_prov_render_saved_page_includes_hostname_and_mdns_name(void);
 void test_prov_render_saved_page_escapes_attacker_controlled_ssid(void);
@@ -1394,6 +1395,13 @@ void test_prov_render_saved_page_small_out_size_truncates(void);
 void test_prov_render_saved_page_worst_case_hostname_no_split_entity(void);
 void test_prov_saved_page_hostname_returns_hostname_when_saved(void);
 void test_prov_saved_page_hostname_returns_empty_when_not_saved(void);
+void test_floor_prov_reboot_fires_on_first_running_edge(void);
+void test_floor_prov_reboot_fires_on_paused_to_running_edge(void);
+void test_floor_prov_reboot_wrong_service_no_fire(void);
+void test_floor_prov_reboot_normal_boot_no_fire(void);
+void test_floor_prov_reboot_already_triggered_no_fire(void);
+void test_floor_prov_reboot_non_running_new_state_no_fire(void);
+void test_floor_prov_reboot_running_to_running_no_fire(void);
 
 // Forward declarations from test_bb_http_json_obj_stream.c
 void test_resp_no_content_sets_204_empty_body(void);
@@ -2778,6 +2786,7 @@ void test_bb_reset_source_str_wifi_safeguard(void);
 void test_bb_reset_source_str_wifi_cold_timeout(void);
 void test_bb_reset_source_str_wifi_pending_revert(void);
 void test_bb_reset_source_str_wifi_reconfigure(void);
+void test_bb_reset_source_str_wifi_provisioned(void);
 void test_bb_reset_source_str_egress_tier3(void);
 void test_bb_reset_source_str_ota_pull_applied(void);
 void test_bb_reset_source_str_ota_push_applied(void);
@@ -6421,6 +6430,7 @@ int main(void) {
     RUN_TEST(test_prov_html_escape_truncates_without_partial_entity);
     RUN_TEST(test_prov_html_escape_truncates_plain_char_at_boundary);
     RUN_TEST(test_prov_render_saved_page_names_network);
+    RUN_TEST(test_prov_render_saved_page_states_device_finishes_and_reconnects);
     RUN_TEST(test_prov_render_saved_page_no_hostname_omits_mdns_lines);
     RUN_TEST(test_prov_render_saved_page_includes_hostname_and_mdns_name);
     RUN_TEST(test_prov_render_saved_page_escapes_attacker_controlled_ssid);
@@ -6432,6 +6442,13 @@ int main(void) {
     RUN_TEST(test_prov_render_saved_page_worst_case_hostname_no_split_entity);
     RUN_TEST(test_prov_saved_page_hostname_returns_hostname_when_saved);
     RUN_TEST(test_prov_saved_page_hostname_returns_empty_when_not_saved);
+    RUN_TEST(test_floor_prov_reboot_fires_on_first_running_edge);
+    RUN_TEST(test_floor_prov_reboot_fires_on_paused_to_running_edge);
+    RUN_TEST(test_floor_prov_reboot_wrong_service_no_fire);
+    RUN_TEST(test_floor_prov_reboot_normal_boot_no_fire);
+    RUN_TEST(test_floor_prov_reboot_already_triggered_no_fire);
+    RUN_TEST(test_floor_prov_reboot_non_running_new_state_no_fire);
+    RUN_TEST(test_floor_prov_reboot_running_to_running_no_fire);
 
     // JSON walker and HTTP send_json tests
 
@@ -7266,6 +7283,7 @@ int main(void) {
     RUN_TEST(test_bb_reset_source_str_wifi_cold_timeout);
     RUN_TEST(test_bb_reset_source_str_wifi_pending_revert);
     RUN_TEST(test_bb_reset_source_str_wifi_reconfigure);
+    RUN_TEST(test_bb_reset_source_str_wifi_provisioned);
     RUN_TEST(test_bb_reset_source_str_egress_tier3);
     RUN_TEST(test_bb_reset_source_str_ota_pull_applied);
     RUN_TEST(test_bb_reset_source_str_ota_push_applied);

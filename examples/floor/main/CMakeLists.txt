@@ -23,7 +23,11 @@
 # app_main() stays the sole entry point either way -- bb_app_init() is never
 # called, only compiled, by this proof.
 set(BB_FLOOR_GENERATED_APP_INIT "${CMAKE_CURRENT_LIST_DIR}/generated/bb_app_init.c")
-set(_floor_srcs "floor_app.c")
+# floor_prov_reboot.c: pure provisioning-reboot guard (B1-809 review fix),
+# split out purely so test/test_host/test_floor_prov_reboot.c can #include
+# this one translation unit directly -- examples aren't part of the native
+# scaffold's component graph, so a host test has no other way to reach it.
+set(_floor_srcs "floor_app.c" "floor_prov_reboot.c")
 if(EXISTS "${BB_FLOOR_GENERATED_APP_INIT}")
     list(APPEND _floor_srcs "generated/bb_app_init.c")
 endif()

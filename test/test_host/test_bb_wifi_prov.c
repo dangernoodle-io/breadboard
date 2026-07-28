@@ -184,6 +184,18 @@ void test_prov_render_saved_page_names_network(void)
     TEST_ASSERT_NOT_NULL(strstr(out, "about to disappear"));
 }
 
+void test_prov_render_saved_page_states_device_finishes_and_reconnects(void)
+{
+    // B1-809 provisioning-is-transient copy update: neutral about HOW the
+    // device finishes setting up (no promised restart -- see
+    // bb_wifi_prov_render_saved_page's doc) so a non-rebooting consumer's
+    // page still reads true.
+    char out[BB_WIFI_PROV_SAVED_PAGE_MAX];
+    bb_wifi_prov_render_saved_page(out, sizeof(out), "my-net", "");
+    TEST_ASSERT_NOT_NULL(strstr(out, "finish setting up and"));
+    TEST_ASSERT_NOT_NULL(strstr(out, "reconnect to your network"));
+}
+
 void test_prov_render_saved_page_no_hostname_omits_mdns_lines(void)
 {
     char out[BB_WIFI_PROV_SAVED_PAGE_MAX];
