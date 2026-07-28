@@ -269,6 +269,22 @@ static void act_reset_state(bb_fsm_t *fsm, void *vctx, bb_fsm_event_t event, voi
     ctx->adapter->connect_fn();
 }
 
+// WR_NO_CREDS's ONLY row (EV_CREDS_ARRIVED, HW-confirmed fix). Same
+// bookkeeping as act_reset_state, but invokes connect_fresh_fn -- the
+// driver has never been connected this boot, and provisioning's own scan/AP
+// teardown may already have brought it up with no STA config applied, so a
+// bare connect_fn() would fail silently. Not shared with
+// {WR_LEFT, EV_RECONNECT_REQUESTED} (act_reset_state, unchanged) -- see the
+// row comment there.
+static void act_creds_arrived_connect(bb_fsm_t *fsm, void *vctx, bb_fsm_event_t event, void *evt_data)
+{
+    (void)fsm; (void)event; (void)evt_data;
+    wifi_reconn_ctx_t *ctx = vctx;
+    wifi_reconn_state_reset(&ctx->policy);
+    ctx->self_disconnect = false;
+    ctx->adapter->connect_fresh_fn();
+}
+
 static void act_on_got_ip(bb_fsm_t *fsm, void *vctx, bb_fsm_event_t event, void *evt_data)
 {
     (void)fsm; (void)event; (void)evt_data;
@@ -432,7 +448,7 @@ static const bb_fsm_row_t wr_rows[] = {
     // 1. WR_NO_CREDS is terminal-until-provisioned: this is the ONLY row
     //    with state==WR_NO_CREDS, and no BB_FSM_STATE_ANY row below matches
     //    it (see the no-creds safety invariant on wifi_reconn_fsm_init).
-    { WR_NO_CREDS,   EV_CREDS_ARRIVED,      NULL,                            act_reset_state,               WR_CONNECTING },
+    { WR_NO_CREDS,   EV_CREDS_ARRIVED,      NULL,                            act_creds_arrived_connect,     WR_CONNECTING },
 
     // 2-8: WR_CONNECTING
     { WR_CONNECTING, EV_GOT_IP,             NULL,                            act_on_got_ip,                  WR_CONNECTED },
@@ -460,6 +476,14 @@ static const bb_fsm_row_t wr_rows[] = {
 
     // 13: WR_LEFT resume (PR7, B1-994/B1-806) -- terminal-until-resume, same
     // shape as row 1 (WR_NO_CREDS). No other row targets or leaves WR_LEFT.
+    // Deliberately act_reset_state (bare connect_fn), NOT
+    // act_creds_arrived_connect -- WR_LEFT is only reached from an
+    // ASSOC_LEAVE disconnect of an already-associated session, so the
+    // driver's STA config is already the live, applied one; a resume here
+    // never follows a provisioning save the way EV_CREDS_ARRIVED does.
+    // bb_wifi_reconfigure() (the one path that DOES rotate STA creds at
+    // runtime) reboots the device rather than posting into this FSM, so
+    // there is no scenario where WR_LEFT resumes with stale driver config.
     { WR_LEFT,       EV_RECONNECT_REQUESTED, NULL,                          act_reset_state,                WR_CONNECTING },
 };
 

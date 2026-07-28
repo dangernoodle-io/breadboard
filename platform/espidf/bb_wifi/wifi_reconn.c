@@ -67,7 +67,20 @@ static wifi_reconn_state_t s_lost_ip_diag;
 // --- Adapter (R3): every side-effecting call an FSM action/hook makes goes
 // through one of these. Real wiring -- the ONE file-static instance below.
 static int64_t reconn_now_us(void) { return (int64_t)bb_timer_now_us(); }
-static void    reconn_connect(void) { esp_wifi_connect(); }
+static void    reconn_connect(void)
+{
+    // R14-adjacent: a hard driver failure here previously presented as
+    // total silence (esp_wifi_connect()'s return was discarded outright) --
+    // it took a hardware session to trace the HW-confirmed creds-arrived
+    // bug back to this class of swallowed error. Log-only (the FSM's own
+    // CONNECTING watchdog/backoff ladder owns retrying; there is nothing
+    // more to do here on failure).
+    esp_err_t err = esp_wifi_connect();
+    if (err != ESP_OK) {
+        bb_log_e(TAG, "esp_wifi_connect failed: %s", esp_err_to_name(err));
+    }
+}
+static void    reconn_connect_fresh(void) { bb_wifi_internal_connect_fresh(); }
 static void    reconn_disconnect(void) { esp_wifi_disconnect(); }
 static bool    reconn_reboot_allowed(void) { return bb_system_safeguard_reboot_allowed(BB_REBOOT_CAUSE_WIFI_SAFEGUARD); }
 static void    reconn_reboot(const char *detail)
@@ -89,6 +102,7 @@ static void    reconn_emit_net_event(bb_wifi_net_event_t evt, bb_wifi_disc_reaso
 static const wifi_reconn_adapter_t s_adapter = {
     .now_us                = reconn_now_us,
     .connect_fn             = reconn_connect,
+    .connect_fresh_fn       = reconn_connect_fresh,
     .disconnect_fn          = reconn_disconnect,
     .reboot_allowed_fn      = reconn_reboot_allowed,
     .reboot_fn              = reconn_reboot,

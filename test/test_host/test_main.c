@@ -3799,6 +3799,7 @@ void test_fsm_connected_disconnect_reconnect_now_to_connecting(void);
 void test_fsm_connected_disconnect_backoff_to_backoff(void);
 void test_fsm_backoff_absorbs_stray_disconnect(void);
 void test_fsm_no_creds_parks_until_creds_arrived(void);
+void test_fsm_no_creds_creds_arrived_resets_counters_and_uses_fresh_connect(void);
 
 // PR7 (B1-994/B1-806): ASSOC_LEAVE park (WR_LEFT) + SLOW tier FSM tests
 void test_fsm_assoc_leave_from_connecting_parks_no_reconnect(void);
@@ -7985,6 +7986,7 @@ int main(void) {
     RUN_TEST(test_fsm_connected_disconnect_backoff_to_backoff);
     RUN_TEST(test_fsm_backoff_absorbs_stray_disconnect);
     RUN_TEST(test_fsm_no_creds_parks_until_creds_arrived);
+    RUN_TEST(test_fsm_no_creds_creds_arrived_resets_counters_and_uses_fresh_connect);
 
     // PR7 (B1-994/B1-806): ASSOC_LEAVE park (WR_LEFT) + SLOW tier FSM tests
     RUN_TEST(test_fsm_assoc_leave_from_connecting_parks_no_reconnect);

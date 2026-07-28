@@ -487,6 +487,7 @@ typedef struct {
     int64_t now_us;
     bool    reboot_allowed;
     int     connect_calls;
+    int     connect_fresh_calls;
     int     disconnect_calls;
     int     reboot_calls;
     int     emit_calls;
@@ -498,6 +499,7 @@ static fsm_fake_t s_fake;
 
 static int64_t fsm_fake_now_us(void) { return s_fake.now_us; }
 static void    fsm_fake_connect(void) { s_fake.connect_calls++; }
+static void    fsm_fake_connect_fresh(void) { s_fake.connect_fresh_calls++; }
 static void    fsm_fake_disconnect(void) { s_fake.disconnect_calls++; }
 static bool    fsm_fake_reboot_allowed(void) { return s_fake.reboot_allowed; }
 static void    fsm_fake_reboot(const char *detail) { (void)detail; s_fake.reboot_calls++; }
@@ -511,6 +513,7 @@ static void    fsm_fake_emit(bb_wifi_net_event_t evt, bb_wifi_disc_reason_t reas
 static const wifi_reconn_adapter_t fsm_adapter = {
     .now_us                  = fsm_fake_now_us,
     .connect_fn              = fsm_fake_connect,
+    .connect_fresh_fn        = fsm_fake_connect_fresh,
     .disconnect_fn           = fsm_fake_disconnect,
     .reboot_allowed_fn       = fsm_fake_reboot_allowed,
     .reboot_fn               = fsm_fake_reboot,
@@ -792,17 +795,43 @@ void test_fsm_no_creds_parks_until_creds_arrived(void)
     TEST_ASSERT_EQUAL_INT(WR_NO_CREDS, bb_fsm_state(&ctx.fsm));
 
     TEST_ASSERT_EQUAL(0, s_fake.connect_calls);
+    TEST_ASSERT_EQUAL(0, s_fake.connect_fresh_calls);
     TEST_ASSERT_EQUAL(0, s_fake.reboot_calls);
     TEST_ASSERT_EQUAL(0, (int)bb_fsm_timer_count(&ctx.fsm));
 
+    // HW-confirmed fix: the resume row invokes connect_fresh_fn (which
+    // applies the just-saved SSID/password), NEVER the bare connect_fn --
+    // see act_creds_arrived_connect in wifi_reconn_policy.c.
     TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_CREDS_ARRIVED, NULL));
     TEST_ASSERT_EQUAL_INT(WR_CONNECTING, bb_fsm_state(&ctx.fsm));
-    TEST_ASSERT_EQUAL(1, s_fake.connect_calls);
+    TEST_ASSERT_EQUAL(0, s_fake.connect_calls);
+    TEST_ASSERT_EQUAL(1, s_fake.connect_fresh_calls);
     bb_fsm_event_t tev;
     uint32_t tms;
     TEST_ASSERT_TRUE(bb_fsm_timer_at(&ctx.fsm, 0, &tev, &tms));
     TEST_ASSERT_EQUAL_INT(EV_CONNECTING_TIMEOUT, tev);
     TEST_ASSERT_EQUAL_UINT32(WIFI_RECONN_CONNECTING_TIMEOUT_MS, tms);
+}
+
+// HW-confirmed fix, counters variant: act_creds_arrived_connect resets
+// policy counters exactly like act_reset_state (WR_NO_CREDS's resume is
+// unconditional-fresh -- there is no prior connection to have accrued
+// failures against), and clears self_disconnect.
+void test_fsm_no_creds_creds_arrived_resets_counters_and_uses_fresh_connect(void)
+{
+    wifi_reconn_ctx_t ctx;
+    fsm_fixture_init(&ctx, WR_NO_CREDS);
+    ctx.policy.handshake_fail_count = 2;
+    ctx.policy.generic_fail_count = 3;
+    ctx.self_disconnect = true;
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_CREDS_ARRIVED, NULL));
+    TEST_ASSERT_EQUAL_INT(WR_CONNECTING, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(0, ctx.policy.handshake_fail_count);
+    TEST_ASSERT_EQUAL(0, ctx.policy.generic_fail_count);
+    TEST_ASSERT_FALSE(ctx.self_disconnect);
+    TEST_ASSERT_EQUAL(1, s_fake.connect_fresh_calls);
+    TEST_ASSERT_EQUAL(0, s_fake.connect_calls);
 }
 
 // ===========================================================================
@@ -895,6 +924,9 @@ void test_fsm_left_parks_all_stray_events(void)
 // WR_LEFT resume row: EV_RECONNECT_REQUESTED -> WR_CONNECTING, connect_fn
 // called once, CONNECTING watchdog armed (via WR_CONNECTING's on_entry),
 // counters reset (act_reset_state -- same action as WR_NO_CREDS's resume).
+// Deliberately connect_fn, NOT connect_fresh_fn (contrast with
+// test_fsm_no_creds_creds_arrived_resets_counters_and_uses_fresh_connect) --
+// see the row comment in wifi_reconn_policy.c.
 void test_fsm_left_resumes_on_reconnect_requested(void)
 {
     wifi_reconn_ctx_t ctx;
@@ -905,6 +937,7 @@ void test_fsm_left_resumes_on_reconnect_requested(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_RECONNECT_REQUESTED, NULL));
     TEST_ASSERT_EQUAL_INT(WR_CONNECTING, bb_fsm_state(&ctx.fsm));
     TEST_ASSERT_EQUAL(1, s_fake.connect_calls);
+    TEST_ASSERT_EQUAL(0, s_fake.connect_fresh_calls);
     TEST_ASSERT_EQUAL(0, ctx.policy.slow_fail_count);
     TEST_ASSERT_EQUAL(0, ctx.policy.generic_fail_count);
 
