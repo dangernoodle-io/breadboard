@@ -27,14 +27,20 @@ typedef enum {
     BB_WIFI_PROV_PARSE_SSID_REQUIRED,
 } bb_wifi_prov_parse_result_t;
 
-// Parse a URL-encoded provisioning POST body into ssid/pass.
+// Parse a URL-encoded provisioning POST body into ssid/pass/hostname.
 // body_len <= 0 → BB_WIFI_PROV_PARSE_EMPTY_BODY.
 // Missing/empty ssid → BB_WIFI_PROV_PARSE_SSID_REQUIRED.
 // body need not be null-terminated; function treats body_len as authoritative.
+// hostname is OPTIONAL: absent or empty is never an error and never changes
+// the OK/EMPTY_BODY/SSID_REQUIRED result -- hostname_out is simply left as an
+// empty string. This function does NOT validate the hostname (charset/
+// RFC-1123 shape/length) -- that's bb_settings_hostname_set()'s job; the
+// caller decides what to do with an invalid value.
 bb_wifi_prov_parse_result_t bb_wifi_prov_parse_body(
     const char *body, int body_len,
     char *ssid_out, size_t ssid_size,
-    char *pass_out, size_t pass_size);
+    char *pass_out, size_t pass_size,
+    char *hostname_out, size_t hostname_size);
 
 // ============================================================================
 // ESP-IDF-SPECIFIC API — provisioning lifecycle
