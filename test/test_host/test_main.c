@@ -1370,6 +1370,11 @@ void test_prov_parse_missing_ssid(void);
 void test_prov_parse_ssid_only(void);
 void test_prov_parse_ssid_and_pass(void);
 void test_prov_parse_urlencoded_special(void);
+void test_prov_parse_hostname_absent(void);
+void test_prov_parse_hostname_empty(void);
+void test_prov_parse_hostname_present(void);
+void test_prov_parse_hostname_urlencoded(void);
+void test_prov_parse_hostname_missing_ssid_still_required(void);
 
 // Forward declarations from test_bb_http_json_obj_stream.c
 void test_resp_no_content_sets_204_empty_body(void);
@@ -6383,6 +6388,11 @@ int main(void) {
     RUN_TEST(test_prov_parse_ssid_only);
     RUN_TEST(test_prov_parse_ssid_and_pass);
     RUN_TEST(test_prov_parse_urlencoded_special);
+    RUN_TEST(test_prov_parse_hostname_absent);
+    RUN_TEST(test_prov_parse_hostname_empty);
+    RUN_TEST(test_prov_parse_hostname_present);
+    RUN_TEST(test_prov_parse_hostname_urlencoded);
+    RUN_TEST(test_prov_parse_hostname_missing_ssid_still_required);
 
     // JSON walker and HTTP send_json tests
 

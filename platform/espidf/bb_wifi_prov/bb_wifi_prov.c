@@ -66,9 +66,12 @@ static bb_err_t prov_save_handler(bb_http_request_t *req)
     }
     body[len] = '\0';
 
-    // Parse URL-encoded fields
-    char ssid[32] = "", pass[64] = "";
-    switch (bb_wifi_prov_parse_body(body, len, ssid, sizeof(ssid), pass, sizeof(pass))) {
+    // Parse URL-encoded fields. hostname is OPTIONAL (see
+    // bb_wifi_prov_parse_body's doc) -- 512-byte body[] above already has
+    // ample headroom for this one extra short field on top of ssid/pass.
+    char ssid[32] = "", pass[64] = "", hostname[33] = "";
+    switch (bb_wifi_prov_parse_body(body, len, ssid, sizeof(ssid), pass, sizeof(pass),
+                                     hostname, sizeof(hostname))) {
         case BB_WIFI_PROV_PARSE_EMPTY_BODY: {
             bb_http_resp_set_status(req, 400);
             bb_http_json_obj_stream_t obj;
@@ -103,6 +106,28 @@ static bb_err_t prov_save_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_str(&obj, "error", "Failed to save config");
         bb_http_resp_json_obj_end(&obj);
         return BB_ERR_INVALID_STATE;
+    }
+
+    // Hostname is a SEPARATE, deliberately NON-atomic single-key write from
+    // the creds commit above -- bb_settings_wifi_set() routes through
+    // bb_settings' staged/atomic commit (see the comment above it), while
+    // this is a plain single bb_settings_hostname_set() call. A half-write
+    // (e.g. power loss between the two) leaves creds saved + the prior/
+    // default hostname -- recoverable and non-stranding, unlike a failure
+    // here blocking the creds save above ever would be.
+    //
+    // Absent/empty hostname is not an error (optional field). An invalid
+    // (but non-empty) hostname is logged and DISCARDED rather than failing
+    // the request: bb_settings_hostname_set() already owns RFC-1123
+    // validation, and a 400 here would strand the user with no creds saved
+    // even though the creds write above already succeeded -- creds are the
+    // important part of this form, so a bad hostname degrades to "hostname
+    // unchanged", not "provisioning failed".
+    if (hostname[0] != '\0') {
+        bb_err_t host_err = bb_settings_hostname_set(hostname);
+        if (host_err != BB_OK) {
+            bb_log_w(TAG, "invalid hostname %s, keeping existing value", hostname);
+        }
     }
 
     if (s_save_cb) {
