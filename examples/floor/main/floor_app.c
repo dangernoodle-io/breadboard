@@ -26,6 +26,7 @@
 #include "bb_lifecycle.h"
 #include "bb_http_server.h"
 #include "bb_storage_nvs.h"
+#include "bb_settings.h"
 #include "bb_wifi.h"
 #include "bb_data.h"
 #include "bb_data_http.h"
@@ -370,6 +371,25 @@ void app_main(void)
     err = bb_mqtt_client_init_default();
     if (err != BB_OK) {
         bb_log_w(TAG, "mqtt_client_init_default failed (%d)", (int)err);
+    }
+    // Wire the stored hostname into bb_mdns BEFORE bb_mdns_init() below --
+    // bb_mdns_init() is a bb_once (idempotent first-call-wins), and
+    // mdns_init_impl() reads s_mdns_hostname/s_mdns_hostname_set exactly
+    // once, at that first call, to build the label mdns_hostname_set()
+    // publishes -- calling bb_mdns_set_hostname() any later has no effect on
+    // the already-published mDNS hostname. This wiring lives HERE, in the
+    // composition root, rather than inside bb_mdns itself: bb_mdns is a
+    // primitive with no bb_settings dependency today (see its own
+    // CMakeLists.txt), and adding one would break the composition-only
+    // model (CLAUDE.md) -- breadboard ships primitives, consumers wire them
+    // together via codegen/handwire. A missing/empty stored hostname is a
+    // silent no-op: bb_settings_hostname_get() returns "" on unset, and
+    // bb_mdns's own mdns_build_hostname() already falls back to its
+    // MAC-derived "bsp-device-xxxx" default whenever the injected hostname
+    // is unset or empty (see bb_mdns_set_hostname()'s doc).
+    char hostname[BB_MDNS_HOSTNAME_MAX];
+    if (bb_settings_hostname_get(hostname, sizeof(hostname), NULL) == BB_OK) {
+        bb_mdns_set_hostname(hostname);
     }
     bb_mdns_init();
 
