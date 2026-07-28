@@ -1,7 +1,7 @@
 # bb_wifi_prov
 
 <!-- BEGIN bbtool:brief -->
-bb_wifi_prov — Wi-Fi provisioning HTTP routes: parses a POSTed SSID/password form and a captive-portal redirect. Registers POST /save and a shared GET /* wildcard on the shared HTTP server that serves consumer assets plus the captive-portal redirect as its no-match fallback; does not register /api/version, /api/wifi/scan, or /api/reboot (those live in bb_wifi_http / bb_system), and does not itself bring up SoftAP or drive a Wi-Fi lifecycle state machine (see bb_wifi_ap for AP bring-up).
+bb_wifi_prov — Wi-Fi provisioning HTTP routes: parses a POSTed SSID/password form and a captive-portal redirect. Registers POST /save, POST /api/wifi/scan (B1-809 -- this component's own SSID-list endpoint; see bb_wifi_prov_start()'s doc; CAUTION -- its "refresh" query param hops the radio channel and can transiently drop the requesting client's own SoftAP association), and a shared GET /* wildcard on the shared HTTP server that serves consumer assets plus the captive-portal redirect as its no-match fallback; does not register /api/version or /api/reboot (those live in bb_wifi_http / bb_system), and does not itself bring up SoftAP or drive a Wi-Fi lifecycle state machine (see bb_wifi_ap for AP bring-up).
 <!-- END bbtool:brief -->
 
 ## Public API
@@ -21,6 +21,7 @@ Public symbols use the `bb_` prefix.
 | `bb_fsm` | private | Table-driven finite state machine primitive: consumer-owned rows (state, event, guard, action, next), entry/exit hooks, and a fixed-size timer-arm seam for the shell to reconstruct real OS timers from. | [bb_fsm](../bb_fsm/README.md) |
 | `bb_http_server` | public | — | [bb_http_server](../README.md) |
 | `bb_log` | private | — | [bb_log](../README.md) |
+| `bb_serialize` | private | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
 | `bb_settings` | private | bb's default WiFi-credentials store — a wifi-creds field table over `bb_config`, byte-compatible with the credentials `bb_nv_config` already persists. `bb_settings` is bb's opinionated bb-config authority (KB 805/806); `bb_wifi` reads its accessors directly. | [bb_settings](../bb_settings/README.md) |
 | `bb_task` | private | — | [bb_task](../README.md) |
 | `bb_wifi` | private | STA WiFi core: connect/reconnect lifecycle, a self-heal reconnect FSM that recovers from disconnects and no-IP stalls without a reboot, and portable diagnostics getters (RSSI, disconnect reason, scan results) that every backend (ESP-IDF, CC3000, WiFiS3/R4, host) maps onto. | [bb_wifi](../bb_wifi/README.md) |

@@ -8,12 +8,16 @@ extern "C" {
 
 /**
  * @brief bb_wifi_prov — Wi-Fi provisioning HTTP routes: parses a POSTed
- * SSID/password form and a captive-portal redirect. Registers POST /save
- * and a shared GET /* wildcard on the shared HTTP server that serves consumer
- * assets plus the captive-portal redirect as its no-match fallback; does not
- * register /api/version, /api/wifi/scan, or /api/reboot (those live in
- * bb_wifi_http / bb_system), and does not itself bring up SoftAP or drive
- * a Wi-Fi lifecycle state machine (see bb_wifi_ap for AP bring-up).
+ * SSID/password form and a captive-portal redirect. Registers POST /save,
+ * POST /api/wifi/scan (B1-809 -- this component's own SSID-list endpoint;
+ * see bb_wifi_prov_start()'s doc; CAUTION -- its "refresh" query param hops
+ * the radio channel and can transiently drop the requesting client's own
+ * SoftAP association), and a shared GET /* wildcard on the shared HTTP
+ * server that serves consumer assets plus the captive-portal redirect as
+ * its no-match fallback; does not register /api/version or /api/reboot
+ * (those live in bb_wifi_http / bb_system), and does not itself bring up
+ * SoftAP or drive a Wi-Fi lifecycle state machine (see bb_wifi_ap for AP
+ * bring-up).
  */
 
 // Parse result codes for provisioning form body
@@ -72,21 +76,39 @@ void bb_wifi_prov_set_save_callback(bb_wifi_prov_save_cb_t cb);
  * provisioning UI needs. Called after POST /save and before the captive-
  * portal wildcard, so these routes win first-match.
  *
- * Pass NULL when the prov UI needs no extra routes beyond POST /save and
- * the captive-portal wildcard. bb_wifi_prov itself does not register
- * /api/version, /api/wifi/scan, or /api/reboot — those live in bb_wifi_http /
- * bb_system; a consumer wanting them wires them in via this callback or
- * its own codegen/handwire composition.
+ * Pass NULL when the prov UI needs no extra routes beyond POST /save,
+ * POST /api/wifi/scan, and the captive-portal wildcard. bb_wifi_prov itself
+ * does not register /api/version or /api/reboot — those live in
+ * bb_wifi_http / bb_system; a consumer wanting them wires them in via this
+ * callback or its own codegen/handwire composition.
  */
 typedef bb_err_t (*bb_wifi_prov_extra_routes_fn_t)(bb_http_handle_t server);
 
 /**
  * Start HTTP server in provisioning mode.
  *
- * Registers (in order): POST /save, @p extra consumer routes if non-NULL,
- * and finally consumer assets plus the captive-portal redirect together as
- * a single GET /* wildcard (the redirect fires only on no-match). No other
- * routes are registered by this component.
+ * Registers (in order): POST /save, POST /api/wifi/scan (this component's
+ * own scan endpoint -- B1-809; serves bb_wifi_scan_get_cached() by default,
+ * an explicit "refresh" query param triggers a background rescan; see
+ * bb_wifi_prov.c's prov_scan_handler for the full contract), @p extra
+ * consumer routes if non-NULL, and finally consumer assets plus the
+ * captive-portal redirect together as a single GET /* wildcard (the
+ * redirect fires only on no-match). No other routes are registered by this
+ * component.
+ *
+ * CAUTION -- POST /api/wifi/scan?refresh: the rescan it triggers hops the
+ * radio channel, which transiently drops SoftAP-associated clients,
+ * including whichever client just issued the "refresh" request. The HTTP
+ * response is written before that disruption in practice (the rescan is a
+ * detached low-priority task, not run inline), but that ordering is
+ * scheduler-cooperative, not guaranteed -- a portal UI using "refresh"
+ * should expect to retry/reconnect rather than treat a dropped connection
+ * as a failure.
+ *
+ * POST /api/wifi/scan tolerates already being served by another composed
+ * component (e.g. bb_wifi_http, first-registration-wins) -- see
+ * route_registry.c's bb_dispatch_api_add() -- and never fails
+ * bb_wifi_prov_start() over that.
  *
  * Caller MUST supply at least one asset with path="/" — no default form is
  * provided. For bare-minimum bringup, add REQUIRES bb_prov_default_form to

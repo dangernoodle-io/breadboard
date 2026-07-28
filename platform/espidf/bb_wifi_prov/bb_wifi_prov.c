@@ -1,8 +1,10 @@
 #include "bb_wifi_prov.h"
+#include "bb_http_serialize_stream.h"
 #include "bb_http_server.h"
 #include "bb_log.h"
 #include "bb_settings.h"
 #include "bb_wifi.h"
+#include "bb_wifi_prov_scan_wire.h"
 #include "wifi_prov_mgr.h"
 #include "wifi_prov_policy.h"
 #include "freertos/FreeRTOS.h"
@@ -14,6 +16,17 @@ static const char *TAG = "bb_wifi_prov";
 static EventGroupHandle_t s_prov_event_group = NULL;
 
 static bb_wifi_prov_save_cb_t s_save_cb = NULL;
+
+// B1-809 portal: true once bb_wifi_prov has triggered at least one WiFi
+// scan on this portal instance (the bb_wifi_prov_start() prefetch below, or
+// a "refresh"-flagged POST /api/wifi/scan). Feeds
+// bb_wifi_prov_scan_classify_state()'s NOT_STARTED/PENDING/READY tri-state
+// (bb_wifi_prov_scan_wire.h). Only ever set true, never reset -- a portal
+// instance that has scanned once stays "has scanned" for its lifetime, so a
+// racy concurrent write from the HTTP task and this file's own prefetch
+// call is a harmless idempotent write, same posture as bb_wifi.c's own
+// unlocked s_scan_in_progress flag.
+static bool s_scan_ever_requested = false;
 
 void bb_wifi_prov_set_save_callback(bb_wifi_prov_save_cb_t cb) { s_save_cb = cb; }
 
@@ -121,6 +134,66 @@ static bb_err_t prov_redirect_handler(bb_http_request_t *req)
     return BB_OK;
 }
 
+// POST /api/wifi/scan -- bb_wifi_prov's OWN scan endpoint (B1-809 portal).
+// Does not require bb_wifi_http: the portal's captive form must get an SSID
+// list even in a bb_wifi_prov-only composition. See coexistence handling in
+// bb_wifi_prov_start() below and bb_wifi_prov_scan_wire.h for the response
+// shape/state-machine rationale.
+//
+// Serves the CACHE by default rather than mirroring bb_wifi_http_scan_
+// wire_fill()'s trigger-then-immediately-read defect (that always returns
+// an empty list on the first call, since the scan it just kicked off
+// hasn't finished). An explicit refresh is opt-in via the "refresh" query
+// param (bare `?refresh` or `?refresh=1` -- bb_http_req_query_has_key()
+// detects either form): the caller triggers a background scan and polls
+// this same route again shortly for fresh results, same pattern the
+// existing form's auto-scan-on-load already relies on via
+// bb_wifi_prov_start()'s own prefetch below.
+//
+// CAUTION for "refresh" callers: the scan it triggers hops the radio off
+// the SoftAP channel, which transiently drops SoftAP-associated clients --
+// including the phone/laptop that just issued this request. In practice
+// the HTTP response below is written and returned before that disruption,
+// because bb_wifi_scan_start_async() only spawns a low-priority detached
+// task and returns immediately -- but that ordering is scheduler-
+// cooperative, not fence-guaranteed, so don't depend on it. A portal UI
+// using "refresh" should expect its own connection to drop and retry/
+// reconnect rather than treat a failed response as an error. See
+// bb_wifi_prov.h's route doc and bb_wifi_prov_scan_wire.h for the same
+// note at the public-facing doc surfaces.
+static bb_err_t prov_scan_handler(bb_http_request_t *req)
+{
+    set_common_headers(req);
+
+    if (bb_http_req_query_has_key(req, "refresh")) {
+        bb_wifi_scan_start_async();
+        s_scan_ever_requested = true;
+    }
+
+    // Non-blocking (0ms timeout) -- see bb_wifi_scan_wait_idle()'s own doc
+    // comment (bb_wifi.h). Probed BEFORE the cache read below -- deliberately
+    // the opposite order from "most current data first". If an in-flight
+    // scan's cache write lands in the gap between these two calls, reading
+    // idle first means we still observe idle=false and report "pending",
+    // even though "aps" (read a moment later) may already hold the fresher
+    // result. That under-reports freshness, which is harmless: the caller
+    // just polls again. The reverse order (cache first, idle second) would
+    // let that same race land the completion in the OTHER gap, making idle
+    // read true while "aps" still holds the PREVIOUS scan -- reporting
+    // "ready" with stale rows presented as authoritative, which callers
+    // cannot detect. Do not swap this back to "optimize" freshness.
+    bool idle = bb_wifi_scan_wait_idle(0);
+    bb_wifi_ap_t aps[WIFI_SCAN_MAX];
+    int count = bb_wifi_scan_get_cached(aps, WIFI_SCAN_MAX);
+    bb_wifi_prov_scan_state_t state =
+        bb_wifi_prov_scan_classify_state(s_scan_ever_requested, idle);
+
+    bb_wifi_prov_scan_wire_t snap;
+    bb_wifi_prov_scan_wire_fill(&snap, aps, count, state);
+
+    return bb_http_serialize_stream(req, &bb_wifi_prov_scan_wire_desc, &snap);
+}
+
 // AP + captive DNS bring-up moved to bb_wifi_ap (KB 781, PR2) --
 // bb_wifi_prov_start_ap()/bb_wifi_prov_stop_ap()/dns_task() are now
 // bb_wifi_ap_start()/bb_wifi_ap_stop() (components/bb_wifi_ap). bb_wifi_prov
@@ -201,6 +274,44 @@ bb_err_t bb_wifi_prov_start(const bb_http_asset_t *assets, size_t n,
         return save_err;
     }
 
+    // POST /api/wifi/scan -- registered here, right after /save and BEFORE
+    // extra()/the asset wildcard, for two reasons:
+    //  1. /api/* paths are served through bb_dispatch_api's own flat
+    //     (method,path) table (route_registry.c), NOT esp_http_server's
+    //     httpd handler slots -- unlike /save or the GET /* wildcard below,
+    //     this registration's position relative to THOSE is irrelevant to
+    //     request routing.
+    //  2. Registration order DOES matter within the dispatch table itself:
+    //     it is first-registration-wins (bb_dispatch_api_add). Registering
+    //     bb_wifi_prov's own handler before calling extra() means a
+    //     consumer's extra() callback can never accidentally shadow this
+    //     component's endpoint within a single bb_wifi_prov_start() call --
+    //     bb_wifi_prov OWNS this path in its own composition, even though
+    //     it tolerates LOSING the race to a separately-composed bb_wifi_http
+    //     (see the dup handling below).
+    //
+    // bb_http_register_route(), for a "/api/" path, delegates to
+    // bb_dispatch_api_add() -- see platform/espidf/bb_http_server/bb_http.c.
+    // A duplicate (method,path) there logs a warning and returns
+    // BB_ERR_INVALID_STATE (first registration wins) UNLESS
+    // CONFIG_BB_HTTP_ROUTE_DUP_STRICT is enabled, in which case
+    // bb_dispatch_api_add() itself asserts(0) before ever returning --
+    // that path is NOT interceptable here (default off; do not enable it
+    // in a composition that mixes bb_wifi_prov and bb_wifi_http, both of
+    // which register this same route). As currently implemented,
+    // bb_http_register_route() ALSO swallows a non-strict duplicate and
+    // always returns BB_OK for any "/api/" path (see its own comment) --
+    // so the BB_ERR_INVALID_STATE branch below is defensive/currently-dead,
+    // not the live path a duplicate takes today; kept in case that
+    // swallowing behavior is ever tightened.
+    bb_err_t scan_err = bb_http_register_route(server, BB_HTTP_POST, "/api/wifi/scan", prov_scan_handler);
+    if (scan_err == BB_ERR_INVALID_STATE) {
+        bb_log_i(TAG, "POST /api/wifi/scan already served by another component");
+    } else if (scan_err != BB_OK) {
+        bb_log_e(TAG, "failed to register POST /api/wifi/scan: %d", (int)scan_err);
+        return scan_err;
+    }
+
     // Consumer's dynamic endpoints (e.g. advanced-UI backing routes) — must be
     // registered BEFORE the asset/fallback wildcard below so their specific
     // routes win esp_http_server's first-registered-wins wildcard matching.
@@ -230,8 +341,12 @@ bb_err_t bb_wifi_prov_start(const bb_http_asset_t *assets, size_t n,
     bb_log_i(TAG, "provisioning server started on port 80");
 
     // Prefetch the SSID list so the portal's auto-scan on first page-load
-    // returns a populated array instead of an empty cache.
+    // returns a populated array instead of an empty cache. Marks the scan
+    // as "ever requested" (bb_wifi_prov_scan_classify_state()) so a
+    // page-load hitting POST /api/wifi/scan before this prefetch completes
+    // sees PENDING, not NOT_STARTED.
     bb_wifi_scan_start_async();
+    s_scan_ever_requested = true;
 
     return BB_OK;
 }
@@ -244,6 +359,14 @@ void bb_wifi_prov_stop(void)
     // Unregister provisioning handlers: /save (POST) and /* (GET catch-all)
     bb_http_unregister_route(server, BB_HTTP_POST, "/save");
     bb_http_unregister_route(server, BB_HTTP_GET, "/*");
+
+    // POST /api/wifi/scan is deliberately left registered: bb_http_unregister_
+    // route() calls httpd_unregister_uri_handler(), which only knows about
+    // real httpd handler slots -- /api/* entries live in bb_dispatch_api's
+    // separate flat table (route_registry.c) instead, and that table exposes
+    // no single-entry removal, only bb_dispatch_api_reset() (whole-table,
+    // test-only). Same posture bb_wifi_http's own /api/wifi/scan takes;
+    // harmless to leave answering after the portal closes.
 }
 
 // B1-809 PR4 — boot-time / user-requested provisioning entry. LANDS INERT:

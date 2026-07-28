@@ -2071,6 +2071,25 @@ void test_wifi_scan_wire_clamp_count_negative_clamps_to_zero(void);
 void test_wifi_scan_wire_clamp_count_over_cap_clamps_to_max(void);
 void test_wifi_scan_wire_clamp_count_in_range_passes_through(void);
 
+// Forward declarations from test_wifi_prov_scan_wire.c
+void test_wifi_prov_scan_classify_state_never_requested_not_idle_is_not_started(void);
+void test_wifi_prov_scan_classify_state_never_requested_idle_is_not_started(void);
+void test_wifi_prov_scan_classify_state_requested_not_idle_is_pending(void);
+void test_wifi_prov_scan_classify_state_requested_idle_is_ready(void);
+void test_wifi_prov_scan_state_str_not_started(void);
+void test_wifi_prov_scan_state_str_pending(void);
+void test_wifi_prov_scan_state_str_ready(void);
+void test_wifi_prov_scan_state_str_unknown_defaults_not_started(void);
+void test_wifi_prov_scan_wire_clamp_count_negative_clamps_to_zero(void);
+void test_wifi_prov_scan_wire_clamp_count_over_cap_clamps_to_max(void);
+void test_wifi_prov_scan_wire_clamp_count_in_range_passes_through(void);
+void test_wifi_prov_scan_wire_fill_zero_aps_not_started(void);
+void test_wifi_prov_scan_wire_fill_clamps_and_copies_rows(void);
+void test_wifi_prov_scan_wire_row_field_count_matches(void);
+void test_wifi_prov_scan_wire_expected_json_zero_aps_not_started(void);
+void test_wifi_prov_scan_wire_expected_json_one_ap_ready(void);
+void test_wifi_prov_scan_wire_expected_json_pending(void);
+
 // Forward declarations from test_ota_validator_partitions_wire.c
 void test_ota_validator_partitions_wire_expected_json_zero_rows(void);
 void test_ota_validator_partitions_wire_expected_json_one_row(void);
@@ -6641,6 +6660,24 @@ int main(void) {
     RUN_TEST(test_wifi_scan_wire_clamp_count_negative_clamps_to_zero);
     RUN_TEST(test_wifi_scan_wire_clamp_count_over_cap_clamps_to_max);
     RUN_TEST(test_wifi_scan_wire_clamp_count_in_range_passes_through);
+
+    RUN_TEST(test_wifi_prov_scan_classify_state_never_requested_not_idle_is_not_started);
+    RUN_TEST(test_wifi_prov_scan_classify_state_never_requested_idle_is_not_started);
+    RUN_TEST(test_wifi_prov_scan_classify_state_requested_not_idle_is_pending);
+    RUN_TEST(test_wifi_prov_scan_classify_state_requested_idle_is_ready);
+    RUN_TEST(test_wifi_prov_scan_state_str_not_started);
+    RUN_TEST(test_wifi_prov_scan_state_str_pending);
+    RUN_TEST(test_wifi_prov_scan_state_str_ready);
+    RUN_TEST(test_wifi_prov_scan_state_str_unknown_defaults_not_started);
+    RUN_TEST(test_wifi_prov_scan_wire_clamp_count_negative_clamps_to_zero);
+    RUN_TEST(test_wifi_prov_scan_wire_clamp_count_over_cap_clamps_to_max);
+    RUN_TEST(test_wifi_prov_scan_wire_clamp_count_in_range_passes_through);
+    RUN_TEST(test_wifi_prov_scan_wire_fill_zero_aps_not_started);
+    RUN_TEST(test_wifi_prov_scan_wire_fill_clamps_and_copies_rows);
+    RUN_TEST(test_wifi_prov_scan_wire_row_field_count_matches);
+    RUN_TEST(test_wifi_prov_scan_wire_expected_json_zero_aps_not_started);
+    RUN_TEST(test_wifi_prov_scan_wire_expected_json_one_ap_ready);
+    RUN_TEST(test_wifi_prov_scan_wire_expected_json_pending);
 
     // OTA partitions wire (bb_json -> bb_serialize migration) tests
     RUN_TEST(test_ota_validator_partitions_wire_expected_json_zero_rows);
