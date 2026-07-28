@@ -532,6 +532,23 @@ bb_err_t bb_wifi_ping(uint32_t target_addr, uint32_t timeout_ms,
 // if no IP/gateway info is available or if the ICMP ping times out.
 bool bb_wifi_gateway_reachable(uint32_t timeout_ms);
 
+// Wait until any in-flight scan (bb_wifi_scan_networks() / the async
+// scan_worker_task started by bb_wifi_scan_start_async()) reports idle, or
+// timeout_ms elapses. Intended coordination point for a caller about to
+// stop/deinit the esp_wifi driver -- esp_wifi_stop()/esp_wifi_deinit() are
+// unsupported with a scan in flight (can assert/crash, not merely
+// error-return). See bb_wifi_ap_stop()'s use in bb_wifi_ap.c (B1-809
+// scan-vs-portal-teardown race: a blocking scan on the detached scan task
+// was otherwise unserialized against the provisioning FSM's driver
+// teardown). Bounded: returns true immediately if no scan is in progress,
+// true if an in-progress scan goes idle within timeout_ms, false on
+// timeout -- the caller decides whether to proceed anyway; this must never
+// be used to block teardown forever. Safe to call from any task EXCEPT the
+// scan worker task itself (waiting on its own completion would deadlock) --
+// that case is guarded defensively and returns false immediately instead of
+// hanging.
+bool bb_wifi_scan_wait_idle(uint32_t timeout_ms);
+
 // Notify the reconnect FSM that fresh WiFi credentials were just persisted,
 // so a parked WR_NO_CREDS instance can move to WR_CONNECTING and attempt the
 // new creds. Non-blocking (posts to the reconnect manager's queue); safe to
