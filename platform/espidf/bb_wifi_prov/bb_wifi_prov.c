@@ -123,10 +123,13 @@ static bb_err_t prov_save_handler(bb_http_request_t *req)
     // even though the creds write above already succeeded -- creds are the
     // important part of this form, so a bad hostname degrades to "hostname
     // unchanged", not "provisioning failed".
+    bool hostname_saved = false;
     if (hostname[0] != '\0') {
         bb_err_t host_err = bb_settings_hostname_set(hostname);
         if (host_err != BB_OK) {
             bb_log_w(TAG, "invalid hostname %s, keeping existing value", hostname);
+        } else {
+            hostname_saved = true;
         }
     }
 
@@ -134,7 +137,23 @@ static bb_err_t prov_save_handler(bb_http_request_t *req)
         bb_err_t cb_err = s_save_cb(req, body, len);
         if (cb_err != BB_OK) return BB_ERR_INVALID_STATE;
     } else {
-        bb_http_resp_set_status(req, 204);
+        // No consumer callback: render a minimal HTML confirmation instead
+        // of 204 No Content. A 204 leaves the browser nothing to render, so
+        // moments later this AP tears down mid-response and the user sees a
+        // browser error and assumes the save failed -- it did not (HW-
+        // confirmed). ssid/hostname are attacker-controlled in the general
+        // case (whatever the client just POSTed), so
+        // bb_wifi_prov_render_saved_page() HTML-escapes both internally.
+        //
+        // MEDIUM review fix: pass the hostname through
+        // bb_wifi_prov_saved_page_hostname() so an INVALID hostname (rejected
+        // above, prior value kept) is reported as "" here rather than as a
+        // find-it-at-X.local claim for an X that was never saved.
+        char page[BB_WIFI_PROV_SAVED_PAGE_MAX];
+        const char *page_hostname = bb_wifi_prov_saved_page_hostname(hostname, hostname_saved);
+        size_t page_len = bb_wifi_prov_render_saved_page(page, sizeof(page), ssid, page_hostname);
+        bb_http_resp_set_type(req, "text/html");
+        bb_http_resp_send_chunk(req, page, (int)page_len);
         bb_http_resp_send_chunk(req, NULL, 0);
     }
 
