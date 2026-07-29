@@ -615,6 +615,109 @@ static esp_err_t sta_netif_ensure(void)
     return s_sta_netif ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
+// Best-effort hostname application, shared by wifi_connect_sta_ex() and
+// bb_wifi_internal_connect_fresh() -- requires the STA netif to already exist
+// (esp_netif_set_hostname's precondition) but must run before esp_wifi_start()
+// so the first DHCP DISCOVER carries the configured name. A failure here is
+// never fatal to connecting. ctx tags the log line so the two call sites stay
+// distinguishable in the field.
+static void wifi_apply_persisted_hostname(const char *ctx)
+{
+    char hn[33] = {0};
+    bb_settings_hostname_get(hn, sizeof(hn), NULL);
+    if (!hn[0]) return;
+    esp_err_t hn_err = esp_netif_set_hostname(s_sta_netif, hn);
+    if (hn_err != ESP_OK) {
+        bb_log_w(TAG, "%s: esp_netif_set_hostname failed (%d); continuing", ctx, (int)hn_err);
+    }
+}
+
+// Registers the shared WIFI_EVENT/IP_EVENT handler (idempotent -- no-op past
+// the first successful call), shared by wifi_connect_sta_ex() and
+// bb_wifi_internal_connect_fresh(). Callers differ on how to react to a
+// registration failure (ESP_ERROR_CHECK at init time vs. a logged early
+// return on the non-blocking FSM-action path), so this returns esp_err_t
+// rather than panicking itself.
+static esp_err_t wifi_register_event_handlers(void)
+{
+    if (!s_wifi_handler) {
+        esp_err_t reg_err = esp_event_handler_instance_register(
+            WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, &s_wifi_handler);
+        if (reg_err != ESP_OK) return reg_err;
+    }
+    if (!s_ip_handler) {
+        esp_err_t reg_err = esp_event_handler_instance_register(
+            IP_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, &s_ip_handler);
+        if (reg_err != ESP_OK) return reg_err;
+    }
+    return ESP_OK;
+}
+
+// Post-esp_wifi_start() telemetry/behavior arming, shared by
+// wifi_connect_sta_ex() and bb_wifi_internal_connect_fresh() (HIGH review
+// fix): beacon-loss detection (inactive_time), the configured power-save
+// mode, and the periodic RSSI-refresh timer. Idempotent -- safe to call on
+// every connect, including a connect_fresh() run against a driver some other
+// path (AP/scan) already started, which never ran this tail itself.
+static void wifi_arm_post_start_telemetry(void)
+{
+#if BB_WIFI_INACTIVE_TIME_ENABLE
+    // Beacon-loss detection: driver emits WIFI_EVENT_STA_DISCONNECTED after this
+    // many seconds without a beacon, flowing into the normal reconnect FSM path.
+    // Must be called after esp_wifi_start(); minimum 3 for STA (ESP-IDF hard floor).
+    esp_wifi_set_inactive_time(WIFI_IF_STA, BB_WIFI_INACTIVE_TIME_S);
+#endif
+#if CONFIG_BB_WIFI_PS_NONE
+    esp_wifi_set_ps(WIFI_PS_NONE);
+#elif CONFIG_BB_WIFI_PS_MAX_MODEM
+    esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
+#else
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+#endif
+
+    if (!s_rssi_refresh_timer) {
+        bb_timer_deferred_periodic_create(rssi_refresh_work_fn, NULL,
+                                          "bb_wifi_rssi", &s_rssi_refresh_timer);
+    }
+    if (s_rssi_refresh_timer) {
+        bb_timer_periodic_stop(s_rssi_refresh_timer);
+        bb_timer_periodic_start(s_rssi_refresh_timer, 5 * 1000 * 1000);  // 5s
+    }
+}
+
+// Mode-coordination idiom (KB 781): query the esp_wifi driver's current mode
+// and lazily esp_wifi_init() it if this boot has never done so, without
+// disturbing an already-live STA/AP session. Shared by
+// wifi_ensure_scan_capable() and bb_wifi_internal_connect_fresh() -- the only
+// two call sites in this file needing exactly this read-then-lazily-init
+// step (MEDIUM review fix -- this was the third hand-rolled copy of the
+// idiom). NOTE: bb_wifi_ap_start() (components/bb_wifi_ap, a DIFFERENT
+// component) still hand-rolls its own copy rather than depending on this
+// helper -- see that file's own comment: bb_wifi_ap deliberately avoids a
+// hard dependency on bb_wifi so the two components stay independent (both
+// only talk to the same shared ESP-IDF esp_wifi/esp_netif singleton).
+// Consolidating across that component boundary is out of scope here.
+static esp_err_t wifi_mode_coordinate(wifi_mode_t *out_cur_mode, bool *out_driver_inited)
+{
+    wifi_mode_t cur_mode = WIFI_MODE_NULL;
+    esp_err_t mode_err = esp_wifi_get_mode(&cur_mode);
+    bool driver_inited = (mode_err == ESP_OK);
+    if (!driver_inited && mode_err != ESP_ERR_WIFI_NOT_INIT) {
+        return mode_err;
+    }
+
+    if (!driver_inited) {
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        esp_err_t init_err = esp_wifi_init(&cfg);
+        if (init_err != ESP_OK) return init_err;
+        cur_mode = WIFI_MODE_NULL;
+    }
+
+    *out_cur_mode = cur_mode;
+    *out_driver_inited = driver_inited;
+    return ESP_OK;
+}
+
 static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms)
 {
     s_wifi_event_group = xEventGroupCreate();
@@ -628,30 +731,12 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms)
         return netif_err;
     }
 
-    // Apply the persisted hostname now that the STA netif exists but before
-    // esp_wifi_start(), so the first DHCP DISCOVER carries the configured name.
-    // esp_netif_set_hostname requires the netif to exist, so this cannot run
-    // earlier (in autoinit) — DHCP/mDNS otherwise fall back to "espressif".
-    char hn[33] = {0};
-    bb_settings_hostname_get(hn, sizeof(hn), NULL);
-    if (hn[0]) {
-        esp_err_t hn_err = esp_netif_set_hostname(s_sta_netif, hn);
-        if (hn_err != ESP_OK) {
-            bb_log_w(TAG, "esp_netif_set_hostname failed (%d); continuing", (int)hn_err);
-        }
-    }
+    wifi_apply_persisted_hostname("wifi_connect_sta_ex");
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    if (!s_wifi_handler) {
-        ESP_ERROR_CHECK(esp_event_handler_instance_register(
-            WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, &s_wifi_handler));
-    }
-    if (!s_ip_handler) {
-        ESP_ERROR_CHECK(esp_event_handler_instance_register(
-            IP_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, &s_ip_handler));
-    }
+    ESP_ERROR_CHECK(wifi_register_event_handlers());
 
     wifi_config_t wifi_config = {0};
 #if CONFIG_BB_WIFI_RECONFIGURE
@@ -675,29 +760,7 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     memcpy(&s_sta_config, &wifi_config, sizeof(s_sta_config));
     ESP_ERROR_CHECK(esp_wifi_start());
-#if BB_WIFI_INACTIVE_TIME_ENABLE
-    // Beacon-loss detection: driver emits WIFI_EVENT_STA_DISCONNECTED after this
-    // many seconds without a beacon, flowing into the normal reconnect FSM path.
-    // Must be called after esp_wifi_start(); minimum 3 for STA (ESP-IDF hard floor).
-    esp_wifi_set_inactive_time(WIFI_IF_STA, BB_WIFI_INACTIVE_TIME_S);
-#endif
-#if CONFIG_BB_WIFI_PS_NONE
-    esp_wifi_set_ps(WIFI_PS_NONE);
-#elif CONFIG_BB_WIFI_PS_MAX_MODEM
-    esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
-#else
-    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-#endif
-
-    // Initialize RSSI refresh timer
-    if (!s_rssi_refresh_timer) {
-        bb_timer_deferred_periodic_create(rssi_refresh_work_fn, NULL,
-                                          "bb_wifi_rssi", &s_rssi_refresh_timer);
-    }
-    if (s_rssi_refresh_timer) {
-        bb_timer_periodic_stop(s_rssi_refresh_timer);
-        bb_timer_periodic_start(s_rssi_refresh_timer, 5 * 1000 * 1000);  // 5s
-    }
+    wifi_arm_post_start_telemetry();
 
     bb_log_i(TAG, "connecting to %s", (char *)wifi_config.sta.ssid);
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
@@ -740,6 +803,131 @@ bb_err_t bb_wifi_init_sta(void)
     return wifi_connect_sta_ex(CREDS_LIVE, 60000);
 }
 
+// HW-confirmed fix: applies the freshly-saved live SSID/password and issues
+// a connect for the reconnect FSM's WR_NO_CREDS/EV_CREDS_ARRIVED row
+// (wifi_reconn_policy.c's act_creds_arrived_connect, via wifi_reconn.c's
+// connect_fresh_fn adapter slot). Unlike wifi_connect_sta_ex()/
+// bb_wifi_init_sta(), this function:
+//   - MUST NOT block: it runs on the reconn task inside an FSM action, whose
+//     contract is a non-blocking connect_fn (WR_CONNECTING's own on_entry
+//     hook arms the CONNECTING watchdog that owns the actual timeout).
+//     wifi_connect_sta_ex() blocks on xEventGroupWaitBits() for up to its
+//     timeout_ms and would stall the whole reconn task/FSM.
+//   - MUST be safe whether or not the esp_wifi driver is already
+//     initialized/started. By the time provisioning posts EV_CREDS_ARRIVED
+//     (bb_wifi_on_creds_arrived, after prov_stop_fn/ap_stop_fn have already
+//     run -- see wifi_prov_policy.c's row-13 comment), the portal's own SSID
+//     scan (wifi_ensure_scan_capable, B1-809) and/or AP teardown
+//     (bb_wifi_ap_stop) have very likely already called esp_wifi_init()/
+//     esp_wifi_start() to bring the driver up in STA mode with NO STA config
+//     applied. wifi_connect_sta_ex() wraps esp_wifi_init()/esp_wifi_start()
+//     in ESP_ERROR_CHECK(), which PANICS if the driver is already
+//     initialized/started (esp_wifi_init returns ESP_ERR_INVALID_STATE) --
+//     calling it unconditionally here would crash the board on exactly the
+//     path that motivated this fix. Uses the shared wifi_mode_coordinate()
+//     helper above to stay idempotent instead.
+// This is also the fix for the underlying HW-confirmed bug: previously
+// nothing in the creds-arrived path ever called esp_wifi_set_config(),
+// so a bare esp_wifi_connect() (the old connect_fn) associated against
+// whatever STA config the driver happened to already have -- empty on a
+// blank-NVS board, so the connect failed immediately and silently.
+//
+// HIGH review fix: this now shares wifi_connect_sta_ex()'s full post-config
+// tail (hostname, event handler registration, PS/inactive-time/RSSI-timer
+// arming) via the wifi_apply_persisted_hostname()/wifi_register_event_
+// handlers()/wifi_arm_post_start_telemetry() helpers above, so a
+// provisioning-triggered connect can no longer silently lose beacon-loss
+// detection, run with the wrong power-save mode, or go untelemetered until
+// some later full reconnect happens to run wifi_connect_sta_ex() instead.
+// The two functions remain intentionally different in exactly the ways
+// documented on this function: non-blocking, tolerant of an
+// already-initialized/started driver, and reading LIVE (not pending) creds.
+void bb_wifi_internal_connect_fresh(void)
+{
+    // MEDIUM review fix: wifi_connect_sta_ex() calls this first; this
+    // function used to skip it and only worked because AP-start or the scan
+    // path happened to bring the netif system up first -- an implicit,
+    // undocumented precondition. Idempotent, so safe to call unconditionally.
+    esp_err_t stack_err = bb_wifi_ensure_net_stack();
+    if (stack_err != ESP_OK) {
+        bb_log_e(TAG, "connect_fresh: net stack unavailable: %s", esp_err_to_name(stack_err));
+        return;
+    }
+
+    esp_err_t netif_err = sta_netif_ensure();
+    if (netif_err != ESP_OK) {
+        bb_log_e(TAG, "connect_fresh: STA netif unavailable: %s", esp_err_to_name(netif_err));
+        return;
+    }
+
+    wifi_apply_persisted_hostname("connect_fresh");
+
+    // MEDIUM review fix: shared mode-coordination helper (see its own doc
+    // above) -- was the third hand-rolled copy of this idiom in the file.
+    wifi_mode_t cur_mode = WIFI_MODE_NULL;
+    bool driver_inited = false;
+    esp_err_t mode_err = wifi_mode_coordinate(&cur_mode, &driver_inited);
+    if (mode_err != ESP_OK) {
+        bb_log_e(TAG, "connect_fresh: wifi mode coordination failed: %s", esp_err_to_name(mode_err));
+        return;
+    }
+
+    esp_err_t reg_err = wifi_register_event_handlers();
+    if (reg_err != ESP_OK) {
+        bb_log_e(TAG, "connect_fresh: event handler register failed: %s", esp_err_to_name(reg_err));
+        return;
+    }
+
+    wifi_config_t wifi_config = {0};
+    wifi_read_ssid((char *)wifi_config.sta.ssid, sizeof(wifi_config.sta.ssid), NULL);
+    wifi_read_pass((char *)wifi_config.sta.password, sizeof(wifi_config.sta.password), NULL);
+
+    // Preserve a live AP (should not normally be up here -- provisioning
+    // stops it before posting EV_CREDS_ARRIVED -- but never clobber a
+    // concurrently-associated captive-portal client if it somehow is).
+    bool ap_up = (cur_mode == WIFI_MODE_AP || cur_mode == WIFI_MODE_APSTA);
+    wifi_mode_t target_mode = ap_up ? WIFI_MODE_APSTA : WIFI_MODE_STA;
+    esp_err_t mode_set_err = esp_wifi_set_mode(target_mode);
+    if (mode_set_err != ESP_OK) {
+        bb_log_e(TAG, "connect_fresh: esp_wifi_set_mode failed: %s", esp_err_to_name(mode_set_err));
+        return;
+    }
+
+    esp_err_t cfg_err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (cfg_err != ESP_OK) {
+        bb_log_e(TAG, "connect_fresh: esp_wifi_set_config failed: %s", esp_err_to_name(cfg_err));
+        return;
+    }
+    memcpy(&s_sta_config, &wifi_config, sizeof(s_sta_config));
+
+    bb_log_i(TAG, "connect_fresh: connecting to %s", (char *)wifi_config.sta.ssid);
+
+    // driver_inited && cur_mode != WIFI_MODE_NULL means esp_wifi_start() has
+    // already run this boot (the AP/scan path that motivated this fn) --
+    // WIFI_EVENT_STA_START will not fire again, so issue the connect
+    // directly. Otherwise (fresh init, or inited-but-never-started) starting
+    // the driver triggers STA_START, whose handler auto-connects
+    // (s_sta_restarting is false here). Either way, the post-start telemetry
+    // tail must run once the driver is confirmed started -- an AP/scan path
+    // that brought it up never ran wifi_connect_sta_ex()'s own copy of it.
+    bool driver_started = driver_inited && (cur_mode != WIFI_MODE_NULL);
+    if (!driver_started) {
+        esp_err_t start_err = esp_wifi_start();
+        if (start_err != ESP_OK) {
+            bb_log_e(TAG, "connect_fresh: esp_wifi_start failed: %s", esp_err_to_name(start_err));
+            return;
+        }
+        wifi_arm_post_start_telemetry();
+        return;
+    }
+
+    wifi_arm_post_start_telemetry();
+    esp_err_t connect_err = esp_wifi_connect();
+    if (connect_err != ESP_OK) {
+        bb_log_e(TAG, "connect_fresh: esp_wifi_connect failed: %s", esp_err_to_name(connect_err));
+    }
+}
+
 // Idempotent precondition for bb_wifi_scan_networks(): esp_wifi_scan_start()
 // is only supported in station or station/AP mode (ESP-IDF requirement), but
 // the no-creds provisioning path (bb_wifi_autoinit's early return, B1-809)
@@ -762,33 +950,22 @@ static esp_err_t wifi_ensure_scan_capable(void)
     esp_err_t netif_err = sta_netif_ensure();
     if (netif_err != ESP_OK) return netif_err;
 
-    // Mirrors bb_wifi_ap_start()'s mode-coordination idiom (KB 781):
-    // esp_wifi_get_mode() returning ESP_ERR_WIFI_NOT_INIT means esp_wifi_init()
-    // has never run -- treat that as "not initialized yet"; any other
-    // successful read reports the mode a prior init (STA connect or AP start)
-    // already selected.
-    //
-    // Deliberately tolerant ordering: if esp_wifi_get_mode() below returns an
-    // unexpected error, this fn returns early with s_sta_netif already
-    // created (via sta_netif_ensure() above) and nothing else done. That is
-    // not a leak -- sta_netif_ensure() is idempotent and the handle is
-    // reused on the next call -- and non-fatal, since the caller (scan
-    // precondition) just logs and returns 0. Do not "fix" this by reordering
-    // the netif creation after the mode check; a future scan-capable state
-    // may want the netif to exist even on a mode-check failure.
+    // Shared mode-coordination helper (see wifi_mode_coordinate()'s doc
+    // above, KB 781). Deliberately tolerant ordering: if it fails, this fn
+    // returns early with s_sta_netif already created (via sta_netif_ensure()
+    // above) and nothing else done. That is not a leak -- sta_netif_ensure()
+    // is idempotent and the handle is reused on the next call -- and
+    // non-fatal, since the caller (scan precondition) just logs and returns
+    // 0. Do not "fix" this by reordering the netif creation after the mode
+    // check; a future scan-capable state may want the netif to exist even on
+    // a mode-check failure.
     wifi_mode_t cur_mode = WIFI_MODE_NULL;
-    esp_err_t mode_err = esp_wifi_get_mode(&cur_mode);
-    bool driver_inited = (mode_err == ESP_OK);
-    if (!driver_inited && mode_err != ESP_ERR_WIFI_NOT_INIT) {
+    bool driver_inited = false;  // not consulted below -- only cur_mode drives this fn's branches
+    esp_err_t mode_err = wifi_mode_coordinate(&cur_mode, &driver_inited);
+    if (mode_err != ESP_OK) {
         return mode_err;
     }
-
-    if (!driver_inited) {
-        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-        esp_err_t init_err = esp_wifi_init(&cfg);
-        if (init_err != ESP_OK) return init_err;
-        cur_mode = WIFI_MODE_NULL;
-    }
+    (void)driver_inited;
 
     if (cur_mode == WIFI_MODE_NULL) {
         // Freshly initialized (or initialized-but-never-started): bring up

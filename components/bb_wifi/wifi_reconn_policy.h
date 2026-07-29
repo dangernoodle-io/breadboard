@@ -131,6 +131,16 @@ typedef struct {
     int64_t (*now_us)(void);                  // existing (bb_timer_now_us)
     void    (*connect_fn)(void);              // esp_wifi_connect()
     void    (*disconnect_fn)(void);           // esp_wifi_disconnect()
+    // Used ONLY by the WR_NO_CREDS/EV_CREDS_ARRIVED row (HW-confirmed fix):
+    // unlike connect_fn's bare esp_wifi_connect(), this applies the
+    // freshly-saved SSID/password to the driver first. Provisioning's own
+    // SSID scan and/or AP teardown (wifi_ensure_scan_capable/
+    // bb_wifi_ap_stop) can bring the esp_wifi driver up in STA mode with no
+    // STA config applied before EV_CREDS_ARRIVED is ever posted -- a bare
+    // connect_fn() in that state fails silently (no config to associate
+    // with). Non-blocking, like connect_fn -- wires to
+    // bb_wifi_internal_connect_fresh() (platform/espidf/bb_wifi/bb_wifi.c).
+    void    (*connect_fresh_fn)(void);
     // No restart_sta_fn: no FSM row/action calls bb_wifi_restart_sta() in
     // this slice (review fix [MEDIUM], B1-805 slice 1a) -- reserved for
     // slice 1b, which reintroduces it alongside the inactive-time restart
