@@ -44,6 +44,17 @@ jobs:
         run: make check
   test:
     uses: dangernoodle-io/.github/.github/workflows/pio-test.yml@main
+    with:
+      # B1-1258: uncovered_branch is a LOCAL pre-push aid only, not a CI gate --
+      # branch attribution (which gcov CFG edges a compound conditional splits
+      # into, and which count as "taken") is gcc-major-dependent (PR #850), and
+      # the committed branch baseline is seeded on a dev machine's gcc, not
+      # CI's. Coveralls (running under the PR's own CI toolchain) remains the
+      # sole CI authority for branch coverage; uncovered_line ratcheting is
+      # unaffected and still gates CI. This runs in the SAME job as (and
+      # before) the "Test and coverage" step below, via $GITHUB_ENV, so no
+      # change to the shared pio-test.yml workflow is needed.
+      pre-build-script: echo "COVERAGE_GATE_LINES_ONLY=1" >> "$GITHUB_ENV"
     secrets: inherit
   py-tests:
     needs: changes
