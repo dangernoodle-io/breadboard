@@ -6,6 +6,14 @@ CONFIG_FREERTOS_HZ=1000
 CONFIG_FREERTOS_CHECK_STACKOVERFLOW=2
 CONFIG_LOG_DEFAULT_LEVEL=3
 
+# HW-validation gate for the per-task stack high-water console report (PR
+# #1130): uxTaskGetSystemState() -- the API bb_task_registry_base_scan.c
+# uses to sample per-task stack high-water marks -- is only compiled in by
+# FreeRTOS when this is set; without it the base scan is a no-op stub and
+# every report row renders unsampled (budget-only, no free/used bytes).
+# floor-only: this is a bench-measurement opt-in, not a shipping default.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+
 # FOUNDATIONAL FLOOR (jae/autowire-sweep): all bb_log sinks off -- this is the
 # true floor, console logging only. bb_log's CMakeLists REQUIRES are now
 # Kconfig-conditional to match these gates (see components/bb_log/CMakeLists.txt),
