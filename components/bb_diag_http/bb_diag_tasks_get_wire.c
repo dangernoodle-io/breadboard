@@ -222,7 +222,7 @@ const char *bb_diag_tasks_get_wire_get_schema(void)
 
 void bb_diag_tasks_get_wire_fill_row(bb_diag_tasks_get_wire_row_t *row,
                                       const char *name, int64_t prio, int64_t base_prio,
-                                      int64_t stack_hwm, const char *state_name,
+                                      int64_t stack_hwm_bytes, const char *state_name,
                                       bool core_present, int64_t core,
                                       bool runtime_present, int64_t runtime,
                                       bool registry_present, uint64_t stack_budget_bytes,
@@ -239,7 +239,7 @@ void bb_diag_tasks_get_wire_fill_row(bb_diag_tasks_get_wire_row_t *row,
     }
     row->prio      = prio;
     row->base_prio = base_prio;
-    row->stack_hwm = stack_hwm;
+    row->stack_hwm = stack_hwm_bytes;
 
     const char *s = state_name ? state_name : "?";
     row->state = (bb_serialize_str_n_t){ .ptr = s, .len = strlen(s) };

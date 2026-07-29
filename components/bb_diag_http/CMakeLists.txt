@@ -125,11 +125,16 @@ endif()
 # public header of this component includes bb_data_http.h). Replaces
 # bb_openapi, which pulled bb_openapi into every consumer's link closure
 # (e.g. examples/floor) for a single internal registration call.
+# bb_num: PRIV -- B1-1256: bb_num_words_to_bytes() call in
+# bb_diag_http_routes.c's tasks_get_handler() (internal .c use only, no
+# public header of this component includes bb_num.h) -- the shared SSOT
+# stack-words-to-bytes conversion, also used by bb_task_registry's own
+# base-scan copy.
 idf_component_register(
     SRCS ${_diag_http_srcs}
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_diag bb_http_server bb_serialize bb_storage bb_serialize_meta
-    PRIV_REQUIRES bb_log bb_http bb_cache bb_config bb_ntp bb_data_http bb_system bb_ota_validator bb_data bb_task_registry bb_task espcoredump lwip esp_partition bb_str bb_settings bb_timer
+    PRIV_REQUIRES bb_log bb_http bb_cache bb_config bb_ntp bb_data_http bb_system bb_ota_validator bb_data bb_task_registry bb_task espcoredump lwip esp_partition bb_str bb_settings bb_timer bb_num
 )
 
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)

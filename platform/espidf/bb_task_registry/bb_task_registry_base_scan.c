@@ -13,6 +13,7 @@
 
 #include "bb_log.h"
 #include "bb_mem.h"
+#include "bb_num.h"
 #include "bb_timer.h"
 #include "bb_str.h"
 
@@ -69,8 +70,11 @@ static void do_scan(void)
     for (UBaseType_t i = 0; i < got; i++) {
         rows[i].handle = (void *)tasks[i].xHandle;
         bb_strlcpy(rows[i].name, tasks[i].pcTaskName, sizeof(rows[i].name));
-        // uxTaskGetStackHighWaterMark returns words; convert to bytes.
-        rows[i].free_bytes = (uint32_t)tasks[i].usStackHighWaterMark * sizeof(StackType_t);
+        // uxTaskGetStackHighWaterMark returns words; convert to bytes via
+        // the shared SSOT helper (B1-1256), also used by bb_diag_http's
+        // GET /api/diag/tasks gather.
+        rows[i].free_bytes =
+            (uint32_t)bb_num_words_to_bytes(tasks[i].usStackHighWaterMark, sizeof(StackType_t));
     }
 
     bb_mem_free(tasks);
