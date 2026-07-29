@@ -45,11 +45,12 @@ needs a live board reachable over HTTP):
     bbtool size --check           --target esp32 --build-dir .pio/build/esp32 \
         --heap-from-http http://<device-ip>
 
-`--heap-from-http <base_url>` GETs `<base_url>/api/diag/heap` (the bb_diag
-component's per-capability heap endpoint) and, with `--update-baseline`,
-snapshots `internal.minimum_ever_free` into `heap.min_free`/`heap.high_water`
-(the firmware exposes one watermark field, so both mirror it) plus a
-per-region map into `heap.regions`. With `--check`, it re-fetches and applies
+`--heap-from-http <base_url>` GETs `<base_url>/api/diag/meminfo` (the
+bb_diag component's unified memory report, bb_diag_meminfo.c) and, with
+`--update-baseline`, snapshots `internal.min_ever_free` into
+`heap.min_free`/`heap.high_water` (the firmware exposes one watermark
+field, so both mirror it) plus a per-region map into `heap.regions`. With
+`--check`, it re-fetches and applies
 a HIGHER-BETTER regression gate (current < baseline = FAIL) against the
 committed baseline's `heap` block; if that block is null (no heap baseline
 yet), the heap check is inert (skipped, not failed).
@@ -180,11 +181,11 @@ def add_arguments(parser) -> None:
         dest="heap_from_http",
         default=None,
         metavar="BASE_URL",
-        help="fetch live heap stats from <BASE_URL>/api/diag/heap (bb_diag"
-             " component) and, with --update-baseline, snapshot them into the"
-             " target's heap block, or with --check, gate current heap"
-             " watermarks against the committed baseline (device/fleet-run"
-             " only; requires a live board)",
+        help="fetch live heap stats from <BASE_URL>/api/diag/meminfo (bb_diag"
+             " component's unified memory report) and, with --update-baseline,"
+             " snapshot them into the target's heap block, or with --check,"
+             " gate current heap watermarks against the committed baseline"
+             " (device/fleet-run only; requires a live board)",
     )
 
 
@@ -686,15 +687,21 @@ def _compare_flash(target: str, current: dict, baseline: dict, threshold_pct: fl
 
 # ---------------------------------------------------------------------------
 # Live heap capture over HTTP — B1-719 phase B. Reads the bb_diag component's
-# GET /api/diag/heap (platform/espidf/bb_diag/bb_diag_routes.c), a per-
-# capability JSON object keyed by "internal"/"dma"/"spiram"/"exec"/"default"
-# (only capabilities with nonzero total size are present), each with
-# {free, allocated, largest_free_block, minimum_ever_free}. This is a
-# device/fleet-run capability (needs a live board), distinct from the
-# toolchain-only static flash measurement above.
+# GET /api/diag/meminfo (components/bb_diag/bb_diag_meminfo.c), the unified
+# memory report, a per-region JSON object keyed by
+# "default"/"internal"/"dma"/"spiram"/"exec" (only regions with nonzero
+# total size are present), each with
+# {free, allocated, largest_free_block, min_ever_free, total}, plus
+# top-level scalars (esp_min_free_heap, mem_outstanding_bytes, ...) this
+# command doesn't consume. The legacy GET /api/diag/heap exact route (and
+# its `minimum_ever_free` field name) has been retired -- see
+# components/bb_diag/include/bb_diag_meminfo.h. This is a device/fleet-run
+# capability (needs a live board), distinct from the toolchain-only static
+# flash measurement above.
 # ---------------------------------------------------------------------------
 
 _HEAP_HTTP_TIMEOUT = 5.0
+_HEAP_ENDPOINT_PATH = "/api/diag/meminfo"
 
 
 def _fetch_json(url: str, timeout: float = _HEAP_HTTP_TIMEOUT) -> Tuple[Optional[dict], Optional[str]]:
@@ -722,26 +729,30 @@ def _fetch_json(url: str, timeout: float = _HEAP_HTTP_TIMEOUT) -> Tuple[Optional
 
 
 def _extract_heap(raw: dict) -> Tuple[Optional[dict], Optional[str]]:
-    """Convert a raw /api/diag/heap response into the baseline `heap` block
-    shape. `internal.minimum_ever_free` is the firmware's one watermark
+    """Convert a raw GET /api/diag/meminfo response into the baseline `heap`
+    block shape. `internal.min_ever_free` is the firmware's one watermark
     field (there is no separate peak-used counter), so `high_water` mirrors
-    `min_free` -- both come from the same `minimum_ever_free` sample.
-    `regions` captures every present capability (internal/dma/spiram/exec/
-    default -- whichever the board actually has nonzero total size for)."""
+    `min_free` -- both come from the same `min_ever_free` sample. `regions`
+    captures every present region (internal/dma/spiram/exec/default --
+    whichever the board actually has nonzero total size for)."""
     internal = raw.get("internal")
     if not isinstance(internal, dict):
-        return None, "heap endpoint response missing 'internal' capability"
-    min_free = internal.get("minimum_ever_free")
+        return None, (
+            f"{_HEAP_ENDPOINT_PATH} response missing 'internal' region"
+        )
+    min_free = internal.get("min_ever_free")
     if min_free is None:
-        return None, "heap endpoint 'internal' entry missing 'minimum_ever_free'"
+        return None, (
+            f"{_HEAP_ENDPOINT_PATH} 'internal' region missing 'min_ever_free'"
+        )
 
     regions: Dict[str, dict] = {}
     for name, entry in raw.items():
         if not isinstance(entry, dict):
-            continue  # e.g. the optional top-level "integrity_ok" bool
+            continue  # e.g. top-level scalars like esp_min_free_heap
         regions[name] = {
             "free": entry.get("free"),
-            "min_free": entry.get("minimum_ever_free"),
+            "min_free": entry.get("min_ever_free"),
             "largest_free_block": entry.get("largest_free_block"),
         }
 
@@ -757,9 +768,9 @@ def _extract_heap(raw: dict) -> Tuple[Optional[dict], Optional[str]]:
 
 
 def _capture_heap_http(url: str) -> Tuple[Optional[dict], Optional[str]]:
-    """Fetch + extract the heap block from <url>/api/diag/heap. Returns
+    """Fetch + extract the heap block from <url>/api/diag/meminfo. Returns
     (heap, None) on success, (None, error) on any failure."""
-    endpoint = f"{url.rstrip('/')}/api/diag/heap"
+    endpoint = f"{url.rstrip('/')}{_HEAP_ENDPOINT_PATH}"
     raw, error = _fetch_json(endpoint)
     if error is not None:
         return None, error

@@ -809,7 +809,48 @@ class TestCheckFlashGate(unittest.TestCase):
             self.assertIn("PASS", out_buf.getvalue())
 
 
+# Real /api/diag/meminfo payload shape (captured from a live bench board,
+# GET http://172.16.1.9/api/diag/meminfo): unified memory report, region
+# keys unchanged from the retired /api/diag/heap route but each region's
+# watermark field renamed minimum_ever_free -> min_ever_free, plus new
+# `total` per region and top-level scalars this command doesn't consume.
 _HEAP_RESPONSE = {
+    "default": {
+        "free": 95980, "min_ever_free": 92672,
+        "largest_free_block": 90112, "total": 254352, "allocated": 154292,
+    },
+    "internal": {
+        "free": 150000,
+        "allocated": 50000,
+        "largest_free_block": 90000,
+        "min_ever_free": 120000,
+        "total": 200000,
+    },
+    "dma": {
+        "free": 40000,
+        "allocated": 10000,
+        "largest_free_block": 20000,
+        "min_ever_free": 35000,
+        "total": 50000,
+    },
+    "spiram": {"free": 0, "min_ever_free": 0, "largest_free_block": 0, "total": 0, "allocated": 0},
+    "exec": {
+        "free": 124192, "min_ever_free": 120924,
+        "largest_free_block": 90112, "total": 157964, "allocated": 31680,
+    },
+    "esp_min_free_heap": 92672,
+    "mem_outstanding_bytes": 0,
+    "mem_peak_outstanding": 0,
+    "mem_alloc_fail": 0,
+    "rtc_used": 1188,
+    "rtc_total": 8192,
+    "dram_static_bytes": 77596,
+}
+
+# Old-shape /api/diag/heap payload (retired route + retired field name) --
+# used to prove the fix actually changes behavior: this must FAIL to
+# extract post-fix (no `min_ever_free` field present anywhere).
+_STALE_HEAP_RESPONSE = {
     "internal": {
         "free": 150000,
         "allocated": 50000,
@@ -887,6 +928,21 @@ class TestHeapHttpCapture(unittest.TestCase):
             # flash + config are preserved, not clobbered by the heap capture
             self.assertEqual(baseline["flash"]["flash_total"], 120)
             self.assertIn("sdkconfig_sha", baseline["config"])
+
+    def test_update_baseline_with_heap_from_http_requests_meminfo_endpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = Path(tmp, "examples", "smoke", ".pio", "build", "esp32")
+            build_dir.mkdir(parents=True)
+            Path(build_dir, "firmware.elf").write_bytes(b"\x7fELF")
+            with self._fake_measure(self._result(build_dir)), \
+                 _fake_urlopen(_HEAP_RESPONSE) as mock_urlopen:
+                rc = run(_args(
+                    str(build_dir), root=tmp, target="esp32", update_baseline=True,
+                    heap_from_http="http://example-device.test",
+                ))
+            self.assertEqual(rc, 0)
+            requested_url = mock_urlopen.call_args[0][0]
+            self.assertTrue(requested_url.endswith("/api/diag/meminfo"))
 
     def test_update_baseline_heap_http_error_returns_clean_rc1(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -983,7 +1039,7 @@ class TestHeapHttpCapture(unittest.TestCase):
                  mock.patch(
                      "commands.size.urllib.request.urlopen",
                      side_effect=urllib.error.HTTPError(
-                         "http://example-device.test/api/diag/heap", 503, "Service Unavailable", {}, None,
+                         "http://example-device.test/api/diag/meminfo", 503, "Service Unavailable", {}, None,
                      ),
                  ):
                 buf = io.StringIO()
@@ -1076,13 +1132,42 @@ class TestExtractHeap(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(heap["min_free"], 120000)
         self.assertEqual(heap["high_water"], 120000)
-        self.assertEqual(set(heap["regions"]), {"internal", "dma"})
+        self.assertEqual(
+            set(heap["regions"]), {"default", "internal", "dma", "spiram", "exec"},
+        )
+        self.assertEqual(heap["regions"]["dma"]["min_free"], 35000)
         self.assertEqual(heap["source"], "http")
 
-    def test_missing_internal_capability_errors(self):
+    def test_real_meminfo_payload_extracts_cleanly(self):
+        # ground-truth payload captured live from the bench board's
+        # GET /api/diag/meminfo -- exercises the real field/region shape
+        # end to end, not just the hand-trimmed fixture above.
+        heap, error = size_mod._extract_heap(_HEAP_RESPONSE)
+        self.assertIsNone(error)
+        self.assertEqual(heap["min_free"], 120000)
+        self.assertEqual(heap["free"], 150000)
+        self.assertEqual(heap["largest_free_block"], 90000)
+        self.assertEqual(heap["regions"]["default"]["min_free"], 92672)
+        self.assertEqual(heap["regions"]["exec"]["min_free"], 120924)
+        self.assertEqual(heap["regions"]["spiram"]["min_free"], 0)
+        # top-level scalars (esp_min_free_heap, mem_outstanding_bytes, ...)
+        # are not dicts -- ignored, never surfacing as bogus regions.
+        self.assertNotIn("esp_min_free_heap", heap["regions"])
+        self.assertNotIn("rtc_used", heap["regions"])
+
+    def test_missing_internal_region_errors(self):
         heap, error = size_mod._extract_heap({"dma": {"free": 1}})
         self.assertIsNone(heap)
         self.assertIn("missing 'internal'", error)
+        # the error names the actual endpoint so a future rename is
+        # diagnosable from the error text alone.
+        self.assertIn("/api/diag/meminfo", error)
+
+    def test_missing_min_ever_free_field_errors(self):
+        heap, error = size_mod._extract_heap({"internal": {"free": 1}})
+        self.assertIsNone(heap)
+        self.assertIn("min_ever_free", error)
+        self.assertIn("/api/diag/meminfo", error)
 
     def test_ignores_non_dict_top_level_keys(self):
         raw = dict(_HEAP_RESPONSE)
@@ -1090,6 +1175,15 @@ class TestExtractHeap(unittest.TestCase):
         heap, error = size_mod._extract_heap(raw)
         self.assertIsNone(error)
         self.assertNotIn("integrity_ok", heap["regions"])
+
+    def test_stale_old_route_field_name_fails_to_extract(self):
+        # proves the fix: the pre-fix code read `minimum_ever_free` off the
+        # retired /api/diag/heap shape. Against the new field name, that key
+        # is simply absent -- this must produce a clean error, not a
+        # traceback, and not silently succeed with a bogus value.
+        heap, error = size_mod._extract_heap(_STALE_HEAP_RESPONSE)
+        self.assertIsNone(heap)
+        self.assertIn("min_ever_free", error)
 
 
 if __name__ == "__main__":

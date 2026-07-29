@@ -960,7 +960,7 @@ python3 scripts/bbtool.py size --build-dir .pio/build/<env> [--component NAME ..
 | `--update-baseline` | off | Measure + snapshot the resolved sdkconfig, write `.baseline/bbtool/metrics/<target>.json` (preserves any existing `heap` block); mutually exclusive with `--check` |
 | `--check` | off | Measure + compare against the committed baseline; FAIL on bss growth or flash_total growth beyond `--flash-threshold-pct`; mutually exclusive with `--update-baseline` |
 | `--flash-threshold-pct PCT` | `2.0` | Allowed `flash_total` growth vs baseline, in percent |
-| `--heap-from-http BASE_URL` | none | Fetch live heap stats from `<BASE_URL>/api/diag/heap` (the `bb_diag` component); only applies with `--update-baseline`/`--check` — with neither, it's a warned no-op |
+| `--heap-from-http BASE_URL` | none | Fetch live heap stats from `<BASE_URL>/api/diag/meminfo` (the `bb_diag` component's unified memory report); only applies with `--update-baseline`/`--check` — with neither, it's a warned no-op |
 
 With no `--update-baseline`/`--check`, emits one JSON line: `{"elf",
 "build_dir", "text", "data", "bss", "flash_total", "components"}` —
@@ -1052,13 +1052,14 @@ keys.
 
 ### Heap capture + gate (`--heap-from-http`, device-only)
 
-`--heap-from-http <base_url>` GETs `<base_url>/api/diag/heap` (the `bb_diag`
-component's per-capability heap endpoint) — this needs a live, reachable
-board, so it's a device/fleet-run capability, not a host/CI one.
+`--heap-from-http <base_url>` GETs `<base_url>/api/diag/meminfo` (the
+`bb_diag` component's unified memory report, `bb_diag_meminfo.c`) — this
+needs a live, reachable board, so it's a device/fleet-run capability, not a
+host/CI one. The legacy `/api/diag/heap` exact route has been retired.
 
 - With `--update-baseline`: snapshots the response into the target's `heap`
   block (`source: "http"`, `min_free`/`high_water` from `internal.
-  minimum_ever_free`, plus a per-capability `regions` map).
+  min_ever_free`, plus a per-region `regions` map).
 - With `--check`: re-fetches and gates **higher-is-better** — current
   watermarks below the committed baseline's are a FAIL. The heap gate is
   inert (skipped, not failed) while the baseline's `heap` block is null —
