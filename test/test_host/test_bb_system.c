@@ -234,6 +234,11 @@ void test_bb_reset_source_str_wifi_reconfigure(void)
     TEST_ASSERT_EQUAL_STRING("wifi_reconfigure", bb_reset_source_str(BB_RESET_SRC_WIFI_RECONFIGURE));
 }
 
+void test_bb_reset_source_str_wifi_provisioned(void)
+{
+    TEST_ASSERT_EQUAL_STRING("wifi_provisioned", bb_reset_source_str(BB_RESET_SRC_WIFI_PROVISIONED));
+}
+
 void test_bb_reset_source_str_egress_tier3(void)
 {
     TEST_ASSERT_EQUAL_STRING("egress_tier3", bb_reset_source_str(BB_RESET_SRC_EGRESS_TIER3));

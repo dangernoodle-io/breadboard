@@ -46,6 +46,8 @@
 #include "bb_temp.h"
 #include "bb_wifi_prov.h"
 #include "bb_prov_default_form.h"
+#include "bb_system.h"
+#include "floor_prov_reboot.h"
 #include <inttypes.h>
 #include <stdbool.h>
 
@@ -71,6 +73,35 @@ static bb_lifecycle_svc_t s_http_svc = BB_LIFECYCLE_SVC_INVALID;
 // there was wrong).
 static bb_lifecycle_svc_t     s_wifi_svc = BB_LIFECYCLE_SVC_INVALID;
 static bb_lifecycle_binding_t s_wifi_lifecycle_binding;
+
+// Provisioning-is-transient (see the reboot-into-normal-boot block below):
+// snapshotted once, before the "wifi" service is wired up and before
+// bb_wifi_autoinit() can drive its first GOT_IP, from
+// bb_settings_wifi_has_creds() -- the same read bb_wifi_prov_autoinit() does
+// internally. Reading it this early is equivalent to reading it right
+// before wifi_prov_autoinit() below: nothing between here and there writes
+// wifi creds (only a portal /save POST does, and that cannot happen this
+// early in boot). Composition-root state, not bb_wifi_prov's -- floor is
+// the one deciding to suppress mdns/mqtt and to reboot, per CLAUDE.md's
+// composition-only model.
+static bool s_prov_mode_boot = false;
+
+// Set once the provisioning-mode reboot has been triggered, so a spurious
+// re-fire of the "wifi" service's RUNNING edge (e.g. a flaky
+// disconnect/reconnect before esp_restart() actually halts the CPU) cannot
+// queue a second bb_system_restart_reason() call.
+static bool s_prov_reboot_triggered = false;
+
+// HW-CONFIRMED fix: bb_system_restart_reason()'s NVS reboot-record write and
+// esp_restart() must not run inline on the "wifi" service's emit trampoline
+// -- that trampoline fires synchronously on the shared ESP-IDF default event
+// loop ("sys_evt") task, and a blocking flash write there raced esp_restart()
+// closely enough that both the reboot record and the confirming log line
+// were lost (HW: preceding log line truncated mid-word, no restart_reason
+// log, no NVS record). Mirrors bb_wifi.c's existing bb_wifi_reconfigure()
+// reboot (reconfig_reboot_work_fn/s_reconfig_timer): a deferred one-shot
+// timer moves the work onto the shared bb_timer_disp task instead.
+static bb_oneshot_timer_t s_prov_reboot_timer = NULL;
 
 // Real httpd socket state, set synchronously by http_lifecycle_observer (it
 // fires inside bb_lifecycle_start() on this same task) -- the SSOT for
@@ -114,6 +145,100 @@ static bb_err_t gather_log(void *dst, const bb_data_gather_args_t *args)
 {
     (void)args;
     return bb_log_event_gather((bb_log_event_wire_t *)dst);
+}
+
+// bb_timer_deferred_oneshot_create work_fn for the provisioning-is-transient
+// reboot (armed by wifi_lifecycle_observer below): runs on the shared
+// bb_timer_disp task, off the sys_evt task the observer itself runs on. See
+// wifi_lifecycle_observer's HW-CONFIRMED fix comment for the full rationale.
+static void prov_reboot_work_fn(void *arg)
+{
+    (void)arg;
+    bb_log_w(TAG, "provisioning: credentials validated (got IP) -- "
+             "restarting into normal boot");
+    // LOW review fix (predates the HW-CONFIRMED timer fix): a dedicated
+    // reason -- BB_RESET_SRC_WIFI_RECONFIGURE is also used by bb_wifi.c's
+    // existing runtime-reconfigure reboot, which would otherwise conflate
+    // two distinct reboot causes in reboot-reason telemetry (weakening the
+    // SSOT, B1-532).
+    bb_system_restart_reason(BB_RESET_SRC_WIFI_PROVISIONED, "provisioning validated");
+}
+
+// Provisioning-is-transient reboot trigger: fires on the "wifi" service's
+// STOPPED/PAUSED->RUNNING edge, which is exactly the first GOT_IP of this
+// boot (bb_wifi_classify_lifecycle() maps GOT_IP -> START, see bb_wifi.h).
+// Deliberately NOT bb_settings_wifi_set_provisioned_cb(): that callback only
+// fires on the provisioned flag's false->true transition (B1-807), so
+// re-provisioning an ALREADY-provisioned board via
+// bb_wifi_prov_request_portal() would never trip it (the flag is already
+// true) and the board would never reboot. The "wifi" service's RUNNING edge
+// fires on GOT_IP regardless of the provisioned flag's prior value, so it
+// covers both first-boot and re-provisioning identically -- and floor
+// already owns this edge for the mqtt/mdns wiring above, so no new seam is
+// needed.
+//
+// Only acts when s_prov_mode_boot is true (this boot started with no
+// creds, so bb_mdns_init()/bb_mqtt_client_init_default() below were
+// skipped) -- a normal boot's GOT_IP must not reboot the device. Fires
+// synchronously, outside bb_lifecycle's lock; MUST NOT call any
+// bb_lifecycle mutator from here -- arming a bb_timer is not a lifecycle
+// mutator either way.
+//
+// HIGH review fix: the guard itself is floor_should_trigger_prov_reboot()
+// (floor_prov_reboot.h) -- a pure function, 100% line/branch host-tested in
+// test/test_host/test_floor_prov_reboot.c -- so this, the only thing
+// preventing a boot loop, is no longer covered by a single golden HW path
+// alone.
+//
+// HW-CONFIRMED fix: this observer only DECIDES and arms prov_reboot_work_fn
+// (below) via a deferred one-shot bb_timer -- it must not call
+// bb_system_restart_reason() itself. That call does a synchronous NVS flash
+// write (nvs_open/nvs_set_str/nvs_commit/nvs_close) followed by
+// esp_restart(); run inline here it executes on the shared ESP-IDF default
+// event loop ("sys_evt") task, the same task every other wifi/http/mdns/mqtt
+// observer in this file also runs on -- and HW showed that racing pair losing
+// both the reboot record and the confirming log line (see the module header
+// block's HW-CONFIRMED note). A plain vTaskDelay() here is not the fix either
+// -- that would block sys_evt for no reason (LOW review fix from a prior
+// revision, which is why one was removed). Deferring via bb_timer_deferred_
+// oneshot_create (MODE A: work_fn runs on the shared bb_timer_disp task, not
+// sys_evt and not the esp_timer service task) is the fix, mirroring
+// bb_wifi.c's bb_wifi_reconfigure()/reconfig_reboot_work_fn precedent.
+static void wifi_lifecycle_observer(const bb_lifecycle_event_t *evt, void *user)
+{
+    (void)user;
+    if (!floor_should_trigger_prov_reboot(s_prov_mode_boot, s_prov_reboot_triggered,
+                                          evt->svc, s_wifi_svc,
+                                          (bb_lifecycle_state_t)evt->old_state,
+                                          (bb_lifecycle_state_t)evt->new_state)) {
+        return;
+    }
+    s_prov_reboot_triggered = true;
+
+    // Credentials just proved themselves (a real connect reached GOT_IP).
+    // Provisioning is transient by design (see the module header block for
+    // the full rationale): this boot never started mdns/mqtt and never will
+    // -- the only way to bring up the full stack with the correct hostname
+    // is a fresh boot, which now has creds and takes the normal path. The
+    // portal's HTTP response and captive-portal teardown are long done by
+    // GOT_IP time: the /save handler fully writes its HTML confirmation
+    // before returning (bb_wifi_prov.c's prov_save_handler), and the
+    // manager's WP_CLOSING settle timer tears down the portal (AP + routes)
+    // well before the reconnect FSM it hands off to ever reaches GOT_IP
+    // (see wifi_prov_policy.c's "WHY THE SETTLE STATE" block) -- so there is
+    // nothing in flight to wait on for the portal's own sake. The 500ms
+    // delay below (matching bb_wifi.c's own reconfigure-reboot precedent) is
+    // for a different reason: it gets the blocking flash write and
+    // esp_restart() off the shared sys_evt task, onto bb_timer_disp instead,
+    // and gives bb_log's buffered writer task (see bb_log.c's
+    // s_writer_task_fn) time to actually drain and print
+    // prov_reboot_work_fn's log line before the CPU halts -- so the reboot
+    // reason is observable both in NVS and on the serial console.
+    if (!s_prov_reboot_timer) {
+        bb_timer_deferred_oneshot_create(prov_reboot_work_fn, NULL,
+                                         "floor_prov_reboot", &s_prov_reboot_timer);
+    }
+    bb_timer_oneshot_start(s_prov_reboot_timer, 500 * 1000); // 500 ms -- see doc above
 }
 
 // bb_lifecycle observer: bb_http_server_start()/stop() are driven purely by
@@ -263,6 +388,14 @@ void app_main(void)
     // genuine edge, matching the "http" service's own register-observer-
     // before-start pattern below.
     // ---------------------------------------------------------------------
+    //
+    // Provisioning is transient (see wifi_lifecycle_observer's doc below):
+    // snapshot whether this boot started with no creds BEFORE anything
+    // below can start a connect (bb_wifi_autoinit() further down) or read
+    // this flag (the mdns/mqtt skip decision, and wifi_lifecycle_observer's
+    // reboot trigger, both further down still).
+    s_prov_mode_boot = !bb_settings_wifi_has_creds();
+
     bb_lifecycle_config_t wifi_cfg = { .name = "wifi" };
     bb_err_t err = bb_lifecycle_register(&wifi_cfg, &s_wifi_svc);
     if (err != BB_OK) {
@@ -275,6 +408,14 @@ void app_main(void)
         } else {
             bb_wifi_set_emit(bb_lifecycle_emit_binding_fn(), &s_wifi_lifecycle_binding);
         }
+    }
+    // Register floor's own reboot-trigger observer here, before
+    // bb_wifi_autoinit() below can drive the first GOT_IP -- same
+    // register-before-start ordering as the mdns/mqtt consumers' own
+    // internal observers (see the comment block above).
+    err = bb_lifecycle_observe(wifi_lifecycle_observer, NULL);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "lifecycle_observe(wifi) failed (%d)", (int)err);
     }
 
     // bb_data_http core init -- BEFORE any client_connect (the /api/events
@@ -382,30 +523,45 @@ void app_main(void)
     // most once, the first time its own init runs -- see
     // platform/espidf/bb_mqtt_client/bb_mqtt_client_espidf.c and
     // platform/espidf/bb_mdns/bb_mdns.c.
-    err = bb_mqtt_client_init_default();
-    if (err != BB_OK) {
-        bb_log_w(TAG, "mqtt_client_init_default failed (%d)", (int)err);
+    //
+    // Provisioning is transient: a device mid-provisioning must not
+    // advertise itself on the network at all (mDNS would publish the
+    // MAC-suffixed default hostname -- the stored one from the portal is
+    // only durable across a reboot -- and MQTT would connect under a
+    // not-yet-final identity). When this boot started with no creds
+    // (s_prov_mode_boot, snapshotted above before bb_wifi_autoinit() could
+    // run), skip both entirely; wifi_lifecycle_observer above reboots this
+    // boot into the normal path -- with creds present -- the moment the
+    // just-saved credentials prove themselves via GOT_IP, and mdns/mqtt come
+    // up correctly on that next boot instead.
+    if (!s_prov_mode_boot) {
+        err = bb_mqtt_client_init_default();
+        if (err != BB_OK) {
+            bb_log_w(TAG, "mqtt_client_init_default failed (%d)", (int)err);
+        }
+        // Wire the stored hostname into bb_mdns BEFORE bb_mdns_init() below --
+        // bb_mdns_init() is a bb_once (idempotent first-call-wins), and
+        // mdns_init_impl() reads s_mdns_hostname/s_mdns_hostname_set exactly
+        // once, at that first call, to build the label mdns_hostname_set()
+        // publishes -- calling bb_mdns_set_hostname() any later has no effect on
+        // the already-published mDNS hostname. This wiring lives HERE, in the
+        // composition root, rather than inside bb_mdns itself: bb_mdns is a
+        // primitive with no bb_settings dependency today (see its own
+        // CMakeLists.txt), and adding one would break the composition-only
+        // model (CLAUDE.md) -- breadboard ships primitives, consumers wire them
+        // together via codegen/handwire. A missing/empty stored hostname is a
+        // silent no-op: bb_settings_hostname_get() returns "" on unset, and
+        // bb_mdns's own mdns_build_hostname() already falls back to its
+        // MAC-derived "bsp-device-xxxx" default whenever the injected hostname
+        // is unset or empty (see bb_mdns_set_hostname()'s doc).
+        char hostname[BB_MDNS_HOSTNAME_MAX];
+        if (bb_settings_hostname_get(hostname, sizeof(hostname), NULL) == BB_OK) {
+            bb_mdns_set_hostname(hostname);
+        }
+        bb_mdns_init();
+    } else {
+        bb_log_i(TAG, "provisioning: no creds this boot -- skipping mdns/mqtt bring-up");
     }
-    // Wire the stored hostname into bb_mdns BEFORE bb_mdns_init() below --
-    // bb_mdns_init() is a bb_once (idempotent first-call-wins), and
-    // mdns_init_impl() reads s_mdns_hostname/s_mdns_hostname_set exactly
-    // once, at that first call, to build the label mdns_hostname_set()
-    // publishes -- calling bb_mdns_set_hostname() any later has no effect on
-    // the already-published mDNS hostname. This wiring lives HERE, in the
-    // composition root, rather than inside bb_mdns itself: bb_mdns is a
-    // primitive with no bb_settings dependency today (see its own
-    // CMakeLists.txt), and adding one would break the composition-only
-    // model (CLAUDE.md) -- breadboard ships primitives, consumers wire them
-    // together via codegen/handwire. A missing/empty stored hostname is a
-    // silent no-op: bb_settings_hostname_get() returns "" on unset, and
-    // bb_mdns's own mdns_build_hostname() already falls back to its
-    // MAC-derived "bsp-device-xxxx" default whenever the injected hostname
-    // is unset or empty (see bb_mdns_set_hostname()'s doc).
-    char hostname[BB_MDNS_HOSTNAME_MAX];
-    if (bb_settings_hostname_get(hostname, sizeof(hostname), NULL) == BB_OK) {
-        bb_mdns_set_hostname(hostname);
-    }
-    bb_mdns_init();
 
     // Register + wire the "http" service, then start it -- the observer
     // fires synchronously from bb_lifecycle_start(), so httpd is up by the

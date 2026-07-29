@@ -17,6 +17,10 @@ extern "C" {
 /// Semantic reason a reboot was requested. Closed enum — any new site that
 /// intentionally reboots the device adds a value here rather than calling
 /// bb_system_restart() / esp_restart() directly.
+///
+/// Values are PERSISTED BY ORDINAL to NVS (see bb_reboot_record_t.src below) —
+/// new members must be APPENDED ONLY, immediately before __COUNT, never
+/// inserted mid-enum, or an old on-flash record misdecodes under new firmware.
 typedef enum {
     BB_RESET_SRC_UNKNOWN = 0,
     BB_RESET_SRC_API_REBOOT,
@@ -31,6 +35,7 @@ typedef enum {
     BB_RESET_SRC_OTA_BOOT_APPLY,
     BB_RESET_SRC_OTA_BOOT_DONE,
     BB_RESET_SRC_OTA_BOOT_ABORT,
+    BB_RESET_SRC_WIFI_PROVISIONED,
     BB_RESET_SRC__COUNT,  // sentinel — not a real reason, must stay last
 } bb_reset_source_t;
 
@@ -50,7 +55,8 @@ typedef enum {
     X(BB_RESET_SRC_OTA_PUSH_APPLIED,    "ota_push_applied")             \
     X(BB_RESET_SRC_OTA_BOOT_APPLY,      "ota_boot_apply")               \
     X(BB_RESET_SRC_OTA_BOOT_DONE,       "ota_boot_done")                \
-    X(BB_RESET_SRC_OTA_BOOT_ABORT,      "ota_boot_abort")
+    X(BB_RESET_SRC_OTA_BOOT_ABORT,      "ota_boot_abort")               \
+    X(BB_RESET_SRC_WIFI_PROVISIONED,    "wifi_provisioned")
 
 /// Wire string for a reset-source enum value. Never NULL. Out-of-range values
 /// (including BB_RESET_SRC_UNKNOWN) map to "unknown". Pure — no platform deps.

@@ -66,8 +66,12 @@ size_t bb_wifi_prov_html_escape(const char *src, char *out, size_t out_size);
 // Render the no-callback /save success page: confirms the credentials were
 // saved, names the network (and hostname, if one was set) the user just
 // typed, warns that this SoftAP is about to disappear (expected, not an
-// error), and states where to find the device afterward (its mDNS name, if
-// set). ssid/hostname are HTML-escaped internally — pass the raw (already
+// error), states that the device will finish setting up and reconnect to
+// that network, and states where to find it afterward (its mDNS name, if
+// set). Deliberately neutral about HOW it finishes setting up (a consumer
+// may or may not restart to get there) — this component never promises a
+// restart it cannot guarantee; a restarting consumer's copy still reads
+// true. ssid/hostname are HTML-escaped internally — pass the raw (already
 // URL-decoded, not yet escaped) values straight from bb_wifi_prov_parse_body.
 // hostname may be "" (omits the mDNS/hostname-specific lines). Self-
 // contained: no external resources, no script. Truncates safely (always
