@@ -3,7 +3,6 @@
 <style>body{font-family:sans-serif;max-width:420px;margin:2em auto;padding:0 1em}
 input,select,button{width:100%;padding:.6em;margin:.3em 0;box-sizing:border-box;font-size:1em}
 button{background:#2b6cb0;color:#fff;border:0;border-radius:4px;cursor:pointer}
-button.secondary{background:#718096}
 small{color:#666;display:block;margin:-.2em 0 .5em}
 #scanmsg{font-size:.9em;color:#666;min-height:1.2em}</style>
 </head><body>
@@ -11,8 +10,6 @@ small{color:#666;display:block;margin:-.2em 0 .5em}
 <form method="POST" action="/save">
 <label>Network<select id="ssidlist"><option value="">Manual entry below&hellip;</option></select></label>
 <div id="scanmsg"></div>
-<button type="button" class="secondary" id="rescan">Refresh networks</button>
-<small>Refreshing briefly disconnects you from this page &mdash; wait a few seconds and reload if it drops.</small>
 <label>SSID<input name="ssid" id="ssid" required></label>
 <label>Password<input name="pass" type="password"></label>
 <label>Hostname<input name="hostname" id="hostname" maxlength="32"></label>
@@ -24,7 +21,6 @@ small{color:#666;display:block;margin:-.2em 0 .5em}
   var list = document.getElementById('ssidlist');
   var ssid = document.getElementById('ssid');
   var msg = document.getElementById('scanmsg');
-  var rescan = document.getElementById('rescan');
 
   list.addEventListener('change', function(){
     if (list.value) ssid.value = list.value;
@@ -59,11 +55,6 @@ small{color:#666;display:block;margin:-.2em 0 .5em}
         msg.textContent = 'Scan unavailable — enter SSID manually below.';
       });
   }
-
-  rescan.addEventListener('click', function(){
-    msg.textContent = 'Refreshing… this briefly disconnects you from this page.';
-    scan('?refresh=1');
-  });
 
   scan();
 })();
