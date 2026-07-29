@@ -1,7 +1,10 @@
 """Tests for scripts/coverage_baseline.py: the B1-764 shrink-only per-line
 coverage ratchet (Marker/diff/baseline engine reused from
-scripts/bbtool/fence/_base.py). LINES ONLY -- branch edges are deliberately
-never baselined (not stable across gcc majors, see module docstring)."""
+scripts/bbtool/fence/_base.py), extended by B1-1258 to also ratchet
+per-line branch-existence gaps -- branch-EDGE ids are still deliberately
+never baselined (not stable across gcc majors, see module docstring); only
+"this line has an uncovered branch" (keyed by line number, same as
+uncovered_line) is."""
 import io
 import json
 import os
@@ -41,21 +44,60 @@ class TestBuildMarkers(unittest.TestCase):
         markers = coverage_baseline.build_markers(detail)
         self.assertEqual(markers, {Marker("uncovered_line", "a.c", "5")})
 
-    def test_uncovered_branch_produces_no_marker(self):
-        """Branch edges are deliberately never baselined -- gcov's
-        source_block_id/destination_block_id pairs are not stable across gcc
-        majors (a dev machine's Homebrew gcc-16 vs CI's ubuntu-latest stock
-        gcc split the identical line's compound conditional differently),
-        so a per-branch marker would spuriously flag untouched code as
-        'new' the moment CI's gcc major differs from the one that seeded
-        the baseline. Branch coverage is still measured/reported at the
-        aggregate level (see coverage_gate.py) -- just not per-marker
-        ratcheted."""
+    def test_uncovered_branch_produces_a_line_keyed_marker(self):
+        """B1-1258: an uncovered branch produces an uncovered_branch marker
+        keyed by LINE NUMBER only -- never source_block_id/
+        destination_block_id, which are not stable across gcc majors (a
+        dev machine's Homebrew gcc-16 vs CI's ubuntu-latest stock gcc split
+        the identical line's compound conditional differently). Keying on
+        the line number instead sidesteps that instability."""
         detail = {"files": [{"file": "a.c", "lines": [
             _line(5, count=3, branches=[_branch(2, 3, count=0)]),
         ]}]}
         markers = coverage_baseline.build_markers(detail)
+        self.assertEqual(markers, {Marker("uncovered_branch", "a.c", "5")})
+
+    def test_covered_branches_produce_no_marker(self):
+        detail = {"files": [{"file": "a.c", "lines": [
+            _line(5, count=3, branches=[_branch(2, 3, count=1), _branch(2, 4, count=2)]),
+        ]}]}
+        markers = coverage_baseline.build_markers(detail)
         self.assertEqual(markers, set())
+
+    def test_multiple_uncovered_branches_on_one_line_collapse_to_one_marker(self):
+        """One marker per LINE regardless of how many of its branch edges
+        are uncovered or how gcc splits them -- the marker means 'this line
+        has at least one not-fully-exercised branch', not 'branch N is
+        uncovered'."""
+        detail = {"files": [{"file": "a.c", "lines": [
+            _line(5, count=3, branches=[_branch(2, 3, count=0), _branch(2, 4, count=0)]),
+        ]}]}
+        markers = coverage_baseline.build_markers(detail)
+        self.assertEqual(markers, {Marker("uncovered_branch", "a.c", "5")})
+
+    def test_excluded_branch_on_a_covered_line_produces_no_marker(self):
+        detail = {"files": [{"file": "a.c", "lines": [
+            _line(5, count=3, branches=[_branch(2, 3, count=0, excluded=True)]),
+        ]}]}
+        markers = coverage_baseline.build_markers(detail)
+        self.assertEqual(markers, set())
+
+    def test_excluded_line_suppresses_its_branch_markers_too(self):
+        detail = {"files": [{"file": "a.c", "lines": [
+            _line(5, count=0, branches=[_branch(2, 3, count=0)], excluded=True),
+        ]}]}
+        markers = coverage_baseline.build_markers(detail)
+        self.assertEqual(markers, set())
+
+    def test_uncovered_line_and_uncovered_branch_on_the_same_line_both_appear(self):
+        detail = {"files": [{"file": "a.c", "lines": [
+            _line(5, count=0, branches=[_branch(2, 3, count=0)]),
+        ]}]}
+        markers = coverage_baseline.build_markers(detail)
+        self.assertEqual(markers, {
+            Marker("uncovered_line", "a.c", "5"),
+            Marker("uncovered_branch", "a.c", "5"),
+        })
 
     def test_excluded_line_is_never_a_marker_even_at_zero_count(self):
         """B1-871-adjacent: a gcovr-excluded line (LCOV_EXCL_LINE) must not
@@ -80,6 +122,14 @@ class TestIdentity(unittest.TestCase):
         number is not globally unique the way a macro/component name is."""
         m1 = Marker("uncovered_line", "a.c", "5")
         m2 = Marker("uncovered_line", "b.c", "5")
+        self.assertNotEqual(coverage_baseline.identity(m1), coverage_baseline.identity(m2))
+
+    def test_identity_is_type_sensitive(self):
+        """An uncovered_line and an uncovered_branch on the same line/file
+        must never collide -- they are independent gaps that can close
+        independently."""
+        m1 = Marker("uncovered_line", "a.c", "5")
+        m2 = Marker("uncovered_branch", "a.c", "5")
         self.assertNotEqual(coverage_baseline.identity(m1), coverage_baseline.identity(m2))
 
 
@@ -159,6 +209,35 @@ class TestCheck(_BaselineFileTestBase):
         self.assertTrue(ok)
         self.assertIn("candidate to prune", out.getvalue())
 
+    def test_ignore_types_excludes_that_type_from_new_and_removed_entirely(self):
+        """B1-1258: the CI COVERAGE_GATE_LINES_ONLY opt-out path -- with
+        ignore_types={"uncovered_branch"}, a branch baseline entry absent
+        from `current` (because current was pre-filtered to lines-only)
+        must NOT be reported as a prune candidate (it wasn't verified
+        fixed, just unmeasured this run), and a branch entry present in
+        `current` but not baseline must still not fail."""
+        baseline = {
+            Marker("uncovered_line", "a.c", "5"),
+            Marker("uncovered_branch", "a.c", "10"),
+        }
+        coverage_baseline.write_baseline(self.root, baseline)
+        current = {Marker("uncovered_line", "a.c", "5")}  # branch marker absent (filtered)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            ok = coverage_baseline.check(self.root, current, frozenset({"uncovered_branch"}))
+        self.assertTrue(ok)
+        self.assertNotIn("candidate to prune", out.getvalue())
+
+    def test_ignore_types_still_fails_on_a_genuine_uncovered_line_regression(self):
+        baseline = {Marker("uncovered_branch", "a.c", "10")}
+        coverage_baseline.write_baseline(self.root, baseline)
+        current = {Marker("uncovered_line", "a.c", "5")}  # new line gap, unbaselined
+        err = io.StringIO()
+        with redirect_stderr(err):
+            ok = coverage_baseline.check(self.root, current, frozenset({"uncovered_branch"}))
+        self.assertFalse(ok)
+        self.assertIn("a.c", err.getvalue())
+
 
 class TestUpdateBaseline(_BaselineFileTestBase):
     def test_prunes_now_covered_entries(self):
@@ -186,6 +265,53 @@ class TestSeed(_BaselineFileTestBase):
         current = {Marker("uncovered_line", "a.c", "5")}
         coverage_baseline.seed(self.root, current)
         self.assertEqual(coverage_baseline.load_baseline(self.root), current)
+
+    def test_seed_with_no_baseline_and_no_gaps_errors(self):
+        """B1-1258: seed() itself now raises (caller used to precheck via
+        baseline_path().is_file() -- see coverage_gate.py's --seed-baseline
+        wiring)."""
+        with self.assertRaises(coverage_baseline.SeedError):
+            coverage_baseline.seed(self.root, set())
+
+    def test_seed_a_type_already_baselined_with_no_new_type_errors(self):
+        coverage_baseline.write_baseline(self.root, {Marker("uncovered_line", "a.c", "5")})
+        with self.assertRaises(coverage_baseline.SeedError):
+            coverage_baseline.seed(self.root, {Marker("uncovered_line", "a.c", "99")})
+        # unchanged -- the attempted reseed of an already-baselined type never wrote
+        self.assertEqual(
+            coverage_baseline.load_baseline(self.root),
+            {Marker("uncovered_line", "a.c", "5")},
+        )
+
+    def test_seed_adds_a_genuinely_new_type_alongside_an_existing_baseline(self):
+        """The B1-1258 one-time move: an uncovered_line baseline already
+        exists (from the original B1-764 seed); seeding again with
+        uncovered_branch markers present in `current` merges them in
+        without touching the existing uncovered_line entries."""
+        coverage_baseline.write_baseline(self.root, {Marker("uncovered_line", "a.c", "5")})
+        current = {
+            Marker("uncovered_line", "a.c", "5"),
+            Marker("uncovered_branch", "b.c", "10"),
+        }
+        coverage_baseline.seed(self.root, current)
+        self.assertEqual(coverage_baseline.load_baseline(self.root), current)
+
+    def test_seed_ignores_new_gaps_of_an_already_baselined_type(self):
+        """Seeding a new type must never smuggle in a net-new gap of an
+        already-baselined type -- that always requires --update-baseline
+        (shrink-only) or a deliberate reviewed baseline edit, never a
+        reseed."""
+        coverage_baseline.write_baseline(self.root, {Marker("uncovered_line", "a.c", "5")})
+        current = {
+            Marker("uncovered_line", "a.c", "5"),
+            Marker("uncovered_line", "a.c", "99"),  # new -- must NOT be added
+            Marker("uncovered_branch", "b.c", "10"),
+        }
+        coverage_baseline.seed(self.root, current)
+        self.assertEqual(
+            coverage_baseline.load_baseline(self.root),
+            {Marker("uncovered_line", "a.c", "5"), Marker("uncovered_branch", "b.c", "10")},
+        )
 
 
 if __name__ == "__main__":
