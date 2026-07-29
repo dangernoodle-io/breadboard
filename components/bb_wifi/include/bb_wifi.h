@@ -85,7 +85,10 @@ typedef struct {
 // Idempotent one-shot bring-up of the underlying network stack. On ESP-IDF
 // this initializes esp_netif and the default event loop. On backends where
 // the platform handles this implicitly (Arduino), this is a BB_OK no-op so
-// portable consumer code can call it unconditionally.
+// portable consumer code can call it unconditionally. Composed with no
+// `requires=` (in-degree 0), so this must stay NVS-independent -- it now
+// sorts before bb_storage_nvs_register() in the early tier.
+// bbtool:init tier=early fn=bb_wifi_ensure_net_stack provides=net_stack
 bb_err_t bb_wifi_ensure_net_stack(void);
 
 // Inject the OTA-image-validated query bb_wifi's cold-boot timeout / persistent-

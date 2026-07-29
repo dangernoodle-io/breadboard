@@ -5,9 +5,19 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
+from commands.wire import collect_entries
 from wire_graph import CycleError, MissingProviderError, topo_sort
 from wire_parse import InitEntry
+
+# Real breadboard repo root (scripts/bbtool/tests/../../.. ), mirrors
+# test_lint_rules.py's _REAL_REPO_ROOT -- used only by the real-repo
+# integration case below (never for the synthetic-fixture cases in this
+# file).
+_REAL_REPO_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..")
+)
 
 
 def entry(tier, fn, order=None, server=False, provides=(), requires=(),
@@ -124,6 +134,74 @@ class TestConsumesOrderBeforeAutoinit(unittest.TestCase):
         ordered = topo_sort(entries)
         self.assertEqual(
             [e.fn for e in ordered], ["bb_wifi_set_emit", "bb_wifi_autoinit"])
+
+
+class TestWifiNetStackBeforeAutoinit(unittest.TestCase):
+    """B1-973 regression: on a blank-NVS board, bb_wifi_autoinit() early-
+    returns at its creds gate without bringing up esp_netif/the default
+    event loop, so the pre_http tier's bb_http_autostart_init() ->
+    httpd_start() -> socket() hits LWIP's `tcpip_send_msg_wait_sem (Invalid
+    mbox)` assert and reboot-loops. bb_wifi_ensure_net_stack() is idempotent
+    and marked `// bbtool:init tier=early fn=bb_wifi_ensure_net_stack` with
+    no `requires=`, so it has in-degree 0 in the early tier and is composed
+    strictly before bb_wifi_autoinit (requires=storage_nvs, only ready once
+    storage_nvs is dequeued). It also `provides=net_stack` (B1-973 review
+    follow-up), turning the ordering into a contract rather than incidental
+    luck of scan order -- no consumer declares `requires=net_stack`, since
+    `requires=` emits a hard availability guard (see
+    commands.wire._guard_requires) that would make the consumer's call
+    conditional on bb_wifi being composed at all."""
+
+    def test_ensure_net_stack_ordered_before_autoinit_synthetic(self):
+        """Synthetic mirror of the real bb_wifi.h/bb_storage_nvs.h scan
+        order (storage_nvs_register parses before bb_wifi's markers) --
+        exercises wire_graph's topo-sort tie-break/readiness logic directly.
+        Removing the `// bbtool:init` marker from bb_wifi_ensure_net_stack's
+        declaration drops it from the entries list entirely (it is never
+        parsed), which would make this fixture moot -- the real-repo case
+        below (test_ensure_net_stack_ordered_before_autoinit_real_repo)
+        catches that directly against the shipped header."""
+        entries = [
+            entry("early", "bb_storage_nvs_register", provides=["storage_nvs"]),
+            entry("early", "bb_wifi_ensure_net_stack", provides=["net_stack"]),
+            entry("early", "bb_wifi_autoinit", requires=["storage_nvs"]),
+        ]
+        ordered = topo_sort(entries)
+        self.assertEqual(
+            [e.fn for e in ordered],
+            ["bb_storage_nvs_register", "bb_wifi_ensure_net_stack", "bb_wifi_autoinit"],
+        )
+
+    def test_ensure_net_stack_ordered_before_autoinit_real_repo(self):
+        """INTEGRATION: parse the real shipped bb_wifi.h/bb_storage_nvs.h
+        markers and confirm bb_wifi_ensure_net_stack is composed in the
+        early tier strictly before bb_wifi_autoinit, and that its marker
+        still declares `provides=net_stack` (the ordering contract, not
+        just incidental scan-order luck). Fails if the `// bbtool:init`
+        marker is ever removed from components/bb_wifi/include/bb_wifi.h's
+        bb_wifi_ensure_net_stack declaration -- it would simply not appear
+        in `ordered` at all -- or if its tier/provides= are changed such
+        that it stops sorting ahead of bb_wifi_autoinit."""
+        entries = collect_entries(
+            _REAL_REPO_ROOT, ["bb_wifi", "bb_storage_nvs"], "espidf")
+        ordered = topo_sort(entries)
+        fns = [e.fn for e in ordered]
+        self.assertIn(
+            "bb_wifi_ensure_net_stack", fns,
+            "bb_wifi_ensure_net_stack must be composed via its "
+            "// bbtool:init marker")
+        self.assertIn("bb_wifi_autoinit", fns)
+        self.assertLess(
+            fns.index("bb_wifi_ensure_net_stack"), fns.index("bb_wifi_autoinit"),
+            "bb_wifi_ensure_net_stack must be composed before bb_wifi_autoinit "
+            "so the net stack is up before any pre_http-tier httpd_start()")
+
+        net_stack_entry = next(
+            e for e in entries if e.fn == "bb_wifi_ensure_net_stack")
+        self.assertIn(
+            "net_stack", net_stack_entry.provides,
+            "bb_wifi_ensure_net_stack must declare provides=net_stack so "
+            "the ordering is a contract, not incidental scan-order luck")
 
 
 class TestCycle(unittest.TestCase):

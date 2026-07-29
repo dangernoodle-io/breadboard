@@ -692,6 +692,9 @@ void bb_wifi_restart_sta(void)
     esp_wifi_connect();
 }
 
+// Composed with no `requires=` and now runs before bb_storage_nvs_register()
+// in the early tier -- keep this NVS-independent (no NVS reads) or an edit
+// here can silently reintroduce the ordering hazard it exists to fix.
 bb_err_t bb_wifi_ensure_net_stack(void)
 {
     if (s_netif_initialized) return ESP_OK;
