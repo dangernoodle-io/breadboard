@@ -134,6 +134,22 @@ class TestBaselineCheckWiring(_CoverageGateTestBase):
             self.assertEqual(rc, 0)
             self.assertIn("PASS", out.getvalue())
 
+    def test_new_uncovered_branch_with_100_percent_line_coverage_fails(self):
+        """The PR #1120 scenario: a brand-new file at 100% LINE coverage
+        with an uncovered branch used to false-pass this gate (branch
+        markers weren't baselined at all) while Coveralls's aggregate
+        branch-percent gate correctly failed it. B1-1258 closes that gap."""
+        detail = {"files": [{"file": "components/bb_wifi_prov/src/bb_wifi_prov_page.c", "lines": [
+            {"line_number": 37, "count": 1, "branches": [
+                {"source_block_id": 0, "destination_block_id": 1, "count": 0},
+            ]},
+        ]}]}
+        rc, _out, err, _tmp = self._run(_NONZERO_SUMMARY, detail=detail)
+        self.assertEqual(rc, 1)
+        self.assertIn("bb_wifi_prov_page.c", err)
+        self.assertIn("uncovered_branch", err)
+        self.assertIn("FAIL", err)
+
     def test_excluded_line_never_becomes_a_baseline_gap(self):
         detail = {"files": [{"file": "a.c", "lines": [
             {"line_number": 5, "count": 0, "branches": [], "gcovr/excluded": True},
@@ -157,6 +173,9 @@ class TestSeedAndUpdateBaselineFlags(_CoverageGateTestBase):
         )
 
     def test_seed_baseline_twice_errors(self):
+        """B1-1258: seed() (not a caller-side file-exists precheck) is what
+        raises now -- a second seed with nothing new to add (same, empty,
+        detail) still errors the same way."""
         detail = {"files": []}
         # First _run uses a fresh tmp root each call, so simulate "already
         # exists" by seeding directly then invoking main() against that root.
@@ -183,6 +202,44 @@ class TestSeedAndUpdateBaselineFlags(_CoverageGateTestBase):
                 rc = coverage_gate.main()
             self.assertEqual(rc, 1)
             self.assertIn("already exists", err.getvalue())
+
+    def test_seed_baseline_adds_uncovered_branch_alongside_existing_line_baseline(self):
+        """B1-1258: the real one-time migration path -- a baseline already
+        seeded with only uncovered_line entries (the original B1-764 seed)
+        can be re-run through --seed-baseline once to additively bring in
+        uncovered_branch entries, without touching the existing lines."""
+        with tempfile.TemporaryDirectory() as tmp:
+            coverage_baseline.write_baseline(tmp, {Marker("uncovered_line", "a.c", "5")})
+            summary_path = os.path.join(tmp, "gcovr-summary.json")
+            coveralls_path = os.path.join(tmp, "gcovr-coveralls.json")
+            detail_path = os.path.join(tmp, "gcovr-detail.json")
+            with open(summary_path, "w", encoding="utf-8") as fh:
+                json.dump(_NONZERO_SUMMARY, fh)
+            with open(detail_path, "w", encoding="utf-8") as fh:
+                json.dump({"files": [{"file": "a.c", "lines": [
+                    {"line_number": 5, "count": 0, "branches": []},
+                    {"line_number": 10, "count": 3, "branches": [
+                        {"source_block_id": 1, "destination_block_id": 2, "count": 0},
+                    ]},
+                ]}]}, fh)
+            argv = [
+                "coverage_gate.py", "--root", tmp,
+                "--summary-out", summary_path, "--coveralls-out", coveralls_path,
+                "--detail-out", detail_path, "--seed-baseline",
+            ]
+            out = io.StringIO()
+            with mock.patch.object(sys, "argv", argv), \
+                 mock.patch.object(coverage_gate.subprocess, "run",
+                                    return_value=mock.Mock(returncode=0)), \
+                 mock.patch.dict(os.environ, {"COVERAGE_RESOLVED_GCOV": "/usr/bin/gcov-13"}), \
+                 redirect_stdout(out):
+                rc = coverage_gate.main()
+            self.assertEqual(rc, 0)
+            self.assertIn("seeded", out.getvalue())
+            self.assertEqual(
+                coverage_baseline.load_baseline(tmp),
+                {Marker("uncovered_line", "a.c", "5"), Marker("uncovered_branch", "a.c", "10")},
+            )
 
     def test_update_baseline_without_an_existing_baseline_errors(self):
         rc, _out, err, _tmp = self._run(

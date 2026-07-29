@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Coverage measurement + gate (B1-642, B1-764, B1-867).
+"""Coverage measurement + gate (B1-642, B1-764, B1-867, B1-1258).
 
 Runs gcovr over the host-test .gcda/.gcno data and gates on the committed
 coverage baseline (scripts/coverage_baseline.py) -- Coveralls (the actual
@@ -15,11 +15,13 @@ host-compiled files were never admitted at all and silently reported as
 every `components/` and `platform/host/` file unconditionally, so a file
 can never again land unmeasured by omission. The previously-unmeasured
 files are, honestly measured, not fully covered -- see
-scripts/coverage_baseline.py for how the gate handles that (shrink-only
-per-file/per-LINE baseline instead of a backfill epic; branch coverage is
-still measured and printed below but deliberately not per-marker
-ratcheted -- gcov's branch-edge ids are not stable across gcc majors, see
-scripts/coverage_baseline.py's module docstring).
+scripts/coverage_baseline.py for how the gate handles that: a shrink-only
+per-file baseline instead of a backfill epic, now covering BOTH per-line
+AND per-line-branch-existence markers (B1-1258 -- see
+scripts/coverage_baseline.py's module docstring for why a branch marker is
+keyed by line number only, never a branch-edge id, which is what makes it
+safe to baseline despite gcov's edge ids not being stable across gcc
+majors).
 
 This script also treats an exactly-zero (or "no relevant lines found")
 result as a TOOLING FAILURE, not a real coverage number -- Apple's `gcov`
@@ -131,23 +133,22 @@ def main() -> int:
         return 1
 
     print(f"coverage_gate: line={line_percent:.2f}%, branch={branch_percent:.2f}% "
-          "(aggregate, both measured/reported -- but only LINES are per-marker "
-          "ratcheted by coverage_baseline; branch coverage has no stable "
-          "per-marker identity across gcc majors, see scripts/coverage_baseline.py)")
+          "(aggregate -- both LINE and per-line-BRANCH-existence markers are "
+          "per-marker ratcheted by coverage_baseline, see "
+          "scripts/coverage_baseline.py)")
 
     with open(args.detail_out) as fh:
         detail = json.load(fh)
     current = coverage_baseline.build_markers(detail)
 
     if args.seed_baseline:
-        existing = coverage_baseline.baseline_path(args.root)
-        if existing.is_file():
-            print(f"coverage_gate: baseline already exists at {existing} -- use"
-                  " --update-baseline to prune it, --seed-baseline is one-time only",
-                  file=sys.stderr)
+        try:
+            written = coverage_baseline.seed(args.root, current)
+        except coverage_baseline.SeedError as exc:
+            print(f"coverage_gate: {exc}", file=sys.stderr)
             return 1
-        written = coverage_baseline.seed(args.root, current)
-        print(f"coverage_gate: baseline seeded ({len(current)} entries) -> {written}")
+        total = len(coverage_baseline.load_baseline(args.root))
+        print(f"coverage_gate: baseline seeded ({total} total entries) -> {written}")
         return 0
 
     if args.update_baseline:
