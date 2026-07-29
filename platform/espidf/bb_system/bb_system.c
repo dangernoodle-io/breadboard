@@ -214,12 +214,12 @@ void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint
     uint32_t device_epoch_s = ntp_synced ? (uint32_t)time(NULL) : 0U;
     uint32_t epoch_s = bb_reboot_pick_epoch(ntp_synced, device_epoch_s, caller_epoch_s, BB_REBOOT_EPOCH_FLOOR_S);
 
-    bb_err_t err = bb_system_reboot_record_save(src, detail, epoch_s, uptime_s);
-    if (err == BB_ERR_INVALID_ARG) {
-        bb_log_w(TAG, "restart_reason: record encode failed, rebooting without reason");
-    } else if (err != BB_OK) {
-        bb_log_w(TAG, "restart_reason: NVS persist failed: %d", (int)err);
-    }
+    // Best-effort persist, retried once on a transient NVS failure (see
+    // bb_system_reboot_record_save_retry) -- never blocks the restart below;
+    // a restart is often itself a recovery action, so refusing to restart on
+    // a persist failure would risk stranding the board, which is worse than
+    // losing this diagnostic.
+    (void)bb_system_reboot_record_save_retry(src, detail, epoch_s, uptime_s);
 
     bb_log_i(TAG, "restart_reason: src=%s", bb_reset_source_str(src));
     esp_restart();

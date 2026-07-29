@@ -53,8 +53,12 @@ static fake_nvs_entry_t s_fake_nvs[FAKE_NVS_MAX_ENTRIES];
 static char s_fake_nvs_fail_key[FAKE_NVS_KEY_MAX];
 
 // One-shot set() failure injection -- same one-shot contract as
-// s_fake_nvs_fail_key above, applied to set() instead of get().
+// s_fake_nvs_fail_key above, applied to set() instead of get(). The count
+// lets a caller arm N consecutive failures (fake_nvs_backend_fail_set_key_n)
+// instead of just one, e.g. to exercise a retry-then-give-up path where
+// every attempt must fail.
 static char s_fake_nvs_fail_set_key[FAKE_NVS_KEY_MAX];
+static int  s_fake_nvs_fail_set_count;
 
 // One-shot txn_commit() failure injection -- not keyed, see
 // fake_nvs_backend_fail_commit() above.
@@ -65,6 +69,7 @@ static inline void fake_nvs_reset(void)
     memset(s_fake_nvs, 0, sizeof(s_fake_nvs));
     s_fake_nvs_fail_key[0] = '\0';
     s_fake_nvs_fail_set_key[0] = '\0';
+    s_fake_nvs_fail_set_count = 0;
     s_fake_nvs_fail_commit = false;
 }
 
@@ -86,10 +91,26 @@ static inline void fake_nvs_backend_fail_set_key(const char *key)
 {
     if (key == NULL) {
         s_fake_nvs_fail_set_key[0] = '\0';
+        s_fake_nvs_fail_set_count = 0;
         return;
     }
     strncpy(s_fake_nvs_fail_set_key, key, sizeof(s_fake_nvs_fail_set_key) - 1);
     s_fake_nvs_fail_set_key[sizeof(s_fake_nvs_fail_set_key) - 1] = '\0';
+    s_fake_nvs_fail_set_count = 1;
+}
+
+// Arms N consecutive set() failures against the given key -- e.g. to
+// exercise a retry-then-give-up path where every attempt must fail.
+static inline void fake_nvs_backend_fail_set_key_n(const char *key, int times)
+{
+    if (key == NULL || times <= 0) {
+        s_fake_nvs_fail_set_key[0] = '\0';
+        s_fake_nvs_fail_set_count = 0;
+        return;
+    }
+    strncpy(s_fake_nvs_fail_set_key, key, sizeof(s_fake_nvs_fail_set_key) - 1);
+    s_fake_nvs_fail_set_key[sizeof(s_fake_nvs_fail_set_key) - 1] = '\0';
+    s_fake_nvs_fail_set_count = times;
 }
 
 // Arms one-shot txn_commit() failure injection -- the NEXT txn_commit()
@@ -134,7 +155,9 @@ static inline bb_err_t fake_nvs_set(void *impl, const bb_storage_addr_t *addr, c
     (void)impl;
     if (s_fake_nvs_fail_set_key[0] != '\0' && addr->key != NULL &&
         strcmp(s_fake_nvs_fail_set_key, addr->key) == 0) {
-        s_fake_nvs_fail_set_key[0] = '\0';  // one-shot
+        if (--s_fake_nvs_fail_set_count <= 0) {
+            s_fake_nvs_fail_set_key[0] = '\0';  // disarm once the count is exhausted
+        }
         return BB_ERR_TIMEOUT;
     }
     if (len > FAKE_NVS_MAX_VALUE) return BB_ERR_NO_SPACE;

@@ -169,6 +169,19 @@ void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint
 bb_err_t bb_system_reboot_record_save(bb_reset_source_t src, const char *detail,
                                        uint32_t epoch_s, uint32_t uptime_s);
 
+/// Same as bb_system_reboot_record_save, but retries once on a non-encode
+/// failure before giving up. bb_system_reboot_record_save re-opens/re-writes/
+/// re-commits the NVS handle from scratch on every call, so the retry is a
+/// genuinely independent second attempt (not a no-op replay), able to ride
+/// out a transient handle-contention or momentary flash-write-busy failure.
+/// BB_ERR_INVALID_ARG (encode failure) is never retried -- deterministic for
+/// a fixed input. Best-effort: callers that restart afterward (e.g.
+/// bb_system_restart_reason_at, a factory-reset reboot) must do so
+/// regardless of this call's return value -- a stranded board is worse than
+/// a lost diagnostic.
+bb_err_t bb_system_reboot_record_save_retry(bb_reset_source_t src, const char *detail,
+                                             uint32_t epoch_s, uint32_t uptime_s);
+
 // ---------------------------------------------------------------------------
 // Boot-health counter (B1-753, part of the bb_nv dissolution epic B1-708) —
 // bookkeeping for a device that never reaches a healthy WiFi connection

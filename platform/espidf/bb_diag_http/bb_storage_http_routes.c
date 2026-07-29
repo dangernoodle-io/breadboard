@@ -877,12 +877,9 @@ static void factory_reset_reboot_work_fn(void *arg)
     /* epoch_s=0: no bb_ntp dependency here (would create an unwanted edge);
      * the boot-side reader treats epoch_s=0 as "unknown/unsynced" per the
      * record contract. */
-    bb_err_t rc = bb_system_reboot_record_save(BB_RESET_SRC_FACTORY_RESET, NULL, 0, uptime_s);
-    if (rc == BB_ERR_INVALID_ARG) {
-        bb_log_w(TAG, "factory_reset: record encode failed, rebooting without reason");
-    } else if (rc != BB_OK) {
-        bb_log_w(TAG, "factory_reset: NVS persist failed: %d", (int)rc);
-    }
+    // Best-effort persist, retried once on a transient NVS failure (see
+    // bb_system_reboot_record_save_retry) -- never blocks the restart below.
+    (void)bb_system_reboot_record_save_retry(BB_RESET_SRC_FACTORY_RESET, NULL, 0, uptime_s);
     esp_restart();
 }
 #endif /* ESP_PLATFORM */

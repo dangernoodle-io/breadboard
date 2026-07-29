@@ -16,11 +16,14 @@
 #include "bb_system.h"
 
 #include "bb_config.h"
+#include "bb_log.h"
 #include "bb_nv_namespaces.h"
 #include "bb_nv_keys.h"
 #include "bb_str.h"
 
 #include <string.h>
+
+static const char *TAG = "bb_system_reboot_record";
 
 static const bb_config_field_t s_reboot_last_field = {
     .id          = "diag.reboot.last",
@@ -53,4 +56,43 @@ bb_err_t bb_system_reboot_record_save(bb_reset_source_t src, const char *detail,
     if (!bb_reboot_record_encode(&rec, buf, sizeof(buf))) return BB_ERR_INVALID_ARG;  // LCOV_EXCL_BR_LINE — unreachable, see comment above
 
     return bb_config_set_str(&s_reboot_last_field, buf);
+}
+
+bb_err_t bb_system_reboot_record_save_retry(bb_reset_source_t src, const char *detail,
+                                             uint32_t epoch_s, uint32_t uptime_s)
+{
+    bb_err_t err = bb_system_reboot_record_save(src, detail, epoch_s, uptime_s);
+    if (err == BB_OK) {
+        return err;
+    }
+    // Encode failure is deterministic for a fixed (src, detail) pair -- an
+    // identical retry cannot produce a different outcome, so it's skipped
+    // (the "bare retry adds nothing" case, called out explicitly rather than
+    // retried as a placebo). Unreachable via the fixed-size call site inside
+    // bb_system_reboot_record_save (see its own comment) -- same
+    // LCOV_EXCL_BR_LINE/LCOV_EXCL_LINE idiom used there.
+    if (err == BB_ERR_INVALID_ARG) {  // LCOV_EXCL_BR_LINE — unreachable, see comment above
+        bb_log_w(TAG, "reboot_record_save: encode failed, no retry (deterministic)");  // LCOV_EXCL_LINE — unreachable, see comment above
+        return err;  // LCOV_EXCL_LINE — unreachable, see comment above
+    }
+
+    // One retry on a (presumed transient) NVS persist failure. This is not a
+    // no-op replay: bb_system_reboot_record_save() re-opens, re-writes, and
+    // re-commits the NVS handle from scratch on every call (see
+    // bb_storage_nvs_set_str), so the retry is a genuinely independent
+    // second attempt at the open/write/commit/close sequence -- capable of
+    // succeeding past a transient handle-contention or momentary
+    // flash-write-busy failure the first attempt hit. No added delay: NVS
+    // commit is synchronous and this call sits directly ahead of a recovery
+    // restart, where a stranded board is worse than a slower reboot.
+    // Best-effort only -- caller restarts regardless of this call's result.
+    bb_log_w(TAG, "reboot_record_save: attempt 1 failed (%d), retrying once", (int)err);
+    bb_err_t retry_err = bb_system_reboot_record_save(src, detail, epoch_s, uptime_s);
+    if (retry_err == BB_OK) {
+        bb_log_i(TAG, "reboot_record_save: attempt 2 succeeded");
+    } else {
+        bb_log_w(TAG, "reboot_record_save: attempt 2 failed (%d), proceeding without a saved reason",
+                 (int)retry_err);
+    }
+    return retry_err;
 }
