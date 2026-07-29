@@ -1375,6 +1375,25 @@ void test_prov_parse_hostname_empty(void);
 void test_prov_parse_hostname_present(void);
 void test_prov_parse_hostname_urlencoded(void);
 void test_prov_parse_hostname_missing_ssid_still_required(void);
+void test_prov_html_escape_plain_text_unchanged(void);
+void test_prov_html_escape_all_special_chars(void);
+void test_prov_html_escape_null_src_is_empty(void);
+void test_prov_html_escape_null_out_is_noop(void);
+void test_prov_html_escape_zero_out_size_is_noop(void);
+void test_prov_html_escape_truncates_without_partial_entity(void);
+void test_prov_html_escape_truncates_plain_char_at_boundary(void);
+void test_prov_render_saved_page_names_network(void);
+void test_prov_render_saved_page_no_hostname_omits_mdns_lines(void);
+void test_prov_render_saved_page_includes_hostname_and_mdns_name(void);
+void test_prov_render_saved_page_escapes_attacker_controlled_ssid(void);
+void test_prov_render_saved_page_escapes_attacker_controlled_hostname(void);
+void test_prov_render_saved_page_null_out_is_noop(void);
+void test_prov_render_saved_page_zero_out_size_is_noop(void);
+void test_prov_render_saved_page_null_hostname_omits_mdns_lines(void);
+void test_prov_render_saved_page_small_out_size_truncates(void);
+void test_prov_render_saved_page_worst_case_hostname_no_split_entity(void);
+void test_prov_saved_page_hostname_returns_hostname_when_saved(void);
+void test_prov_saved_page_hostname_returns_empty_when_not_saved(void);
 
 // Forward declarations from test_bb_http_json_obj_stream.c
 void test_resp_no_content_sets_204_empty_body(void);
@@ -6394,6 +6413,25 @@ int main(void) {
     RUN_TEST(test_prov_parse_hostname_present);
     RUN_TEST(test_prov_parse_hostname_urlencoded);
     RUN_TEST(test_prov_parse_hostname_missing_ssid_still_required);
+    RUN_TEST(test_prov_html_escape_plain_text_unchanged);
+    RUN_TEST(test_prov_html_escape_all_special_chars);
+    RUN_TEST(test_prov_html_escape_null_src_is_empty);
+    RUN_TEST(test_prov_html_escape_null_out_is_noop);
+    RUN_TEST(test_prov_html_escape_zero_out_size_is_noop);
+    RUN_TEST(test_prov_html_escape_truncates_without_partial_entity);
+    RUN_TEST(test_prov_html_escape_truncates_plain_char_at_boundary);
+    RUN_TEST(test_prov_render_saved_page_names_network);
+    RUN_TEST(test_prov_render_saved_page_no_hostname_omits_mdns_lines);
+    RUN_TEST(test_prov_render_saved_page_includes_hostname_and_mdns_name);
+    RUN_TEST(test_prov_render_saved_page_escapes_attacker_controlled_ssid);
+    RUN_TEST(test_prov_render_saved_page_escapes_attacker_controlled_hostname);
+    RUN_TEST(test_prov_render_saved_page_null_out_is_noop);
+    RUN_TEST(test_prov_render_saved_page_zero_out_size_is_noop);
+    RUN_TEST(test_prov_render_saved_page_null_hostname_omits_mdns_lines);
+    RUN_TEST(test_prov_render_saved_page_small_out_size_truncates);
+    RUN_TEST(test_prov_render_saved_page_worst_case_hostname_no_split_entity);
+    RUN_TEST(test_prov_saved_page_hostname_returns_hostname_when_saved);
+    RUN_TEST(test_prov_saved_page_hostname_returns_empty_when_not_saved);
 
     // JSON walker and HTTP send_json tests
 

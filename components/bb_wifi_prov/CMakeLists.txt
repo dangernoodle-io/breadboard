@@ -6,6 +6,7 @@
 # convention rather than relying on that transitive path.
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/src/bb_wifi_prov_parse.c"
+         "${CMAKE_CURRENT_LIST_DIR}/src/bb_wifi_prov_page.c"
          "${CMAKE_CURRENT_LIST_DIR}/src/bb_wifi_prov_scan_wire.c"
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_wifi_prov/bb_wifi_prov.c"
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_wifi_prov/wifi_prov_mgr.c"
