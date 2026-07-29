@@ -110,6 +110,7 @@ def main() -> int:
         "--exclude-throw-branches",
         "--exclude-unreachable-branches",
         "--exclude-directories", r"\.claude",
+        "--exclude-directories", r"\.worktrees",
         "--merge-mode-functions=merge-use-line-max",
         "--print-summary",
         "--coveralls", args.coveralls_out,

@@ -2786,11 +2786,6 @@
       "type": "uncovered_branch"
     },
     {
-      "id": "256",
-      "path": "platform/host/bb_storage_rtc/bb_storage_rtc.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "102",
       "path": "platform/host/bb_str/bb_str.c",
       "type": "uncovered_branch"
