@@ -204,6 +204,15 @@ void test_register_described_route_propagates_underlying_failure(void)
 void test_register_described_route_overflow_returns_no_space(void)
 {
     bb_http_route_registry_clear();
+    // Every one of these 65 descriptors is a real (non-NULL-handler) /api/*
+    // route, so bb_http_register_described_route() also drives them through
+    // bb_dispatch_api_add() (route_registry.c) — a process-wide table shared
+    // with every other test in this binary. This test's 64 successful
+    // registrations, followed by a genuine 65th-overflow, depend on the
+    // table's actual occupancy (B1-1253: bb_http_register_route now
+    // propagates a real dispatch-table failure instead of always swallowing
+    // it to BB_OK) -- isolation comes from the global setUp() (test_main.c),
+    // which resets the dispatch table before every test in this binary.
 
     // Build 65 route descriptors (cap is 64)
     static const bb_route_response_t s_overflow_responses[] = {
@@ -279,7 +288,6 @@ void test_register_described_route_null_handler_adds_descriptor(void)
 void test_register_described_route_null_handler_skips_dispatch(void)
 {
     bb_http_route_registry_clear();
-    bb_dispatch_api_reset();
 
     bb_err_t err = bb_http_register_described_route(NULL, &s_route_null_handler);
     TEST_ASSERT_EQUAL(BB_OK, err);
@@ -793,6 +801,115 @@ void test_uri_is_registered_described_route_persists_in_registry(void)
     TEST_ASSERT_EQUAL(1, ctx.count);
     TEST_ASSERT_NOT_NULL(ctx.visited[0]->path);
     TEST_ASSERT_EQUAL_STRING("/api/persist-test", ctx.visited[0]->path);
+}
+
+// ---------------------------------------------------------------------------
+// bb_http_register_route /api/* error handling (B1-1253): a duplicate
+// (method,path) is the intentionally-tolerated case and must still return
+// BB_OK (first registration wins, e.g. bb_wifi_prov racing bb_wifi_http for
+// the same path); a genuine dispatch-table failure (BB_ERR_NO_SPACE) must
+// now propagate instead of being silently swallowed to BB_OK.
+// ---------------------------------------------------------------------------
+
+// (a) A duplicate (method,path) registration is swallowed to BB_OK — the
+// intentionally-tolerated case must not become a hard error for a caller
+// that doesn't special-case it.
+void test_register_route_api_duplicate_swallowed_to_ok(void)
+{
+    bb_err_t first = bb_http_register_route(NULL, BB_HTTP_POST,
+                                            "/api/wifi/scan", stub_handler);
+    TEST_ASSERT_EQUAL(BB_OK, first);
+
+    bb_err_t dup = bb_http_register_route(NULL, BB_HTTP_POST,
+                                          "/api/wifi/scan", stub_handler);
+    TEST_ASSERT_EQUAL(BB_OK, dup);
+
+    // First registration wins: the table still holds exactly one entry.
+    TEST_ASSERT_EQUAL(1, bb_dispatch_api_count());
+}
+
+// (b) A genuine dispatch-table failure (table full) must propagate as a real
+// error, not be swallowed to BB_OK — this is the defect B1-1253 fixes.
+void test_register_route_api_dispatch_full_propagates_no_space(void)
+{
+    static char fill_paths[BB_DISPATCH_API_CAP][24];
+    for (int i = 0; i < BB_DISPATCH_API_CAP; i++) {
+        snprintf(fill_paths[i], sizeof(fill_paths[i]), "/api/fill%d", i);
+        bb_err_t err = bb_http_register_route(NULL, BB_HTTP_GET,
+                                              fill_paths[i], stub_handler);
+        TEST_ASSERT_EQUAL(BB_OK, err);
+    }
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_CAP, (int)bb_dispatch_api_count());
+
+    bb_err_t err = bb_http_register_route(NULL, BB_HTTP_GET,
+                                          "/api/one-too-many", stub_handler);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_CAP, (int)bb_dispatch_api_count());
+}
+
+// (c) Non-/api/* paths are unaffected by this change (bypass the dispatch
+// table entirely on host).
+void test_register_route_non_api_path_unaffected(void)
+{
+    bb_err_t err = bb_http_register_route(NULL, BB_HTTP_POST,
+                                          "/save", stub_handler);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+}
+
+// (d) Cross-component scenario the design decision at bb_http.c's dup-vs-
+// genuine-failure branch rests on: bb_wifi_prov registers POST
+// /api/wifi/scan via the plain bb_http_register_route() call shape
+// (bb_wifi_prov.c:351), while bb_wifi_http registers the SAME path via a
+// bb_route_t descriptor through bb_http_register_described_route()
+// (bb_wifi_http_routes.c:364, which treats any non-BB_OK as fatal for its
+// entire bb_wifi_routes_init() — it does NOT special-case
+// BB_ERR_INVALID_STATE). Composing both in the SAME process (as a live
+// firmware can) must not turn the second registration into a hard error,
+// regardless of which of the two components happens to register first.
+static const bb_route_response_t s_scan_responses[] = {
+    { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+    { .status = 0 },
+};
+
+static const bb_route_t s_route_scan_described = {
+    .method    = BB_HTTP_POST,
+    .path      = "/api/wifi/scan",
+    .tag       = "wifi",
+    .summary   = "scan wifi",
+    .responses = s_scan_responses,
+    .handler   = stub_handler,
+};
+
+void test_register_route_cross_component_scan_dup_bb_wifi_prov_then_bb_wifi_http(void)
+{
+    bb_http_route_registry_clear();
+
+    // bb_wifi_prov's call shape: plain bb_http_register_route().
+    bb_err_t prov_err = bb_http_register_route(NULL, BB_HTTP_POST,
+                                               "/api/wifi/scan", stub_handler);
+    TEST_ASSERT_EQUAL(BB_OK, prov_err);
+
+    // bb_wifi_http's call shape: described-route, and it is fatal on ANY
+    // non-BB_OK return -- this assertion is the enforced invariant.
+    bb_err_t http_err = bb_http_register_described_route(NULL, &s_route_scan_described);
+    TEST_ASSERT_EQUAL(BB_OK, http_err);
+
+    TEST_ASSERT_EQUAL(1, bb_dispatch_api_count());
+}
+
+void test_register_route_cross_component_scan_dup_bb_wifi_http_then_bb_wifi_prov(void)
+{
+    bb_http_route_registry_clear();
+
+    // Reverse composition order: bb_wifi_http registers first.
+    bb_err_t http_err = bb_http_register_described_route(NULL, &s_route_scan_described);
+    TEST_ASSERT_EQUAL(BB_OK, http_err);
+
+    bb_err_t prov_err = bb_http_register_route(NULL, BB_HTTP_POST,
+                                               "/api/wifi/scan", stub_handler);
+    TEST_ASSERT_EQUAL(BB_OK, prov_err);
+
+    TEST_ASSERT_EQUAL(1, bb_dispatch_api_count());
 }
 
 // ---------------------------------------------------------------------------

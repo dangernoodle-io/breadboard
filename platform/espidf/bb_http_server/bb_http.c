@@ -506,11 +506,29 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
     // through bb_dispatch_api — they do NOT occupy httpd handler slots.
     if (path && strncmp(path, "/api/", 5) == 0) {
         bb_err_t derr = bb_dispatch_api_add(method, path, handler);
+        if (derr == BB_ERR_INVALID_STATE) {
+            // Duplicate (method,path): bb_dispatch_api_add already logged
+            // (bb_log_w, "first registration wins") — this is the
+            // intentionally-tolerated case where two independently-composed
+            // components register the same /api/* path (e.g. bb_wifi_prov and
+            // bb_wifi_http both wanting POST /api/wifi/scan). Swallow and
+            // return BB_OK: a caller that doesn't special-case duplicates
+            // must not be broken by this; bb_http_register_described_route
+            // still adds the OpenAPI descriptor either way. A caller that
+            // wants to distinguish "lost the dup race" from "genuinely
+            // failed" would need to call bb_dispatch_api_add directly instead
+            // of going through this function — no caller does that today;
+            // bb_wifi_prov.c's BB_ERR_INVALID_STATE branch is defensive/dead
+            // for exactly this reason (see its own comment).
+            return BB_OK;
+        }
         if (derr != BB_OK) {
-            bb_log_e(TAG, "api dispatch table full, dropping %s %s",
-                     bb_http_method_str(method), path);
-            // Non-fatal: return BB_OK so bb_http_register_described_route still
-            // adds the OpenAPI descriptor (route is listed even if undispatchable).
+            // Genuine failure (e.g. BB_ERR_NO_SPACE — dispatch table full):
+            // propagate so the caller can detect and react to the drop
+            // instead of silently shipping a dead /api/* endpoint.
+            bb_log_e(TAG, "api dispatch table add failed, dropping %s %s: %d",
+                     bb_http_method_str(method), path, (int)derr);
+            return derr;
         }
         return BB_OK;
     }

@@ -7,6 +7,7 @@
 // PR-b adds two more (mqtt/temp health schema wiring) and consolidates all
 // three suites' RUN_TESTs here.
 #include "unity.h"
+#include "bb_http_server.h"
 #include "bb_serialize_meta_test.h"
 
 // From test_bb_serialize_meta_ensure_composed.c (B1-1204)
@@ -246,7 +247,15 @@ void test_bb_diag_http_boot_wire_schema_offline_on_suffix_too_small(void);
 void test_bb_diag_http_boot_wire_schema_matches_expected_content(void);
 void test_bb_diag_http_boot_wire_schema_idempotent_pointer_stable(void);
 
-void setUp(void) {}
+// bb_dispatch_api's table (route_registry.c) is a process-wide static shared
+// by every test in this binary. Reset it before each test (B1-1253): a
+// handful of files here register real /api/* routes via
+// bb_http_register_described_route() without resetting it themselves, and
+// bb_http_register_route() now propagates a genuine dispatch-table failure
+// instead of always swallowing it to BB_OK, so an un-isolated table could
+// spuriously fail a later test purely from earlier tests' accumulated
+// registrations.
+void setUp(void) { bb_dispatch_api_reset(); }
 
 // Defensive belt-and-suspenders for the BB_SERIALIZE_META_TESTING
 // fail-injection seam (bb_serialize_meta_test.h): each

@@ -10,14 +10,17 @@ static bb_err_t handler_get_x(bb_http_request_t *req)  { (void)req; return BB_OK
 static bb_err_t handler_post_x(bb_http_request_t *req) { (void)req; return BB_OK; }
 static bb_err_t handler_other(bb_http_request_t *req)  { (void)req; return BB_OK; }
 
-/* setUp calls bb_dispatch_api_reset() so each test starts with a clean table. */
+/* The global setUp() (test_main.c) calls bb_dispatch_api_reset() before every
+ * test in this binary, so each test here starts with a clean table without
+ * needing its own reset call (B1-1253). test_dispatch_api_reset_clears below
+ * is the one exception -- it is testing bb_dispatch_api_reset() itself, so it
+ * calls it explicitly mid-test. */
 
 /* ---------------------------------------------------------------------------
  * add + lookup HIT: right handler returned
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_add_and_lookup_hit(void)
 {
-    bb_dispatch_api_reset();
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, "/api/x", handler_get_x));
     TEST_ASSERT_EQUAL(1, (int)bb_dispatch_api_count());
@@ -35,7 +38,6 @@ void test_dispatch_api_add_and_lookup_hit(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_lookup_miss_unknown_path(void)
 {
-    bb_dispatch_api_reset();
     bb_dispatch_api_add(BB_HTTP_GET, "/api/x", handler_get_x);
 
     bb_http_handler_fn out = NULL;
@@ -51,7 +53,6 @@ void test_dispatch_api_lookup_miss_unknown_path(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_method_mismatch(void)
 {
-    bb_dispatch_api_reset();
     bb_dispatch_api_add(BB_HTTP_GET, "/api/x", handler_get_x);
 
     bb_http_handler_fn out = NULL;
@@ -68,7 +69,6 @@ void test_dispatch_api_method_mismatch(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_method_discrimination(void)
 {
-    bb_dispatch_api_reset();
     bb_dispatch_api_add(BB_HTTP_GET,  "/api/x", handler_get_x);
     bb_dispatch_api_add(BB_HTTP_POST, "/api/x", handler_post_x);
     TEST_ASSERT_EQUAL(2, (int)bb_dispatch_api_count());
@@ -91,7 +91,6 @@ void test_dispatch_api_method_discrimination(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_query_string_stripped(void)
 {
-    bb_dispatch_api_reset();
     bb_dispatch_api_add(BB_HTTP_GET, "/api/x", handler_get_x);
 
     bb_http_handler_fn out = NULL;
@@ -107,7 +106,6 @@ void test_dispatch_api_query_string_stripped(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_exact_not_prefix_longer_uri(void)
 {
-    bb_dispatch_api_reset();
     bb_dispatch_api_add(BB_HTTP_GET, "/api/x", handler_get_x);
 
     bb_http_handler_fn out = NULL;
@@ -122,7 +120,6 @@ void test_dispatch_api_exact_not_prefix_longer_uri(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_exact_not_prefix_shorter_uri(void)
 {
-    bb_dispatch_api_reset();
     bb_dispatch_api_add(BB_HTTP_GET, "/api/xy", handler_get_x);
 
     bb_http_handler_fn out = NULL;
@@ -137,7 +134,6 @@ void test_dispatch_api_exact_not_prefix_shorter_uri(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_non_api_uri_miss(void)
 {
-    bb_dispatch_api_reset();
     bb_dispatch_api_add(BB_HTTP_GET, "/api/x", handler_get_x);
 
     bb_http_handler_fn out = NULL;
@@ -153,7 +149,6 @@ void test_dispatch_api_non_api_uri_miss(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_overflow_returns_no_space(void)
 {
-    bb_dispatch_api_reset();
 
     /* Fill the table with distinct paths /api/fill0 … /api/fill<CAP-1>
      * so the dup-detection scan does not drop any entries. */
@@ -188,7 +183,6 @@ void test_dispatch_api_overflow_returns_no_space(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_reset_clears(void)
 {
-    bb_dispatch_api_reset();
     bb_dispatch_api_add(BB_HTTP_GET, "/api/x", handler_get_x);
     TEST_ASSERT_EQUAL(1, (int)bb_dispatch_api_count());
 
@@ -207,7 +201,6 @@ void test_dispatch_api_reset_clears(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_null_uri_returns_miss(void)
 {
-    bb_dispatch_api_reset();
     bb_dispatch_api_add(BB_HTTP_GET, "/api/x", handler_get_x);
 
     bb_http_handler_fn out = NULL;
@@ -222,7 +215,6 @@ void test_dispatch_api_null_uri_returns_miss(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_null_out_handler_returns_miss(void)
 {
-    bb_dispatch_api_reset();
     bb_dispatch_api_add(BB_HTTP_GET, "/api/x", handler_get_x);
 
     bb_dispatch_api_result_t res =
@@ -236,7 +228,6 @@ void test_dispatch_api_null_out_handler_returns_miss(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_null_path_entry_skipped(void)
 {
-    bb_dispatch_api_reset();
     /* Store a NULL path; the lookup must not crash and must return MISS. */
     bb_dispatch_api_add(BB_HTTP_GET, NULL, handler_get_x);
     TEST_ASSERT_EQUAL(1, (int)bb_dispatch_api_count());
@@ -255,7 +246,6 @@ void test_dispatch_api_null_path_entry_skipped(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_dup_same_method_and_path_dropped(void)
 {
-    bb_dispatch_api_reset();
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, "/api/x", handler_get_x));
     TEST_ASSERT_EQUAL(1, (int)bb_dispatch_api_count());
@@ -280,7 +270,6 @@ void test_dispatch_api_dup_same_method_and_path_dropped(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_dup_different_method_same_path_both_kept(void)
 {
-    bb_dispatch_api_reset();
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, "/api/x", handler_get_x));
     TEST_ASSERT_EQUAL(BB_OK,
@@ -305,7 +294,6 @@ void test_dispatch_api_dup_different_method_same_path_both_kept(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_dup_null_path_not_dup_detected(void)
 {
-    bb_dispatch_api_reset();
     /* First add with NULL path. */
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, NULL, handler_get_x));
@@ -322,7 +310,6 @@ void test_dispatch_api_dup_null_path_not_dup_detected(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_dup_scan_skips_null_path_existing_entry(void)
 {
-    bb_dispatch_api_reset();
     /* Pre-populate with a NULL-path entry so the scan encounters it. */
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, NULL, handler_get_x));
@@ -346,7 +333,6 @@ void test_dispatch_api_dup_scan_skips_null_path_existing_entry(void)
  * ---------------------------------------------------------------------------*/
 void test_dispatch_api_high_watermark_warn(void)
 {
-    bb_dispatch_api_reset();
 
     /* Add CAP-8 entries with distinct paths — watermark fires on the last one.
      * Using distinct paths ensures the dup-detection scan does not drop any. */
@@ -379,7 +365,6 @@ void test_dispatch_api_high_watermark_warn(void)
 /* Exact wins over a same-prefix wildcard — wildcard registered FIRST. */
 void test_dispatch_api_exact_wins_over_wildcard_wildcard_first(void)
 {
-    bb_dispatch_api_reset();
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_other));
     TEST_ASSERT_EQUAL(BB_OK,
@@ -396,7 +381,6 @@ void test_dispatch_api_exact_wins_over_wildcard_wildcard_first(void)
 /* Exact wins over a same-prefix wildcard — exact registered FIRST. */
 void test_dispatch_api_exact_wins_over_wildcard_exact_first(void)
 {
-    bb_dispatch_api_reset();
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, "/api/x/y", handler_get_x));
     TEST_ASSERT_EQUAL(BB_OK,
@@ -413,7 +397,6 @@ void test_dispatch_api_exact_wins_over_wildcard_exact_first(void)
 /* Longest-prefix wins across two registered wildcards. */
 void test_dispatch_api_wildcard_longest_prefix_wins(void)
 {
-    bb_dispatch_api_reset();
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_get_x));
     TEST_ASSERT_EQUAL(BB_OK,
@@ -430,7 +413,6 @@ void test_dispatch_api_wildcard_longest_prefix_wins(void)
 /* Longest-prefix wins regardless of registration order (broader added last). */
 void test_dispatch_api_wildcard_longest_prefix_wins_reverse_order(void)
 {
-    bb_dispatch_api_reset();
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, "/api/x/y/*", handler_other));
     TEST_ASSERT_EQUAL(BB_OK,
@@ -447,7 +429,6 @@ void test_dispatch_api_wildcard_longest_prefix_wins_reverse_order(void)
 /* Wildcard MISS: uri doesn't match any registered prefix -> 404 path. */
 void test_dispatch_api_wildcard_miss(void)
 {
-    bb_dispatch_api_reset();
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_get_x));
 
@@ -462,7 +443,6 @@ void test_dispatch_api_wildcard_miss(void)
 /* Wildcard prefix hit but wrong method -> METHOD_MISMATCH (405 path). */
 void test_dispatch_api_wildcard_method_mismatch(void)
 {
-    bb_dispatch_api_reset();
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_get_x));
 
@@ -478,7 +458,6 @@ void test_dispatch_api_wildcard_method_mismatch(void)
  * broader wildcard would have matched — the exact route claims the path. */
 void test_dispatch_api_exact_method_mismatch_not_rescued_by_wildcard(void)
 {
-    bb_dispatch_api_reset();
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_POST, "/api/x/y", handler_get_x));
     TEST_ASSERT_EQUAL(BB_OK,
@@ -496,7 +475,6 @@ void test_dispatch_api_exact_method_mismatch_not_rescued_by_wildcard(void)
  * with a wildcard entry also present. */
 void test_dispatch_api_exact_routes_unaffected_by_wildcard_presence(void)
 {
-    bb_dispatch_api_reset();
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, "/api/a", handler_get_x));
     TEST_ASSERT_EQUAL(BB_OK,
@@ -529,7 +507,6 @@ void test_dispatch_api_exact_routes_unaffected_by_wildcard_presence(void)
  * request — first registration wins, documented behavior. */
 void test_dispatch_api_wildcard_tie_break_first_registered_wins(void)
 {
-    bb_dispatch_api_reset();
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_get_x));
     TEST_ASSERT_EQUAL(BB_OK,
@@ -556,7 +533,6 @@ void test_dispatch_api_wildcard_tie_break_first_registered_wins(void)
  * an exact duplicate. */
 void test_dispatch_api_dup_wildcard_pattern_dropped(void)
 {
-    bb_dispatch_api_reset();
     TEST_ASSERT_EQUAL(BB_OK,
         bb_dispatch_api_add(BB_HTTP_GET, "/api/x/*", handler_get_x));
     TEST_ASSERT_EQUAL(1, (int)bb_dispatch_api_count());
