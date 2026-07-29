@@ -549,6 +549,13 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             esp_wifi_connect();
         }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_CONNECTED) {
+        // Deliberately does NOT post into the reconnect FSM (wifi_reconn_policy) --
+        // this handler only updates cached SSID/BSSID/roam/session bookkeeping.
+        // That silence is load-bearing: association stays invisible to the FSM,
+        // so it remains in WR_CONNECTING with the CONNECTING watchdog still armed
+        // across the associate-but-never-get-IP window. That armed watchdog is
+        // exactly what covers the no-IP zombie case (EV_CONNECTING_TIMEOUT fires
+        // and re-issues disconnect+connect) -- do not "fix" this by posting here.
         const wifi_event_sta_connected_t *e = (const wifi_event_sta_connected_t *)event_data;
         if (e) {
             size_t n = e->ssid_len < sizeof(s_cached_ssid) - 1 ? e->ssid_len : sizeof(s_cached_ssid) - 1;

@@ -186,9 +186,6 @@ wifi_reconn_action_t wifi_reconn_policy_on_disconnect(
 // Reset counters on successful IP acquisition.
 void wifi_reconn_policy_on_got_ip(wifi_reconn_state_t *st);
 
-// Return true when the board is L2-associated but has no DHCP IP — the zombie state.
-bool wifi_reconn_should_reconnect_no_ip(bool associated, bool has_ip);
-
 // Record a lost-IP event in policy state (bumps lost_ip_count, last_lost_ip_us,
 // reason_histogram[WIFI_REASON_BB_LOST_IP]). Guards null args.
 void wifi_reconn_policy_on_lost_ip(wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad);
@@ -241,7 +238,6 @@ typedef enum {
 } wr_state_t;
 
 // FSM events.
-//   EV_STA_CONNECTED       WIFI_EVENT_STA_CONNECTED (assoc; not yet IP).
 //   EV_GOT_IP              IP_EVENT_STA_GOT_IP.
 //   EV_STA_DISCONNECTED    WIFI_EVENT_STA_DISCONNECTED (real, not
 //                          self-induced); evt_data points at a uint8_t esp
@@ -257,14 +253,19 @@ typedef enum {
 //                          UNWIRED, same precedent as EV_CREDS_ARRIVED --
 //                          only the table row is required, no production
 //                          poster in this PR.
+//
+// EV_STA_CONNECTED (WIFI_EVENT_STA_CONNECTED) was removed (B1-811): it had
+// no production poster and its only FSM row was a no-op SAME with no action.
+// WIFI_EVENT_STA_CONNECTED is still handled in bb_wifi.c, but deliberately
+// does not post here -- see the comment at that handler for why that's load-
+// bearing (it's what keeps the CONNECTING watchdog armed across association).
 typedef enum {
-    EV_STA_CONNECTED = 0,
-    EV_GOT_IP = 1,
-    EV_STA_DISCONNECTED = 2,
-    EV_CONNECTING_TIMEOUT = 3,
-    EV_BACKOFF_TIMEOUT = 4,
-    EV_CREDS_ARRIVED = 5,
-    EV_RECONNECT_REQUESTED = 6,
+    EV_GOT_IP = 0,
+    EV_STA_DISCONNECTED = 1,
+    EV_CONNECTING_TIMEOUT = 2,
+    EV_BACKOFF_TIMEOUT = 3,
+    EV_CREDS_ARRIVED = 4,
+    EV_RECONNECT_REQUESTED = 5,
 } wr_event_t;
 
 // Embedded-by-value FSM context, zero heap, single-writer (the reconn task
