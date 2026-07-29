@@ -545,6 +545,76 @@ void test_bb_system_reboot_record_save_null_detail(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_system_reboot_record_save_retry — retry-once-then-give-up wrapper
+// around bb_system_reboot_record_save, used ahead of a restart so a
+// transient NVS persist failure gets one more chance without ever blocking
+// the restart itself. fake_nvs_backend_fail_set_key() one-shot-fails the
+// underlying set(), matching how bb_config_set_str -> bb_storage_set_typed
+// -> the "nvs" backend's set() actually surfaces a persist failure.
+// ---------------------------------------------------------------------------
+
+void test_bb_system_reboot_record_save_retry_first_attempt_succeeds_no_retry(void)
+{
+    reboot_record_reset_state();
+
+    bb_err_t err = bb_system_reboot_record_save_retry(BB_RESET_SRC_API_REBOOT, "ok",
+                                                        1704067200U, 10U);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+
+    char buf[BB_REBOOT_RECORD_STR_MAX];
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_config_get_str(&s_test_reboot_last_field, buf, sizeof(buf), &out_len));
+
+    bb_reboot_record_t out;
+    memset(&out, 0, sizeof(out));
+    TEST_ASSERT_TRUE(bb_reboot_record_decode(buf, &out));
+    TEST_ASSERT_EQUAL_UINT8(BB_RESET_SRC_API_REBOOT, out.src);
+    TEST_ASSERT_EQUAL_STRING("ok", out.detail);
+}
+
+void test_bb_system_reboot_record_save_retry_first_fails_second_succeeds(void)
+{
+    reboot_record_reset_state();
+
+    // One-shot: only the FIRST set() against BB_REBOOT_KEY_LAST fails, so
+    // the retry's independent open/write/commit attempt lands cleanly.
+    fake_nvs_backend_fail_set_key(BB_REBOOT_KEY_LAST);
+
+    bb_err_t err = bb_system_reboot_record_save_retry(BB_RESET_SRC_WIFI_SAFEGUARD, "retry-ok",
+                                                        1704067200U, 20U);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+
+    char buf[BB_REBOOT_RECORD_STR_MAX];
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_config_get_str(&s_test_reboot_last_field, buf, sizeof(buf), &out_len));
+
+    bb_reboot_record_t out;
+    memset(&out, 0, sizeof(out));
+    TEST_ASSERT_TRUE(bb_reboot_record_decode(buf, &out));
+    TEST_ASSERT_EQUAL_UINT8(BB_RESET_SRC_WIFI_SAFEGUARD, out.src);
+    TEST_ASSERT_EQUAL_STRING("retry-ok", out.detail);
+}
+
+void test_bb_system_reboot_record_save_retry_both_attempts_fail_returns_error(void)
+{
+    reboot_record_reset_state();
+
+    // Fail both the initial attempt and the retry. The wrapper itself must
+    // still return without blocking a caller-side restart (the production
+    // call sites never check this return value before esp_restart()).
+    fake_nvs_backend_fail_set_key_n(BB_REBOOT_KEY_LAST, 2);
+
+    bb_err_t err = bb_system_reboot_record_save_retry(BB_RESET_SRC_UNKNOWN, "both-fail",
+                                                        1704067200U, 30U);
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+
+    // No record was ever persisted.
+    char buf[BB_REBOOT_RECORD_STR_MAX];
+    size_t out_len = 0;
+    TEST_ASSERT_NOT_EQUAL(BB_OK, bb_config_get_str(&s_test_reboot_last_field, buf, sizeof(buf), &out_len));
+}
+
+// ---------------------------------------------------------------------------
 // bb_reboot_history_push / _encode / _decode — rolling ring (B1-527 PR-B).
 // ---------------------------------------------------------------------------
 
