@@ -31,6 +31,11 @@
 // CONFIG_BB_WIFI_RECONFIGURE-gated usage below is feature-gated.
 #include "../../../components/bb_wifi_http/bb_wifi_http_creds_wire_priv.h"
 
+// Pure bb_err_t -> bb_err_t mapper for a single route-registration attempt
+// (B1-1259) -- src/-private header, PRIV_INCLUDE_DIRS "src" (same convention
+// as bb_wifi_http_apply_status.h below).
+#include "bb_wifi_http_route_dup_status.h"
+
 #if CONFIG_BB_WIFI_RECONFIGURE
 #include "bb_data.h"
 #include "bb_settings.h"
@@ -40,11 +45,9 @@
 #include <stddef.h>
 #endif
 
-// Guarded with its sole use site below (the scan-schema degrade log) --
-// CONFIG_BB_OPENAPI_RUNTIME_META off leaves TAG otherwise unreferenced.
-#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+// Used by register_route_tolerate_dup() below (unconditionally, B1-1259) and
+// the scan-schema degrade log (CONFIG_BB_OPENAPI_RUNTIME_META only).
 static const char *TAG = "bb_wifi_http_routes";
-#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
 // GET /api/wifi: always a live read (B1-1119 -- bb_cache's legacy
 // bb_json .serialize slot, and bb_cache_get_serialized() with it, is gone;
@@ -324,6 +327,41 @@ static const bb_route_t s_wifi_patch_route = {
 
 #endif /* CONFIG_BB_WIFI_RECONFIGURE */
 
+// Register a single described route, tolerating a duplicate (method,path)
+// registration as a benign outcome (B1-1259): all three routes registered
+// below share the "/api/*" (method,path) space with bb_wifi_prov's own scan
+// route (see bb_wifi_prov.c's dup handling for the precedent this mirrors),
+// and first-registration-wins is a legitimate composition outcome, not a
+// per-route failure. Today bb_http_register_route() already swallows a
+// non-strict "/api/*" duplicate to BB_OK internally before it ever reaches
+// this caller (B1-1253) -- so the BB_ERR_INVALID_STATE branch logged below
+// is defensive/currently-dead in that specific sense, same as
+// bb_wifi_prov.c's own dup branch (see its comment). It is kept anyway so
+// this fn stays correct and self-documenting if that lower-layer swallow is
+// ever tightened back to propagating BB_ERR_INVALID_STATE to its callers,
+// and the decision itself is pinned host-side against
+// bb_wifi_http_route_register_outcome() (bb_wifi_http_route_dup_status.h),
+// since this fn's own caller chain is ESP_PLATFORM-gated and not host-
+// testable directly.
+//
+// A GENUINE per-route failure (e.g. BB_ERR_NO_SPACE — the dispatch table is
+// full) is deliberately NOT downgraded here: it still aborts the whole
+// bb_wifi_routes_init() bundle below (rc != BB_OK short-circuits the
+// caller). A partially-registered wifi HTTP surface (e.g. GET /api/wifi
+// present but POST /api/wifi/scan silently missing) is worse than a loud,
+// early failure that a consumer's boot sequence can detect and react to —
+// the same posture bb_http_register_route() itself already takes for a
+// genuine dispatch-table failure (see its own comment). Only the tolerated
+// duplicate case is downgraded; every other non-BB_OK stays fatal.
+static bb_err_t register_route_tolerate_dup(bb_http_handle_t server, const bb_route_t *route)
+{
+    bb_err_t rc = bb_http_register_described_route(server, route);
+    if (rc == BB_ERR_INVALID_STATE) {
+        bb_log_i(TAG, "%s already served by another component", route->path);
+    }
+    return bb_wifi_http_route_register_outcome(rc);
+}
+
 bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
@@ -337,8 +375,13 @@ bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
     // longer gets to take down GET /api/wifi, POST /api/wifi/scan, or (with
     // CONFIG_BB_WIFI_RECONFIGURE) PATCH /api/wifi before they're ever
     // registered.
+    //
+    // Each registration below goes through register_route_tolerate_dup()
+    // (B1-1259), not bb_http_register_described_route() directly: a
+    // tolerable duplicate for ONE route must not abort registration of the
+    // others.
     bb_err_t rc;
-    rc = bb_http_register_described_route(server, &s_wifi_route);
+    rc = register_route_tolerate_dup(server, &s_wifi_route);
     if (rc != BB_OK) return rc;
 
     // Compose (config ON only) before registering the scan route. The
@@ -361,7 +404,7 @@ bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
     }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
-    rc = bb_http_register_described_route(server, &s_scan_route);
+    rc = register_route_tolerate_dup(server, &s_scan_route);
     if (rc != BB_OK) return rc;
 
 #if CONFIG_BB_WIFI_RECONFIGURE
@@ -373,7 +416,7 @@ bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
     };
     rc = bb_data_bind(&wifi_creds_binding);
     if (rc != BB_OK) return rc;
-    rc = bb_http_register_described_route(server, &s_wifi_patch_route);
+    rc = register_route_tolerate_dup(server, &s_wifi_patch_route);
     if (rc != BB_OK) return rc;
 #endif
 

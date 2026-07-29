@@ -2158,6 +2158,12 @@ void test_wifi_creds_apply_ok_maps_to_202(void);
 void test_wifi_creds_apply_invalid_arg_and_unsupported_map_to_400(void);
 void test_wifi_creds_apply_validation_maps_to_400(void);
 
+// Forward declarations from test_wifi_route_dup_status.c
+void test_wifi_http_route_register_outcome_dup_maps_to_ok(void);
+void test_wifi_http_route_register_outcome_ok_stays_ok(void);
+void test_wifi_http_route_register_outcome_no_space_stays_fatal(void);
+void test_wifi_http_route_register_outcome_other_error_stays_fatal(void);
+
 // Forward declarations from test_ota_validator.c
 void test_ota_validator_is_pending_false_on_host(void);
 void test_ota_validator_mark_valid_returns_invalid_state_on_host(void);
@@ -11074,6 +11080,11 @@ int main(void) {
     RUN_TEST(test_wifi_creds_apply_ok_maps_to_202);
     RUN_TEST(test_wifi_creds_apply_invalid_arg_and_unsupported_map_to_400);
     RUN_TEST(test_wifi_creds_apply_validation_maps_to_400);
+
+    RUN_TEST(test_wifi_http_route_register_outcome_dup_maps_to_ok);
+    RUN_TEST(test_wifi_http_route_register_outcome_ok_stays_ok);
+    RUN_TEST(test_wifi_http_route_register_outcome_no_space_stays_fatal);
+    RUN_TEST(test_wifi_http_route_register_outcome_other_error_stays_fatal);
 
     RUN_TEST(test_bb_diag_register_section_success);
     RUN_TEST(test_bb_diag_register_section_null_section_returns_invalid_arg);
