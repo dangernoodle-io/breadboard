@@ -124,6 +124,82 @@ bb_err_t bb_serialize_console_heap_gather(void *dst, void *ctx);
 // never crashes.
 void bb_serialize_console_heap_report(const char *label);
 
+// ---------------------------------------------------------------------------
+// Task-stack-over-serial periodic report -- built on bb_task's base
+// registry (components/bb_task, bb_task_base_foreach()), the SSOT every
+// live FreeRTOS task's stack high-water free bytes is persisted to by the
+// periodic base-scan (platform/espidf/bb_task_registry/
+// bb_task_registry_base_scan.c), which already computes the value via
+// bb_num_words_to_bytes() (B1-1128) -- this component reads that persisted
+// value rather than sampling FreeRTOS a third time.
+//
+// One line PER TASK, not one nested report: bb_serialize_console_render()
+// is flat/scalar-only (see the comment on bb_serialize_console_emit() above)
+// and cannot render an array of task rows as a single structured line, so
+// bb_serialize_console_tasks_report() walks a bounded snapshot and emits one
+// bb_serialize_console_render() + bb_log_i() call per task (mirrors this
+// header's own per-row precedent, e.g. bb_diag_tasks_get_wire's per-task
+// rows, just logged instead of served).
+// ---------------------------------------------------------------------------
+
+// Independent of BB_TASK_NAME_MAX (bb_task.h) on purpose -- this public
+// header stays free of a bb_task dependency (bb_task is a PRIV_REQUIRES,
+// gather-implementation-only concern, see the .c file); the two constants
+// happen to share the same value today because both mirror
+// configMAX_TASK_NAME_LEN, not because one derives from the other.
+#define BB_SERIALIZE_CONSOLE_TASKS_NAME_MAX 20
+
+// One task's row: a subset of bb_task_base_entry_t (bb_task.h) plus the
+// derived `used_bytes` -- the console line most consumers actually want
+// ("how much of the budget is gone"), since free_bytes alone is easy to
+// misread as "the WHOLE stack" rather than "what's left of it".
+// uint64_t (not uint32_t) for the same portable-descriptor-width reason as
+// bb_serialize_console_heap_snap_t above.
+typedef struct {
+    char     name[BB_SERIALIZE_CONSOLE_TASKS_NAME_MAX];
+    // free_bytes is present-gated (see bb_serialize_console_tasks_desc) on
+    // `sampled` below -- a task upserted since the last base-scan pass has
+    // free_bytes==0 with sampled==false, and MUST render as unmeasured
+    // rather than a false "0 bytes free" alarm (bb_task.h's
+    // bb_task_base_entry_t.sampled is the SSOT for this bit).
+    uint64_t free_bytes;
+    // budget/used are present-gated (see bb_serialize_console_tasks_desc)
+    // on stack_budget_bytes > 0 -- 0 means bb_task never learned this
+    // task's budget (e.g. a third-party task, such as ESP-IDF's own
+    // wifi_prov_mgr, that the base-scan discovered but that never went
+    // through bb_task_create()/bb_task_registry_register()). used_bytes is
+    // additionally gated on `sampled` (it's derived from free_bytes, so it
+    // can't be trusted before free_bytes has ever been sampled either).
+    uint64_t stack_budget_bytes;
+    uint64_t used_bytes;
+    // Mirrors bb_task_base_entry_t.sampled (bb_task.h) -- not itself
+    // rendered, only used to gate free_bytes/used_bytes presence above.
+    bool     sampled;
+} bb_serialize_console_tasks_row_snap_t;
+
+// Descriptor for bb_serialize_console_tasks_row_snap_t -- the SSOT
+// bb_serialize_console_tasks_report() walks (once per row) via
+// bb_serialize_console_render().
+extern const bb_serialize_desc_t bb_serialize_console_tasks_row_desc;
+
+// Snapshots every entry in bb_task's base registry (bb_task_base_foreach())
+// into `dst` (a caller-owned array of `cap` bb_serialize_console_tasks_row_snap_t),
+// copy-only (no I/O, matching bb_task_base_foreach()'s in-lock cb
+// contract). Returns the number of rows written (0..cap) -- never more than
+// `cap`, silently stopping there if the live registry holds more (the same
+// truncate-don't-overflow contract as this header's render function). `dst`
+// must be non-NULL when `cap` > 0.
+size_t bb_serialize_console_tasks_gather(bb_serialize_console_tasks_row_snap_t *dst, size_t cap);
+
+// Gathers a fresh task-stack snapshot and logs ONE bb_log_i() line PER TASK,
+// each prefixed with `label` (e.g. "tick"), via
+// bb_serialize_console_tasks_row_desc/bb_serialize_console_render(). No
+// heap: the snapshot lives in a bounded file-static array (sized off
+// BB_TASK_BASE_MAX_CAP, kept off this single caller's stack on purpose --
+// see bb_serialize_console_tasks.c), plus a small on-stack per-line render
+// buffer. A registry with zero tracked tasks logs nothing (not an error).
+void bb_serialize_console_tasks_report(const char *label);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "bb_serialize_console.h"
 #include "bb_serialize_format.h"
+#include "bb_task.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -348,6 +349,194 @@ void test_bb_serialize_console_heap_report_smoke(void)
 {
     bb_serialize_console_heap_report("boot");
     bb_serialize_console_heap_report(NULL);
+}
+
+// ---------------------------------------------------------------------------
+// bb_serialize_console_tasks_gather / _row_desc / _report -- reads
+// bb_task's base registry (BB_TASK_TESTING seam: bb_task_base_upsert() +
+// bb_task_base_set_free_bytes() seed entries directly, no real FreeRTOS
+// task/scan needed).
+// ---------------------------------------------------------------------------
+
+void test_bb_serialize_console_tasks_gather_rejects_null_dst(void)
+{
+    bb_task_base_test_reset();
+    TEST_ASSERT_EQUAL_UINT(0, bb_serialize_console_tasks_gather(NULL, 4));
+}
+
+void test_bb_serialize_console_tasks_gather_rejects_zero_cap(void)
+{
+    bb_task_base_test_reset();
+    bb_serialize_console_tasks_row_snap_t rows[1];
+    TEST_ASSERT_EQUAL_UINT(0, bb_serialize_console_tasks_gather(rows, 0));
+}
+
+void test_bb_serialize_console_tasks_gather_empty_registry_yields_zero_rows(void)
+{
+    bb_task_base_test_reset();
+    bb_serialize_console_tasks_row_snap_t rows[4];
+    TEST_ASSERT_EQUAL_UINT(0, bb_serialize_console_tasks_gather(rows, 4));
+}
+
+static const bb_serialize_console_tasks_row_snap_t *find_row(
+    const bb_serialize_console_tasks_row_snap_t *rows, size_t n, const char *name)
+{
+    for (size_t i = 0; i < n; i++) {
+        if (strcmp(rows[i].name, name) == 0) return &rows[i];
+    }
+    return NULL;
+}
+
+// A "known-budget" task (created via bb_task_create()/bb_task_registry_register()
+// in real life, seeded here via bb_task_base_upsert()) surfaces budget/used;
+// a scan-only placeholder (budget unknown, e.g. a third-party task like
+// wifi_prov_mgr) surfaces free_bytes only.
+void test_bb_serialize_console_tasks_gather_computes_used_bytes_when_budget_known(void)
+{
+    bb_task_base_test_reset();
+    int known, unknown;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&known, "known", 4096, false));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_set_free_bytes(&known, 1000));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&unknown, "unknown", 0, false));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_set_free_bytes(&unknown, 500));
+
+    bb_serialize_console_tasks_row_snap_t rows[4];
+    size_t n = bb_serialize_console_tasks_gather(rows, 4);
+    TEST_ASSERT_EQUAL_UINT(2, n);
+
+    const bb_serialize_console_tasks_row_snap_t *k = find_row(rows, n, "known");
+    TEST_ASSERT_NOT_NULL(k);
+    TEST_ASSERT_TRUE(k->sampled);
+    TEST_ASSERT_EQUAL_UINT64(1000, k->free_bytes);
+    TEST_ASSERT_EQUAL_UINT64(4096, k->stack_budget_bytes);
+    TEST_ASSERT_EQUAL_UINT64(3096, k->used_bytes);
+
+    const bb_serialize_console_tasks_row_snap_t *u = find_row(rows, n, "unknown");
+    TEST_ASSERT_NOT_NULL(u);
+    TEST_ASSERT_TRUE(u->sampled);
+    TEST_ASSERT_EQUAL_UINT64(500, u->free_bytes);
+    TEST_ASSERT_EQUAL_UINT64(0, u->stack_budget_bytes);
+    TEST_ASSERT_EQUAL_UINT64(0, u->used_bytes);
+}
+
+// Defensive clamp: free_bytes observed greater than the known budget (a
+// stale-sample edge case, see bb_serialize_console_tasks.c's gather comment)
+// must clamp used_bytes to 0, never underflow.
+void test_bb_serialize_console_tasks_gather_clamps_used_bytes_when_free_exceeds_budget(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&fake, "odd", 1024, false));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_set_free_bytes(&fake, 2048));
+
+    bb_serialize_console_tasks_row_snap_t rows[1];
+    size_t n = bb_serialize_console_tasks_gather(rows, 1);
+    TEST_ASSERT_EQUAL_UINT(1, n);
+    TEST_ASSERT_EQUAL_UINT64(0, rows[0].used_bytes);
+}
+
+// [HIGH review finding] Reproduces the gap the existing gather tests can't
+// catch: they always call bb_task_base_set_free_bytes() before gathering.
+// A task upserted but never scanned must gather with sampled==false and
+// free_bytes==0, distinguishably from a genuinely-scanned low reading.
+void test_bb_serialize_console_tasks_gather_marks_unsampled_task_unsampled(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&fake, "never-scanned", 4096, false));
+
+    bb_serialize_console_tasks_row_snap_t rows[1];
+    size_t n = bb_serialize_console_tasks_gather(rows, 1);
+    TEST_ASSERT_EQUAL_UINT(1, n);
+    TEST_ASSERT_FALSE(rows[0].sampled);
+    TEST_ASSERT_EQUAL_UINT64(0, rows[0].free_bytes);
+    TEST_ASSERT_EQUAL_UINT64(4096, rows[0].stack_budget_bytes);
+
+    char buf[160];
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_console_render(&bb_serialize_console_tasks_row_desc, &rows[0],
+                                                          buf, sizeof(buf), &out_len));
+    TEST_ASSERT_EQUAL_STRING("name=never-scanned budget_bytes=4096", buf);
+}
+
+void test_bb_serialize_console_tasks_gather_truncates_at_cap(void)
+{
+    bb_task_base_test_reset();
+    int a, b, c;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&a, "a", 0, false));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&b, "b", 0, false));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&c, "c", 0, false));
+
+    bb_serialize_console_tasks_row_snap_t rows[2];
+    TEST_ASSERT_EQUAL_UINT(2, bb_serialize_console_tasks_gather(rows, 2));
+}
+
+void test_bb_serialize_console_tasks_row_desc_matches_snap_layout(void)
+{
+    TEST_ASSERT_EQUAL_STRING("bb_serialize_console_tasks_row_snap_t",
+                              bb_serialize_console_tasks_row_desc.type_name);
+    TEST_ASSERT_EQUAL_UINT16(4, bb_serialize_console_tasks_row_desc.n_fields);
+    TEST_ASSERT_EQUAL_UINT16(sizeof(bb_serialize_console_tasks_row_snap_t),
+                              bb_serialize_console_tasks_row_desc.snap_size);
+}
+
+void test_bb_serialize_console_tasks_row_desc_renders_with_budget(void)
+{
+    bb_serialize_console_tasks_row_snap_t row = { .free_bytes = 1000, .stack_budget_bytes = 4096, .used_bytes = 3096, .sampled = true };
+    strncpy(row.name, "known", sizeof(row.name) - 1);
+
+    char buf[160];
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_console_render(&bb_serialize_console_tasks_row_desc, &row,
+                                                          buf, sizeof(buf), &out_len));
+    TEST_ASSERT_EQUAL_STRING("name=known free_bytes=1000 budget_bytes=4096 used_bytes=3096", buf);
+}
+
+void test_bb_serialize_console_tasks_row_desc_renders_without_budget(void)
+{
+    bb_serialize_console_tasks_row_snap_t row = { .free_bytes = 500, .sampled = true };
+    strncpy(row.name, "unknown", sizeof(row.name) - 1);
+
+    char buf[160];
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_console_render(&bb_serialize_console_tasks_row_desc, &row,
+                                                          buf, sizeof(buf), &out_len));
+    TEST_ASSERT_EQUAL_STRING("name=unknown free_bytes=500", buf);
+}
+
+// [HIGH review finding] A task that was upserted (so bb_task knows its
+// name/budget) but whose free_bytes has never been written by
+// bb_task_base_set_free_bytes() -- i.e. no base-scan pass has landed for it
+// yet -- must render as UNMEASURED, not as a false "0 bytes free" alarm.
+void test_bb_serialize_console_tasks_row_desc_renders_without_sample(void)
+{
+    bb_serialize_console_tasks_row_snap_t row = { .stack_budget_bytes = 4096 };
+    strncpy(row.name, "unsampled", sizeof(row.name) - 1);
+
+    char buf[160];
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_console_render(&bb_serialize_console_tasks_row_desc, &row,
+                                                          buf, sizeof(buf), &out_len));
+    // budget_bytes still renders (a known, configured budget is independent
+    // of whether a scan has sampled free_bytes yet) but free_bytes/used_bytes
+    // do not.
+    TEST_ASSERT_EQUAL_STRING("name=unsampled budget_bytes=4096", buf);
+}
+
+// bb_serialize_console_tasks_report() itself has no observable return value
+// (it logs, one line per task) -- smoke/no-crash check for the empty
+// registry, labelled, and NULL-label paths; per-row content is covered
+// above via the desc+gather+render path directly.
+void test_bb_serialize_console_tasks_report_smoke(void)
+{
+    bb_task_base_test_reset();
+    bb_serialize_console_tasks_report("tick");
+
+    int fake;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&fake, "worker", 2048, false));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_set_free_bytes(&fake, 1500));
+    bb_serialize_console_tasks_report("tick");
+    bb_serialize_console_tasks_report(NULL);
 }
 
 // ---------------------------------------------------------------------------

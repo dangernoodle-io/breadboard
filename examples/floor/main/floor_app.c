@@ -46,6 +46,7 @@
 #include "bb_temp.h"
 #include "bb_wifi_prov.h"
 #include "bb_wifi_prov_default_form.h"
+#include "bb_task_registry.h"
 #include "bb_system.h"
 #include "floor_prov_reboot.h"
 #include <inttypes.h>
@@ -57,6 +58,16 @@ static const char *TAG = "floor_app";
 // the floor's single hand-wired job; a #define matches the floor's
 // hand-wired-not-registry-driven ethos.
 #define FLOOR_HEAP_LOG_INTERVAL_MS 5000
+
+// Task-stack report interval (ms). Deliberately its OWN timer, not reused
+// off heap_log_tick: the data this reports (bb_task_base_foreach()'s
+// free_bytes) only changes once per periodic base-scan pass
+// (BB_TASK_REGISTRY_BASE_POLL_MS, Kconfig-bridged default 10s) -- ticking
+// at heap's faster 5s cadence would just log the SAME scan's numbers twice
+// as often, adding lines without adding information. This interval is a
+// touch above that default so each report reflects a scan that has already
+// run, not a stale one from before floor's own boot-time reads.
+#define FLOOR_TASK_STACK_LOG_INTERVAL_MS 12000
 
 // bb_lifecycle handle for the "http" service. Init to the invalid sentinel
 // so an unexpected pre-register observer fire is a no-op, never a stale
@@ -122,6 +133,41 @@ static void heap_log_tick(void *arg)
 {
     (void)arg;
     bb_serialize_console_heap_report("tick");
+}
+
+// The floor's second telemetry SOURCE (per-task stack high-water marks):
+// bb_serialize_console_tasks_report() -- gather (bb_task_base_foreach(), the
+// SSOT populated by bb_task_registry's periodic base-scan) -> render (one
+// bb_serialize_console_render() line per task) -> bb_log_i() per task, all
+// internal to that call. Serial only, same measured-not-published posture
+// as heap_log_tick above. Own bb_timer MODE-A job (see
+// FLOOR_TASK_STACK_LOG_INTERVAL_MS above for why not heap's timer) on the
+// shared bb_timer_disp task -- no dedicated task.
+static void task_stack_log_tick(void *arg)
+{
+    (void)arg;
+    bb_serialize_console_tasks_report("tick");
+}
+
+// Shared by both of floor's periodic-log jobs (heap_log_timer,
+// task_stack_log_timer): bb_timer_deferred_periodic_create() ->
+// bb_timer_periodic_start(), warning and returning NULL on either failure.
+// Local to floor (not a bb_timer/bb_core helper) -- this is app-wiring
+// boilerplate, not a shared library idiom; smoke's own single instance of
+// the same shape wires its own timer independently, per each example's
+// hand-wired-not-registry-driven posture.
+static bb_periodic_timer_t start_periodic_log_timer(void (*tick)(void *arg),
+                                                      const char *name,
+                                                      uint64_t interval_ms)
+{
+    bb_periodic_timer_t timer = NULL;
+    bb_err_t err = bb_timer_deferred_periodic_create(tick, NULL, name, &timer);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "%s: timer create failed (%d)", name, (int)err);
+        return NULL;
+    }
+    bb_timer_periodic_start(timer, interval_ms * 1000ULL);
+    return timer;
 }
 
 // bb_diag section fill adapter: bb_diag_fill_fn's signature is untyped
@@ -359,6 +405,16 @@ void app_main(void)
     bb_storage_nvs_register();
     bb_wifi_ensure_net_stack();
     bb_lifecycle_autoinit();
+
+    // Starts the periodic base-scan (PRE_HTTP tier, called directly here per
+    // floor's handwire convention) that populates bb_task_base_foreach()'s
+    // free_bytes -- the SSOT task_stack_log_tick's report below reads. Must
+    // run before that timer's first tick has anything meaningful to report;
+    // a no-op (returns BB_OK) if CONFIG_FREERTOS_USE_TRACE_FACILITY is off.
+    bb_err_t task_scan_err = bb_task_registry_base_scan_start();
+    if (task_scan_err != BB_OK) {
+        bb_log_w(TAG, "task_registry_base_scan_start failed (%d)", (int)task_scan_err);
+    }
 
     // Baseline reading: HTTP stopped, WiFi not yet started.
     bb_serialize_console_heap_report("baseline-http-stopped");
@@ -635,15 +691,14 @@ void app_main(void)
     // previous one -- that is fine, not a bug.
     bb_serialize_console_heap_report("with-prov-running");
 
-    bb_periodic_timer_t heap_log_timer = NULL;
-    err = bb_timer_deferred_periodic_create(
-        heap_log_tick, NULL, "heap_log", &heap_log_timer);
-    if (err == BB_OK) {
-        bb_timer_periodic_start(heap_log_timer,
-                                (uint64_t)FLOOR_HEAP_LOG_INTERVAL_MS * 1000ULL);
-    } else {
-        bb_log_w(TAG, "heap_log: timer create failed (%d)", (int)err);
-    }
+    bb_periodic_timer_t heap_log_timer =
+        start_periodic_log_timer(heap_log_tick, "heap_log", FLOOR_HEAP_LOG_INTERVAL_MS);
+    (void)heap_log_timer;
 
-    // app_main returns; heap-log job runs on the bb_timer_disp task.
+    bb_periodic_timer_t task_stack_log_timer =
+        start_periodic_log_timer(task_stack_log_tick, "task_stack_log", FLOOR_TASK_STACK_LOG_INTERVAL_MS);
+    (void)task_stack_log_timer;
+
+    // app_main returns; heap-log and task-stack-log jobs run on the shared
+    // bb_timer_disp task.
 }

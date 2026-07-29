@@ -296,6 +296,86 @@ void test_bb_task_base_touch_updates_seen_tick_not_other_fields(void)
     TEST_ASSERT_EQUAL_UINT32(7, scan.seen_tick);
 }
 
+// ---------------------------------------------------------------------------
+// bb_task_base_set_free_bytes
+// ---------------------------------------------------------------------------
+
+void test_bb_task_base_set_free_bytes_null_handle_returns_invalid_arg(void)
+{
+    bb_task_base_test_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_base_set_free_bytes(NULL, 100));
+}
+
+void test_bb_task_base_set_free_bytes_unregistered_returns_not_found(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_task_base_set_free_bytes(&fake, 100));
+}
+
+typedef struct {
+    void     *target;
+    uint32_t  seen_tick;
+    uint32_t  free_bytes;
+    bool      sampled;
+    bool      found;
+} free_bytes_find_ctx_t;
+
+static void free_bytes_find_by_handle_cb(void *handle, const bb_task_base_entry_t *entry, void *ctx)
+{
+    free_bytes_find_ctx_t *scan = (free_bytes_find_ctx_t *)ctx;
+    if (handle == scan->target) {
+        scan->found      = true;
+        scan->seen_tick  = entry->seen_tick;
+        scan->free_bytes = entry->free_bytes;
+        scan->sampled    = entry->sampled;
+    }
+}
+
+// [HIGH review finding] A registered task whose base-scan hasn't landed yet
+// (upserted, never bb_task_base_set_free_bytes()'d) must report sampled ==
+// false -- the caller-visible signal that free_bytes==0 here is "unmeasured",
+// not "genuinely out of headroom". Existing set_free_bytes tests always call
+// it before gathering, so they can't catch a regression of this bit.
+void test_bb_task_base_upserted_task_reports_unsampled_until_set_free_bytes(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&fake, "worker", 512, true));
+
+    free_bytes_find_ctx_t scan = { .target = &fake };
+    bb_task_base_foreach(free_bytes_find_by_handle_cb, &scan);
+    TEST_ASSERT_TRUE(scan.found);
+    TEST_ASSERT_FALSE(scan.sampled);
+    TEST_ASSERT_EQUAL_UINT32(0, scan.free_bytes);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_set_free_bytes(&fake, 384));
+
+    scan = (free_bytes_find_ctx_t){ .target = &fake };
+    bb_task_base_foreach(free_bytes_find_by_handle_cb, &scan);
+    TEST_ASSERT_TRUE(scan.found);
+    TEST_ASSERT_TRUE(scan.sampled);
+    TEST_ASSERT_EQUAL_UINT32(384, scan.free_bytes);
+}
+
+void test_bb_task_base_set_free_bytes_updates_free_bytes_not_other_fields(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&fake, "worker", 512, true));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_touch(&fake, 7));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_set_free_bytes(&fake, 384));
+
+    free_bytes_find_ctx_t scan = { .target = &fake };
+    bb_task_base_foreach(free_bytes_find_by_handle_cb, &scan);
+    TEST_ASSERT_TRUE(scan.found);
+    TEST_ASSERT_EQUAL_UINT32(384, scan.free_bytes);
+    TEST_ASSERT_TRUE(scan.sampled);
+    // seen_tick (set by the touch() call above) must be untouched by
+    // set_free_bytes().
+    TEST_ASSERT_EQUAL_UINT32(7, scan.seen_tick);
+}
+
 typedef struct {
     int calls;
 } foreach_capture_t;

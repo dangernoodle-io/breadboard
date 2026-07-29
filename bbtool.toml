@@ -337,6 +337,13 @@ remove_components = ["bb_wifi_ap"]
 # B1-1255: bb_prov_default_form (the default provisioning form) folded into
 # bb_wifi_prov itself -- it was never an approved standalone component (see
 # bb_wifi_prov_default_form.h). No longer a separate closure entry.
+#
+# bb_task_registry: floor_app.c directly calls
+# bb_task_registry_base_scan_start() (periodic per-task stack high-water
+# scan feeding the console stack report) -- listed here as a direct
+# dependency even though it currently also resolves transitively via
+# bb_diag_http/bb_health's own PRIV_REQUIRES, since floor's own #include
+# makes it load-bearing regardless of either intermediary's deps.
 components = [
     "bb_log", "bb_meminfo", "bb_timer",
     "bb_wifi", "bb_storage_nvs", "bb_storage_rtc", "bb_settings",
@@ -344,7 +351,7 @@ components = [
     "bb_data", "bb_serialize_json", "bb_system", "bb_diag", "bb_diag_http",
     "bb_serialize_console", "bb_health", "bb_temp",
     "bb_log_event", "bb_mqtt_client", "bb_mdns", "bb_data_http",
-    "bb_wifi_prov",
+    "bb_wifi_prov", "bb_task_registry",
 ]
 
 [board.floor]

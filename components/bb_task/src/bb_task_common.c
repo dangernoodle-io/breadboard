@@ -205,6 +205,27 @@ bb_err_t bb_task_base_touch(void *handle, uint32_t now_tick)
     return BB_OK;
 }
 
+bb_err_t bb_task_base_set_free_bytes(void *handle, uint32_t free_bytes)
+{
+    if (!handle) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    pthread_mutex_lock(&s_lock);
+
+    void *existing = bb_registry_lookup_ptr(&s_base_registry, handle);
+    if (!existing) {
+        pthread_mutex_unlock(&s_lock);
+        return BB_ERR_NOT_FOUND;
+    }
+
+    bb_task_base_entry_t *entry = (bb_task_base_entry_t *)existing;
+    entry->free_bytes = free_bytes;
+    entry->sampled    = true;
+    pthread_mutex_unlock(&s_lock);
+    return BB_OK;
+}
+
 #ifdef BB_TASK_TESTING
 // Test-only race injection state -- see bb_task_base_test_arm_race_insert()
 // (bb_task.h) and bb_task_base_touch_or_insert() below.

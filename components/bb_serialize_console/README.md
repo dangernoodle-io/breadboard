@@ -22,6 +22,8 @@ Public symbols use the `bb_` prefix.
 | `bb_meminfo` | private | Canonical system-heap reader SSOT (KB #698/#699/#693) — the one component that | [bb_meminfo](../bb_meminfo/README.md) |
 | `bb_num` | private | Portable numeric helpers: clamp, decimal formatting, and 32-bit byte-order (bswap) primitives. | [bb_num](../bb_num/README.md) |
 | `bb_serialize` | public | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
+| `bb_str` | private | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. | [bb_str](../bb_str/README.md) |
+| `bb_task` | private | — | [bb_task](../README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support
