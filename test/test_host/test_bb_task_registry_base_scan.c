@@ -58,6 +58,7 @@ typedef struct {
     bool      found;
     uint32_t  stack_bytes;
     bool      wdt_arm;
+    uint32_t  free_bytes;
 } find_ctx_t;
 
 static void find_cb(void *handle, const bb_task_base_entry_t *entry, void *ctx)
@@ -67,6 +68,7 @@ static void find_cb(void *handle, const bb_task_base_entry_t *entry, void *ctx)
         fc->found       = true;
         fc->stack_bytes = entry->stack_bytes;
         fc->wdt_arm     = entry->wdt_arm;
+        fc->free_bytes  = entry->free_bytes;
     }
 }
 
@@ -84,6 +86,30 @@ void test_bb_task_registry_base_scan_apply_inserts_new_handle_placeholder(void)
     TEST_ASSERT_TRUE(fc.found);
     TEST_ASSERT_EQUAL_UINT32(0, fc.stack_bytes);
     TEST_ASSERT_FALSE(fc.wdt_arm);
+    TEST_ASSERT_EQUAL_UINT32(1000, fc.free_bytes);
+}
+
+// The console-report SSOT (B1-1128's bb_num_words_to_bytes consolidation
+// continued): free_bytes persists onto the base entry every scan, so a
+// later scan's lower reading overwrites an earlier scan's higher one --
+// bb_task_base_foreach() always reflects the MOST RECENT sample, not a
+// frozen first-seen value (unlike the low-stack handler's debounced
+// once-per-transition contract, which this deliberately does not reuse).
+void test_bb_task_registry_base_scan_apply_updates_free_bytes_across_scans(void)
+{
+    local_reset();
+    int fake;
+    bb_task_registry_base_row_t rows[1] = { { .handle = &fake, .free_bytes = 1000 } };
+    strncpy(rows[0].name, "task", sizeof(rows[0].name) - 1);
+
+    bb_task_registry_base_scan_apply(rows, 1, 1);
+    rows[0].free_bytes = 250;
+    bb_task_registry_base_scan_apply(rows, 1, 2);
+
+    find_ctx_t fc = { .target = &fake };
+    bb_task_base_foreach(find_cb, &fc);
+    TEST_ASSERT_TRUE(fc.found);
+    TEST_ASSERT_EQUAL_UINT32(250, fc.free_bytes);
 }
 
 void test_bb_task_registry_base_scan_apply_never_clobbers_already_tracked_handle(void)

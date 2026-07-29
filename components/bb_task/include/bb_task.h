@@ -129,6 +129,23 @@ typedef struct {
     uint32_t  stack_bytes;
     bool      wdt_arm;
     uint32_t  seen_tick;
+    // Current stack high-water FREE bytes, last observed by the periodic
+    // base-scan (platform/espidf/bb_task_registry/bb_task_registry_base_scan.c)
+    // via bb_task_base_set_free_bytes() below. 0 until the first scan
+    // observes this handle (e.g. between bb_task_create()/
+    // bb_task_registry_register() and the next scan tick). Non-increasing
+    // over a task's life -- FreeRTOS's own high-water-mark semantics.
+    // NOTE: 0 here is ambiguous between "never scanned" and "genuinely no
+    // headroom left" -- consumers MUST check `sampled` below rather than
+    // treating a bare 0 as a real reading.
+    uint32_t  free_bytes;
+    // True once bb_task_base_set_free_bytes() has landed at least one
+    // sample for this handle; false from insert (upsert zero-initializes
+    // the pool slot -- see bb_task_common.c) until that first write. Lets a
+    // consumer (e.g. bb_serialize_console_tasks_report()) distinguish
+    // "unmeasured" from "measured and free_bytes happens to be 0" instead
+    // of relying on scan/report timer choreography to always win the race.
+    bool      sampled;
 } bb_task_base_entry_t;
 
 // Create-if-absent, update-if-present. Tolerates re-invocation on the same
@@ -149,6 +166,19 @@ bb_err_t bb_task_base_remove(void *handle);
 // Returns BB_ERR_INVALID_ARG if handle is NULL.
 // Returns BB_ERR_NOT_FOUND if handle was never upserted.
 bb_err_t bb_task_base_touch(void *handle, uint32_t now_tick);
+
+// Records `free_bytes` (current stack high-water free bytes) on `handle`'s
+// base entry -- does NOT touch seen_tick/name/stack_bytes/wdt_arm. Written
+// by the periodic base-scan (task-registry unification PR3) from the SAME
+// uxTaskGetStackHighWaterMark() sample already taken for the low-stack
+// check, so this persists an already-computed value rather than sampling
+// FreeRTOS a second time. Also sets the entry's `sampled` bit -- the ONLY
+// place that bit is ever set -- so a consumer reading `free_bytes` before
+// this has ever run for `handle` can tell "unmeasured" apart from a
+// genuine (and possibly alarming) low reading.
+// Returns BB_ERR_INVALID_ARG if handle is NULL.
+// Returns BB_ERR_NOT_FOUND if handle was never upserted.
+bb_err_t bb_task_base_set_free_bytes(void *handle, uint32_t free_bytes);
 
 // Atomic touch-or-insert -- a SINGLE critical section performs the
 // lookup-then-touch-or-insert decision, closing the race a separately

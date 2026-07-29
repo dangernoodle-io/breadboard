@@ -157,6 +157,16 @@ int bb_task_registry_base_scan_apply(const bb_task_registry_base_row_t *rows, in
             // entry in the gap (see bb_task_base_touch_or_insert, bb_task.h).
             bb_task_base_touch_or_insert(handle, rows[i].name, now_tick);
 
+            // 1b. persist this scan's free_bytes sample onto the base entry
+            // -- the SSOT a periodic console reporter (bb_serialize_console)
+            // reads via bb_task_base_foreach(), no second FreeRTOS sample.
+            // Best-effort like touch_or_insert() above (whose own return is
+            // likewise unchecked here): a BB_ERR_NOT_FOUND is possible only
+            // if that insert itself failed with BB_ERR_NO_SPACE, the same
+            // already-logged-elsewhere overflow condition bb_task_base_dropped()
+            // surfaces.
+            bb_task_base_set_free_bytes(handle, rows[i].free_bytes);
+
             // 2. low-stack transition, debounced by handle.
             if (s_low_handler) {
                 bool is_low = rows[i].free_bytes < s_low_threshold_bytes;
