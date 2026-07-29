@@ -379,21 +379,6 @@ void test_wifi_reconn_handshake_tier_unaffected_by_slow_tier(void)
 
 // --- lost-IP policy tests ---
 
-void test_wifi_reconn_should_reconnect_no_ip_associated_no_ip(void)
-{
-    TEST_ASSERT_TRUE(wifi_reconn_should_reconnect_no_ip(true, false));
-}
-
-void test_wifi_reconn_should_reconnect_no_ip_associated_has_ip(void)
-{
-    TEST_ASSERT_FALSE(wifi_reconn_should_reconnect_no_ip(true, true));
-}
-
-void test_wifi_reconn_should_reconnect_no_ip_not_associated(void)
-{
-    TEST_ASSERT_FALSE(wifi_reconn_should_reconnect_no_ip(false, false));
-}
-
 void test_wifi_reconn_policy_on_lost_ip_increments(void)
 {
     // Reset and use the module-level s_state and adapter
@@ -708,17 +693,6 @@ void test_fsm_got_ip_resets_and_transitions_connected(void)
     TEST_ASSERT_EQUAL(0, ctx.policy.handshake_fail_count);
     TEST_ASSERT_EQUAL_INT64(0, ctx.policy.first_fail_us);
     TEST_ASSERT_EQUAL(0, (int)bb_fsm_timer_count(&ctx.fsm));
-}
-
-// Row 3: STA_CONNECTED is log-only -- SAME, no action side effects.
-void test_fsm_connecting_sta_connected_is_log_only_same(void)
-{
-    wifi_reconn_ctx_t ctx;
-    fsm_fixture_init(&ctx, WR_CONNECTING);
-
-    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_STA_CONNECTED, NULL));
-    TEST_ASSERT_EQUAL_INT(WR_CONNECTING, bb_fsm_state(&ctx.fsm));
-    TEST_ASSERT_EQUAL(0, s_fake.connect_calls);
 }
 
 // Row 9: WR_CONNECTED + DISCONNECT within fast-retry tier -> WR_CONNECTING,

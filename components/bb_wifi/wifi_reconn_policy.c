@@ -105,11 +105,6 @@ void wifi_reconn_policy_on_got_ip(wifi_reconn_state_t *st)
     st->retry_count = 0;
 }
 
-bool wifi_reconn_should_reconnect_no_ip(bool associated, bool has_ip)
-{
-    return associated && !has_ip;
-}
-
 void wifi_reconn_policy_on_lost_ip(wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad)
 {
     if (!st || !ad) return;
@@ -452,7 +447,6 @@ static const bb_fsm_row_t wr_rows[] = {
 
     // 2-8: WR_CONNECTING
     { WR_CONNECTING, EV_GOT_IP,             NULL,                            act_on_got_ip,                  WR_CONNECTED },
-    { WR_CONNECTING, EV_STA_CONNECTED,      NULL,                            NULL,                            BB_FSM_STATE_SAME },
     // PR7 (B1-994/B1-806): ASSOC_LEAVE parks BEFORE the escalate-allowed row
     // so it never shadows/is shadowed by escalation for other reasons (the
     // escalate guards are reason-independent and stay untouched below).

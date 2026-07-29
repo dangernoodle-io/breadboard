@@ -191,12 +191,12 @@
       "type": "uncovered_branch"
     },
     {
-      "id": "166",
+      "id": "161",
       "path": "components/bb_wifi/wifi_reconn_policy.c",
       "type": "uncovered_branch"
     },
     {
-      "id": "202",
+      "id": "197",
       "path": "components/bb_wifi/wifi_reconn_policy.c",
       "type": "uncovered_branch"
     },
