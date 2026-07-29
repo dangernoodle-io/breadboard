@@ -1,13 +1,71 @@
 <!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>WiFi Setup</title>
 <style>body{font-family:sans-serif;max-width:420px;margin:2em auto;padding:0 1em}
-input,button{width:100%;padding:.6em;margin:.3em 0;box-sizing:border-box;font-size:1em}
-button{background:#2b6cb0;color:#fff;border:0;border-radius:4px;cursor:pointer}</style>
+input,select,button{width:100%;padding:.6em;margin:.3em 0;box-sizing:border-box;font-size:1em}
+button{background:#2b6cb0;color:#fff;border:0;border-radius:4px;cursor:pointer}
+button.secondary{background:#718096}
+small{color:#666;display:block;margin:-.2em 0 .5em}
+#scanmsg{font-size:.9em;color:#666;min-height:1.2em}</style>
 </head><body>
 <h2>WiFi Setup</h2>
 <form method="POST" action="/save">
-<label>SSID<input name="ssid" required></label>
+<label>Network<select id="ssidlist"><option value="">Manual entry below&hellip;</option></select></label>
+<div id="scanmsg"></div>
+<button type="button" class="secondary" id="rescan">Refresh networks</button>
+<small>Refreshing briefly disconnects you from this page &mdash; wait a few seconds and reload if it drops.</small>
+<label>SSID<input name="ssid" id="ssid" required></label>
 <label>Password<input name="pass" type="password"></label>
+<label>Hostname<input name="hostname" id="hostname" maxlength="32"></label>
+<small>Optional. Used as this device's mDNS name (e.g. "my-device" &rarr; my-device.local).</small>
 <button type="submit">Save</button>
 </form>
+<script>
+(function(){
+  var list = document.getElementById('ssidlist');
+  var ssid = document.getElementById('ssid');
+  var msg = document.getElementById('scanmsg');
+  var rescan = document.getElementById('rescan');
+
+  list.addEventListener('change', function(){
+    if (list.value) ssid.value = list.value;
+  });
+
+  function render(data){
+    while (list.options.length > 1) list.remove(1);
+    var aps = (data && data.aps) || [];
+    var state = data && data.state;
+    if (state === 'pending') {
+      msg.textContent = 'Scanning…';
+    } else if (state === 'not_started') {
+      msg.textContent = '';
+    } else if (aps.length === 0) {
+      msg.textContent = 'No networks found. Enter SSID manually below.';
+    } else {
+      msg.textContent = '';
+      aps.forEach(function(ap){
+        var opt = document.createElement('option');
+        opt.value = ap.ssid;
+        opt.textContent = ap.ssid + (ap.secure ? ' 🔒' : '') + ' (' + ap.rssi + ' dBm)';
+        list.appendChild(opt);
+      });
+    }
+  }
+
+  function scan(qs){
+    return fetch('/api/wifi/scan' + (qs || ''), { method: 'POST' })
+      .then(function(r){ return r.json(); })
+      .then(render)
+      .catch(function(){
+        msg.textContent = 'Scan unavailable — enter SSID manually below.';
+      });
+  }
+
+  rescan.addEventListener('click', function(){
+    msg.textContent = 'Refreshing… this briefly disconnects you from this page.';
+    scan('?refresh=1');
+  });
+
+  scan();
+})();
+</script>
 </body></html>
