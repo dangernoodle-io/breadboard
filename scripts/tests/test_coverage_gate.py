@@ -50,10 +50,11 @@ class _CoverageGateTestBase(unittest.TestCase):
         with mock.patch.object(sys, "argv", argv), \
              mock.patch.object(
                  coverage_gate.subprocess, "run",
-                 return_value=mock.Mock(returncode=0)), \
+                 return_value=mock.Mock(returncode=0)) as run_mock, \
              mock.patch.dict(os.environ, env), \
              redirect_stdout(out), redirect_stderr(err):
             rc = coverage_gate.main()
+        self.gcovr_cmd = run_mock.call_args[0][0] if run_mock.call_args else None
         return rc, out.getvalue(), err.getvalue(), tmp
 
 
@@ -89,6 +90,28 @@ class TestZeroTotalGuard(_CoverageGateTestBase):
     def test_nonzero_real_result_does_not_trip_the_guard(self):
         rc, _out, _err, _tmp = self._run(_NONZERO_SUMMARY)
         self.assertEqual(rc, 0)
+
+
+class TestGcovrTraversalExcludes(_CoverageGateTestBase):
+    """B1-1264: the gcovr argv is assembled in code and is otherwise only
+    line-covered, so a dropped --exclude-directories entry would pass every
+    test and surface instead as an environment-dependent gcovr abort (a stray
+    .gcda from another compiler major under .worktrees/ kills the whole run).
+    Assert flag/value adjacency, not mere membership."""
+
+    def _exclude_pairs(self):
+        self._run(_NONZERO_SUMMARY)
+        cmd = self.gcovr_cmd
+        self.assertIsNotNone(cmd, "gcovr was never invoked")
+        return [(cmd[i], cmd[i + 1]) for i in range(len(cmd) - 1)]
+
+    def test_dot_worktrees_is_excluded_from_traversal(self):
+        self.assertIn(("--exclude-directories", r"\.worktrees"),
+                      self._exclude_pairs())
+
+    def test_dot_claude_is_excluded_from_traversal(self):
+        self.assertIn(("--exclude-directories", r"\.claude"),
+                      self._exclude_pairs())
 
 
 class TestBaselineCheckWiring(_CoverageGateTestBase):
