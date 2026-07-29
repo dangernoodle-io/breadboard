@@ -263,3 +263,49 @@ void test_bb_num_bswap32_words_non_multiple_of_4_leaves_trailing_bytes_untouched
     TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x05, buf[4], "trailing partial group must be untouched");
     TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x06, buf[5], "trailing partial group must be untouched");
 }
+
+// bb_num_words_to_bytes -- portable word-count -> byte-count widening
+// (B1-1256 extraction: the shared "FreeRTOS stack words -> bytes" idiom,
+// previously hand-rolled independently at two ESP-IDF call sites).
+
+void test_bb_num_words_to_bytes_typical_stack_hwm(void)
+{
+    // A realistic ESP32 usStackHighWaterMark reading, word_size ==
+    // sizeof(StackType_t) on ESP32 (4).
+    TEST_ASSERT_EQUAL_INT64(2048, bb_num_words_to_bytes(512, 4));
+}
+
+void test_bb_num_words_to_bytes_zero_words(void)
+{
+    TEST_ASSERT_EQUAL_INT64(0, bb_num_words_to_bytes(0, 4));
+}
+
+void test_bb_num_words_to_bytes_word_size_one_is_identity(void)
+{
+    TEST_ASSERT_EQUAL_INT64(12345, bb_num_words_to_bytes(12345, 1));
+}
+
+void test_bb_num_words_to_bytes_diverges_from_uint32_width_multiply(void)
+{
+    // Guards against a bit-for-bit uint32_t-width reintroduction of the
+    // original bug (an internal uint32_t accumulator, or literally
+    // `(uint32_t)words * (uint32_t)word_size` in the function body --
+    // exactly what the pre-extraction base_scan.c copy computed). It
+    // canNOT catch a subtler cast-removal: on THIS host target, size_t is
+    // 64-bit, so a naive `words * word_size` with the (int64_t) casts
+    // simply dropped is already promoted to 64-bit by the size_t operand
+    // alone and produces the SAME correct answer here -- that class of
+    // regression is indistinguishable from correct on any 64-bit-size_t
+    // host and is unreachable from a host test. Nor does it reproduce the
+    // real 32-bit truncation ESP32's 4-byte size_t would hit -- host
+    // coverage can never exercise that either. This test only proves the
+    // narrower uint32_t-width-reintroduction case is caught.
+    uint32_t words     = UINT32_MAX;
+    size_t   word_size = 4;
+
+    int64_t real = bb_num_words_to_bytes(words, word_size);
+    int64_t uint32_width_wrapped = (int64_t)((uint32_t)words * (uint32_t)word_size);
+
+    TEST_ASSERT_EQUAL_INT64((int64_t)UINT32_MAX * 4, real);
+    TEST_ASSERT_NOT_EQUAL_INT64(uint32_width_wrapped, real);
+}

@@ -32,6 +32,7 @@
 #include "bb_system.h"
 #include "bb_reboot_reason.h"
 #include "bb_mem.h"
+#include "bb_num.h"
 #include "bb_task_registry.h"
 #include "bb_task.h"
 #include "bb_clock.h"
@@ -730,10 +731,18 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
                                             &sw_timeout_ms, &sw_feed_age_ms,
                                             &sw_miss_age_ms, &sw_miss_count);
 
+        // uxTaskGetSystemState() reports usStackHighWaterMark in FreeRTOS
+        // words; the wire field is documented/consumed in bytes (B1-1256).
+        // bb_num_words_to_bytes() is the SSOT conversion (also used by
+        // bb_task_registry_base_scan.c's periodic scan) -- sizeof(StackType_t),
+        // not a hardcoded 4, so this stays correct on non-ESP32 targets.
+        int64_t stack_hwm_bytes =
+            bb_num_words_to_bytes(arr[i].usStackHighWaterMark, sizeof(StackType_t));
+
         bb_diag_tasks_get_wire_fill_row(&rows[i], arr[i].pcTaskName,
                                          (int64_t)arr[i].uxCurrentPriority,
                                          (int64_t)arr[i].uxBasePriority,
-                                         (int64_t)arr[i].usStackHighWaterMark,
+                                         stack_hwm_bytes,
                                          state_str,
                                          core_present, core,
                                          runtime_present, runtime,

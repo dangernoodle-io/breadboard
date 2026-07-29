@@ -84,7 +84,11 @@ extern "C" {
 // Row source/wire struct -- one entry in the "tasks" BB_ARR_STREAM array.
 // `state` is a BORROWED bb_serialize_str_n_t pointing at a static task-state
 // name literal (see bb_diag_tasks_get_wire.c) -- same convention as
-// bb_diag_sockets_pcb_wire_t's `state` field.
+// bb_diag_sockets_pcb_wire_t's `state` field. `stack_hwm` is BYTES
+// (B1-1256), not the raw FreeRTOS word count uxTaskGetSystemState()
+// reports -- converted at the gather site (bb_diag_http_routes.c) so it's
+// directly comparable to a Kconfig stack-size byte budget, consistent with
+// bb_task_registry_base_scan.c's own word->byte conversion.
 // ---------------------------------------------------------------------------
 
 typedef struct {
@@ -224,10 +228,12 @@ const char *bb_diag_tasks_get_wire_get_schema(void);
 // host-testable without a live task list. `state_name` MUST point at
 // static-storage-duration text (a string literal or a static table entry --
 // never a stack buffer), mirroring bb_diag_sockets_get_wire_copy_rows()'s
-// `state` convention.
+// `state` convention. `stack_hwm_bytes` MUST already be in bytes (B1-1256)
+// -- this fn does no unit conversion, the ESP-IDF-only gather site
+// (bb_diag_http_routes.c) does.
 void bb_diag_tasks_get_wire_fill_row(bb_diag_tasks_get_wire_row_t *row,
                                       const char *name, int64_t prio, int64_t base_prio,
-                                      int64_t stack_hwm, const char *state_name,
+                                      int64_t stack_hwm_bytes, const char *state_name,
                                       bool core_present, int64_t core,
                                       bool runtime_present, int64_t runtime,
                                       bool registry_present, uint64_t stack_budget_bytes,

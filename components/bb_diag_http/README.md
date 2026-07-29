@@ -29,6 +29,7 @@ Public symbols use the `bb_` prefix.
 | `bb_http_server` | public | — | [bb_http_server](../README.md) |
 | `bb_log` | private | — | [bb_log](../README.md) |
 | `bb_ntp` | private | — | [bb_ntp](../README.md) |
+| `bb_num` | private | Portable numeric helpers: clamp, decimal formatting, and 32-bit byte-order (bswap) primitives. | [bb_num](../bb_num/README.md) |
 | `bb_ota_validator` | private | — | [bb_ota_validator](../README.md) |
 | `bb_serialize` | public | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
 | `bb_serialize_meta` | public | Device-shippable "cold metadata" companion engine for bb_serialize_desc_t (B1-767 PR-7, B1-1059): validation constraints + JSON-Schema docs for a future runtime OpenAPI schema generator, gated off by default. | [bb_serialize_meta](../bb_serialize_meta/README.md) |

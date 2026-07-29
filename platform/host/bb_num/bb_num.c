@@ -86,3 +86,8 @@ void bb_num_bswap32_words(uint8_t *buf, size_t len)
         w[2] = tmp;
     }
 }
+
+int64_t bb_num_words_to_bytes(uint32_t words, size_t word_size)
+{
+    return (int64_t)words * (int64_t)word_size;
+}

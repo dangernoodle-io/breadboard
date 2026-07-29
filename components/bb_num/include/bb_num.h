@@ -76,6 +76,20 @@ uint32_t bb_num_bswap32(uint32_t v);
 // any remainder bytes past the last full 4-byte group are left untouched.
 void bb_num_bswap32_words(uint8_t *buf, size_t len);
 
+// bb_num_words_to_bytes — widen a word count to a byte count, given the
+// caller-supplied word size. Extracted (B1-1256) after the same
+// "FreeRTOS stack high-water-mark words -> bytes" idiom was independently
+// hand-rolled at two ESP-IDF call sites (bb_task_registry_base_scan.c's
+// periodic scan and bb_diag_http's GET /api/diag/tasks gather) with two
+// different multiply widths -- one only incidentally safe (uint32_t,
+// correct for realistic stack sizes but not by construction). This helper
+// takes plain integers so it stays portable/host-testable (no
+// FreeRTOS/StackType_t dependency); callers pass `sizeof(StackType_t)` (or
+// any other word size) as `word_size`. Both operands are widened to
+// int64_t BEFORE multiplying, so the result is correct by construction —
+// never an incidental non-overflow.
+int64_t bb_num_words_to_bytes(uint32_t words, size_t word_size);
+
 #ifdef __cplusplus
 }
 #endif

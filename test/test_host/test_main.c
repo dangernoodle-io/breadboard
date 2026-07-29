@@ -3104,6 +3104,10 @@ void test_bb_num_bswap32_words_stratum_prevhash_sample(void);
 void test_bb_num_bswap32_words_single_group(void);
 void test_bb_num_bswap32_words_zero_len_is_noop(void);
 void test_bb_num_bswap32_words_non_multiple_of_4_leaves_trailing_bytes_untouched(void);
+void test_bb_num_words_to_bytes_typical_stack_hwm(void);
+void test_bb_num_words_to_bytes_zero_words(void);
+void test_bb_num_words_to_bytes_word_size_one_is_identity(void);
+void test_bb_num_words_to_bytes_diverges_from_uint32_width_multiply(void);
 
 // Forward declarations from test_bb_fmt.c
 void test_bb_fmt_hex_zero_nbytes_returns_zero_and_terminates(void);
@@ -7569,6 +7573,10 @@ int main(void) {
     RUN_TEST(test_bb_num_bswap32_words_single_group);
     RUN_TEST(test_bb_num_bswap32_words_zero_len_is_noop);
     RUN_TEST(test_bb_num_bswap32_words_non_multiple_of_4_leaves_trailing_bytes_untouched);
+    RUN_TEST(test_bb_num_words_to_bytes_typical_stack_hwm);
+    RUN_TEST(test_bb_num_words_to_bytes_zero_words);
+    RUN_TEST(test_bb_num_words_to_bytes_word_size_one_is_identity);
+    RUN_TEST(test_bb_num_words_to_bytes_diverges_from_uint32_width_multiply);
 
     // bb_fmt tests
     RUN_TEST(test_bb_fmt_hex_zero_nbytes_returns_zero_and_terminates);
