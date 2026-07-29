@@ -244,9 +244,9 @@ class TestComponentCMakeListsPositive(unittest.TestCase):
 
 class TestComponentBbEmbedAssets(unittest.TestCase):
     """bb_embed_assets(OUT_SRCS <var> ASSETS <file>:<symbol> ...) --
-    real-tree shape bb_prov_default_form. The generated OUT_SRCS .c file is
-    MODELED (never checked as a literal on-disk path); its ASSETS input
-    file(s) are validated instead."""
+    real-tree shape bb_wifi_prov's default provisioning form (B1-1255). The
+    generated OUT_SRCS .c file is MODELED (never checked as a literal
+    on-disk path); its ASSETS input file(s) are validated instead."""
 
     def test_asset_input_exists_passes(self):
         with tempfile.TemporaryDirectory() as td:
@@ -450,8 +450,8 @@ class TestComponentTargetIncludeDirectories(unittest.TestCase):
 
 
 class TestComponentIncludeCalls(unittest.TestCase):
-    """B1-1134 review HIGH finding: components/bb_prov_default_form/
-    CMakeLists.txt:1's include(...) with a depth-dependent relative path
+    """B1-1134 review HIGH finding: components/bb_wifi_prov/
+    CMakeLists.txt's include(...) with a depth-dependent relative path
     breaks the same way a stale SRCS path does on a group-move."""
 
     def test_fires_on_bad_include_path(self):

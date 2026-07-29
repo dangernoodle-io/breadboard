@@ -328,11 +328,15 @@ remove_components = ["bb_wifi_ap"]
 # before that freeze. This is unrelated to the still-out-of-scope
 # "health.stack" bb_data producer key noted above.
 #
-# B1-809 (validation vehicle): bb_wifi_prov + bb_prov_default_form added --
-# floor is the first caller of bb_wifi_prov_autoinit(), the orchestrator's
-# boot-time entry point. bb_wifi_ap is NOT listed here: it's already a
-# PRIV_REQUIRES of bb_wifi_prov's own CMakeLists.txt, so derive_component()
+# B1-809 (validation vehicle): bb_wifi_prov added -- floor is the first
+# caller of bb_wifi_prov_autoinit(), the orchestrator's boot-time entry
+# point. bb_wifi_ap is NOT listed here: it's already a PRIV_REQUIRES of
+# bb_wifi_prov's own CMakeLists.txt, so derive_component()
 # (scripts/bbtool/boards.py) pulls it into the closure transitively.
+#
+# B1-1255: bb_prov_default_form (the default provisioning form) folded into
+# bb_wifi_prov itself -- it was never an approved standalone component (see
+# bb_wifi_prov_default_form.h). No longer a separate closure entry.
 components = [
     "bb_log", "bb_meminfo", "bb_timer",
     "bb_wifi", "bb_storage_nvs", "bb_storage_rtc", "bb_settings",
@@ -340,7 +344,7 @@ components = [
     "bb_data", "bb_serialize_json", "bb_system", "bb_diag", "bb_diag_http",
     "bb_serialize_console", "bb_health", "bb_temp",
     "bb_log_event", "bb_mqtt_client", "bb_mdns", "bb_data_http",
-    "bb_wifi_prov", "bb_prov_default_form",
+    "bb_wifi_prov",
 ]
 
 [board.floor]

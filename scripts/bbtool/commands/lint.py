@@ -1813,7 +1813,7 @@ def _check_component_path_unresolved(ctx: Context) -> list:
     `${CMAKE_CURRENT_LIST_DIR}/../../...` path that assumed the OLD nesting
     depth — nothing catches that until a build fails, far from the
     CMakeLists.txt that actually moved. This includes `include(...)`'s own
-    argument (`components/bb_prov_default_form/CMakeLists.txt:1` includes
+    argument (`components/bb_wifi_prov/CMakeLists.txt` includes
     `cmake/bbtool.cmake` via a depth-dependent relative path — it breaks the
     same way a stale SRCS path does).
 
@@ -2129,6 +2129,85 @@ def _check_component_path_unresolved(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Rule: prov-default-form-internal-ref
+# ---------------------------------------------------------------------------
+
+# The form's own TU -- the one place these symbols may legitimately appear.
+# Anchored to the SPECIFIC repo-relative paths (POSIX-style, matching
+# ctx.files()'s path objects), never a bare basename -- a basename-only
+# exemption would silently exempt any same-named file relocated/duplicated
+# anywhere under the scanned globs, which is exactly the accident this rule
+# exists to catch.
+_PROV_DEFAULT_FORM_OWN_TU = frozenset({
+    "components/bb_wifi_prov/default_form/bb_wifi_prov_default_form.c",
+    "components/bb_wifi_prov/include/bb_wifi_prov_default_form.h",
+})
+
+_PROV_DEFAULT_FORM_REF_RE = re.compile(
+    r'\bbb_wifi_prov_default_form_(get|gz\w*)\b')
+
+
+def _check_prov_default_form_internal_ref(ctx: Context) -> list:
+    """Rule: prov-default-form-internal-ref — flags any reference to
+    bb_wifi_prov_default_form_get() or its generated gz blob
+    (bb_wifi_prov_default_form_gz/_gz_len) from inside bb_wifi_prov itself
+    (components/bb_wifi_prov/ or platform/*/bb_wifi_prov/), outside the
+    form's own translation unit
+    (components/bb_wifi_prov/default_form/bb_wifi_prov_default_form.c +
+    components/bb_wifi_prov/include/bb_wifi_prov_default_form.h).
+
+    B1-1255 folded the former (never-approved) bb_prov_default_form
+    component into bb_wifi_prov, on the premise that a consumer who never
+    calls the getter pays zero flash for the ~1117-byte gz blob (verified:
+    ESP-IDF components are static archives — the linker only pulls an
+    object file when something resolves an undefined symbol against it).
+    An internal reference from anywhere else in bb_wifi_prov would create
+    that undefined-symbol resolution unconditionally, hard-linking the blob
+    into EVERY consumer image — including consumers that supply their own
+    form — because bb_wifi_prov is always on the link line after the
+    fold-in.
+
+    This is the tripwire against B1-966 (auto-registering the built-in form
+    via runtime route precedence), which would require exactly the internal
+    reference this rule forbids. If auto-register is ever deliberately
+    adopted, delete this rule in that same change — as a visible decision,
+    not a silent regression.
+
+    Scans code only (via _strip_noise): a doc comment mentioning the
+    symbol names as a usage example (e.g. bb_wifi_prov.h's Doxygen block)
+    causes no linking and does not fire.
+
+    KNOWN LIMITATION: this is a textual, per-stripped-line regex check, not
+    an AST/token-based one. A reference deliberately split across physical
+    lines via a C backslash-newline splice inside the identifier evades it
+    (no compiler ever generates that spelling — this is a deliberate-
+    evasion-only gap, not a realistic false-negative). Do not treat this
+    rule as airtight against adversarial code."""
+    violations = []
+
+    for path in ctx.files(
+        ["components/bb_wifi_prov/**/*.c", "components/bb_wifi_prov/**/*.h",
+         "platform/*/bb_wifi_prov/**/*.c", "platform/*/bb_wifi_prov/**/*.h"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        rel = path.relative_to(Path(ctx.root)).as_posix()
+        if rel in _PROV_DEFAULT_FORM_OWN_TU:
+            continue
+
+        content = ctx.read(path)
+        stripped = _strip_noise(content)
+        for i, line in enumerate(stripped.splitlines(), 1):
+            if _PROV_DEFAULT_FORM_REF_RE.search(line):
+                violations.append(ctx.violation(
+                    path, i,
+                    "internal reference to the default-form getter/gz blob"
+                    " -- hard-links the ~1117-byte gz blob into every"
+                    " bb_wifi_prov consumer image (see rule docstring)"))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Rule registry
 # ---------------------------------------------------------------------------
 
@@ -2308,6 +2387,18 @@ def _register_lint_rules() -> None:
                  " only as a link-time undefined reference, and a stale"
                  " relative #include fails loud only at compile time, far"
                  " from the component move that broke it",
+        ),
+        Rule(
+            id="prov-default-form-internal-ref",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_prov_default_form_internal_ref,
+            hint="bb_wifi_prov must not reference the default-form getter"
+                 " (bb_wifi_prov_default_form_get) or its generated gz"
+                 " symbol outside the form's own TU -- an internal"
+                 " reference hard-links the ~1117-byte gz blob into every"
+                 " consumer image, including consumers that supply their"
+                 " own form (B1-1255)",
         ),
     ]
     for rule in rules:

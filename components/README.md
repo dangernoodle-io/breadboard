@@ -57,7 +57,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_power](./bb_power/) | — |
 | [bb_power_health](./bb_power_health/) | — |
 | [bb_power_tps546](./bb_power_tps546/) | — |
-| [bb_prov_default_form](./bb_prov_default_form/) | — |
 | [bb_queue](./bb_queue/) | — |
 | [bb_registry](./bb_registry/) | — |
 | [bb_release_manifest](./bb_release_manifest/) | — |

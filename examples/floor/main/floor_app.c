@@ -45,7 +45,7 @@
 #include "bb_health.h"
 #include "bb_temp.h"
 #include "bb_wifi_prov.h"
-#include "bb_prov_default_form.h"
+#include "bb_wifi_prov_default_form.h"
 #include "bb_system.h"
 #include "floor_prov_reboot.h"
 #include <inttypes.h>
@@ -623,7 +623,7 @@ void app_main(void)
     // bb_wifi_prov.h's registration-order invariant). Ordering after
     // bb_storage_nvs_register() and bb_wifi_ensure_net_stack() above still
     // holds, since those satisfy bb_wifi_ap_start()'s prerequisites.
-    const bb_http_asset_t *prov_asset = bb_prov_default_form_get();
+    const bb_http_asset_t *prov_asset = bb_wifi_prov_default_form_get();
     err = bb_wifi_prov_autoinit(prov_asset, 1, NULL);
     if (err != BB_OK) {
         bb_log_w(TAG, "wifi_prov_autoinit failed (%d)", (int)err);

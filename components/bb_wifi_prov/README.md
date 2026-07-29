@@ -8,6 +8,7 @@ bb_wifi_prov — Wi-Fi provisioning HTTP routes: parses a POSTed SSID/password f
 
 <!-- BEGIN bbtool:api -->
 - [`bb_wifi_prov.h`](include/bb_wifi_prov.h)
+- [`bb_wifi_prov_default_form.h`](include/bb_wifi_prov_default_form.h)
 
 Public symbols use the `bb_` prefix.
 <!-- END bbtool:api -->

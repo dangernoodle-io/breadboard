@@ -170,10 +170,10 @@ typedef bb_err_t (*bb_wifi_prov_extra_routes_fn_t)(bb_http_handle_t server);
  * route_registry.c's bb_dispatch_api_add() -- and never fails
  * bb_wifi_prov_start() over that.
  *
- * Caller MUST supply at least one asset with path="/" — no default form is
- * provided. For bare-minimum bringup, add REQUIRES bb_prov_default_form to
- * your component and pass:
- *   const bb_http_asset_t *a = bb_prov_default_form_get();
+ * Caller MUST supply at least one asset with path="/" — bb_wifi_prov ships a
+ * built-in default form but never registers it itself (composition-only).
+ * For bare-minimum bringup, include "bb_wifi_prov_default_form.h" and pass:
+ *   const bb_http_asset_t *a = bb_wifi_prov_default_form_get();
  *   bb_wifi_prov_start(a, 1, NULL);
  *
  * @param assets  Array of static HTTP assets; must contain a path="/" entry.
