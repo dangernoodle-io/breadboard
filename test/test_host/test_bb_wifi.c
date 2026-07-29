@@ -13,6 +13,14 @@
 // BB_CALLBACK_SLOT_* in platform/host/bb_wifi/bb_wifi_emit.c, host-compiled).
 bool bb_wifi_internal_ota_validated(void);
 
+// bb_wifi_got_ip_persist_decide (B1-1265) is the private pure decision
+// helper declared in platform/espidf/bb_wifi/wifi_reconn.h -- mirrored here
+// for the same reason as bb_wifi_internal_ota_validated above. Real, shipped
+// function defined in platform/host/bb_wifi/bb_wifi_emit.c (host-compiled).
+// Return type bb_wifi_got_ip_persist_t is public (bb_wifi.h).
+bb_wifi_got_ip_persist_t bb_wifi_got_ip_persist_decide(bool pending_try,
+                                                        bool boot_count_already_cleared);
+
 void test_bb_wifi_set_hostname_null(void)
 {
     bb_err_t err = bb_wifi_set_hostname(NULL);
@@ -1184,4 +1192,55 @@ void test_bb_wifi_mode_str_unknown_returns_not_associated(void)
 {
     const char *s = bb_wifi_mode_str((bb_wifi_mode_t)99);
     TEST_ASSERT_EQUAL_STRING("not_associated", s);
+}
+
+// ---------------------------------------------------------------------------
+// B1-1265: bb_wifi_got_ip_persist_decide -- pure decision helper for the
+// deferred IP_EVENT_STA_GOT_IP persist work (bb_wifi.c's
+// got_ip_persist_arm/got_ip_persist_work_fn, ESP-IDF only). Exhaustive 2x2
+// over (pending_try, boot_count_already_cleared) for 100% line+branch
+// coverage of the pure logic; the deferral/merge/timer-fallback machinery
+// around it is ESP-IDF-only and not host-testable (bb_wifi.c), same posture
+// as every other event_handler-adjacent seam in this component.
+// ---------------------------------------------------------------------------
+
+// pending_try -> promote (not mark_connected); boot count not yet cleared
+// this boot -> clear it.
+void test_bb_wifi_got_ip_persist_decide_pending_try_clears_boot_count(void)
+{
+    bb_wifi_got_ip_persist_t d = bb_wifi_got_ip_persist_decide(true, false);
+    TEST_ASSERT_TRUE(d.promote);
+    TEST_ASSERT_FALSE(d.mark_connected);
+    TEST_ASSERT_TRUE(d.clear_boot_count);
+}
+
+// pending_try -> promote; boot count already cleared this boot -> don't
+// re-decide a clear.
+void test_bb_wifi_got_ip_persist_decide_pending_try_boot_count_already_cleared(void)
+{
+    bb_wifi_got_ip_persist_t d = bb_wifi_got_ip_persist_decide(true, true);
+    TEST_ASSERT_TRUE(d.promote);
+    TEST_ASSERT_FALSE(d.mark_connected);
+    TEST_ASSERT_FALSE(d.clear_boot_count);
+}
+
+// no pending try -> mark_connected (not promote); boot count not yet cleared
+// -> clear it. This is also the CONFIG_BB_WIFI_RECONFIGURE-off shape (the
+// caller always passes pending_try=false in that build).
+void test_bb_wifi_got_ip_persist_decide_no_pending_try_clears_boot_count(void)
+{
+    bb_wifi_got_ip_persist_t d = bb_wifi_got_ip_persist_decide(false, false);
+    TEST_ASSERT_FALSE(d.promote);
+    TEST_ASSERT_TRUE(d.mark_connected);
+    TEST_ASSERT_TRUE(d.clear_boot_count);
+}
+
+// no pending try, boot count already cleared -> mark_connected only, no
+// re-clear. This is the common steady-state reconnect shape.
+void test_bb_wifi_got_ip_persist_decide_no_pending_try_boot_count_already_cleared(void)
+{
+    bb_wifi_got_ip_persist_t d = bb_wifi_got_ip_persist_decide(false, true);
+    TEST_ASSERT_FALSE(d.promote);
+    TEST_ASSERT_TRUE(d.mark_connected);
+    TEST_ASSERT_FALSE(d.clear_boot_count);
 }

@@ -118,3 +118,23 @@ void bb_wifi_emit_invoke(const char *topic, int32_t id, const void *payload, siz
 // points are bb_wifi_set_emit (register a sink) and bb_wifi_emit_baseline
 // (one-shot current-state synthesis), both in bb_wifi.h.
 void bb_wifi_publish_net_event(bb_wifi_net_event_t evt, bb_wifi_disc_reason_t reason);
+
+// Pure decision helper for the IP_EVENT_STA_GOT_IP persist work (B1-1265):
+// maps (pending_try, boot_count_already_cleared) onto which of the three NVS
+// writes bb_wifi.c's deferred got_ip_persist_work_fn should perform. Never
+// touches storage itself -- callable/testable on host. Return type
+// (bb_wifi_got_ip_persist_t) lives in bb_wifi.h, not here, purely because
+// platform/host/bb_wifi/bb_wifi_emit.c (this function's defining TU) doesn't
+// have this directory on its include path (same constraint documented above
+// for bb_wifi_internal_ota_validated/bb_wifi_emit_invoke) -- bb_wifi.h is
+// already included there. Private to this component; not a public API.
+//
+// pending_try: true iff a runtime-reconfigure pending-creds try is being
+// consumed by this GOT_IP (CONFIG_BB_WIFI_RECONFIGURE only; always false when
+// that Kconfig is off, which collapses to the unconditional mark_connected
+// path the pre-B1-1265 code took). boot_count_already_cleared: the calling
+// boot's s_boot_count_cleared latch, so the boot counter is decided-cleared
+// at most once per boot rather than on every GOT_IP (including every
+// reconnect) -- see bb_wifi.c's module comment for the HW motivation.
+bb_wifi_got_ip_persist_t bb_wifi_got_ip_persist_decide(bool pending_try,
+                                                        bool boot_count_already_cleared);
