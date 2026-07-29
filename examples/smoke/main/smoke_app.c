@@ -11,14 +11,6 @@
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_wifi.h"
-#include "bb_led.h"
-#include "bb_led_gpio.h"
-#include "bb_led_pwm.h"
-#include "bb_led_apa102.h"
-#include "bb_led_anim.h"
-#include "bb_button.h"
-#include "bb_button_gpio.h"
-#include "bb_button_events.h"
 #ifdef ESP_PLATFORM
 #include "bb_ota_check.h"
 #include "bb_temp.h"
@@ -35,10 +27,6 @@ extern bb_http_asset_t demo_site[];
 extern const bb_http_asset_t *demo_site_get(size_t *n);
 #endif
 #include "smoke_app.h"
-
-#if defined(BB_SMOKE_DISPLAY) || defined(BB_WIFI_BACKEND_R4)
-#include "bb_display.h"
-#endif
 
 static const char *TAG = "smoke";
 
@@ -59,19 +47,6 @@ static const bb_config_field_t s_boot_count_field = {
     .def         = { .u32 = 0 },
     .has_default = true,
 };
-
-static void btn_events_cb(const bb_button_events_event_t *e, void *user) {
-    (void)user;
-    const char *kind_str = "?";
-    switch (e->kind) {
-        case BB_BTN_EVT_CLICK:              kind_str = "CLICK"; break;
-        case BB_BTN_EVT_DOUBLE_CLICK:       kind_str = "DOUBLE_CLICK"; break;
-        case BB_BTN_EVT_LONG_PRESS_START:   kind_str = "LONG_PRESS_START"; break;
-        case BB_BTN_EVT_LONG_PRESS_END:     kind_str = "LONG_PRESS_END"; break;
-        case BB_BTN_EVT_REPEAT:             kind_str = "REPEAT"; break;
-    }
-    bb_log_i(TAG, "bb_button_events: %s (held_ms=%lu)", kind_str, (unsigned long)e->held_ms);
-}
 
 static bb_err_t ping_handler(bb_http_request_t *req) {
     bb_http_resp_set_header(req, "Content-Type", "text/plain");
@@ -153,199 +128,13 @@ static void heap_log_tick(void *arg)
 }
 #endif // ESP_PLATFORM
 
-#if defined(BB_WIFI_BACKEND_R4) && defined(BB_DISPLAY_FONT_5X8) && defined(BB_DISPLAY_FONT_6X12)
-/* Tiny user-supplied font: 4x4 digits 0..3 only. Demonstrates that consumers
- * can ship their own bb_display_font_t — no rebuild of bb_display required. */
-static const uint8_t s_my_glyphs_4x4[4 * 4] = {
-    /* '0' */ 0xF0, 0x90, 0x90, 0xF0,
-    /* '1' */ 0x60, 0x20, 0x20, 0x70,
-    /* '2' */ 0xF0, 0x10, 0x60, 0xF0,
-    /* '3' */ 0xF0, 0x70, 0x10, 0xF0,
-};
-static const bb_display_font_t s_my_font_4x4 = {
-    .glyph_w = 4,
-    .glyph_h = 4,
-    .first_codepoint = 0x30,
-    .glyph_count = 4,
-    .bitmap = s_my_glyphs_4x4,
-};
-#endif
-
 void smoke_app_setup(void) {
-#if defined(BB_SMOKE_DISPLAY) || defined(BB_WIFI_BACKEND_R4)
-    if (bb_display_init() == BB_OK) {
-        bb_log_i(TAG, "display: %ux%u", bb_display_width(), bb_display_height());
-        bb_display_show_splash("smoke", "boot", NULL);
-    } else {
-        bb_log_w(TAG, "display: no probe match");
-    }
-#endif
-
-#if defined(BB_WIFI_BACKEND_R4) && defined(BB_DISPLAY_FONT_5X8) && defined(BB_DISPLAY_FONT_6X12)
-    /* Bench showcase: cycle the SSD1315 OLED through every font + rotation
-     * combo the bb_display API can express. Runs forever — WiFi/HTTP setup
-     * below never fires when this is reached. Disable by undefining one of
-     * the BB_DISPLAY_FONT_* knobs to drop into the normal smoke path.
-     *
-     * The bench OLED is mounted with its native top-of-screen at the bottom
-     * of the user's view, so we start at rotation 180 (looks right-side-up
-     * to the user) and flip to 0 (upside-down to the user) for each font. */
-    bb_log_i(TAG, "display showcase active — wifi/http disabled");
-
-    /* Per-entry labels: line1 = font name, line2 = "size". The 4x4 entry only
-     * has digit glyphs 0..3, so its labels are pure digits. */
-    struct {
-        const char *line1;
-        const char *line2;
-        const bb_display_font_t *font;
-    } fonts[] = {
-        { "font", "8x16", NULL                 },  /* NULL → compile-time default 8x16 */
-        { "font", "6x12",  &bb_display_font_6x12 },
-        { "font", "5x8",  &bb_display_font_5x8 },
-        { "0123", "0123", &s_my_font_4x4       },  /* user-supplied; digits 0..3 only */
-    };
-    const size_t n_fonts = sizeof(fonts) / sizeof(fonts[0]);
-    const uint16_t orientations[2] = { 180, 0 };  /* upright, then upside-down */
-
-    for (;;) {
-        for (size_t i = 0; i < n_fonts; i++) {
-            bb_display_set_default_font(fonts[i].font);
-            for (size_t j = 0; j < 2; j++) {
-                /* Clear in the CURRENT orientation first so the rotation
-                 * flips an already-black screen — eliminates the brief
-                 * flash of old-content-mirrored that happens when you
-                 * rotate first then clear. */
-                bb_display_clear(0x0000);
-                bb_display_set_rotation(orientations[j]);
-                bb_display_show_splash(fonts[i].line1, fonts[i].line2, NULL);
-                bb_log_i(TAG, "showcase: %s @ %u", fonts[i].line2,
-                         (unsigned)orientations[j]);
-                delay(2000);
-            }
-        }
-    }
-#endif
 #ifdef ESP_PLATFORM
     bb_settings_creds_boot_init();  // B1-963: relocated from bb_nv_config_init
 #endif
     // Arduino: bb_nv (and its EEPROM subsystem bring-up) is deleted (B1-964);
     // the Arduino path no longer does any bb_nv config bring-up here.
     bb_log_i(TAG, "boot");
-
-    // === bb_led ===
-    bb_led_gpio_cfg_t led_cfg = {
-        .gpio = 2,
-        .active_low = false,
-    };
-    bb_led_handle_t led_handle = NULL;
-    if (bb_led_gpio_open(&led_cfg, &led_handle) == BB_OK) {
-        bb_led_set_on(led_handle, 0, false);
-        bb_led_close(led_handle);
-        bb_log_i(TAG, "bb_led_gpio: ok");
-    } else {
-        bb_log_w(TAG, "bb_led_gpio: open failed");
-    }
-
-    // === bb_led_pwm ===
-    bb_led_pwm_cfg_t led_pwm_cfg = {
-        .gpio = 4,
-        .freq_hz = 5000,
-        .resolution_bits = 8,
-        .active_low = false,
-    };
-    bb_led_handle_t led_pwm_handle = NULL;
-    if (bb_led_pwm_open(&led_pwm_cfg, &led_pwm_handle) == BB_OK) {
-        bb_led_set_brightness(led_pwm_handle, 0, 25);
-        bb_led_close(led_pwm_handle);
-        bb_log_i(TAG, "bb_led_pwm: ok");
-    } else {
-        bb_log_w(TAG, "bb_led_pwm: open failed");
-    }
-
-    // === bb_led_apa102 ===
-    bb_led_apa102_cfg_t led_apa_cfg = {
-        .pin_clk = 6,
-        .pin_din = 7,
-        .led_count = 1,
-        .global_brightness_31 = 15,
-    };
-    bb_led_handle_t led_apa_handle = NULL;
-    if (bb_led_apa102_open(&led_apa_cfg, &led_apa_handle) == BB_OK) {
-        bb_led_set_color(led_apa_handle, 0, 0, 0, 32);
-        bb_led_set_on(led_apa_handle, 0, true);
-        bb_led_flush(led_apa_handle);
-        bb_led_close(led_apa_handle);
-        bb_log_i(TAG, "bb_led_apa102: ok");
-    } else {
-        bb_log_w(TAG, "bb_led_apa102: open failed");
-    }
-
-    // === bb_led_anim ===
-    bb_led_gpio_cfg_t led_anim_cfg = {
-        .gpio = 2,
-        .active_low = false,
-    };
-    bb_led_handle_t led_anim_led = NULL;
-    if (bb_led_gpio_open(&led_anim_cfg, &led_anim_led) == BB_OK) {
-        bb_led_anim_cfg_t anim_cfg = {
-            .led = led_anim_led,
-            .tick_period_ms = 20,
-            .auto_start_timer = false,
-        };
-        bb_led_anim_handle_t anim = NULL;
-        if (bb_led_anim_attach(&anim_cfg, &anim) == BB_OK) {
-            bb_led_anim_pattern_t pat = { .kind = BB_ANIM_BLINK };
-            pat.blink.period_ms = 1000;
-            pat.blink.duty_pct = 50;
-            bb_led_anim_set(anim, &pat);
-            bb_led_anim_tick(anim);
-            bb_led_anim_detach(anim);
-            bb_log_i(TAG, "bb_led_anim: ok");
-        } else {
-            bb_log_w(TAG, "bb_led_anim: attach failed");
-        }
-        bb_led_close(led_anim_led);
-    } else {
-        bb_log_w(TAG, "bb_led_anim: open failed");
-    }
-
-    // === bb_button ===
-    bb_button_gpio_cfg_t btn_cfg = {
-        .gpio = 0,
-        .active_low = true,
-        .debounce_ms = 25,
-        .prefer_isr = true,
-    };
-    bb_button_handle_t btn = NULL;
-    if (bb_button_gpio_open(&btn_cfg, &btn) == BB_OK) {
-        bb_button_poll(btn);
-
-        // === bb_button_events ===
-        bb_button_events_cfg_t events_cfg = {
-            .button = btn,
-            .click_max_ms = 0,
-            .double_click_window_ms = 0,
-            .long_press_ms = 0,
-            .repeat_interval_ms = 0,
-            .tick_period_ms = 0,
-            .auto_start_timer = true,
-            .cb = btn_events_cb,
-            .user = NULL,
-        };
-        bb_button_events_handle_t events = NULL;
-        if (bb_button_events_attach(&events_cfg, &events) == BB_OK) {
-            bb_button_events_tick(events);
-            bb_button_events_detach(events);
-            bb_log_i(TAG, "bb_button_events: ok");
-        } else {
-            bb_log_w(TAG, "bb_button_events: attach failed");
-        }
-
-        bb_button_close(btn);
-        bb_log_i(TAG, "bb_button_gpio: ok");
-    } else {
-        bb_log_w(TAG, "bb_button_gpio: open failed");
-    }
 
     uint32_t boot_count = 0;
     bb_err_t boot_rc = bb_config_get_u32(&s_boot_count_field, &boot_count);
