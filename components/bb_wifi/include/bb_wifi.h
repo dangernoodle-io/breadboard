@@ -570,6 +570,26 @@ void bb_wifi_on_creds_arrived(void);
 // bb_serialize_desc_t -- see bb_wifi_http_wire_priv.h.
 
 // ---------------------------------------------------------------------------
+// GOT-IP persist decision (B1-1265, ESP-IDF backend only)
+// ---------------------------------------------------------------------------
+
+// Output of the pure decision helper bb_wifi_got_ip_persist_decide
+// (wifi_reconn.h, private -- not declared here) -- which of the three NVS
+// writes bb_wifi.c's deferred got_ip_persist_work_fn performs on the
+// shared bb_timer_disp task after IP_EVENT_STA_GOT_IP. Declared here (a
+// public header) rather than in wifi_reconn.h purely so the type is visible
+// to platform/host/bb_wifi/bb_wifi_emit.c, which implements the decision
+// function but doesn't have platform/espidf/bb_wifi/ on its include path
+// (see wifi_reconn.h's own comment on this constraint) -- the function
+// itself stays private/undeclared here. Not part of the stable consumer
+// API.
+typedef struct {
+    bool promote;          // bb_settings_wifi_pending_promote()
+    bool mark_connected;   // bb_settings_wifi_provisioned_mark_connected()
+    bool clear_boot_count; // bb_system_boot_count_reset()
+} bb_wifi_got_ip_persist_t;
+
+// ---------------------------------------------------------------------------
 // Runtime WiFi reconfigure (brick-safe pending-creds try)
 // ---------------------------------------------------------------------------
 

@@ -235,6 +235,27 @@ bb_lifecycle_action_t bb_wifi_classify_lifecycle(uint32_t id, const void *payloa
     }
 }
 
+// Pure decision helper for the deferred IP_EVENT_STA_GOT_IP persist work
+// (B1-1265). See wifi_reconn.h (bb_wifi_got_ip_persist_decide's declaration
+// -- private to bb_wifi, not restated here) and bb_wifi.h
+// (bb_wifi_got_ip_persist_t's declaration) for the full contract. Never
+// touches storage -- exactly one of promote/mark_connected is ever set (they
+// are the two mutually-exclusive branches the pre-B1-1265 inline code took),
+// matching pending_try's ternary; clear_boot_count is the boot_count_reset
+// latch, orthogonal to the promote/mark_connected choice.
+bb_wifi_got_ip_persist_t bb_wifi_got_ip_persist_decide(bool pending_try,
+                                                        bool boot_count_already_cleared)
+{
+    bb_wifi_got_ip_persist_t out = {0};
+    if (pending_try) {
+        out.promote = true;
+    } else {
+        out.mark_connected = true;
+    }
+    out.clear_boot_count = !boot_count_already_cleared;
+    return out;
+}
+
 // Map an Arduino WiFiS3 wl_status_t value onto the portable
 // bb_wifi_disc_reason_t bucket (pure, host + device). Takes a plain int (not
 // wl_status_t) so this file stays free of the Arduino WiFiS3.h include —

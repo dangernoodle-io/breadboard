@@ -2531,6 +2531,11 @@ void test_bb_wifi_mode_str_ok(void);
 void test_bb_wifi_mode_str_no_ip(void);
 void test_bb_wifi_mode_str_not_associated(void);
 void test_bb_wifi_mode_str_unknown_returns_not_associated(void);
+// B1-1265: got-ip persist decision helper
+void test_bb_wifi_got_ip_persist_decide_pending_try_clears_boot_count(void);
+void test_bb_wifi_got_ip_persist_decide_pending_try_boot_count_already_cleared(void);
+void test_bb_wifi_got_ip_persist_decide_no_pending_try_clears_boot_count(void);
+void test_bb_wifi_got_ip_persist_decide_no_pending_try_boot_count_already_cleared(void);
 
 // Forward declarations from test_bb_wifi_ap.c
 void test_bb_wifi_ap_build_ssid_formats_prefix_and_mac(void);
@@ -7069,6 +7074,10 @@ int main(void) {
     RUN_TEST(test_bb_wifi_mode_str_no_ip);
     RUN_TEST(test_bb_wifi_mode_str_not_associated);
     RUN_TEST(test_bb_wifi_mode_str_unknown_returns_not_associated);
+    RUN_TEST(test_bb_wifi_got_ip_persist_decide_pending_try_clears_boot_count);
+    RUN_TEST(test_bb_wifi_got_ip_persist_decide_pending_try_boot_count_already_cleared);
+    RUN_TEST(test_bb_wifi_got_ip_persist_decide_no_pending_try_clears_boot_count);
+    RUN_TEST(test_bb_wifi_got_ip_persist_decide_no_pending_try_boot_count_already_cleared);
 
     // bb_wifi_ap tests
     RUN_TEST(test_bb_wifi_ap_build_ssid_formats_prefix_and_mac);

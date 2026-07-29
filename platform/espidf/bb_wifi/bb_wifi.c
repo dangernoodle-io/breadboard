@@ -36,6 +36,14 @@ static volatile bool s_has_ip = false;
 static volatile bool s_pending_try = false;
 #endif
 
+// B1-1265 boot-count-reset latch: set true the first time a GOT_IP decides
+// to clear the boot counter this boot (see bb_wifi_got_ip_persist_decide),
+// so a later reconnect's GOT_IP within the same boot never re-decides a
+// clear. Written only from event_handler, on "sys_evt" -- no cross-task
+// synchronization needed (single producer, plain bool, same posture as
+// s_pending_try above).
+static bool s_boot_count_cleared = false;
+
 // Set while bb_wifi_restart_sta() is in progress so event_handler skips the
 // auto-connect on WIFI_EVENT_STA_START (the restart fn calls connect explicitly).
 // Also suppresses the DISCONNECTED event that esp_wifi_stop() generates internally.
@@ -394,6 +402,143 @@ bb_err_t bb_wifi_get_info(bb_wifi_info_t *out)
     return ESP_OK;
 }
 
+// ---------------------------------------------------------------------------
+// GOT-IP persist (B1-1265): defers the NVS writes IP_EVENT_STA_GOT_IP used to
+// do inline (bb_settings_wifi_pending_promote / _provisioned_mark_connected,
+// bb_system_boot_count_reset) onto the shared bb_timer_disp task instead of
+// running them synchronously on "sys_evt", the ESP-IDF default event-loop
+// task. HW measurement showed "sys_evt" at 140 B free of a 2304 B stack (94%
+// used) with these synchronous nvs_set_*/nvs_commit calls on its deepest
+// call chain; the same task had 1340 B free in portal mode, where GOT_IP
+// never fires -- corroborating this branch as the culprit. Mirrors
+// examples/floor/main/floor_app.c's prov_reboot_work_fn (its own
+// HW-CONFIRMED note documents the identical "blocking NVS/flash op on
+// sys_evt races other work" hazard for bb_system_restart_reason(), the
+// precedent this deferral follows).
+//
+// One file-static bb_oneshot_timer_t, created ONCE (bb_timer.h documents
+// that re-arming a pending/fired one-shot restarts it, so re-arming per
+// event -- never re-creating -- is required to avoid leaking a timer on
+// every reconnect).
+static bb_oneshot_timer_t s_got_ip_persist_timer = NULL;
+
+// Latches "timer creation failed this boot" DISTINCTLY from "not yet
+// created" (s_got_ip_persist_timer == NULL covers both, ambiguously). Without
+// this, a create failure under heap pressure leaves the timer NULL forever,
+// so every later GOT_IP retries bb_timer_deferred_oneshot_create() and, on
+// each failure, falls back to applying inline on "sys_evt" -- i.e. every
+// reconnect for the rest of the boot reverts to exactly the synchronous
+// hazard this whole change removes, under the exact condition (sustained
+// heap pressure) that made "sys_evt" fragile in the first place. Once this
+// latches true, got_ip_persist_arm() skips the retry and goes straight to
+// one bounded inline apply per event, with a single one-time log instead of
+// one per GOT_IP -- so degradation is capped, not compounding.
+static bool s_got_ip_persist_timer_create_failed = false;
+
+// Guards s_got_ip_persist_pending: written by event_handler (the producer,
+// always on "sys_evt") and read+cleared by got_ip_persist_work_fn (the
+// consumer, on "bb_timer_disp") -- two different tasks, same portMUX idiom
+// as s_ap_mux above.
+static portMUX_TYPE s_got_ip_persist_mux = portMUX_INITIALIZER_UNLOCKED;
+static bb_wifi_got_ip_persist_t s_got_ip_persist_pending = {0};
+
+// RACE: two GOT_IP events in quick succession (e.g. a flaky AP forcing a
+// disconnect/reconnect before the first deferred write has fired) both call
+// got_ip_persist_arm() below before got_ip_persist_work_fn() runs.
+// event_handler itself never races against itself (it always runs on the
+// single-threaded "sys_evt" task, so the two arm() calls are strictly
+// serialized), but bb_timer_oneshot_start() re-arming a pending timer
+// RESTARTS its delay -- so a fast-enough second event can keep pushing the
+// fire time out. Correctness here does NOT depend on the timer ever firing
+// between the two events: got_ip_persist_arm() OR-merges the new decision's
+// flags into s_got_ip_persist_pending under s_got_ip_persist_mux rather than
+// overwriting it, so the SECOND event's decision can never silently discard
+// the FIRST event's still-pending write -- whenever the timer eventually
+// fires (after however many re-arms), got_ip_persist_work_fn() applies the
+// union of every decision made since the last fire. promote and
+// mark_connected are safe to run together if both end up set this way:
+// bb_settings_wifi_pending_promote() itself sets the provisioned flag, so a
+// trailing mark_connected() call is a documented idempotent no-op (see
+// bb_settings.h). clear_boot_count applying more than once is likewise
+// harmless (bb_system_boot_count_reset() is a plain "set to 0").
+// s_pending_try itself (the CONFIG_BB_WIFI_RECONFIGURE promote/mark_connected
+// selector) is still consumed synchronously in event_handler, exactly as
+// before this change -- only the resulting NVS writes are deferred.
+static void got_ip_persist_apply(bb_wifi_got_ip_persist_t decision)
+{
+    if (decision.promote) {
+        // Only ever set when CONFIG_BB_WIFI_RECONFIGURE is on (see
+        // event_handler: pending_try is unconditionally false otherwise, and
+        // bb_wifi_got_ip_persist_decide() only sets promote when pending_try
+        // is true) -- no #if needed here, bb_settings_wifi_pending_promote()
+        // is declared unconditionally.
+        bb_settings_wifi_pending_promote();
+    }
+    if (decision.mark_connected) {
+        bb_settings_wifi_provisioned_mark_connected();
+    }
+    if (decision.clear_boot_count) {
+        bb_system_boot_count_reset();
+    }
+}
+
+// bb_timer_deferred_oneshot_create work_fn: runs on the shared bb_timer_disp
+// task, off "sys_evt". Snapshots + clears the pending decision under the
+// mutex (so a fresh event arriving mid-apply starts a clean accumulation,
+// never lost -- it re-arms the timer for its own next fire) before applying
+// it outside the critical section (the bb_settings_wifi_provisioned_cb
+// observer this can trigger must not run under a portMUX spinlock).
+static void got_ip_persist_work_fn(void *arg)
+{
+    (void)arg;
+    portENTER_CRITICAL(&s_got_ip_persist_mux);
+    bb_wifi_got_ip_persist_t decision = s_got_ip_persist_pending;
+    memset(&s_got_ip_persist_pending, 0, sizeof(s_got_ip_persist_pending));
+    portEXIT_CRITICAL(&s_got_ip_persist_mux);
+    got_ip_persist_apply(decision);
+}
+
+// Called from event_handler's IP_EVENT_STA_GOT_IP branch: merges `decision`
+// into the pending state and (re)arms the deferred timer. TIMER-CREATE
+// FAILURE: rather than silently dropping a required NVS write (the
+// pre-existing reconfig_reboot_work_fn precedent this mirrors does exactly
+// that -- s_reconfig_timer stays NULL and the subsequent oneshot_start()
+// calls are silent no-ops), this falls back to applying inline, on "sys_evt",
+// same as before this change -- a persisted write on the wrong task beats a
+// silently-dropped one. bb_timer_deferred_oneshot_create failing is expected
+// only under sustained heap pressure, itself rare this early in the GOT_IP
+// path. BOUNDED fallback: s_got_ip_persist_timer_create_failed latches the
+// first failure, so at most ONE degraded inline apply + ONE log line happens
+// per boot -- every subsequent GOT_IP short-circuits straight to inline apply
+// without retrying the (still heap-pressured) create or re-logging. Without
+// the latch, s_got_ip_persist_timer staying NULL would make every later
+// GOT_IP retry-and-fail again, silently reverting the rest of the boot to the
+// exact synchronous-on-sys_evt hazard this change exists to remove.
+static void got_ip_persist_arm(bb_wifi_got_ip_persist_t decision)
+{
+    if (s_got_ip_persist_timer_create_failed) {
+        got_ip_persist_apply(decision);
+        return;
+    }
+    if (!s_got_ip_persist_timer) {
+        bb_err_t terr = bb_timer_deferred_oneshot_create(
+            got_ip_persist_work_fn, NULL, "bb_wifi_persist", &s_got_ip_persist_timer);
+        if (terr != BB_OK || !s_got_ip_persist_timer) {
+            s_got_ip_persist_timer_create_failed = true;
+            bb_log_e(TAG, "got-ip persist timer create failed (%d); applying inline "
+                          "for the rest of this boot", (int)terr);
+            got_ip_persist_apply(decision);
+            return;
+        }
+    }
+    portENTER_CRITICAL(&s_got_ip_persist_mux);
+    s_got_ip_persist_pending.promote          |= decision.promote;
+    s_got_ip_persist_pending.mark_connected   |= decision.mark_connected;
+    s_got_ip_persist_pending.clear_boot_count |= decision.clear_boot_count;
+    portEXIT_CRITICAL(&s_got_ip_persist_mux);
+    bb_timer_oneshot_start(s_got_ip_persist_timer, 100 * 1000); // 100 ms — off sys_evt ASAP
+}
+
 static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data)
 {
@@ -475,27 +620,40 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         bb_log_i(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         s_has_ip = true;
+        // wifi_reconn_on_got_ip() (FSM notify), the WIFI_CONNECTED_BIT set,
+        // and bb_wifi_publish_net_event() below stay inline/synchronous on
+        // "sys_evt" -- cheap and ordering-sensitive (consumers of the net
+        // event and of the event-group bit expect them to reflect this exact
+        // GOT_IP, not a coalesced/deferred one). Only the NVS-writing persist
+        // decisions (promote/mark_connected/boot_count_reset) are deferred --
+        // see the GOT-IP persist block above event_handler for the full
+        // B1-1265 rationale (HW: "sys_evt" measured at 140 B free of 2304 with
+        // these synchronous NVS writes on its deepest call chain).
         wifi_reconn_on_got_ip();
+
+        // s_pending_try is still consumed synchronously and unconditionally
+        // false when CONFIG_BB_WIFI_RECONFIGURE is off (matching the
+        // pre-B1-1265 #if/#else split) -- only the resulting decision's NVS
+        // writes are deferred below.
+        bool pending_try = false;
 #if CONFIG_BB_WIFI_RECONFIGURE
-        if (s_pending_try) {
-            s_pending_try = false;
-            // Marks the provisioned flag as part of its own call (B1-807)
-            // -- see bb_settings_wifi_pending_promote's doc.
-            bb_settings_wifi_pending_promote();
-        } else {
-            // B1-807 F1 SET POLICY, direct-commit path: no promote ran on
-            // this connect (captive-portal direct-commit creds, or a plain
-            // boot-time reconnect with no pending try) -- mark the flag on
-            // this, the FIRST validated connect. Idempotent/edge-gated, see
-            // bb_settings.h.
-            bb_settings_wifi_provisioned_mark_connected();
-        }
-#else
-        // B1-807 F1 SET POLICY: reconfigure-promote is compiled out, so
-        // every validated connect goes through this direct-commit marker.
-        bb_settings_wifi_provisioned_mark_connected();
+        pending_try = s_pending_try;
+        s_pending_try = false;
 #endif
-        bb_system_boot_count_reset();
+        // s_boot_count_cleared latches "decided to clear" (set here,
+        // synchronously, the instant the decision is made) rather than
+        // "actually cleared in NVS" -- at most one GOT_IP per boot ever sets
+        // clear_boot_count, so a burst of reconnects never re-decides a
+        // clear the deferred work_fn has not yet applied. See the
+        // got_ip_persist_arm doc above for why a second event's decision can
+        // still safely merge with a first one still pending.
+        bb_wifi_got_ip_persist_t decision =
+            bb_wifi_got_ip_persist_decide(pending_try, s_boot_count_cleared);
+        if (decision.clear_boot_count) {
+            s_boot_count_cleared = true;
+        }
+        got_ip_persist_arm(decision);
+
         if (s_wifi_event_group) {
             xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         }

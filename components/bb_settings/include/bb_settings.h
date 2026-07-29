@@ -274,8 +274,11 @@ bool bb_settings_wifi_provisioned_get(void);
 // the false->true transition only. This is the writer for a connect that
 // did NOT go through bb_settings_wifi_pending_promote (the captive-portal
 // direct-commit path, or any plain boot-time STA connect with no pending
-// reconfigure try active) -- called from bb_wifi's IP_EVENT_STA_GOT_IP
-// handler. See bb_settings_wifi_pending_promote's doc for the promote
+// reconfigure try active) -- the DECISION is made in bb_wifi's
+// IP_EVENT_STA_GOT_IP handler, but the call itself is deferred (B1-1265) and
+// actually runs from got_ip_persist_work_fn on the shared bb_timer_disp task
+// -- see this function's own CALL CONTEXT note two entries down. See
+// bb_settings_wifi_pending_promote's doc for the promote
 // path's own atomic write to this SAME flag -- ONE shared edge-gate policy
 // (bb_settings_provisioned_notify_transition, private to
 // platform/host/bb_settings/bb_settings.c), two write sites, no divergent
@@ -290,13 +293,21 @@ void bb_settings_wifi_provisioned_mark_connected(void);
 // factory resets (F2 is sticky-for-life; a later reconfigure of an
 // already-provisioned board never re-fires this).
 //
-// CALL CONTEXT: fires SYNCHRONOUSLY on the ESP-IDF default event-loop task
-// (the WiFi/IP event task -- the same task bb_wifi's IP_EVENT_STA_GOT_IP
-// handler runs on), the same "safe to call from the WiFi event task
-// context" convention documented in platform/espidf/bb_wifi/wifi_reconn.h
-// (e.g. wifi_reconn_on_disconnect/wifi_reconn_on_lost_ip). The callback
-// MUST NOT block and MUST NOT recurse back into bb_wifi/bb_settings
-// synchronously -- defer any heavy work to the consumer's own task/queue.
+// CALL CONTEXT (B1-1265): fires SYNCHRONOUSLY on the shared bb_timer_disp
+// task, NOT the ESP-IDF default event-loop task ("sys_evt") -- both write
+// sites (bb_settings_wifi_pending_promote's atomic commit and
+// bb_settings_wifi_provisioned_mark_connected's direct write, called from
+// bb_wifi.c's got_ip_persist_work_fn) moved off "sys_evt" onto bb_timer_disp
+// so the NVS commit their commit path performs doesn't run on the same
+// stack-starved task as every other WiFi/IP event handler (HW: "sys_evt"
+// measured at 140 B free of 2304; see bb_wifi.c's GOT-IP persist block for
+// the full rationale, mirroring examples/floor/main/floor_app.c's
+// HW-CONFIRMED prov_reboot_work_fn precedent for the same "sys_evt"
+// blocking-flash-write hazard). The callback still MUST NOT block and MUST
+// NOT recurse back into bb_wifi/bb_settings synchronously -- defer any heavy
+// work to the consumer's own task/queue; bb_timer_disp is a shared
+// dispatcher task, not a private one, so hogging it delays every other
+// deferred timer in the process.
 //
 // Composition-only -- bb_settings does not self-register a default and has
 // no dependency on any consumer. Pass NULL to clear. Setter + public invoke
