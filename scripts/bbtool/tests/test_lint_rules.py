@@ -31,6 +31,7 @@ from commands.lint import (
     _check_kconfig_bridge_shadow,
     _check_raw_timestamp_divide,
     _check_emit_seam_unwired_subscriber,
+    _check_prov_default_form_internal_ref,
     _strip_noise,
     _parse_kconfig_int_defaults,
 )
@@ -2247,6 +2248,96 @@ class TestEmitSeamUnwiredSubscriber(unittest.TestCase):
         self.assertFalse(
             violations,
             f"real repo must be clean under emit-seam-unwired-subscriber: {violations}")
+
+
+class TestProvDefaultFormInternalRef(unittest.TestCase):
+    """prov-default-form-internal-ref (B1-1255) -- bb_wifi_prov must never
+    reference the default-form getter/gz symbols outside the form's own TU
+    (components/bb_wifi_prov/default_form/bb_wifi_prov_default_form.c +
+    components/bb_wifi_prov/include/bb_wifi_prov_default_form.h)."""
+
+    def _write(self, tmpdir: str, rel_path: str, content: str) -> None:
+        path = os.path.join(tmpdir, *rel_path.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        Path(path).write_text(content)
+
+    def test_fires_on_reference_elsewhere_in_bb_wifi_prov(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._write(
+                td, "components/bb_wifi_prov/src/bb_wifi_prov_page.c",
+                'const bb_http_asset_t *x(void) {\n'
+                '    return bb_wifi_prov_default_form_get();\n'
+                '}\n')
+            violations = _check_prov_default_form_internal_ref(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "a reference from another bb_wifi_prov .c file must fire")
+
+    def test_fires_on_reference_in_platform_layer(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._write(
+                td, "platform/espidf/bb_wifi_prov/bb_wifi_prov.c",
+                'extern const uint8_t bb_wifi_prov_default_form_gz[];\n')
+            violations = _check_prov_default_form_internal_ref(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "a reference from platform/*/bb_wifi_prov/ must fire")
+
+    def test_no_fire_in_forms_own_tu(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._write(
+                td,
+                "components/bb_wifi_prov/default_form/"
+                "bb_wifi_prov_default_form.c",
+                'extern const uint8_t bb_wifi_prov_default_form_gz[];\n'
+                'const bb_http_asset_t *bb_wifi_prov_default_form_get(void)'
+                ' { return 0; }\n')
+            self._write(
+                td, "components/bb_wifi_prov/include/"
+                "bb_wifi_prov_default_form.h",
+                'const bb_http_asset_t *bb_wifi_prov_default_form_get(void);\n')
+            violations = _check_prov_default_form_internal_ref(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "the form's own TU (.c + .h) must never fire")
+
+    def test_no_fire_on_doxygen_usage_example_comment(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._write(
+                td, "components/bb_wifi_prov/include/bb_wifi_prov.h",
+                '/**\n'
+                ' * For bare-minimum bringup:\n'
+                ' *   const bb_http_asset_t *a = bb_wifi_prov_default_form_get();\n'
+                ' *   bb_wifi_prov_start(a, 1, NULL);\n'
+                ' */\n'
+                'bb_err_t bb_wifi_prov_start(void);\n')
+            violations = _check_prov_default_form_internal_ref(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "a comment mentioning the symbol as a usage example must"
+                " not fire -- it causes no linking (comment-stripping path)")
+
+    def test_same_basename_decoy_in_different_directory_still_fires(self):
+        """Regression test for the basename-only-exemption bypass: a file
+        sharing the form's own basename (bb_wifi_prov_default_form.c) but
+        living in a DIFFERENT directory (components/bb_wifi_prov/decoy/,
+        not default_form/) still contains a genuine internal reference and
+        MUST fire. A basename-only exemption set (matching on path.name
+        instead of the full repo-relative path) silently exempts this decoy
+        regardless of directory -- this test fails against that
+        implementation and passes only once the exemption is anchored to
+        the specific own-TU paths."""
+        with tempfile.TemporaryDirectory() as td:
+            self._write(
+                td, "components/bb_wifi_prov/decoy/"
+                "bb_wifi_prov_default_form.c",
+                'extern const uint8_t bb_wifi_prov_default_form_gz[];\n'
+                'const uint8_t *decoy(void) { return bb_wifi_prov_default_form_gz; }\n')
+            violations = _check_prov_default_form_internal_ref(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "a same-basename file outside the form's own directory"
+                " must still fire -- basename-only exemption is a bypass")
 
 
 if __name__ == "__main__":

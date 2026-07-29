@@ -651,7 +651,7 @@ _EMBED_ASSETS_KEYWORDS = frozenset({"OUT_SRCS", "ASSETS"})
 def parse_embed_assets(cmake_text: str) -> Dict[str, List[str]]:
     """Parse every `bb_embed_assets(OUT_SRCS <var> ASSETS <file>:<symbol>
     [...])` call in `cmake_text` (see `cmake/bbtool.cmake`) -- the CMake
-    macro `bb_prov_default_form`/similar components use to gzip-embed a
+    macro `bb_wifi_prov`/similar components use to gzip-embed a
     static asset (e.g. an HTML form) into a generated `.c` byte-array
     source AT CMAKE CONFIGURE TIME, appending the generated path to
     `OUT_SRCS`'s var in the caller's scope.

@@ -301,7 +301,7 @@ endfunction()
 # command `make check` runs, so there is zero rule divergence between the
 # per-compile gate and the CI/host `make check` path.
 #
-# Downstream consumers (TM/brood/snugfeather, via bb_prov_default_form or any
+# Downstream consumers (TM/brood/snugfeather, via bb_wifi_prov or any
 # other component that include()s this file) must NOT get bb's whole-tree
 # library-profile lint gated into their build — that's bb's own CI's job, not
 # theirs. Scope with a path-boundary match: bb's own CMAKE_SOURCE_DIR (smoke

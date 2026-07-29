@@ -574,14 +574,14 @@ class TestSingleOpaquePropertyVars(unittest.TestCase):
 class TestParseEmbedAssets(unittest.TestCase):
     """bb_embed_assets(OUT_SRCS <var> ASSETS <file>:<symbol> ...) -- the
     configure-time asset-embed macro (cmake/bbtool.cmake). Real-tree shape:
-    bb_prov_default_form."""
+    bb_wifi_prov's default provisioning form (B1-1255)."""
 
     def test_single_asset(self):
         cmake = (
             "bb_embed_assets(\n"
             "    OUT_SRCS _embed_srcs\n"
             "    ASSETS\n"
-            "        prov_default_form.html:bb_prov_default_form_gz\n"
+            "        prov_default_form.html:bb_wifi_prov_default_form_gz\n"
             ")\n"
         )
         result = parse_embed_assets(cmake)

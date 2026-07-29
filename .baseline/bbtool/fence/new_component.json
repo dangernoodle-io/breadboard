@@ -281,11 +281,6 @@
       "type": "component"
     },
     {
-      "id": "bb_prov_default_form",
-      "path": "components/bb_prov_default_form",
-      "type": "component"
-    },
-    {
       "id": "bb_queue",
       "path": "components/bb_queue",
       "type": "component"
