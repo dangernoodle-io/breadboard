@@ -408,9 +408,12 @@ void smoke_app_setup(void) {
         } else {
             bb_log_w(TAG, "bb_ws_server: /ws register failed (%d)", (int)wserr);
         }
-        if (bb_http_register_route(svr, BB_HTTP_POST, "/api/wsbcast",
-                                   wsbcast_handler) == BB_OK) {
+        bb_err_t wsbcast_err = bb_http_register_route(svr, BB_HTTP_POST, "/api/wsbcast",
+                                                      wsbcast_handler);
+        if (wsbcast_err == BB_OK) {
             bb_log_i(TAG, "bb_ws_server: /api/wsbcast registered");
+        } else {
+            bb_log_w(TAG, "bb_ws_server: /api/wsbcast register failed (%d)", (int)wsbcast_err);
         }
     }
 

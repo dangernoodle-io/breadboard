@@ -102,9 +102,15 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
     }
     // Mirror espidf split: /api/ routes feed the dispatch table so host tests
     // can exercise bb_dispatch_api_lookup on the same table as the device.
+    // Error handling mirrors the espidf backend (bb_http.c's
+    // bb_http_register_route): a duplicate (method,path) is the
+    // intentionally-tolerated case (BB_ERR_INVALID_STATE, first registration
+    // wins) and is swallowed to BB_OK; any other failure (e.g.
+    // BB_ERR_NO_SPACE — dispatch table full) is a genuine failure and is
+    // propagated so the caller can detect the drop.
     if (path && strncmp(path, "/api/", 5) == 0) {
-        bb_dispatch_api_add(method, path, handler);
-        return BB_OK;
+        bb_err_t derr = bb_dispatch_api_add(method, path, handler);
+        return derr == BB_ERR_INVALID_STATE ? BB_OK : derr;
     }
     (void)method;
     (void)path;

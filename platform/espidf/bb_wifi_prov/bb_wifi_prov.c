@@ -342,12 +342,15 @@ bb_err_t bb_wifi_prov_start(const bb_http_asset_t *assets, size_t n,
     // bb_dispatch_api_add() itself asserts(0) before ever returning --
     // that path is NOT interceptable here (default off; do not enable it
     // in a composition that mixes bb_wifi_prov and bb_wifi_http, both of
-    // which register this same route). As currently implemented,
-    // bb_http_register_route() ALSO swallows a non-strict duplicate and
-    // always returns BB_OK for any "/api/" path (see its own comment) --
-    // so the BB_ERR_INVALID_STATE branch below is defensive/currently-dead,
-    // not the live path a duplicate takes today; kept in case that
-    // swallowing behavior is ever tightened.
+    // which register this same route). bb_http_register_route() itself
+    // still swallows a non-strict duplicate to BB_OK for any "/api/" path
+    // (B1-1253 -- see its own comment: this is the deliberately-tolerated
+    // case, distinct from a genuine registration failure, which now
+    // propagates instead of being swallowed) -- so the BB_ERR_INVALID_STATE
+    // branch below is defensive/currently-dead, not the live path a
+    // duplicate takes today; kept in case that swallowing behavior is ever
+    // tightened at this call site specifically (e.g. by calling
+    // bb_dispatch_api_add directly instead of bb_http_register_route).
     bb_err_t scan_err = bb_http_register_route(server, BB_HTTP_POST, "/api/wifi/scan", prov_scan_handler);
     if (scan_err == BB_ERR_INVALID_STATE) {
         bb_log_i(TAG, "POST /api/wifi/scan already served by another component");

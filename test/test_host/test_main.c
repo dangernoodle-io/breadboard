@@ -2328,6 +2328,11 @@ void test_register_route_descriptor_only_rejects_null(void);
 void test_register_route_descriptor_only_adds_to_registry(void);
 void test_register_route_descriptor_only_overflow_returns_no_space(void);
 void test_registry_overflow_returns_no_space(void);
+void test_register_route_api_duplicate_swallowed_to_ok(void);
+void test_register_route_api_dispatch_full_propagates_no_space(void);
+void test_register_route_non_api_path_unaffected(void);
+void test_register_route_cross_component_scan_dup_bb_wifi_prov_then_bb_wifi_http(void);
+void test_register_route_cross_component_scan_dup_bb_wifi_http_then_bb_wifi_prov(void);
 void test_http_route_handler_count_returns_zero_on_host(void);
 void test_http_reserve_routes_accumulates(void);
 void test_reserve_declared_total_from_companions(void);
@@ -5338,6 +5343,15 @@ void setUp(void) {
     bb_openapi_schema_registry_clear();
     bb_openapi_set_topic_source_fn(NULL);
     bb_mem_reset_stats();
+    // bb_dispatch_api's table (route_registry.c) is a process-wide static
+    // shared by every test in this binary. Reset it before each test
+    // (B1-1253): bb_http_register_route() now propagates a genuine
+    // dispatch-table failure instead of always swallowing it to BB_OK, so a
+    // test that fills the table toward its cap depends on the table's real
+    // occupancy, not just its own registrations -- an un-isolated table
+    // leaks entries across tests and can spuriously fail a later one purely
+    // from an earlier test's accumulated /api/* registrations.
+    bb_dispatch_api_reset();
     // Several consumers (bb_diag_section, bb_http_section, bb_sensor_http, ...)
     // dispatch through the format-dispatch registry rather than a hardcoded
     // BB_FORMAT_JSON branch, so a test that exercises them needs
@@ -6842,6 +6856,11 @@ int main(void) {
     RUN_TEST(test_register_route_descriptor_only_adds_to_registry);
     RUN_TEST(test_register_route_descriptor_only_overflow_returns_no_space);
     RUN_TEST(test_registry_overflow_returns_no_space);
+    RUN_TEST(test_register_route_api_duplicate_swallowed_to_ok);
+    RUN_TEST(test_register_route_api_dispatch_full_propagates_no_space);
+    RUN_TEST(test_register_route_non_api_path_unaffected);
+    RUN_TEST(test_register_route_cross_component_scan_dup_bb_wifi_prov_then_bb_wifi_http);
+    RUN_TEST(test_register_route_cross_component_scan_dup_bb_wifi_http_then_bb_wifi_prov);
     RUN_TEST(test_http_route_handler_count_returns_zero_on_host);
     RUN_TEST(test_http_reserve_routes_accumulates);
     RUN_TEST(test_reserve_declared_total_from_companions);
