@@ -67,6 +67,11 @@ bb_reset_reason_t bb_system_get_reset_reason(void)
     }
 }
 
+int32_t bb_system_get_reset_reason_raw(void)
+{
+    return (int32_t)esp_reset_reason();
+}
+
 const char *bb_system_reset_reason_str(bb_reset_reason_t r)
 {
     switch (r) {

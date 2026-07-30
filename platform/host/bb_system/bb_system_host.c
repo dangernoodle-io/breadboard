@@ -27,6 +27,14 @@ bb_reset_reason_t bb_system_get_reset_reason(void)
     return BB_RESET_REASON_POWERON;
 }
 
+int32_t bb_system_get_reset_reason_raw(void)
+{
+    // Host never classifies to BB_RESET_REASON_UNKNOWN (always POWERON
+    // above), so this value is never actually consulted -- present only for
+    // link-surface consistency with the ESP-IDF/Arduino backends.
+    return (int32_t)BB_RESET_REASON_POWERON;
+}
+
 const char *bb_system_reset_reason_str(bb_reset_reason_t r)
 {
     switch (r) {

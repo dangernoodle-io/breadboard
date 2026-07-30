@@ -13,6 +13,39 @@
  */
 int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_list args);
 
+/**
+ * Synchronously drain any log output queued for async delivery, so every
+ * line logged before this call is guaranteed to be on the wire (console/
+ * UART) by the time it returns — the console writer normally runs on a
+ * low-priority background task, so a caller that logs then resets/reboots
+ * shortly after can otherwise race it and lose the line (see the boot
+ * banner's own reset= field, added to make exactly this failure mode
+ * diagnosable). Bounded: never blocks forever — returns BB_ERR_TIMEOUT
+ * rather than hang if the writer can't keep up.
+ *
+ * Ordering-independent: safe to call whether or not the async writer (ESP-
+ * IDF's bb_log_stream_init) has been started yet — a not-yet-started or
+ * never-present writer is a synchronous no-op (bb_log lines are already on
+ * the wire in that case; this just flushes libc's own stdio buffer). Also
+ * safe to call from the writer task's own context (falls back to the same
+ * no-op rather than deadlock waiting on itself).
+ *
+ * Portable across ESP-IDF/host/Arduino. Also useful generally before a
+ * reboot/OTA apply so the last diagnostic line survives the reset — no
+ * call site added here; left for the caller that needs it.
+ *
+ * Not ISR-safe — do not call from interrupt context (it may take a mutex
+ * and block on a semaphore/queue).
+ *
+ * Arduino note: bounded on ESP-IDF/host via a hard deadline regardless of
+ * how slow/stalled the sink is. On Arduino it delegates to Serial.flush(),
+ * whose own contract is to block until the TX buffer drains with NO
+ * timeout — an unplugged or stalled USB host can therefore hang this call
+ * on that backend specifically. Documented divergence, not a silent one:
+ * every other backend honors the "never blocks forever" contract above.
+ */
+bb_err_t bb_log_flush(void);
+
 typedef enum {
     BB_LOG_LEVEL_NONE,
     BB_LOG_LEVEL_ERROR,
@@ -120,6 +153,17 @@ bool bb_log_stream_ready(void);
  * Returns the count of lines that could not be sent despite the drop-oldest loop.
  */
 uint32_t bb_log_stream_dropped_lines(void);
+
+/**
+ * Returns the count of bb_log_flush() calls (on this ESP-IDF async-writer
+ * backend) that gave up with BB_ERR_TIMEOUT before their own marker was
+ * confirmed drained. A nonzero count means at least one flush caller could
+ * no longer be sure its preceding log lines had reached the wire before it
+ * returned -- exactly the forensic gap bb_log_flush exists to close, so a
+ * caller that only does `(void)bb_log_flush();` can still notice via this
+ * counter. Mirrors bb_log_stream_dropped_lines().
+ */
+uint32_t bb_log_flush_timeouts(void);
 
 /**
  * Tap callback signature: receives every formatted log line written through

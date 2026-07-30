@@ -932,37 +932,170 @@ void test_bb_system_boot_banner_format_all_present(void)
 {
     char buf[128];
     int n = bb_system_boot_banner_format(buf, sizeof(buf), "myapp", "1.2.3",
-                                          "Jan  1 2025", "12:00:00", "5.1.2");
+                                          "Jan  1 2025", "12:00:00", "5.1.2", "power-on");
     TEST_ASSERT_TRUE(n > 0);
-    TEST_ASSERT_EQUAL_STRING("project=myapp version=1.2.3 build=Jan  1 2025 12:00:00 idf=5.1.2", buf);
+    TEST_ASSERT_EQUAL_STRING("project=myapp version=1.2.3 build=Jan  1 2025 12:00:00 idf=5.1.2 reset=power-on", buf);
 }
 
 void test_bb_system_boot_banner_format_all_null(void)
 {
     char buf[128];
-    int n = bb_system_boot_banner_format(buf, sizeof(buf), NULL, NULL, NULL, NULL, NULL);
+    int n = bb_system_boot_banner_format(buf, sizeof(buf), NULL, NULL, NULL, NULL, NULL, NULL);
     TEST_ASSERT_TRUE(n > 0);
-    TEST_ASSERT_EQUAL_STRING("project=? version=? build=? ? idf=?", buf);
+    TEST_ASSERT_EQUAL_STRING("project=? version=? build=? ? idf=? reset=?", buf);
 }
 
 void test_bb_system_boot_banner_format_null_out(void)
 {
-    TEST_ASSERT_EQUAL(-1, bb_system_boot_banner_format(NULL, 128, "a", "b", "c", "d", "e"));
+    TEST_ASSERT_EQUAL(-1, bb_system_boot_banner_format(NULL, 128, "a", "b", "c", "d", "e", "f"));
 }
 
 void test_bb_system_boot_banner_format_zero_len(void)
 {
     char buf[4];
-    TEST_ASSERT_EQUAL(-1, bb_system_boot_banner_format(buf, 0, "a", "b", "c", "d", "e"));
+    TEST_ASSERT_EQUAL(-1, bb_system_boot_banner_format(buf, 0, "a", "b", "c", "d", "e", "f"));
 }
 
 void test_bb_system_boot_banner_format_truncation(void)
 {
     char buf[8];
     int n = bb_system_boot_banner_format(buf, sizeof(buf), "myapp", "1.2.3",
-                                          "Jan  1 2025", "12:00:00", "5.1.2");
+                                          "Jan  1 2025", "12:00:00", "5.1.2", "power-on");
     TEST_ASSERT_TRUE(n >= (int)sizeof(buf));
     TEST_ASSERT_EQUAL_CHAR('\0', buf[sizeof(buf) - 1]);
+}
+
+// New for B1-1273: the banner's reset-reason field must reflect the actual
+// hardware reset reason string (bb_system_reset_reason_str), not a fixed
+// placeholder — this is the datum the ticket's field failure needed and had
+// no way to recover.
+void test_bb_system_boot_banner_format_reset_reason_task_wdt(void)
+{
+    char buf[128];
+    int n = bb_system_boot_banner_format(buf, sizeof(buf), "myapp", "1.2.3",
+                                          "Jan  1 2025", "12:00:00", "5.1.2",
+                                          bb_system_reset_reason_str(BB_RESET_REASON_TASK_WDT));
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_EQUAL_STRING("project=myapp version=1.2.3 build=Jan  1 2025 12:00:00 idf=5.1.2 reset=task_wdt", buf);
+}
+
+// Unmapped/out-of-range reset reason must still render as "unknown" in the
+// banner line, not crash or emit garbage.
+void test_bb_system_boot_banner_format_reset_reason_out_of_range(void)
+{
+    char buf[128];
+    int n = bb_system_boot_banner_format(buf, sizeof(buf), "myapp", "1.2.3",
+                                          "Jan  1 2025", "12:00:00", "5.1.2",
+                                          bb_system_reset_reason_str((bb_reset_reason_t)999));
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_EQUAL_STRING("project=myapp version=1.2.3 build=Jan  1 2025 12:00:00 idf=5.1.2 reset=unknown", buf);
+}
+
+// ---------------------------------------------------------------------------
+// bb_system_get_reset_reason_raw / bb_system_reset_reason_format — raw-value
+// forensics for an unmapped/future reset cause (B1-1273 follow-up: an
+// unmapped cause previously collapsed to a bare "unknown", making two
+// different un-cataloged causes indistinguishable).
+// ---------------------------------------------------------------------------
+
+void test_bb_system_get_reset_reason_raw_callable(void)
+{
+    // Host always classifies to BB_RESET_REASON_POWERON (never UNKNOWN), so
+    // the raw value is never actually consulted — just prove it's callable
+    // and matches the mapped reason's own underlying value.
+    TEST_ASSERT_EQUAL_INT32((int32_t)BB_RESET_REASON_POWERON, bb_system_get_reset_reason_raw());
+}
+
+void test_bb_system_reset_reason_format_mapped_matches_str(void)
+{
+    char out[BB_SYSTEM_RESET_REASON_STR_MAX];
+    TEST_ASSERT_TRUE(bb_system_reset_reason_format(BB_RESET_REASON_TASK_WDT, 999, out, sizeof(out)));
+    // raw is ignored entirely for a mapped reason — output matches
+    // bb_system_reset_reason_str byte-for-byte.
+    TEST_ASSERT_EQUAL_STRING(bb_system_reset_reason_str(BB_RESET_REASON_TASK_WDT), out);
+    TEST_ASSERT_EQUAL_STRING("task_wdt", out);
+}
+
+void test_bb_system_reset_reason_format_unknown_renders_raw_value(void)
+{
+    char out[BB_SYSTEM_RESET_REASON_STR_MAX];
+    TEST_ASSERT_TRUE(bb_system_reset_reason_format(BB_RESET_REASON_UNKNOWN, 12, out, sizeof(out)));
+    TEST_ASSERT_EQUAL_STRING("unknown(12)", out);
+}
+
+void test_bb_system_reset_reason_format_out_of_range_enum_renders_raw_value(void)
+{
+    // An out-of-range bb_reset_reason_t (not just the UNKNOWN sentinel)
+    // takes the same unmapped path — mirrors bb_system_reset_reason_str's
+    // own default-case fallthrough.
+    char out[BB_SYSTEM_RESET_REASON_STR_MAX];
+    TEST_ASSERT_TRUE(bb_system_reset_reason_format((bb_reset_reason_t)999, 7, out, sizeof(out)));
+    TEST_ASSERT_EQUAL_STRING("unknown(7)", out);
+}
+
+void test_bb_system_reset_reason_format_worst_case_raw_value(void)
+{
+    // INT32_MIN is the longest possible rendering (11 digits incl. sign) —
+    // proves BB_SYSTEM_RESET_REASON_STR_MAX is genuinely sufficient, not
+    // just adequate for small/typical raw values.
+    char out[BB_SYSTEM_RESET_REASON_STR_MAX];
+    TEST_ASSERT_TRUE(bb_system_reset_reason_format(BB_RESET_REASON_UNKNOWN, INT32_MIN, out, sizeof(out)));
+    TEST_ASSERT_EQUAL_STRING("unknown(-2147483648)", out);
+}
+
+void test_bb_system_reset_reason_format_null_out(void)
+{
+    TEST_ASSERT_FALSE(bb_system_reset_reason_format(BB_RESET_REASON_UNKNOWN, 1, NULL, 16));
+}
+
+void test_bb_system_reset_reason_format_zero_len(void)
+{
+    char out[4];
+    TEST_ASSERT_FALSE(bb_system_reset_reason_format(BB_RESET_REASON_UNKNOWN, 1, out, 0));
+}
+
+void test_bb_system_reset_reason_format_truncation_returns_false(void)
+{
+    // Undersized out_len for the unmapped-case rendering: still
+    // NUL-terminated within out_len, but signals truncation via false.
+    char out[4];
+    TEST_ASSERT_FALSE(bb_system_reset_reason_format(BB_RESET_REASON_UNKNOWN, 123456, out, sizeof(out)));
+    TEST_ASSERT_EQUAL_CHAR('\0', out[sizeof(out) - 1]);
+}
+
+// Regression guard for the buffer-size MEDIUM finding (B1-1273 review): the
+// banner's console line buffer (platform/espidf/bb_system/
+// bb_system_boot_banner.c's BOOT_BANNER_LINE_MAX) must be large enough that
+// worst-case-length project/version/build/idf fields never truncate away
+// the reset= field appended last. This exercises the pure formatter with
+// the exact field widths esp_app_desc_t allows (31/31/15/15/31 usable
+// chars) plus the longest possible reset-reason rendering, against a
+// buffer sized to match BOOT_BANNER_LINE_MAX.
+#define TEST_BOOT_BANNER_LINE_MAX 224
+#define WORST_CASE_31 "1234567890123456789012345678901"  // 31 chars
+#define WORST_CASE_15 "123456789012345"                  // 15 chars
+
+void test_bb_system_boot_banner_format_worst_case_length_preserves_reset_field(void)
+{
+    char reset_reason[BB_SYSTEM_RESET_REASON_STR_MAX];
+    TEST_ASSERT_TRUE(bb_system_reset_reason_format((bb_reset_reason_t)999, INT32_MIN, reset_reason, sizeof(reset_reason)));
+    TEST_ASSERT_EQUAL_STRING("unknown(-2147483648)", reset_reason);
+
+    char buf[TEST_BOOT_BANNER_LINE_MAX];
+    int n = bb_system_boot_banner_format(buf, sizeof(buf),
+                                          WORST_CASE_31, WORST_CASE_31,
+                                          WORST_CASE_15, WORST_CASE_15,
+                                          WORST_CASE_31, reset_reason);
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_TRUE(n < (int)sizeof(buf));  // not truncated
+
+    // The reset= field must survive intact at the end of the rendered
+    // line — the exact bug the MEDIUM finding flagged (it used to be
+    // truncated away by the fields ahead of it).
+    const char *tail = "reset=unknown(-2147483648)";
+    size_t tail_len = strlen(tail);
+    TEST_ASSERT_TRUE(strlen(buf) >= tail_len);
+    TEST_ASSERT_EQUAL_STRING(tail, buf + strlen(buf) - tail_len);
 }
 
 // ---------------------------------------------------------------------------

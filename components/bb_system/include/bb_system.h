@@ -64,12 +64,43 @@ bb_reset_reason_t bb_system_get_reset_reason(void);
 /// Short human-readable string for a reset reason. Never NULL.
 const char *bb_system_reset_reason_str(bb_reset_reason_t r);
 
+/// The raw, unclassified reset-cause value bb_system_get_reset_reason()
+/// collapsed to BB_RESET_REASON_UNKNOWN, whenever that happened (an
+/// unmapped/future platform value). On ESP-IDF this is (int32_t)
+/// esp_reset_reason() -- notably distinct raw values for USB/JTAG/EFUSE/
+/// PWR_GLITCH/CPU_LOCKUP and any future IDF addition, all of which
+/// otherwise render identically as "unknown". Host/Arduino never classify
+/// to UNKNOWN (bb_system_get_reset_reason() always returns a mapped value
+/// there), so their raw value is unused in practice; present for surface
+/// consistency. See bb_system_reset_reason_format.
+int32_t bb_system_get_reset_reason_raw(void);
+
 /// Returns true if this boot was caused by an abnormal reset
 /// (panic, any WDT, brownout). Poweron/ext/SW/deepsleep are normal.
 bool bb_system_is_abnormal_reset(void);
 
 /// Log a one-line boot diagnostic via bb_log_i: reset reason + firmware version.
 /// Call once early in app_main. Safe before NV init.
+///
+/// STATUS: not currently wired into any composition (codegen/handwire) call
+/// site. Predates and is functionally subsumed by the wired
+/// bb_system_boot_banner_init()/bb_system_boot_banner_format() pair (added
+/// later, richer: project/version/build/idf/reset, same "safe before NV
+/// init" no-storage-dependency guarantee) -- calling both would print two
+/// overlapping lines, so do not wire this one alongside the banner.
+///
+/// This is deliberately NOT the place to add the NVS-recorded software
+/// reboot cause (bb_reset_source_t / bb_reboot_record_t at
+/// BB_REBOOT_NVS_NS/BB_REBOOT_KEY_LAST): that record already has exactly one
+/// reader, platform/espidf/bb_diag_http/bb_diag_http_routes.c's
+/// load_reboot_record(), which does a clear-on-read latch (bb_config_get_str
+/// then bb_config_erase) gated on a software reset and on the HTTP/diag
+/// stack being composed. A second independent reader here would race it --
+/// whichever init hook runs first erases the record out from under the
+/// other. Surfacing the recorded cause as a later, storage-aware boot line
+/// needs that ownership resolved first (e.g. bb_diag_http exposing the
+/// already-latched record via a getter) -- a separate, reviewed change, not
+/// a use of this function as-is.
 void bb_system_log_boot_info(void);
 
 /// Returns the running firmware version string.
@@ -483,6 +514,29 @@ void bb_system_safeguard_reboot(bb_reboot_cause_t cause, bool ota_validated, con
 /// and on host/Arduino backends. *out is untouched on error.
 bb_err_t bb_system_read_temp_celsius(float *out);
 
+/// Worst-case length (including NUL) of bb_system_reset_reason_format's
+/// output: "unknown(" + INT32_MIN's 11 digits (incl. sign) + ")" = 20 chars,
+/// rounded up.
+#define BB_SYSTEM_RESET_REASON_STR_MAX 24
+
+/// Pure formatter: renders a reset reason, preserving the raw hardware value
+/// when bb_system_get_reset_reason() had to collapse it to
+/// BB_RESET_REASON_UNKNOWN (an unmapped/future value) rather than losing it
+/// behind the fixed "unknown" string bb_system_reset_reason_str() returns —
+/// e.g. "unknown(12)" instead of just "unknown", so two different
+/// un-cataloged causes remain distinguishable in the field. Every mapped
+/// reason (r != BB_RESET_REASON_UNKNOWN) renders EXACTLY
+/// bb_system_reset_reason_str(r), byte-for-byte unchanged — `raw` is only
+/// consulted in the unmapped case. `out` is always NUL-terminated within
+/// out_len (even when out_len is too small to hold the would-be output,
+/// mirroring bb_system_boot_banner_format's truncation contract). Returns
+/// false if out is NULL or out_len is 0 (no write at all) or if out_len was
+/// too small to hold the unmapped-case rendering without truncation; true
+/// otherwise. BB_SYSTEM_RESET_REASON_STR_MAX is always sufficient. Host-
+/// testable, no platform dependency — `raw` comes from
+/// bb_system_get_reset_reason_raw() at the call site.
+bool bb_system_reset_reason_format(bb_reset_reason_t r, int32_t raw, char *out, size_t out_len);
+
 /// Pure formatter for the CONFIG_BB_SYSTEM_BOOT_BANNER one-time boot banner line.
 /// Any NULL input string is rendered as "?" rather than crashing — every
 /// bb_system_get_* accessor above already promises a non-NULL, program-
@@ -491,10 +545,14 @@ bb_err_t bb_system_read_temp_celsius(float *out);
 /// out_len (even when truncated). Returns the vsnprintf-style would-be
 /// length (may be >= out_len to signal truncation — callers may still log
 /// the buffer as-is), or -1 if out is NULL or out_len is 0 (no write).
+/// reset_reason is the string form of bb_system_get_reset_reason() (see
+/// bb_system_reset_reason_str) — the hardware reset classification
+/// (watchdog/panic/power-on/...), always available pre-NVS so the banner
+/// never depends on storage being mounted.
 int bb_system_boot_banner_format(char *out, size_t out_len,
                                   const char *project, const char *version,
                                   const char *build_date, const char *build_time,
-                                  const char *idf_version);
+                                  const char *idf_version, const char *reset_reason);
 
 /// Writes the first N hex characters of the app ELF SHA256 into out.
 /// N is controlled by CONFIG_APP_RETRIEVE_LEN_ELF_SHA (default 9 on ESP-IDF).
