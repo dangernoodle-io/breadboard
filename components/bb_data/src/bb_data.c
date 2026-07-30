@@ -7,6 +7,7 @@
 #include "bb_registry.h"
 #include "bb_serialize_format.h"
 
+#include <assert.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <string.h>
@@ -200,5 +201,53 @@ void bb_data_test_reset(void)
 {
     memset(s_slots, 0, sizeof(s_slots));
     bb_registry_reset(&s_bb_data_registry);
+}
+#endif
+
+// ---------------------------------------------------------------------------
+// Scratch acquire/release (B1-1287) -- see bb_data.h's own doc comments for
+// the contract/SAFETY argument. One shared, file-scope static pair; a single
+// `s_scratch_in_use` flag is the ENTIRE reentrancy guard (single enforcement
+// point, per the PR's own design -- no per-call-site guard duplication).
+// ---------------------------------------------------------------------------
+
+static char s_scratch_body[BB_DATA_SCRATCH_BODY_BYTES];
+static char s_scratch_parse[BB_DATA_SCRATCH_PARSE_BYTES];
+static bool s_scratch_in_use = false;
+
+bb_err_t bb_data_scratch_acquire(bb_data_scratch_t *out)
+{
+    if (!out) return BB_ERR_INVALID_ARG;
+
+    if (s_scratch_in_use) {
+#ifndef BB_DATA_TESTING
+        // Loud trap in a real (non-test) build -- see bb_data_scratch_
+        // acquire()'s own doc comment in bb_data.h for why this is compiled
+        // out under BB_DATA_TESTING: a process-aborting assert() is not
+        // something a Unity host test can observe as a passing result, so a
+        // host test instead exercises only the fail-closed
+        // BB_ERR_INVALID_STATE return below.
+        assert(false && "bb_data_scratch_acquire: reentrant acquire -- see SAFETY note in bb_data.h");
+#endif
+        return BB_ERR_INVALID_STATE;
+    }
+
+    s_scratch_in_use = true;
+    out->body              = s_scratch_body;
+    out->body_cap           = sizeof(s_scratch_body);
+    out->parse_scratch      = s_scratch_parse;
+    out->parse_scratch_cap  = sizeof(s_scratch_parse);
+    return BB_OK;
+}
+
+void bb_data_scratch_release(void)
+{
+    s_scratch_in_use = false;
+}
+
+#ifdef BB_DATA_TESTING
+void bb_data_scratch_test_reset(void)
+{
+    s_scratch_in_use = false;
 }
 #endif

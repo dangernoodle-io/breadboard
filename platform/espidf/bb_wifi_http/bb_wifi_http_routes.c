@@ -213,22 +213,9 @@ static bb_err_t wifi_creds_apply(const void *snap, const bb_data_apply_args_t *a
     return bb_wifi_reconfigure(creds->ssid, creds->pass);
 }
 
-// JSON parse scratch: a flat 2-string-field document, comfortably under the
-// route's own 256-byte body cap -- but the token recorder's own
-// default-capacity pool alone is 48 * sizeof(bb_serialize_json_tok_t) ==
-// 2304 bytes, so this must clear that plus the control structs plus
-// headroom for the escape-decode arena (see
-// test_bb_serialize_json_parse.c's SCRATCH_CAP comment for the full
-// control-struct/token-pool/escape-arena layout this backs). Sized to match
-// bb_diag_section's own precedent for a multi-KB stack scratch buffer in an
-// httpd handler call chain (BB_DIAG_SECTION_RENDER_BUF_BYTES, default
-// 3072) -- this route's own handler-stack task budget is
-// CONFIG_BB_HTTP_TASK_STACK_SIZE (default 6144).
-#define WIFI_PATCH_PARSE_SCRATCH_BYTES 3072
-
 // Request body cap -- MAX BODY BYTES (see bb_http_req_recv_body_stack()'s
-// cap-semantics doc); the stack buffer itself is sized
-// WIFI_PATCH_BODY_MAX + 1.
+// cap-semantics doc); the buffer itself (bb_data's shared scratch pair, see
+// bb_data_scratch_acquire()) is sized WIFI_PATCH_BODY_MAX + 1.
 #define WIFI_PATCH_BODY_MAX 256
 
 // PATCH /api/wifi 202 response: a single fixed literal field,
@@ -248,27 +235,40 @@ static bb_err_t wifi_creds_apply(const void *snap, const bb_data_apply_args_t *a
 
 static bb_err_t wifi_patch_handler(bb_http_request_t *req)
 {
-    char   body[WIFI_PATCH_BODY_MAX + 1];
+    // B1-1287 (httpd worker task stack-exhaustion fix): body/parse_scratch
+    // now borrow bb_data's shared scratch pair instead of this handler's own
+    // `char body[257]; char parse_scratch[3072];` stack locals -- see
+    // bb_data.h's own doc comment for the concurrency invariant this relies
+    // on (one httpd worker task, one synchronous handler dispatched at a
+    // time).
+    bb_data_scratch_t scratch;
+    bb_err_t scratch_rc = bb_data_scratch_acquire(&scratch);
+    if (scratch_rc != BB_OK) {
+        bb_http_serialize_send_error(req, 500, "internal error");
+        return scratch_rc;
+    }
+
     size_t n = 0;
-    if (bb_http_req_recv_body_stack(req, body, sizeof(body), &n) != BB_OK) {
+    if (bb_http_req_recv_body_stack(req, scratch.body, WIFI_PATCH_BODY_MAX + 1, &n) != BB_OK) {
+        bb_data_scratch_release();
         bb_http_serialize_send_error(req, 400, "missing, oversized, or unreadable body");
         return BB_ERR_INVALID_ARG;
     }
 
     bb_wifi_http_creds_wire_t dst_scratch;
-    char                  parse_scratch[WIFI_PATCH_PARSE_SCRATCH_BYTES];
     bb_data_apply_req_t apply_req = {
         .fmt               = BB_FORMAT_JSON,
         .key               = "wifi",
         .mode              = BB_DATA_APPLY_POST,
-        .body              = body,
+        .body              = scratch.body,
         .body_len          = n,
-        .parse_scratch     = parse_scratch,
-        .parse_scratch_cap = sizeof(parse_scratch),
+        .parse_scratch     = scratch.parse_scratch,
+        .parse_scratch_cap = scratch.parse_scratch_cap,
         .dst_scratch       = &dst_scratch,
         .dst_scratch_cap   = sizeof(dst_scratch),
     };
     bb_err_t rc = bb_data_apply(&apply_req);
+    bb_data_scratch_release();
 
     // Fork 3 (B1-1022, user-decided): response shaping (incl. this 202 body)
     // stays here in the route -- bb_data_apply()/apply() stay HTTP-agnostic

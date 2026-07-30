@@ -456,6 +456,33 @@ void test_storage_http_factory_reset_erase_all_invalid_state_returns_500(void)
     TEST_ASSERT_EQUAL_INT(1, s_erase_all_calls);
 }
 
+// B1-1287 (review finding 1): bb_data_scratch_acquire() failure (the scratch
+// pair already held by another in-flight caller) -- exercises the
+// composition-invariant 500 branch factory_reset_handler's own bb_data_
+// scratch_acquire() call added. Never reachable via client input (the real
+// invariant this guards is "one httpd worker task, one handler in flight"
+// -- see bb_data.h's own SAFETY doc comment), so this test drives it
+// directly by holding the scratch pair open before calling the handler.
+// Mirrors test_bb_system_routes.c's own scratch-acquire-failure test for
+// reboot_handler -- factory_reset_handler propagates scratch_rc as its own
+// return value the same way. erase_all() must never be dispatched -- the
+// handler fails closed before ever recv'ing/parsing the body.
+void test_storage_http_factory_reset_scratch_acquire_failure_returns_500(void)
+{
+    reset_all();
+    bb_data_scratch_test_reset();
+
+    bb_data_scratch_t held;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_scratch_acquire(&held));
+
+    bb_http_host_capture_t cap = run_factory_reset("{\"confirm\":\"factory-reset\"}");
+    TEST_ASSERT_EQUAL_INT(500, cap.status);
+    bb_http_host_capture_free(&cap);
+    TEST_ASSERT_EQUAL_INT(0, s_erase_all_calls);
+
+    bb_data_scratch_release();
+}
+
 // ---------------------------------------------------------------------------
 // B1-859: exercise the bound "factory_reset" key's gather stub directly.
 // Production always applies via BB_DATA_APPLY_POST (the route hardcodes

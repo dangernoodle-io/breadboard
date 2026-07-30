@@ -240,6 +240,12 @@ void test_bb_data_parse_malformed_body_returns_parse_grammar(void);
 void test_bb_data_commit_null_args_return_invalid_arg(void);
 void test_bb_data_commit_dst_scratch_too_small_returns_no_space(void);
 void test_bb_data_apply_patch_malformed_body_never_invokes_seed_gather(void);
+void test_bb_data_scratch_acquire_returns_sized_buffers(void);
+void test_bb_data_scratch_acquire_null_out_returns_invalid_arg(void);
+void test_bb_data_scratch_acquire_release_round_trip_repeatable(void);
+void test_bb_data_scratch_acquire_reentrant_returns_invalid_state(void);
+void test_bb_data_scratch_release_without_acquire_is_noop(void);
+void test_bb_data_scratch_test_reset_forces_released_state(void);
 
 // Forward declarations from test_bb_diag_section.c
 void test_bb_diag_register_section_success(void);
@@ -1588,6 +1594,7 @@ void test_storage_delete_unknown_backend_returns_500(void);
 void test_storage_delete_backend_without_erase_namespace_returns_501(void);
 void test_storage_delete_explicit_backend_selects_correct_backend(void);
 void test_storage_delete_key_not_found_still_returns_200(void);
+void test_storage_delete_scratch_acquire_failure_returns_500(void);
 void test_storage_delete_route_request_schema_is_unchanged_const_literal(void);
 void test_storage_delete_ns_array_over_cap_returns_400_before_erase(void);
 void test_storage_delete_ns_wrong_type_returns_400(void);
@@ -1656,6 +1663,7 @@ void test_storage_http_factory_reset_clears_rtc_creds_mirror(void);
 void test_storage_http_factory_reset_backend_without_erase_all_returns_501(void);
 void test_storage_http_factory_reset_erase_all_generic_failure_returns_500(void);
 void test_storage_http_factory_reset_erase_all_invalid_state_returns_500(void);
+void test_storage_http_factory_reset_scratch_acquire_failure_returns_500(void);
 void test_storage_http_factory_reset_gather_stub_reachable_via_patch_mode(void);
 void test_storage_http_factory_reset_route_request_schema_is_unchanged_const_literal(void);
 
@@ -3702,6 +3710,7 @@ void test_bb_system_reboot_route_oversized_body_returns_200(void);
 void test_bb_system_reboot_route_recv_fail_treated_as_no_body(void);
 void test_bb_system_reboot_route_json_obj_begin_fail_propagates(void);
 void test_bb_system_reboot_route_json_obj_end_fail_propagates(void);
+void test_bb_system_reboot_route_scratch_acquire_failure_returns_500(void);
 void test_bb_system_reboot_route_gather_stub_reachable_via_patch_mode(void);
 void test_bb_system_reboot_route_request_schema_is_unchanged_const_literal(void);
 
@@ -5067,6 +5076,7 @@ void test_update_check_config_post_route_descriptor_is_correct(void);
 void test_update_check_config_post_oversized_body_returns_400(void);
 void test_update_check_config_post_recv_failure_returns_400(void);
 void test_update_check_config_post_nv_write_failure_returns_500(void);
+void test_update_check_config_post_scratch_acquire_failure_returns_500(void);
 void test_ota_check_config_apply_missing_enabled_returns_validation_error(void);
 void test_ota_check_config_apply_present_enabled_overwrites_sentinel_and_persists(void);
 void test_bb_ota_check_outcome_no_asset_streaming(void);
@@ -6743,6 +6753,7 @@ int main(void) {
     RUN_TEST(test_storage_delete_backend_without_erase_namespace_returns_501);
     RUN_TEST(test_storage_delete_explicit_backend_selects_correct_backend);
     RUN_TEST(test_storage_delete_key_not_found_still_returns_200);
+    RUN_TEST(test_storage_delete_scratch_acquire_failure_returns_500);
     RUN_TEST(test_storage_delete_route_request_schema_is_unchanged_const_literal);
     RUN_TEST(test_storage_delete_ns_array_over_cap_returns_400_before_erase);
     RUN_TEST(test_storage_delete_ns_wrong_type_returns_400);
@@ -6819,6 +6830,7 @@ int main(void) {
     RUN_TEST(test_storage_http_factory_reset_backend_without_erase_all_returns_501);
     RUN_TEST(test_storage_http_factory_reset_erase_all_generic_failure_returns_500);
     RUN_TEST(test_storage_http_factory_reset_erase_all_invalid_state_returns_500);
+    RUN_TEST(test_storage_http_factory_reset_scratch_acquire_failure_returns_500);
     RUN_TEST(test_storage_http_factory_reset_gather_stub_reachable_via_patch_mode);
     RUN_TEST(test_storage_http_factory_reset_route_request_schema_is_unchanged_const_literal);
 
@@ -7996,6 +8008,7 @@ int main(void) {
     RUN_TEST(test_bb_system_reboot_route_recv_fail_treated_as_no_body);
     RUN_TEST(test_bb_system_reboot_route_json_obj_begin_fail_propagates);
     RUN_TEST(test_bb_system_reboot_route_json_obj_end_fail_propagates);
+    RUN_TEST(test_bb_system_reboot_route_scratch_acquire_failure_returns_500);
     RUN_TEST(test_bb_system_reboot_route_gather_stub_reachable_via_patch_mode);
     RUN_TEST(test_bb_system_reboot_route_request_schema_is_unchanged_const_literal);
 
@@ -9066,6 +9079,7 @@ int main(void) {
     RUN_TEST(test_update_check_config_post_oversized_body_returns_400);
     RUN_TEST(test_update_check_config_post_recv_failure_returns_400);
     RUN_TEST(test_update_check_config_post_nv_write_failure_returns_500);
+    RUN_TEST(test_update_check_config_post_scratch_acquire_failure_returns_500);
     RUN_TEST(test_ota_check_config_apply_missing_enabled_returns_validation_error);
     RUN_TEST(test_ota_check_config_apply_present_enabled_overwrites_sentinel_and_persists);
     RUN_TEST(test_bb_ota_check_outcome_unknown_before_any_check);
@@ -11258,6 +11272,12 @@ int main(void) {
     RUN_TEST(test_bb_data_commit_null_args_return_invalid_arg);
     RUN_TEST(test_bb_data_commit_dst_scratch_too_small_returns_no_space);
     RUN_TEST(test_bb_data_apply_patch_malformed_body_never_invokes_seed_gather);
+    RUN_TEST(test_bb_data_scratch_acquire_returns_sized_buffers);
+    RUN_TEST(test_bb_data_scratch_acquire_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_data_scratch_acquire_release_round_trip_repeatable);
+    RUN_TEST(test_bb_data_scratch_acquire_reentrant_returns_invalid_state);
+    RUN_TEST(test_bb_data_scratch_release_without_acquire_is_noop);
+    RUN_TEST(test_bb_data_scratch_test_reset_forces_released_state);
 
     RUN_TEST(test_wifi_creds_apply_post_mode_does_not_reuse_stale_pending_password);
     RUN_TEST(test_wifi_creds_apply_patch_mode_would_reuse_stale_pending_password);

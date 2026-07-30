@@ -58,16 +58,6 @@ static const char *TAG = "bb_system_routes";
 // no body at all is a normal, tolerated request.
 #define BB_SYSTEM_REBOOT_BODY_MAX 256
 
-// JSON parse scratch: a flat 2-field document, comfortably under the
-// route's own 256-byte body cap -- but the token recorder's own
-// default-capacity pool alone is 48 * sizeof(bb_serialize_json_tok_t) ==
-// 2304 bytes, so this must clear that plus the control structs plus
-// headroom for the escape-decode arena regardless of body size (same
-// fixed-pool-size rationale as bb_wifi_http_routes.c's
-// WIFI_PATCH_PARSE_SCRATCH_BYTES / bb_storage_http_routes.c's
-// FACTORY_RESET_PARSE_SCRATCH_BYTES).
-#define BB_SYSTEM_REBOOT_PARSE_SCRATCH_BYTES 3072
-
 // ---------------------------------------------------------------------------
 // "reboot" bb_data ingress binding (B1-1148 PR2) -- backs POST /api/reboot's
 // optional {"ts": <epoch_s>, "detail": "<string, up to 48 chars>"} body.
@@ -326,18 +316,32 @@ bool bb_system_reboot_capture_get_for_test(char *out_detail, size_t out_detail_s
 
 static bb_err_t reboot_handler(bb_http_request_t *req)
 {
+    // B1-1287 (httpd worker task stack-exhaustion fix): body/parse_scratch
+    // now borrow bb_data's shared scratch pair (bb_data_scratch_acquire()/
+    // _release()) instead of this handler's own `char body[257]; char
+    // parse_scratch[3072];` stack locals -- see bb_data.h's own doc comment
+    // for the concurrency invariant this relies on (one httpd worker task,
+    // one synchronous handler dispatched at a time). Acquired unconditionally
+    // up front: this route's body is OPTIONAL, but reading it (even to
+    // discover it's absent/oversized) still needs somewhere to receive into.
+    bb_data_scratch_t scratch;
+    bb_err_t scratch_rc = bb_data_scratch_acquire(&scratch);
+    if (scratch_rc != BB_OK) {
+        send_500(req, "reboot request processing failed");
+        return scratch_rc;
+    }
+
     // Read the (optional) body, bounded and NUL-terminated. An absent body,
     // an empty body, or a body larger than BB_SYSTEM_REBOOT_BODY_MAX are all
     // treated identically (body_len stays 0, bb_data_apply() is never
     // called) -- UNCHANGED from before PR2, the one deliberate posture this
     // migration preserves alongside the new malformed-body 400.
-    char body[BB_SYSTEM_REBOOT_BODY_MAX + 1];
     int  body_len = 0;
     int  raw_len  = bb_http_req_body_len(req);
     if (raw_len > 0 && raw_len <= BB_SYSTEM_REBOOT_BODY_MAX) {
-        int n = bb_http_req_recv(req, body, sizeof(body) - 1);
+        int n = bb_http_req_recv(req, scratch.body, BB_SYSTEM_REBOOT_BODY_MAX);
         if (n > 0) {
-            body[n] = '\0';
+            scratch.body[n] = '\0';
             body_len = n;
         }
     }
@@ -346,19 +350,19 @@ static bb_err_t reboot_handler(bb_http_request_t *req)
     memset(&dst_scratch, 0, sizeof(dst_scratch));
 
     if (body_len > 0) {
-        char parse_scratch[BB_SYSTEM_REBOOT_PARSE_SCRATCH_BYTES];
         bb_data_apply_req_t apply_req = {
             .fmt               = BB_FORMAT_JSON,
             .key               = "reboot",
             .mode              = BB_DATA_APPLY_POST,
-            .body              = body,
+            .body              = scratch.body,
             .body_len          = (size_t)body_len,
-            .parse_scratch     = parse_scratch,
-            .parse_scratch_cap = sizeof(parse_scratch),
+            .parse_scratch     = scratch.parse_scratch,
+            .parse_scratch_cap = scratch.parse_scratch_cap,
             .dst_scratch       = &dst_scratch,
             .dst_scratch_cap   = sizeof(dst_scratch),
         };
         bb_err_t rc = bb_data_apply(&apply_req);
+        bb_data_scratch_release();
 
         // BREAKING CHANGE (B1-1148, user-approved): a body that was actually
         // sent but fails to parse (grammar-invalid, e.g. "not-json", or
@@ -391,6 +395,8 @@ static bb_err_t reboot_handler(bb_http_request_t *req)
             send_500(req, "reboot request processing failed");
             return rc;
         }
+    } else {
+        bb_data_scratch_release();
     }
 
     // Resolve the User-Agent fallback once, up front. Precedence: body

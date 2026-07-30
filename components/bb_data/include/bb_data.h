@@ -400,10 +400,99 @@ bb_err_t bb_data_touch(const char *key);
 // Returns BB_ERR_NOT_FOUND if `key` has no binding.
 bb_err_t bb_data_generation(const char *key, uint32_t *out_gen);
 
+// ---------------------------------------------------------------------------
+// Scratch acquire/release (B1-1287, the httpd worker task stack-exhaustion
+// fix) -- an ADDITIVE, callee-owned pair, NOT a change to bb_data_apply()'s
+// caller-owned-buffers contract above (documented three times, deliberate,
+// host tests depend on it -- see bb_data_parse_req_t/bb_data_commit_req_t/
+// bb_data_apply_req_t's own doc comments). This pair exists purely to shrink
+// an httpd worker task's own call-frame: a route handler that would
+// otherwise declare its own `char body[N+1]; char parse_scratch[3072];`
+// stack locals can instead borrow both from ONE shared, file-scope static
+// pair owned by bb_data itself -- confirmed on hardware (controlled A/B) to
+// be the difference between a `Stack canary watchpoint triggered` panic and
+// a clean POST /api/reboot at CONFIG_BB_HTTP_TASK_STACK_SIZE=6144.
+//
+// SAFETY (why a single shared static instance is sound here, unlike
+// bb_data_render()/bb_data_apply()'s own deliberately reentrant, caller-
+// owned-buffer design above): ESP-IDF's httpd spawns exactly ONE worker
+// task (`httpd_thread`); httpd_server() walks open sessions sequentially via
+// httpd_sess_enum()/httpd_sess_process(), dispatching a synchronous handler
+// at a time on THAT one task's own stack -- max_open_sockets/
+// lru_purge_enable govern parked CONNECTIONS, not concurrent handler
+// invocations. Async handlers exist (bb_http.c's httpd_req_async_handler_
+// begin() path), but the sole caller in this codebase is the SSE broadcaster
+// (platform/espidf/bb_data_http/bb_data_http_espidf.c), which returns from
+// its handler immediately and does its rendering on a SEPARATE broadcaster
+// task -- it never calls bb_data_apply()/bb_data_scratch_acquire() at all,
+// so it can never collide with this pair.
+//
+// A caller MUST NOT retain `out`'s pointers past the matching
+// bb_data_scratch_release() call, and MUST NOT call bb_data_scratch_acquire()
+// again before releasing (see bb_data_scratch_acquire()'s own doc comment
+// for the reentrancy guard this trips).
+typedef struct {
+    char   *body;              // BB_DATA_SCRATCH_BODY_BYTES capacity
+    size_t  body_cap;
+    void   *parse_scratch;     // BB_DATA_SCRATCH_PARSE_BYTES capacity
+    size_t  parse_scratch_cap;
+} bb_data_scratch_t;
+
+// Common parse-scratch sizing (see bb_data_parse_req_t's own doc comment and
+// its BB_SERIALIZE_JSON_TOK_POOL_DEFAULT_CAP note) -- NOT schema-tunable per
+// call site, even for a single-bool schema: the token recorder's own
+// default-capacity pool alone is 48 * sizeof(bb_serialize_json_tok_t) ==
+// 2304 bytes, so every current caller of this scratch pair already sized its
+// own hand-rolled parse_scratch to exactly this many bytes regardless of its
+// own schema's real size. Shrinking that global pool is a separate ticket
+// (B1-1293), not attempted here.
+#define BB_DATA_SCRATCH_PARSE_BYTES 3072
+
+// Sized to the largest current caller's body cap -- DELETE /api/diag/storage
+// (BB_STORAGE_HTTP_DELETE_BODY_MAX == 1024, +1 for the NUL terminator).
+// Every other current caller's own body cap is smaller and UNAFFECTED by
+// this shared sizing: a caller still enforces ITS OWN, narrower cap (e.g.
+// the wifi PATCH route's WIFI_PATCH_BODY_MAX) when it reads into
+// `body`/`body_cap` -- bb_data_scratch_acquire() only guarantees the buffer
+// is AT LEAST `body_cap` bytes big, it never widens what any individual
+// caller accepts over the wire.
+#define BB_DATA_SCRATCH_BODY_BYTES 1025
+
+// Acquires bb_data's single shared scratch pair for the calling task's
+// exclusive use until the matching bb_data_scratch_release() call. Fails
+// closed on a nested/concurrent acquire (a second acquire before the first's
+// release): always returns BB_ERR_INVALID_STATE without ever handing out the
+// (already-claimed) buffers -- and, in a real (non-BB_DATA_TESTING) build,
+// additionally trips assert() right at the point of misuse, so a future
+// change that routes one of this pair's callers through an async handler
+// (or a downstream app that runs two HTTP server instances) is caught
+// loudly rather than silently corrupting a concurrent parse. See
+// bb_data_scratch_t's own SAFETY doc comment above for why a single shared
+// instance is sound today. The assert is compiled out under BB_DATA_TESTING
+// so a host test can exercise the fail-closed return path directly -- a
+// process-aborting assert() is not something a Unity test can observe as a
+// passing result.
+//
+// Returns BB_ERR_INVALID_ARG if `out` is NULL.
+// Returns BB_ERR_INVALID_STATE if the scratch pair is already acquired.
+bb_err_t bb_data_scratch_acquire(bb_data_scratch_t *out);
+
+// Releases the scratch pair acquired via bb_data_scratch_acquire(). A stray
+// release with nothing currently acquired is a benign no-op -- unlike a
+// double-acquire, there is no shared state a double-release could corrupt.
+void bb_data_scratch_release(void);
+
 #ifdef BB_DATA_TESTING
 // Test-only: clears the binding table AND the underlying bb_registry
 // instance to empty.
 void bb_data_test_reset(void);
+
+// Test-only: forces the scratch pair back to the released state regardless
+// of any outstanding acquire -- lets a test start from a known-clean slate
+// without depending on every earlier test in the same binary having
+// released it. Mirrors bb_data_test_reset()'s own reset-between-tests
+// posture.
+void bb_data_scratch_test_reset(void);
 #endif
 
 #ifdef __cplusplus
