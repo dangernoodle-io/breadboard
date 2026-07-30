@@ -55,6 +55,20 @@ typedef struct {
 static TaskHandle_t  s_task  = NULL;
 static QueueHandle_t s_queue = NULL;
 
+// "Provisioning active" signal (B1-1279 PR2). Single writer: only the
+// wifi_prov_policy.c on_entry hooks (wp_active_on_entry/wp_idle_on_entry),
+// via mgr_set_prov_active below, and only from prov_mgr_task -- same
+// single-writer contract as s_ctx itself (see its own comment). Many
+// concurrent readers via wifi_prov_mgr_is_active() (httpd worker tasks in
+// PR3). A naturally-aligned bool read/write needs no lock on Xtensa/RISC-V,
+// same posture as bb_wifi.c's unlocked s_scan_in_progress. Reads never
+// block. Starts false (static zero-init) and wp_idle_on_entry re-asserts
+// false the moment the FSM is constructed at WP_IDLE (its only production
+// initial state) -- so a board that never even reaches wifi_prov_mgr_init()
+// still observes false via the s_queue guard below, and one that does still
+// observes false until its first EV_ENTRY_* actually opens the portal.
+static volatile bool s_prov_active = false;
+
 // FSM context -- embedded by value, zero heap, single-writer: ONLY
 // prov_mgr_task (below) may call bb_fsm_step()/wifi_prov_fsm_drive_entry()
 // on s_ctx.fsm (see the "single-writer contract" comment on struct bb_fsm,
@@ -78,6 +92,7 @@ static void     mgr_ap_stop(void) { bb_wifi_ap_stop(); }
 static bb_err_t mgr_prov_start(void) { return bb_wifi_prov_start(s_assets, s_asset_count, s_extra); }
 static void     mgr_prov_stop(void) { bb_wifi_prov_stop(); }
 static void     mgr_creds_arrived(void) { bb_wifi_on_creds_arrived(); }
+static void     mgr_set_prov_active(bool active) { s_prov_active = active; }
 
 static void mgr_log(wifi_prov_log_evt_t evt)
 {
@@ -116,6 +131,7 @@ static const wifi_prov_adapter_t s_adapter = {
     .prov_stop_fn              = mgr_prov_stop,
     .creds_arrived_notify_fn  = mgr_creds_arrived,
     .log_fn                    = mgr_log,
+    .prov_active_set_fn      = mgr_set_prov_active,
 };
 
 static void prov_mgr_task(void *arg)
@@ -219,4 +235,17 @@ void wifi_prov_mgr_on_save(void)
 void wifi_prov_mgr_post_entry(wp_event_t event)
 {
     post_event(event, "queue full, dropping entry event");
+}
+
+bool wifi_prov_mgr_is_active(void)
+{
+    // Same guard as post_event() above: s_queue unset means the manager was
+    // never started (wifi_prov_mgr_init() not yet called, or
+    // bb_wifi_prov_autoinit() short-circuited because creds were already
+    // present -- see wifi_prov_entry_decision's doc) -- s_prov_active stays
+    // at its false zero-init in that case regardless, but this guard is
+    // explicit rather than relying on that, matching this file's existing
+    // convention.
+    if (!s_queue) return false;
+    return s_prov_active;
 }

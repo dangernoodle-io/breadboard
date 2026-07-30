@@ -82,6 +82,11 @@ typedef enum {
 // takes those; prov_start_fn here is deliberately zero-arg). All pointers
 // are a required part of the contract (not optionally NULL) -- callers
 // populate every field.
+// prov_active_set_fn (B1-1279 PR2): fires on WP_IDLE/WP_ACTIVE on_entry to
+// publish a "provisioning active" signal -- see wp_active_on_entry/
+// wp_idle_on_entry in wifi_prov_policy.c for exactly which states set/clear
+// it and why WP_CLOSING deliberately does NOT clear it (the settle-window
+// rationale lives there, not here -- don't duplicate it).
 typedef struct {
     bb_err_t (*ap_start_fn)(void);             // bb_wifi_ap_start()
     void     (*ap_stop_fn)(void);               // bb_wifi_ap_stop()
@@ -89,6 +94,7 @@ typedef struct {
     void     (*prov_stop_fn)(void);             // bb_wifi_prov_stop()
     void     (*creds_arrived_notify_fn)(void);  // bb_wifi_on_creds_arrived() (PR1 seam)
     void     (*log_fn)(wifi_prov_log_evt_t);    // structured diagnostic emit
+    void     (*prov_active_set_fn)(bool active); // publish "provisioning active" (wifi_prov_mgr_is_active())
 } wifi_prov_adapter_t;
 
 // Embedded-by-value FSM context, zero heap, single-writer (whichever task
