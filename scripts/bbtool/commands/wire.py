@@ -76,6 +76,16 @@ headers) hard-errors if it sees one set. See `wire_parse`'s module docstring
 for the grammar and `commands.codegen.run` for how the named component joins
 the composition closure.
 
+`out=<varname>:<c-type>` -- same manifest-only restriction as `component=`,
+same rejection point (`collect_entries` hard-errors if it sees one set on a
+component-header marker): an out-param handle is consumer-owned state, not a
+constant intrinsic to the component. `render_source` emits one file-scope
+`static <c-type> <varname>;` declaration per resolved entry carrying `out=`,
+grouped with the `bb_app_avail_*` preamble block; two entries declaring the
+SAME varname is a hard WireError (otherwise a silent duplicate-definition
+compile error in generated code). See `wire_parse`'s module docstring for the
+full grammar/semantics.
+
 DEFERRED (do not implement here): a PlatformIO pre-build hook wiring this in
 automatically; a lint rule that validates marker hygiene.
 """
@@ -90,6 +100,18 @@ from wire_parse import InitEntry, ProvidesEntry, parse_markers, parse_provides_m
 DEFAULT_OUT_REL = os.path.join("main", "generated", "bb_app_init.c")
 
 HTTP_SERVER_PROVIDES_KEY = "http_server"
+
+# out= reserved namespace: the generator's OWN emitted identifiers all live
+# under this prefix (bb_app_http_handle, bb_app_rc, bb_app_first_err,
+# bb_app_avail_<token>) -- reserving the whole `bb_app_` prefix (rather than
+# enumerating today's names) means a FUTURE generated identifier is also
+# automatically covered, never a fifth blocklist entry someone forgets to
+# add. `BB_APP_INIT_TAG` is the one generated identifier that does NOT
+# start with this (lowercase) prefix -- it's an uppercase macro name, not a
+# variable -- so it needs its own explicit reservation alongside the prefix
+# rule; see render_source's out= validation.
+_RESERVED_OUT_VAR_PREFIX = "bb_app_"
+_RESERVED_OUT_VAR_EXACT = frozenset({"BB_APP_INIT_TAG"})
 
 
 class WireError(Exception):
@@ -186,6 +208,16 @@ def collect_entries(roots, components: List[str], platform: str) -> List[InitEnt
                     # exists to prevent). Hard error, never a silent skip.
                     raise WireError(
                         f"{e.src_file}:{e.src_line}: fn={e.fn}: 'component=' is only "
+                        f"valid on a '// bbtool:init' marker in a --consumer-manifest "
+                        f"file, not a component header (found in component '{name}')"
+                    )
+                if e.out_var is not None:
+                    # out= is consumer-owned state (which board/consumer
+                    # instance owns the handle, what it's named) -- the same
+                    # reasoning as component= above, so it gets the same
+                    # manifest-only restriction and the same rejection point.
+                    raise WireError(
+                        f"{e.src_file}:{e.src_line}: fn={e.fn}: 'out=' is only "
                         f"valid on a '// bbtool:init' marker in a --consumer-manifest "
                         f"file, not a component header (found in component '{name}')"
                     )
@@ -438,7 +470,14 @@ def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry
         (B1-853 — its `__auto_type` handle-capture line can never be
         conditionally skipped while still producing the typed handle every
         `server=true` entry downstream depends on, so gating it is not a
-        supported combination — see the check below).
+        supported combination — see the check below); or
+      - two entries in the resolved set declare `out=` with the SAME
+        varname (would otherwise silently emit a duplicate-definition
+        `static` declaration in generated code); or
+      - an entry's `out=` varname collides with codegen's own reserved
+        `bb_app_*` namespace (or the `BB_APP_INIT_TAG` macro) -- would
+        otherwise either shadow a generated local (silent wrong value) or
+        collide with a generated file-scope declaration (compile error).
     """
     early = [e for e in ordered if e.tier == "early"]
     pre_http = [e for e in ordered if e.tier == "pre_http"]
@@ -481,6 +520,35 @@ def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry
 
     value_providers = _value_providers(list(provides_entries))
 
+    # out= (B1-1275-adjacent): one static declaration per entry carrying
+    # out=, in the SAME parse/topo order as `ordered` (declarations have no
+    # ordering semantics of their own, so this is purely a determinism
+    # choice, not a correctness one). Two entries declaring the same varname
+    # is a hard WireError -- mirrors _value_providers'/the http_server
+    # check's "silently last-wins would produce a wrong/ambiguous result"
+    # posture: a duplicate `static <type> <var>;` is a compile error in the
+    # generated file, never a legitimate redeclaration.
+    out_entries = [e for e in ordered if e.out_var is not None]
+    declared_out_vars: Dict[str, InitEntry] = {}
+    for e in out_entries:
+        if e.out_var.startswith(_RESERVED_OUT_VAR_PREFIX) or e.out_var in _RESERVED_OUT_VAR_EXACT:
+            raise WireError(
+                f"{e.src_file}:{e.src_line}: fn={e.fn}: out='{e.out_var}' is "
+                f"reserved -- '{_RESERVED_OUT_VAR_PREFIX}*' (and 'BB_APP_INIT_TAG') "
+                f"names are reserved for codegen's own generated identifiers "
+                f"(e.g. bb_app_http_handle, bb_app_rc, bb_app_first_err, "
+                f"bb_app_avail_<token>); choose a different out= varname"
+            )
+        existing = declared_out_vars.get(e.out_var)
+        if existing is not None:
+            raise WireError(
+                f"more than one entry declares out='{e.out_var}' "
+                f"({existing.src_file}:{existing.src_line} fn={existing.fn}, "
+                f"{e.src_file}:{e.src_line} fn={e.fn}) — exactly one "
+                f"declaration is required"
+            )
+        declared_out_vars[e.out_var] = e
+
     # B1-853: every token some entry `requires=` -- these are the only tokens
     # that get a runtime availability flag + guard; a `provides=` token no one
     # requires never gets a flag (avoids dead/unused-but-set state). Since
@@ -518,6 +586,24 @@ def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry
             f"static bool bb_app_avail_{tok} = false;" for tok in sorted(guarded_tokens)
         )
         header_lines.append("\n".join(avail_block))
+
+    if out_entries:
+        # Grouped with the bb_app_avail_* block above (B1-1275-adjacent
+        # `out=`): one file-scope `static <c-type> <varname>;` declaration
+        # per resolved entry, so a marker's args= can take its address
+        # (`&varname`) in the call this same entry (or another entry, per
+        # the module docstring) renders. Absent entirely -- never an
+        # empty-but-present block -- when no entry declares out= (byte-
+        # identical to pre-out= output).
+        out_block = [
+            "",
+            "/* out= (B1-1275-adjacent): file-scope out-parameter handles.",
+            " * Declared here so args= on this (or another) entry's marker",
+            " * can reference &varname; the call site is unchanged -- see",
+            " * wire_parse's module docstring. */",
+        ]
+        out_block.extend(f"static {e.out_type} {e.out_var};" for e in out_entries)
+        header_lines.append("\n".join(out_block))
 
     lines: List[str] = list(header_lines) + [
         "",

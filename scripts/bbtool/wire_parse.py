@@ -6,7 +6,7 @@ Grammar (one marker per comment line, order of key=value tokens is free):
     // bbtool:init tier=early|pre_http|regular [order=N] fn=<sym>
                     [server=true] [provides=k,..] [requires=k,..] [consumes=k]
                     [ctx=<expr>] [args=<raw C argument text, whitespace-free>]
-                    [component=<name>]
+                    [component=<name>] [out=<varname>:<c-type>]
 
 `component=<name>` (B1-1275) names the component that must be composed for
 this entry's `fn=` to link -- meaningful ONLY on a marker collected from a
@@ -64,6 +64,30 @@ without a setter to pass it to). Omitting `ctx=` on a `consumes=` marker is
 still valid: the setter call's second argument defaults to the literal
 `NULL`.
 
+`out=<varname>:<c-type>` declares an out-parameter handle: `commands.wire`
+emits ONE file-scope `static <c-type> <varname>;` declaration in the
+generated preamble for this entry (grouped with the `bb_app_avail_*` block,
+before `bb_app_init_early`/`bb_app_init_rest`). It does NOT auto-append
+`&varname` to the call -- the marker author writes the full `args=` list
+explicitly, including `&varname` wherever the real signature puts the
+out-param (real signatures differ on this: some put it last, some first).
+`out=` therefore adds no new call-emission path; it is a preamble side
+effect only. `<c-type>` is captured verbatim, same posture as `args=`/`fn=`
+(whitespace-free, split on the FIRST `:` in the value, not validated beyond
+non-empty -- see the "Known limitation" paragraph below). `out=` is valid
+ONLY on a `--consumer-manifest` marker, mirroring `component=`'s
+manifest-only restriction (see above): an out-param handle is consumer-owned
+state (which board/consumer instance owns it, what it's named), not a
+constant intrinsic to the component itself, so it is rejected as a hard
+error when found on a component-header marker (`commands.wire.collect_entries`).
+Downstream entries reach the declared symbol two ways, neither of which
+requires any change to `wire_graph.py`: (a) as data, by naming the bare
+identifier inside their own `args=`; (b) as an ordering edge, via the
+existing `provides=`/`requires=` tokens. Unrelated `out=` declarations in one
+manifest are NOT implicitly ordered relative to each other -- they interleave
+by parse order unless linked via `requires=`/`provides=` or given an explicit
+`order=`.
+
 No preprocessor is involved — bbtool greps the raw header text. `tier` and
 `fn` are required; everything else is optional. Any malformed marker (missing
 tier/fn, unknown tier, unknown key, non-integer order, junk after `=`) is a
@@ -103,7 +127,7 @@ _PROVIDES_PREFIX = "// bbtool:provides"
 
 _KNOWN_KEYS = {
     "tier", "order", "fn", "server", "provides", "requires", "consumes", "ctx", "args",
-    "component",
+    "component", "out",
 }
 _PROVIDES_KNOWN_KEYS = {"key", "symbol"}
 
@@ -125,6 +149,8 @@ class InitEntry:
     ctx: "str | None" = None
     args: "str | None" = None
     component: "str | None" = None
+    out_var: "str | None" = None
+    out_type: "str | None" = None
     src_file: str = "<string>"
     src_line: int = 0
 
@@ -253,6 +279,31 @@ def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
     # commands.wire), never here.
     component = fields.get("component")
 
+    # out= is captured as '<varname>:<c-type>', split on the FIRST ':' --
+    # the c-type could plausibly contain further characters (though today it
+    # never contains ':' itself); duplicate-key detection already covers a
+    # repeated 'out=' token (see the fields[key] loop above). Both halves
+    # must be non-empty: a missing ':' or an empty varname/type would
+    # otherwise silently emit a malformed 'static ;' or 'static <type> ;'
+    # declaration in generated code (see commands.wire.render_source).
+    out_var = None
+    out_type = None
+    if "out" in fields:
+        raw_out = fields["out"]
+        if ":" not in raw_out:
+            raise ParseError(
+                f"{src_file}:{lineno}: 'out=' must be '<varname>:<c-type>' "
+                f"(missing ':'), got '{raw_out}'"
+            )
+        var_part, _, type_part = raw_out.partition(":")
+        if not var_part or not type_part:
+            raise ParseError(
+                f"{src_file}:{lineno}: 'out=' must be '<varname>:<c-type>' "
+                f"with both non-empty, got '{raw_out}'"
+            )
+        out_var = var_part
+        out_type = type_part
+
     return InitEntry(
         tier=tier,
         fn=fn,
@@ -264,6 +315,8 @@ def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
         ctx=ctx,
         args=args,
         component=component,
+        out_var=out_var,
+        out_type=out_type,
         src_file=src_file,
         src_line=lineno,
     )

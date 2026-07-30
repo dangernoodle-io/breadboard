@@ -824,6 +824,70 @@ edge.
 Omitting `component=` (the default) leaves output byte-identical to before
 this field existed.
 
+### `out=<varname>:<c-type>` on a manifest marker
+
+A manifest `// bbtool:init` marker may set an optional `out=<varname>:<c-type>`
+field declaring a file-scope out-parameter handle for that entry, e.g. a
+lifecycle registration whose real signature returns its handle via an
+out-param rather than a return value:
+
+```c
+// bbtool:init tier=regular fn=bb_lifecycle_register
+//     out=s_lifecycle:bb_lifecycle_t
+//     args=cfg,&s_lifecycle
+bb_err_t bb_lifecycle_register(const bb_lifecycle_cfg_t *cfg,
+                                bb_lifecycle_t *out);
+```
+
+Codegen emits one file-scope `static bb_lifecycle_t s_lifecycle;` declaration
+in the generated preamble (grouped with the `bb_app_avail_*` gating block),
+before `bb_app_init_early`/`bb_app_init_rest`. `out=` does **not**
+auto-append `&varname` to the call — the marker author writes the full
+`args=` list explicitly, including `&varname` wherever the real signature
+puts the out-param (real signatures differ: `bb_lifecycle_register(cfg,
+&out)` puts it last, `bb_lifecycle_emit_binding_init(&out, svc, classify)`
+puts it first). `out=` therefore adds **no new call-emission path** — it is
+a preamble side effect only, splitting on the **first** `:` in the value;
+`<c-type>` is captured verbatim and never validated beyond non-empty, same
+posture as `args=`/`fn=` (the C compiler is the real validator).
+
+A downstream entry reaches the declared symbol two ways, neither of which
+needs any change to the wire graph itself: (a) as **data**, by naming the
+bare identifier inside its own `args=`; (b) as an **ordering edge**, via the
+existing `provides=`/`requires=` tokens. Unrelated `out=` chains in one
+manifest are **not** implicitly ordered relative to each other — they
+interleave by parse order unless linked via `requires=`/`provides=` or given
+an explicit `order=`.
+
+Two entries in the resolved set declaring the **same** `out=` varname is a
+hard `WireError` naming both offending entries — otherwise it would silently
+emit a duplicate-definition `static` declaration in generated code (a compile
+error).
+
+**Reserved namespace — `out=` varnames may never start with `bb_app_`** (and
+may never be exactly `BB_APP_INIT_TAG`). These are the identifiers codegen
+itself emits into `bb_app_init.c` — `bb_app_http_handle` (the `__auto_type`
+server-handle capture), `bb_app_rc`/`bb_app_first_err` (locals in both init
+functions), `bb_app_avail_<token>` (one per `requires=`/`provides=`-guarded
+token), and the `BB_APP_INIT_TAG` macro. A colliding varname is a hard
+`WireError` naming the offending marker's `src_file:src_line` and `fn=` — an
+unchecked collision would otherwise range from a silently wrong runtime
+value (an inner-scope generated local shadows a same-named file-scope
+`out=` static, so `&varname` in `args=` captures the address of a
+never-initialized declaration) to an outright duplicate-definition compile
+error. Treat `bb_app_` as reserved for the generator, full stop — never a
+varname prefix an author picks.
+
+`out=` is valid **only** on a manifest marker — the same field on a marker
+grepped from a **component header** (`collect_entries`) is rejected as a
+hard `WireError`, mirroring `component=`'s restriction above: an out-param
+handle is consumer-owned state (which board/consumer instance owns it, what
+it's named), never a constant intrinsic to the component itself.
+
+Omitting `out=` (the default) leaves output byte-identical to before this
+field existed — the declarations block is entirely **absent**, never
+empty-but-present.
+
 ## `codegen` command — multi-root discovery (B1-1084)
 
 `bbtool codegen` resolves the composition over a discovery `roots` list, not just a
