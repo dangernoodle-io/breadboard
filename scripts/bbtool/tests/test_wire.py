@@ -16,6 +16,7 @@ from commands.wire import (
     WireError,
     _component_headers,
     collect_entries,
+    collect_manifest_entries,
     collect_provides_entries,
     render_source,
 )
@@ -667,6 +668,180 @@ class TestGateDependentsCrossTier(unittest.TestCase):
                 source.index("static bool bb_app_avail_cross_x = false;"),
                 source.index("bb_app_init_early(void)"),
             )
+
+
+def _fixture_root_with_args(tmp: str) -> Path:
+    """A parameterized init fn (`args=`), mirroring
+    bb_wifi_prov_autoinit(assets, n, cb) -- plus a plain requires=/provides=
+    pair so the args= path can be proven to reuse the SAME guard/avail
+    wrappers as every other entry."""
+    root = Path(tmp)
+    _make_component(
+        root, "bb_provider",
+        "#pragma once\n"
+        "// bbtool:init tier=early fn=bb_provider_init provides=x\n"
+        "bb_err_t bb_provider_init(void);\n",
+    )
+    _make_component(
+        root, "bb_wifi_prov",
+        "#pragma once\n"
+        "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit requires=x "
+        "args=bb_wifi_prov_default_form_get(),1,NULL\n"
+        "bb_err_t bb_wifi_prov_autoinit(const void *assets, unsigned n, void *cb);\n",
+        requires=["bb_provider"],
+    )
+    return root
+
+
+class TestArgsEmission(unittest.TestCase):
+    def test_args_call_renders_verbatim_argument_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_args(tmp)
+            entries = collect_entries(str(root), ["bb_provider", "bb_wifi_prov"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertIn(
+                "bb_app_rc = bb_wifi_prov_autoinit(bb_wifi_prov_default_form_get(),1,NULL);",
+                source,
+            )
+
+    def test_args_call_still_wrapped_in_requires_guard(self):
+        """args= reuses _guard_requires unchanged -- a requires= entry with
+        args= set is gated exactly like a zero-arg requires= entry."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_args(tmp)
+            entries = collect_entries(str(root), ["bb_provider", "bb_wifi_prov"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertIn(
+                "    if (bb_app_avail_x) {\n"
+                "        bb_app_rc = bb_wifi_prov_autoinit("
+                "bb_wifi_prov_default_form_get(),1,NULL);\n",
+                source,
+            )
+            self.assertIn(
+                '        bb_log_w(BB_APP_INIT_TAG, "skipping bb_wifi_prov_autoinit: '
+                'required provider unavailable");\n',
+                source,
+            )
+
+    def test_args_call_provides_avail_wrapper_reused(self):
+        """args= reuses _emit_provides_avail unchanged -- an args= entry
+        that ALSO provides= a token some other entry requires= still marks
+        that token available on success, exactly like a zero-arg entry."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(
+                root, "bb_args_provider",
+                "#pragma once\n"
+                "// bbtool:init tier=early fn=bb_args_provider_init "
+                "provides=y args=1,2\n"
+                "bb_err_t bb_args_provider_init(int a, int b);\n",
+            )
+            _make_component(
+                root, "bb_dep",
+                "#pragma once\n"
+                "// bbtool:init tier=early fn=bb_dep_init requires=y\n"
+                "bb_err_t bb_dep_init(void);\n",
+            )
+            entries = collect_entries(str(root), ["bb_args_provider", "bb_dep"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertIn(
+                "    bb_app_rc = bb_args_provider_init(1,2);\n"
+                "    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
+                "{ bb_app_first_err = bb_app_rc; }\n"
+                "    if (bb_app_rc == BB_OK) {\n"
+                "        bb_app_avail_y = true;\n"
+                "    }\n",
+                source,
+            )
+
+
+class TestConsumerManifestEntries(unittest.TestCase):
+    """B1-731: a manifest entry (e.g. examples/*/main/) merges into the SAME
+    tier graph as component entries, including satisfying a component's
+    provides= via a manifest requires= (and vice versa) -- collect_manifest_
+    entries is a distinct code path from collect_entries/discovery, but
+    wire_graph.topo_sort must not need to know an entry's origin."""
+
+    def test_manifest_entry_requires_component_provided_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)  # bb_log: provides=log_stream / requires=log_stream
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=early fn=smoke_app_start requires=log_stream\n",
+            )
+            component_entries = collect_entries(str(root), ["bb_log"], "espidf")
+            manifest_entries, manifest_provides = collect_manifest_entries(
+                str(manifest_path), src_file="main/smoke_app.c")
+            self.assertEqual([e.fn for e in manifest_entries], ["smoke_app_start"])
+            self.assertEqual(manifest_provides, [])
+
+            merged = component_entries + manifest_entries
+            ordered = topo_sort(merged)
+            # smoke_app_start requires= a key only bb_log_stream_init
+            # provides= -- it must sort AFTER it despite being parsed from a
+            # wholly separate "root" (a manifest file, never a component).
+            self.assertEqual(
+                [e.fn for e in ordered],
+                ["bb_log_stream_init", "bb_log_config_init", "smoke_app_start"],
+            )
+
+    def test_manifest_requires_key_only_a_component_provides_without_manifest_hard_fails(self):
+        """Negative companion: dropping the component leaves the manifest's
+        requires= unsatisfied -- still a hard MissingProviderError, exactly
+        as it would be for two components (proves the merge doesn't quietly
+        relax requires= validation for manifest-origin entries)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=early fn=smoke_app_start requires=log_stream\n",
+            )
+            manifest_entries, _ = collect_manifest_entries(str(manifest_path))
+            with self.assertRaises(MissingProviderError):
+                topo_sort(manifest_entries)
+
+    def test_manifest_provides_marker_collected_too(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:provides key=demo_sink symbol=bb_example_emit\n",
+            )
+            entries, provides = collect_manifest_entries(str(manifest_path))
+            self.assertEqual(entries, [])
+            self.assertEqual(len(provides), 1)
+            self.assertEqual(provides[0].key, "demo_sink")
+
+    def test_manifest_src_file_defaults_to_path_when_unspecified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(manifest_path, "// bbtool:init tier=early fn=smoke_app_start\n")
+            entries, _ = collect_manifest_entries(str(manifest_path))
+            self.assertEqual(entries[0].src_file, str(manifest_path))
+
+    def test_manifest_provides_satisfies_component_consumes_setter_emitted(self):
+        """The documented-but-previously-untested opposite direction: a
+        manifest-declared `// bbtool:provides` satisfies a COMPONENT's
+        `consumes=` -- the setter call must actually be emitted with the
+        manifest-supplied symbol, not just silently accepted."""
+        with tempfile.TemporaryDirectory() as tmp:
+            # consumer only, no component provider -- the manifest is the
+            # sole source of the demo_sink key.
+            root = _fixture_root_with_consumes(tmp, provider=False, consumer=True)
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:provides key=demo_sink symbol=bb_manifest_emit\n",
+            )
+            component_entries = collect_entries(str(root), ["bb_example_consumer"], "espidf")
+            component_provides = collect_provides_entries(str(root), ["bb_example_consumer"], "espidf")
+            manifest_entries, manifest_provides = collect_manifest_entries(str(manifest_path))
+
+            merged_entries = component_entries + manifest_entries
+            merged_provides = list(component_provides) + manifest_provides
+            source = render_source(topo_sort(merged_entries), merged_provides)
+            self.assertIn("bb_example_set_emit(bb_manifest_emit, NULL);", source)
 
 
 if __name__ == "__main__":

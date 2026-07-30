@@ -57,6 +57,19 @@ in the resolved set, the entry is silently dropped — this conditionality
 mirrors `requires=`'s edge concept but with soft- rather than hard-failure
 semantics, and adds no new tier/phase.
 
+Parameterized-call (`args=`) path -- a THIRD emission path, orthogonal to
+both the ones above: an entry marked `args=<raw C argument text>` is
+rendered `{fn}({args});` (the verbatim `args=` text spliced in place of the
+usual empty/handle-var argument list), still wrapped in the normal
+`bb_err_t`/`bb_app_rc` convention (see `_emit_args_call`). It exists for
+real components whose init fn is not parameterless (e.g.
+`bb_wifi_prov_autoinit(const bb_http_asset_t *assets, size_t n, cb)`) --
+`args=` is mutually exclusive with `server=true`/`consumes=` (enforced at
+parse time in `wire_parse`), and reuses the SAME `_guard_requires`/
+`_emit_provides_avail` wrappers as every other entry, so `tier=`/`order=`/
+`requires=`/`provides=` behave identically regardless of which emission
+path an entry took.
+
 DEFERRED (do not implement here): a PlatformIO pre-build hook wiring this in
 automatically; a lint rule that validates marker hygiene.
 """
@@ -156,6 +169,33 @@ def collect_entries(roots, components: List[str], platform: str) -> List[InitEnt
             src_file = _src_file_repr(entry_root, primary_root, rel_header)
             entries.extend(parse_markers(text, src_file=src_file))
     return entries
+
+
+def collect_manifest_entries(path: str, src_file: str = None) -> Tuple[List[InitEntry], List[ProvidesEntry]]:
+    """Parse a single CONSUMER manifest file (`--consumer-manifest`, B1-731)
+    for `// bbtool:init`/`// bbtool:provides` markers, via the exact same
+    marker collectors `collect_entries`/`collect_provides_entries` use over
+    component headers -- a DISTINCT code path, deliberately never folded
+    into either of those: a manifest is a composition-root file (e.g. an
+    example's `main/`), never a component, so it must never join the
+    component namespace or contribute to the REQUIRES/composition closure.
+    `wire_graph.topo_sort` treats the returned `InitEntry` list exactly like
+    any other -- it has no notion of an entry's origin (component header vs.
+    manifest); the caller merges this function's output with
+    `collect_entries`'s BEFORE calling `topo_sort`, so a manifest entry's
+    `requires=` can be satisfied by a component's `provides=` (and vice
+    versa) in the same tier graph.
+
+    `src_file` defaults to `path` itself when omitted -- callers typically
+    pass a root-relative path (mirrors `_src_file_repr`'s convention for
+    component headers) so it reads cleanly in generated-file comments and
+    `bbtool codegen` stdout."""
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    resolved_src = src_file if src_file is not None else path
+    entries = parse_markers(text, src_file=resolved_src)
+    provides = parse_provides_markers(text, src_file=resolved_src)
+    return entries, provides
 
 
 def collect_provides_entries(roots, components: List[str], platform: str) -> List[ProvidesEntry]:
@@ -304,14 +344,39 @@ def _emit_consumes_call(entry: InitEntry, value_providers: Dict[str, str],
     return _guard_requires(entry, body)
 
 
+def _emit_args_call(entry: InitEntry, guarded_tokens: frozenset = frozenset()) -> str:
+    """Parameterized-call emission for an entry with `args=` set: renders
+    `{fn}({args});` with `entry.args` spliced verbatim (never re-split,
+    never validated -- see wire_parse's module docstring). Still routed
+    through the normal `bb_err_t`/`bb_app_rc` convention `_emit_call` uses
+    (a parameterized entry's `fn` is expected to return `bb_err_t`, exactly
+    like a zero-arg entry -- only the argument list differs), and through
+    the SAME `_guard_requires`/`_emit_provides_avail` wrappers, so
+    `tier=`/`order=`/`requires=`/`provides=` behave identically regardless
+    of whether an entry has `args=` set."""
+    body = (
+        f"    bb_app_rc = {entry.fn}({entry.args});\n"
+        f"    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) {{ "
+        f"bb_app_first_err = bb_app_rc; }}\n"
+    )
+    body += _emit_provides_avail(entry, guarded_tokens, success_expr="bb_app_rc == BB_OK")
+    return _guard_requires(entry, body)
+
+
 def _emit_entry(entry: InitEntry, value_providers: Dict[str, str],
                  guarded_tokens: frozenset = frozenset(), handle_var: str = None) -> str:
-    """Dispatch a single tier entry to its emission path: `consumes=` entries
-    go through the setter-injection path (never `_emit_call`'s bb_err_t
-    convention); every other entry is unaffected, byte-for-byte the same as
-    before this path existed."""
+    """Dispatch a single tier entry to its emission path: `consumes=`
+    entries go through the setter-injection path (never `_emit_call`'s
+    bb_err_t convention); `args=` entries go through the parameterized-call
+    path (still the bb_err_t convention, but with a verbatim argument list
+    instead of zero args); every other entry is unaffected, byte-for-byte
+    the same as before either path existed. `consumes=`/`args=` are already
+    mutually exclusive at parse time (wire_parse.ParseError), so this
+    dispatch order never has to arbitrate between them."""
     if entry.consumes:
         return _emit_consumes_call(entry, value_providers, guarded_tokens)
+    if entry.args is not None:
+        return _emit_args_call(entry, guarded_tokens)
     return _emit_call(entry, guarded_tokens, handle_var)
 
 
