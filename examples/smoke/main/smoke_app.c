@@ -6,14 +6,12 @@
 // Backend selection happens via build_src_filter and build_flags.
 
 #include "bb_log.h"
-#include "bb_settings.h"
 #include "bb_config.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_wifi.h"
 #ifdef ESP_PLATFORM
 #include "bb_ota_check.h"
-#include "bb_temp.h"
 #include "bb_ws_server.h"
 #include "bb_serialize_console.h"
 #include "bb_timer.h"
@@ -129,11 +127,10 @@ static void heap_log_tick(void *arg)
 #endif // ESP_PLATFORM
 
 void smoke_app_setup(void) {
-#ifdef ESP_PLATFORM
-    bb_settings_creds_boot_init();  // B1-963: relocated from bb_nv_config_init
-#endif
-    // Arduino: bb_nv (and its EEPROM subsystem bring-up) is deleted (B1-964);
-    // the Arduino path no longer does any bb_nv config bring-up here.
+    // bb_settings_creds_boot_init() is codegen-composed (tier=early,
+    // components/bb_settings/include/bb_settings.h) and already ran via
+    // bb_app_init_early() before smoke_app_setup() is called
+    // (examples/smoke/main/entry_espidf.c) -- do not call it again here.
     bb_log_i(TAG, "boot");
 
     uint32_t boot_count = 0;
@@ -175,10 +172,12 @@ void smoke_app_setup(void) {
         }
     }
 
-    // bb_temp: register /api/health extender for SoC temperature.
-    // On unsupported targets (e.g. classic ESP32) bb_temp_read_soc returns false
-    // and the endpoint emits { "temp": { "present": false } }.
-    bb_temp_register_info();
+    // bb_temp: /api/health "temp" section (present=false on unsupported
+    // targets, e.g. classic ESP32) is registered by the codegen-composed
+    // bb_temp_autoregister_init() (tier=regular, components/bb_temp/include/
+    // bb_temp.h), which already ran via bb_app_init_rest() before
+    // smoke_app_setup() is called -- do not call bb_temp_register_info()
+    // again here.
 
     // bb_ota_check: link-load only. No URL set, so polling stays idle and
     // bb_ota_check_now() returns BB_ERR_INVALID_STATE cleanly. Consumers
