@@ -72,6 +72,39 @@ def _fixture_root_with_http(tmp: str) -> Path:
     return root
 
 
+def _fixture_root_with_wildcard(tmp: str, route_order=None, wildcard_order=None) -> Path:
+    """B1-1280: an http_server provider (bb_http) + a server=true consumer
+    route (bb_routes, order= configurable) + an entry marking
+    provides=http_wildcard_last (bb_wildcard, order= configurable) --
+    isolated from _fixture_root_with_http so route/wildcard order= can be
+    controlled precisely per test case."""
+    root = _fixture_root(tmp)
+    _make_component(
+        root, "bb_http",
+        "#pragma once\n"
+        "// bbtool:init tier=pre_http fn=bb_http_start provides=http_server\n"
+        "bb_http_handle_t bb_http_start(void);\n",
+    )
+    route_marker = "// bbtool:init tier=regular fn=bb_routes_register server=true"
+    if route_order is not None:
+        route_marker += f" order={route_order}"
+    _make_component(
+        root, "bb_routes",
+        "#pragma once\n" + route_marker + "\n"
+        "bb_err_t bb_routes_register(bb_http_handle_t server);\n",
+        requires=["bb_http"],
+    )
+    wildcard_marker = "// bbtool:init tier=regular fn=bb_wildcard_register provides=http_wildcard_last"
+    if wildcard_order is not None:
+        wildcard_marker += f" order={wildcard_order}"
+    _make_component(
+        root, "bb_wildcard",
+        "#pragma once\n" + wildcard_marker + "\n"
+        "bb_err_t bb_wildcard_register(void);\n",
+    )
+    return root
+
+
 def _fixture_root_with_consumes(tmp: str, provider: bool, consumer: bool,
                                 ctx: str = None) -> Path:
     """A fake provider (`// bbtool:provides key=demo_sink symbol=bb_example_emit`)
@@ -1099,6 +1132,172 @@ class TestByteStabilityNoOutMarkers(unittest.TestCase):
             entries = collect_entries(str(root), ["bb_provider", "bb_wifi_prov"], "espidf")
             source = render_source(topo_sort(entries))
             self.assertNotIn("out-parameter handles", source)
+
+
+class TestWildcardLastGuard(unittest.TestCase):
+    """B1-1280: provides=http_wildcard_last guard -- a server=true entry
+    (codegen's only route-registration signal) sorting at or after the
+    marked wildcard-catching entry in the final topo-sorted list is a hard
+    WireError, naming both sites."""
+
+    def test_server_entry_sorting_after_wildcard_raises_naming_both_sites(self):
+        """Explicit order= on BOTH entries, route order= places it after the
+        wildcard's order= -- the general (not no-order-specific) violation."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_wildcard(tmp, route_order=2, wildcard_order=1)
+            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes", "bb_wildcard"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                render_source(ordered)
+            message = str(ctx.exception)
+            self.assertIn("fn=bb_routes_register", message)
+            self.assertIn("fn=bb_wildcard_register", message)
+            self.assertIn("bb_routes.h", message)
+            self.assertIn("bb_wildcard.h", message)
+
+    def test_correct_composition_route_before_wildcard_does_not_fire(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_wildcard(tmp, route_order=1, wildcard_order=2)
+            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes", "bb_wildcard"], "espidf")
+            ordered = topo_sort(entries)
+            source = render_source(ordered)  # must not raise
+            self.assertIn("bb_routes_register(bb_app_http_handle);", source)
+            self.assertIn("bb_wildcard_register();", source)
+
+    def test_no_order_route_after_explicit_order_wildcard_regression(self):
+        """B1-1278 regression, named per ticket: an entry with NO order=
+        (sorts to +inf, wire_graph.py's `_tie_key`) added after a marked
+        entry WITH an explicit order= must still be caught -- an explicit
+        order= on the wildcard entry alone does NOT self-protect."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_wildcard(tmp, route_order=None, wildcard_order=1)
+            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes", "bb_wildcard"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                render_source(ordered)
+            message = str(ctx.exception)
+            self.assertIn("fn=bb_routes_register", message)
+            self.assertIn("fn=bb_wildcard_register", message)
+
+    def test_duplicate_wildcard_last_provider_raises(self):
+        """Two entries both marking provides=http_wildcard_last must be a
+        hard WireError -- mirrors the http_server singleton check: ambiguous
+        which wildcard registration the guard is meant to protect."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_wildcard(tmp, route_order=1, wildcard_order=2)
+            _make_component(
+                root, "bb_wildcard2",
+                "#pragma once\n"
+                "// bbtool:init tier=regular fn=bb_wildcard2_register "
+                "provides=http_wildcard_last order=3\n"
+                "bb_err_t bb_wildcard2_register(void);\n",
+            )
+            entries = collect_entries(
+                str(root), ["bb_log", "bb_http", "bb_routes", "bb_wildcard", "bb_wildcard2"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                render_source(ordered)
+            message = str(ctx.exception)
+            self.assertIn("bb_wildcard_register", message)
+            self.assertIn("bb_wildcard2_register", message)
+            self.assertIn("http_wildcard_last", message)
+
+    def test_real_composition_shape_manifest_args_entry_passes(self):
+        """Real-wiring-shaped regression: mirrors examples/smoke/main/bb_wire.h's
+        actual bb_wifi_prov_autoinit marker -- a MANIFEST entry (collect_
+        manifest_entries, never collect_entries) carrying BOTH `args=` (not
+        `server=true` -- the prov entry threads the http handle internally,
+        never as a codegen-supplied argument) and `provides=http_wildcard_last`,
+        with NO explicit order=, merged against component `server=true` route
+        entries exactly as commands.codegen.run merges them. Must NOT raise:
+        proves the guard's singleton/ordering check works over the real
+        merge-then-topo_sort shape, not only a synthetic single-collector
+        fixture."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)  # bb_http (http_server) + bb_routes (server=true)
+            manifest_path = Path(tmp) / "main" / "bb_wire.h"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+                "args=bb_wifi_prov_default_form_get(),1,NULL "
+                "provides=http_wildcard_last\n",
+            )
+            component_entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            manifest_entries, _ = collect_manifest_entries(
+                str(manifest_path), src_file="main/bb_wire.h")
+            merged = component_entries + manifest_entries
+            ordered = topo_sort(merged)
+            source = render_source(ordered)  # must not raise
+            self.assertIn(
+                "bb_wifi_prov_autoinit(bb_wifi_prov_default_form_get(),1,NULL);", source)
+            prov_pos = source.index("bb_wifi_prov_autoinit(")
+            route_pos = source.index("bb_routes_register(bb_app_http_handle);")
+            self.assertLess(route_pos, prov_pos)
+
+    def test_real_composition_shape_second_manifest_route_after_prov_raises(self):
+        """B1-1278 regression, real-wiring shape: `commands.codegen.run`
+        merges as `entries = collect_entries(...) + manifest_entries`
+        (components ALWAYS precede manifest entries in the merge), so a
+        component-header route can never structurally land after a manifest
+        entry -- the real hazard this key closes is a SECOND manifest marker
+        (a `server=true` route -- e.g. a `/ping` handwired into the SAME
+        manifest file) textually added AFTER the wildcard-marked entry with
+        no order=, which is exactly what PR #1140 did: it added the prov
+        marker to bb_wire.h without accounting for a route-registering entry
+        that ends up composed after it. `collect_manifest_entries` preserves
+        file (parse) order, so this fixture reproduces that shape precisely."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)
+            manifest_path = Path(tmp) / "main" / "bb_wire.h"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+                "args=bb_wifi_prov_default_form_get(),1,NULL "
+                "provides=http_wildcard_last\n"
+                "// bbtool:init tier=regular fn=bb_ping_route_register server=true\n",
+            )
+            component_entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            manifest_entries, _ = collect_manifest_entries(
+                str(manifest_path), src_file="main/bb_wire.h")
+            merged = component_entries + manifest_entries
+            ordered = topo_sort(merged)
+            with self.assertRaises(WireError) as ctx:
+                render_source(ordered)
+            message = str(ctx.exception)
+            self.assertIn("fn=bb_ping_route_register", message)
+            self.assertIn("fn=bb_wifi_prov_autoinit", message)
+
+    def test_no_wildcard_marker_present_no_guard_effect(self):
+        """A composition that never uses provides=http_wildcard_last is
+        entirely unaffected by this guard -- the singleton/ordering checks
+        are both skipped when wildcard_providers is empty."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)
+            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            source = render_source(topo_sort(entries))  # must not raise
+            self.assertNotIn("http_wildcard_last", source)
+
+
+class TestWildcardLastByteStability(unittest.TestCase):
+    """B1-1280: a composition that never uses provides=http_wildcard_last
+    must render byte-identical output to before this guard existed -- the
+    guard adds a WireError gate only, never new emitted text."""
+
+    def test_http_fixture_unaffected_by_wildcard_guard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)
+            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertIn("__auto_type bb_app_http_handle = bb_http_start();", source)
+            self.assertIn("bb_routes_register(bb_app_http_handle);", source)
+            self.assertNotIn("wildcard", source)
+
+    def test_args_fixture_unaffected_by_wildcard_guard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_args(tmp)
+            entries = collect_entries(str(root), ["bb_provider", "bb_wifi_prov"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertNotIn("wildcard", source)
 
 
 if __name__ == "__main__":

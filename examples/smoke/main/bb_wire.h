@@ -21,26 +21,27 @@
 // provisioning window (see bb_wifi_prov.h's registration-order invariant,
 // and examples/floor/main/floor_app.c's own bb_wifi_prov_autoinit() call
 // site, which sequences it after floor's HTTP lifecycle service has
-// registered its own routes for the identical reason). In smoke's
-// codegen-composed world, every other component's HTTP routes are
-// registered by `tier=regular server=true` entries (bb_wifi_http,
-// bb_ota_pull, bb_diag_http, bb_sensor_http, etc.) -- placing this entry in
-// tier=regular, with no explicit order=, is sufficient to guarantee it runs
-// LAST among them: `bbtool codegen` appends manifest entries after every
-// component entry (commands/codegen.py) and wire_graph.topo_sort's tie-break
-// is (order ascending, then parse-index ascending) -- an entry with no
-// order= sorts after every entry that has one, and among same-order (both
-// unset -> infinite) entries the one with the highest parse-index (this
-// manifest entry, always parsed last) sorts last. No requires=http_server is
-// needed either: tier ordering alone already guarantees pre_http completes
-// before any regular-tier entry runs (wire_graph.py's docstring), the same
-// convention every other regular-tier server=true entry already relies on.
+// registered its own routes for the identical reason).
+//
+// B1-1280: this marker carries `provides=http_wildcard_last` -- the
+// reserved key `bbtool codegen` (scripts/bbtool/commands/wire.py's
+// render_source) machine-enforces: it hard-errors at codegen time if any
+// `server=true` entry (every other composed component's route registration
+// -- bb_wifi_http, bb_ota_pull, bb_diag_http, bb_sensor_http, etc.) sorts at
+// or after this entry in the final composed order, naming both entries'
+// file:line. Getting this ordering right is no longer this comment's job --
+// it is `render_source`'s -- so the comment above only needs to explain WHY
+// the order matters, not carry the invariant itself; if this marker is ever
+// composed after some new consumer route with no explicit order=, codegen
+// fails loudly instead of silently shadowing that route.
 //
 // WARNING: if a second manifest entry is added to this file, manifest entries
 // tie-break by parse order (line order), so the captive-portal entry must
 // remain textually last, OR both entries must be disambiguated with explicit
-// order= values.
+// order= values -- the guard above catches a `server=true` route landing
+// after this one, but says nothing about ordering between two non-server=
+// manifest entries.
 #include "bb_wifi_prov.h"
 #include "bb_wifi_prov_default_form.h"
 
-// bbtool:init tier=regular fn=bb_wifi_prov_autoinit args=bb_wifi_prov_default_form_get(),1,NULL
+// bbtool:init tier=regular fn=bb_wifi_prov_autoinit args=bb_wifi_prov_default_form_get(),1,NULL provides=http_wildcard_last
