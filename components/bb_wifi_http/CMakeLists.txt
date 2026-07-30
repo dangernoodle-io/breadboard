@@ -24,6 +24,7 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/bb_wifi_http_diag.c"
          "${CMAKE_CURRENT_LIST_DIR}/bb_wifi_http_wire.c"
          "${CMAKE_CURRENT_LIST_DIR}/bb_wifi_http_creds_wire.c"
+         "${CMAKE_CURRENT_LIST_DIR}/bb_wifi_http_patch_status_wire.c"
          "${CMAKE_CURRENT_LIST_DIR}/bb_wifi_http_scan_wire.c"
          "${CMAKE_CURRENT_LIST_DIR}/src/bb_wifi_http_apply_status.c"
          "${CMAKE_CURRENT_LIST_DIR}/src/bb_wifi_http_route_dup_status.c"

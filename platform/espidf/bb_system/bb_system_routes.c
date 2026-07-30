@@ -31,6 +31,8 @@
 
 #include "bb_data.h"
 #include "bb_http.h"
+#include "bb_http_serialize_error.h"
+#include "bb_http_serialize_stream.h"
 #include "bb_http_server.h"
 #include "bb_log.h"
 #include "bb_serialize.h"
@@ -248,26 +250,44 @@ static bb_err_t reboot_apply(const void *snap, const bb_data_apply_args_t *args)
 }
 
 // ---------------------------------------------------------------------------
-// Response error helpers
+// Response error helpers (B1-1286: migrated off bb_http_json_obj_stream_t's
+// 1048-byte stack buffer onto the shared bb_http_serialize_send_error() --
+// see its own doc comment in bb_http_serialize_error.h for why this
+// stack-overflow-class fix lives there rather than re-hand-rolled here).
 // ---------------------------------------------------------------------------
 
 static void send_400(bb_http_request_t *req, const char *msg)
 {
-    bb_http_resp_set_status(req, 400);
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "error", msg);
-    bb_http_resp_json_obj_end(&obj);
+    bb_http_serialize_send_error(req, 400, msg);
 }
 
 static void send_500(bb_http_request_t *req, const char *msg)
 {
-    bb_http_resp_set_status(req, 500);
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "error", msg);
-    bb_http_resp_json_obj_end(&obj);
+    bb_http_serialize_send_error(req, 500, msg);
 }
+
+// ---------------------------------------------------------------------------
+// POST /api/reboot 200 response wire descriptor (B1-1286) -- a single fixed
+// literal field, {"status":"rebooting"}; migration target for
+// reboot_handler's success-path emission below (see that call site's own
+// doc comment for the ordering guarantee this preserves).
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    char status[16];
+} bb_system_reboot_status_wire_t;
+
+static const bb_serialize_field_t s_reboot_status_wire_fields[] = {
+    { .key = "status", .type = BB_TYPE_STR, .offset = offsetof(bb_system_reboot_status_wire_t, status),
+      .max_len = sizeof(((bb_system_reboot_status_wire_t *)0)->status) },
+};
+
+static const bb_serialize_desc_t s_reboot_status_wire_desc = {
+    .type_name = "bb_system_reboot_status_wire_t",
+    .fields    = s_reboot_status_wire_fields,
+    .n_fields  = 1,
+    .snap_size = sizeof(bb_system_reboot_status_wire_t),
+};
 
 // ---------------------------------------------------------------------------
 // Testing capture (host unit tests, B1-1148 finding 1) -- records what
@@ -396,11 +416,32 @@ static bb_err_t reboot_handler(bb_http_request_t *req)
                       ? (uint32_t)dst_scratch.ts
                       : 0;
 
-    bb_http_json_obj_stream_t obj;
-    bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
+    // 200 {"status":"rebooting"} via bb_http_serialize_stream() (B1-1286) --
+    // the response is fully flushed/finalized by this call before the
+    // ESP_PLATFORM restart below is armed, same ordering guarantee
+    // bb_http_resp_json_obj_end() gave the deleted bb_http_json_obj_stream_t
+    // path (that ordering, not the emission mechanism, is what a truncated-
+    // reply hazard depends on -- see the restart call's own doc comment).
+    //
+    // Pre-check bb_http_resp_set_type() -- the same call
+    // bb_http_serialize_stream() itself makes first internally -- so a
+    // Content-Type-set failure (never observed to fail on real hardware;
+    // exercised only by the host test's force_set_type_fail hook) returns
+    // BEFORE any response byte is written and BEFORE the capture/restart
+    // below run, same fail-closed posture bb_http_resp_json_obj_begin()'s
+    // failure path gave the deleted bb_http_json_obj_stream_t idiom: if the
+    // response can't even be started, arming a restart the client will
+    // never see acknowledged is the wrong failure mode. A failure from
+    // bb_http_serialize_stream() itself (past this point -- e.g. the
+    // chunked-terminator send) still falls through to capture/restart below,
+    // same as bb_http_resp_json_obj_end()'s failure path always did.
+    bb_err_t rc = bb_http_resp_set_type(req, "application/json");
     if (rc != BB_OK) return rc;
-    bb_http_resp_json_obj_set_str(&obj, "status", "rebooting");
-    rc = bb_http_resp_json_obj_end(&obj);
+
+    bb_system_reboot_status_wire_t status_snap;
+    memset(&status_snap, 0, sizeof(status_snap));
+    strncpy(status_snap.status, "rebooting", sizeof(status_snap.status) - 1);
+    rc = bb_http_serialize_stream(req, &s_reboot_status_wire_desc, &status_snap);
 #ifdef BB_SYSTEM_TESTING
     s_reboot_capture.called = true;
     strncpy(s_reboot_capture.detail, dst_scratch.detail, sizeof(s_reboot_capture.detail) - 1);

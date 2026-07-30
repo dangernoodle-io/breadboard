@@ -741,11 +741,6 @@
       "type": "uncovered_branch"
     },
     {
-      "id": "128",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_branch"
-    },
-    {
       "id": "143",
       "path": "platform/host/bb_http_server/bb_http_host.c",
       "type": "uncovered_branch"
