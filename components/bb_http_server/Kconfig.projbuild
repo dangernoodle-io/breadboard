@@ -172,4 +172,26 @@ config BB_HTTP_RESP_SEND_CHUNK_LIVENESS_PROBE
       can still RST between probe and lwip_send) but stops long-tail
       writes into a dead socket.
 
+config BB_HTTP_PROV_ALLOWLIST_CAP
+    int "Provisioning gate allowlist capacity"
+    default 8
+    range 4 32
+    help
+      Maximum number of (method,path) entries the bb_http_prov_gate
+      allowlist holds. This list is meant to stay short — the
+      provisioning endpoints plus /ping. Overflow logs an error and
+      bb_http_prov_allow() returns BB_ERR_NO_SPACE; the entry is
+      dropped (default-deny still applies to it).
+
+config BB_WIFI_PROV_GATE_DISABLE
+    bool "Disable the provisioning route gate (bb_http_prov_gate_allow always allows)"
+    default n
+    help
+      When enabled, bb_http_prov_gate_allow() unconditionally returns
+      true, bypassing the allowlist entirely. This is a debug/bring-up
+      escape hatch only — NOT a production posture: it fully defeats
+      the default-deny provisioning fence, re-exposing every route
+      (including diagnostics) to anyone reachable on the SoftAP.
+      Disable (default) in production firmware.
+
 endmenu

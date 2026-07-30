@@ -17,6 +17,7 @@
 #include "bb_serialize_json.h"
 #include "bb_serialize_console.h"
 #include "bb_serialize_logfmt.h"
+#include "bb_http_prov_gate.h"
 #include "test_openapi_capture.h"
 // Forward declarations from test_bb_lifecycle.c
 void test_bb_lifecycle_autoinit_returns_ok(void);
@@ -1681,6 +1682,35 @@ void test_dispatch_api_exact_routes_unaffected_by_wildcard_presence(void);
 void test_dispatch_api_wildcard_tie_break_first_registered_wins(void);
 void test_dispatch_api_dup_wildcard_pattern_dropped(void);
 
+// Forward declarations from test_bb_http_prov_gate.c
+void test_bb_http_prov_gate_inactive_always_allows(void);
+void test_bb_http_prov_gate_empty_allowlist_denies(void);
+void test_bb_http_prov_gate_exact_match_allows(void);
+void test_bb_http_prov_gate_wildcard_match_allows(void);
+void test_bb_http_prov_gate_wildcard_near_miss_denies(void);
+void test_bb_http_prov_gate_method_mismatch_denies(void);
+void test_bb_http_prov_gate_query_string_stripped(void);
+void test_bb_http_prov_gate_allow_null_path_invalid_arg(void);
+void test_bb_http_prov_gate_null_uri_denies(void);
+void test_bb_http_prov_gate_overflow_returns_no_space(void);
+void test_bb_http_prov_gate_reset_clears(void);
+void test_bb_http_prov_gate_empty_path_not_wildcard(void);
+void test_bb_http_prov_gate_wildcard_prefix_longer_than_uri_denies(void);
+void test_bb_http_prov_gate_exact_same_length_mismatch_denies(void);
+void test_bb_http_prov_gate_wildcard_non_api_path_rejected(void);
+void test_bb_http_prov_gate_wildcard_api_path_accepted(void);
+
+// Forward declarations from test_bb_route_uri_match.c
+void test_bb_route_uri_match_null_pattern_false(void);
+void test_bb_route_uri_match_null_uri_false(void);
+void test_bb_route_uri_match_exact_match_true(void);
+void test_bb_route_uri_match_exact_mismatch_false(void);
+void test_bb_route_uri_match_empty_pattern_zero_match_upto_true(void);
+void test_bb_route_uri_match_empty_pattern_nonzero_match_upto_false(void);
+void test_bb_route_uri_match_wildcard_prefix_match_true(void);
+void test_bb_route_uri_match_wildcard_prefix_mismatch_false(void);
+void test_bb_route_uri_match_wildcard_match_upto_shorter_than_prefix_false(void);
+
 // Forward declarations from test_bb_storage.c
 void test_bb_storage_ram_set_get_round_trip(void);
 void test_bb_storage_ram_erase_removes_value(void);
@@ -2385,6 +2415,7 @@ void test_uri_is_registered_null_uri(void);
 void test_uri_is_registered_empty_registry(void);
 void test_uri_is_registered_skips_null_path_entry(void);
 void test_uri_is_registered_very_long_uri_with_query(void);
+void test_uri_is_registered_long_path_beyond_old_256_byte_buffer_matches(void);
 void test_uri_is_registered_empty_pattern_no_match(void);
 void test_uri_is_registered_post_catchall_is_registered(void);
 void test_uri_is_registered_described_route_persists_in_registry(void);
@@ -5411,6 +5442,11 @@ void setUp(void) {
     // leaks entries across tests and can spuriously fail a later one purely
     // from an earlier test's accumulated /api/* registrations.
     bb_dispatch_api_reset();
+    // bb_http_prov_gate's allowlist (bb_http_prov_gate.c) is likewise a
+    // process-wide static shared by every test in this binary — reset it
+    // before each test for the same isolation reason as bb_dispatch_api_reset()
+    // above.
+    bb_http_prov_gate_reset();
     // Several consumers (bb_diag_section, bb_http_section, bb_sensor_http, ...)
     // dispatch through the format-dispatch registry rather than a hardcoded
     // BB_FORMAT_JSON branch, so a test that exercises them needs
@@ -6954,6 +6990,7 @@ int main(void) {
     RUN_TEST(test_uri_is_registered_empty_registry);
     RUN_TEST(test_uri_is_registered_skips_null_path_entry);
     RUN_TEST(test_uri_is_registered_very_long_uri_with_query);
+    RUN_TEST(test_uri_is_registered_long_path_beyond_old_256_byte_buffer_matches);
     RUN_TEST(test_uri_is_registered_empty_pattern_no_match);
     RUN_TEST(test_uri_is_registered_post_catchall_is_registered);
     RUN_TEST(test_uri_is_registered_described_route_persists_in_registry);
@@ -9090,6 +9127,35 @@ int main(void) {
     RUN_TEST(test_dispatch_api_exact_routes_unaffected_by_wildcard_presence);
     RUN_TEST(test_dispatch_api_wildcard_tie_break_first_registered_wins);
     RUN_TEST(test_dispatch_api_dup_wildcard_pattern_dropped);
+
+    // bb_http_prov_gate tests
+    RUN_TEST(test_bb_http_prov_gate_inactive_always_allows);
+    RUN_TEST(test_bb_http_prov_gate_empty_allowlist_denies);
+    RUN_TEST(test_bb_http_prov_gate_exact_match_allows);
+    RUN_TEST(test_bb_http_prov_gate_wildcard_match_allows);
+    RUN_TEST(test_bb_http_prov_gate_wildcard_near_miss_denies);
+    RUN_TEST(test_bb_http_prov_gate_method_mismatch_denies);
+    RUN_TEST(test_bb_http_prov_gate_query_string_stripped);
+    RUN_TEST(test_bb_http_prov_gate_allow_null_path_invalid_arg);
+    RUN_TEST(test_bb_http_prov_gate_null_uri_denies);
+    RUN_TEST(test_bb_http_prov_gate_overflow_returns_no_space);
+    RUN_TEST(test_bb_http_prov_gate_reset_clears);
+    RUN_TEST(test_bb_http_prov_gate_empty_path_not_wildcard);
+    RUN_TEST(test_bb_http_prov_gate_wildcard_prefix_longer_than_uri_denies);
+    RUN_TEST(test_bb_http_prov_gate_exact_same_length_mismatch_denies);
+    RUN_TEST(test_bb_http_prov_gate_wildcard_non_api_path_rejected);
+    RUN_TEST(test_bb_http_prov_gate_wildcard_api_path_accepted);
+
+    // bb_route_uri_match tests (the shared pattern-vs-uri predicate seam)
+    RUN_TEST(test_bb_route_uri_match_null_pattern_false);
+    RUN_TEST(test_bb_route_uri_match_null_uri_false);
+    RUN_TEST(test_bb_route_uri_match_exact_match_true);
+    RUN_TEST(test_bb_route_uri_match_exact_mismatch_false);
+    RUN_TEST(test_bb_route_uri_match_empty_pattern_zero_match_upto_true);
+    RUN_TEST(test_bb_route_uri_match_empty_pattern_nonzero_match_upto_false);
+    RUN_TEST(test_bb_route_uri_match_wildcard_prefix_match_true);
+    RUN_TEST(test_bb_route_uri_match_wildcard_prefix_mismatch_false);
+    RUN_TEST(test_bb_route_uri_match_wildcard_match_upto_shorter_than_prefix_false);
 
     // bb_storage tests
     RUN_TEST(test_bb_storage_ram_set_get_round_trip);

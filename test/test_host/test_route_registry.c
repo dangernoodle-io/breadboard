@@ -3,6 +3,7 @@
 #include "bb_http_server.h"
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 
 // ---------------------------------------------------------------------------
 // Minimal handler stub — not invoked by registry tests
@@ -673,8 +674,13 @@ void test_uri_is_registered_skips_null_path_entry(void)
     TEST_ASSERT_FALSE(bb_http_uri_is_registered("/api/bogus"));
 }
 
-// (k) URI longer than path_buf (>255 chars) with a query string — exercise the
-//     plen >= sizeof(path_buf) truncation branch inside uri_pattern_match.
+// (k) URI longer than 255 chars with a query string, compared against an
+//     unrelated short pattern — must not crash and must not match (different
+//     path). This no longer exercises any internal-buffer truncation branch
+//     (bb_http_uri_is_registered was folded onto the shared bb_route_uri_match
+//     seam, which is unbounded via match_upto -- see
+//     test_uri_is_registered_long_path_beyond_old_256_byte_buffer_matches
+//     below for the truncation-bug regression test).
 void test_uri_is_registered_very_long_uri_with_query(void)
 {
     bb_http_route_registry_clear();
@@ -692,6 +698,50 @@ void test_uri_is_registered_very_long_uri_with_query(void)
     }
     // Should not match /api/stats (different path), and must not crash
     TEST_ASSERT_FALSE(bb_http_uri_is_registered(long_uri));
+}
+
+// Pin the fix for a real pre-existing bug: uri_pattern_match's now-deleted
+// 256-byte path_buf silently truncated the query-stripped uri before
+// comparing, so a route whose own path exceeds 255 bytes could never be
+// found as "registered" once a query string pushed the copy through
+// truncation -- bb_http_uri_is_registered would 404 a request that
+// bb_dispatch_api_lookup (already unbounded via match_upto, never routed
+// through uri_pattern_match) would have HIT, a genuine 404-vs-405
+// disambiguation divergence between the two. Folding onto the shared
+// bb_route_uri_match seam (unbounded, memcmp against match_upto) removes
+// the truncation entirely. This is a behavior CHANGE, not a coincidental
+// side effect of the refactor -- see the commit body.
+void test_uri_is_registered_long_path_beyond_old_256_byte_buffer_matches(void)
+{
+    bb_http_route_registry_clear();
+
+    // A 300-byte exact-match path -- longer than the old path_buf[256].
+    static char long_path[301];
+    memset(long_path, 'a', sizeof(long_path) - 1);
+    long_path[sizeof(long_path) - 1] = '\0';
+
+    static const bb_route_response_t s_resp[] = {
+        { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+        { .status = 0 },
+    };
+    static const bb_route_t s_long_route = {
+        .method    = BB_HTTP_GET,
+        .path      = long_path,
+        .tag       = "test",
+        .summary   = "long path",
+        .responses = s_resp,
+        .handler   = stub_handler,
+    };
+    bb_http_register_route_descriptor_only(&s_long_route);
+
+    // Same 300-byte path plus a query string -- under the old
+    // 256-byte-truncating uri_pattern_match this would have been silently
+    // clipped to 255 bytes before comparison and returned FALSE (a false
+    // 404). It must now return TRUE.
+    char long_uri[310];
+    memcpy(long_uri, long_path, sizeof(long_path) - 1);
+    memcpy(long_uri + (sizeof(long_path) - 1), "?q=1", 5);
+    TEST_ASSERT_TRUE(bb_http_uri_is_registered(long_uri));
 }
 
 // (l) Pattern with empty path — exercise plen==0 branch in uri_pattern_match.

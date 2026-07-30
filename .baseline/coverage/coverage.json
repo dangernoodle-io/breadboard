@@ -66,7 +66,7 @@
       "type": "uncovered_branch"
     },
     {
-      "id": "367",
+      "id": "347",
       "path": "components/bb_http_server/src/route_registry.c",
       "type": "uncovered_branch"
     },
