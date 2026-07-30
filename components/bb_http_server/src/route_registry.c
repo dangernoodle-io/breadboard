@@ -1,6 +1,7 @@
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_log.h"
+#include "bb_route_match.h"
 #include "bb_str.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -123,33 +124,6 @@ bb_err_t bb_http_register_route_table(bb_http_handle_t server,
 // URI registration check
 // ---------------------------------------------------------------------------
 
-// Match a URI against a route path pattern using the same wildcard semantics
-// as httpd_uri_match_wildcard: a pattern ending in '*' is a prefix match
-// (the '*' acts as a suffix wildcard); anything else is an exact match.
-// Strip query string from uri before comparing.
-static bool uri_pattern_match(const char *pattern, const char *uri)
-{
-    if (!pattern || !uri) return false;  // LCOV_EXCL_BR_LINE — caller guards both before calling
-
-    // Strip query string from uri for matching
-    char path_buf[256];
-    const char *q = strchr(uri, '?');
-    if (q) {
-        size_t plen = (size_t)(q - uri);
-        if (plen >= sizeof(path_buf)) plen = sizeof(path_buf) - 1;
-        memcpy(path_buf, uri, plen);
-        path_buf[plen] = '\0';
-        uri = path_buf;
-    }
-
-    size_t plen = strlen(pattern);
-    if (plen > 0 && pattern[plen - 1] == '*') {
-        // Wildcard: uri must start with everything before the '*'
-        return strncmp(uri, pattern, plen - 1) == 0;
-    }
-    return strcmp(uri, pattern) == 0;
-}
-
 // Paths for the two internal catch-all wildcards registered by bb_http itself.
 // These are excluded from "is this URI registered?" because they match every
 // URI — a bogus path under them must still yield 404, not 405.
@@ -159,6 +133,14 @@ static bool uri_pattern_match(const char *pattern, const char *uri)
 bool bb_http_uri_is_registered(const char *uri)
 {
     if (!uri) return false;
+
+    // Query-stripping stays local to this call site (bb_route_uri_match owns
+    // only the pattern-vs-bounded-uri predicate, not query parsing) — compute
+    // the match bound once, same convention as bb_dispatch_api_lookup.
+    size_t path_len = 0;
+    while (uri[path_len] != '\0' && uri[path_len] != '?') {
+        path_len++;
+    }
 
     for (size_t i = 0; i < s_count; i++) {
         const bb_route_t *r = s_registry[i];
@@ -172,7 +154,7 @@ bool bb_http_uri_is_registered(const char *uri)
         if (strcmp(r->path, BB_HTTP_ASSET_URI) == 0 &&
             r->method == BB_HTTP_GET) continue;
 
-        if (uri_pattern_match(r->path, uri)) return true;
+        if (bb_route_uri_match(r->path, uri, path_len)) return true;
     }
     return false;
 }
@@ -288,13 +270,11 @@ bb_dispatch_api_result_t bb_dispatch_api_lookup(bb_http_method_t method,
         if (entry_path == NULL) {
             continue;
         }
-        size_t entry_len = strlen(entry_path);
 
         // Exact match: same length and same bytes, entry NUL-terminated.
-        if (entry_len != path_len) {
-            continue;
-        }
-        if (memcmp(entry_path, uri, path_len) != 0) {
+        // bb_route_uri_match's exact branch (entry has no trailing '*',
+        // guaranteed by the is_wildcard skip above) is exactly this test.
+        if (!bb_route_uri_match(entry_path, uri, path_len)) {
             continue;
         }
 
@@ -329,7 +309,7 @@ bb_dispatch_api_result_t bb_dispatch_api_lookup(bb_http_method_t method,
         // bb_dispatch_api_add), so a NULL-path entry always has
         // is_wildcard == false and is filtered out by the check above.
         const char *entry_path = s_dispatch[i].path;
-        if (!uri_pattern_match(entry_path, uri)) {
+        if (!bb_route_uri_match(entry_path, uri, path_len)) {
             continue;
         }
 
