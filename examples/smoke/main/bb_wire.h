@@ -41,7 +41,26 @@
 // order= values -- the guard above catches a `server=true` route landing
 // after this one, but says nothing about ordering between two non-server=
 // manifest entries.
+//
+// B1-1037 PR-1: the "wifi" bb_lifecycle service registration below is a
+// SECOND manifest entry, added here (rather than a new manifest file)
+// because `bbtool codegen --consumer-manifest` accepts exactly one path
+// (scripts/bbtool/README.md), so smoke has only one manifest home. It needs
+// no order=/textual-position care relative to the captive-portal entry
+// above: tier is the primary sort key (wire_graph.topo_sort), and
+// tier=early always sorts strictly before this file's tier=regular entry
+// regardless of parse order -- only two entries in the SAME tier need the
+// disambiguation the WARNING above describes. This registration is
+// deliberately INERT: registered-but-unstarted (bb_lifecycle_register()
+// leaves the service in BB_LIFECYCLE_STOPPED) is a harmless no-op. It does
+// NOT restore bb_mdns/bb_mqtt_client's "wifi" service auto-start on its own
+// -- the service only reaches RUNNING once bb_wifi_set_emit() is wired to
+// drive it, which is PR-4 (out of scope here; see bb_lifecycle.h's
+// bb_lifecycle_emit_binding_init()/bb_wifi_set_emit doc).
+#include "bb_lifecycle.h"
 #include "bb_wifi_prov.h"
 #include "bb_wifi_prov_default_form.h"
+
+// bbtool:init tier=early fn=bb_lifecycle_register out=s_smoke_wifi_svc:bb_lifecycle_svc_t args=&(bb_lifecycle_config_t){.name="wifi"},&s_smoke_wifi_svc
 
 // bbtool:init tier=regular fn=bb_wifi_prov_autoinit args=bb_wifi_prov_default_form_get(),1,NULL provides=http_wildcard_last
