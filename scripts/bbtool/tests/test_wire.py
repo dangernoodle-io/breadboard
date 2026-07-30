@@ -131,6 +131,25 @@ class TestComponentFieldRejectedInComponentHeader(unittest.TestCase):
                 collect_entries(str(root), ["bb_sneaky"], "espidf")
 
 
+class TestOutFieldRejectedInComponentHeader(unittest.TestCase):
+    """out= mirrors component='s manifest-only restriction: an out-param
+    handle is consumer-owned state, not a constant intrinsic to the
+    component, so collect_entries hard-errors on it exactly like it does
+    for component=."""
+
+    def test_out_field_in_component_header_is_wire_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(
+                root, "bb_sneaky_out",
+                "#pragma once\n"
+                "// bbtool:init tier=early fn=bb_sneaky_init out=s_binding:int\n"
+                "bb_err_t bb_sneaky_init(void);\n",
+            )
+            with self.assertRaises(WireError):
+                collect_entries(str(root), ["bb_sneaky_out"], "espidf")
+
+
 class TestComponentHeadersUnknownName(unittest.TestCase):
     """#3: `entry is None` guard in `_component_headers` -- a name absent
     from the discovery index falls back to `roots[0]` (or `""` when `roots`
@@ -875,6 +894,211 @@ class TestConsumerManifestEntries(unittest.TestCase):
             )
             entries, _ = collect_manifest_entries(str(manifest_path))
             self.assertEqual(entries[0].component, "bb_wifi_prov")
+
+    def test_manifest_out_field_parses_through_collect_manifest_entries(self):
+        """out= places no restriction on collect_manifest_entries -- the
+        rejection lives in collect_entries only (see
+        TestOutFieldRejectedInComponentHeader above)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_lifecycle_register "
+                "out=s_binding:bb_lifecycle_t args=cfg,&s_binding\n",
+            )
+            entries, _ = collect_manifest_entries(str(manifest_path))
+            self.assertEqual(entries[0].out_var, "s_binding")
+            self.assertEqual(entries[0].out_type, "bb_lifecycle_t")
+
+
+class TestOutEmission(unittest.TestCase):
+    """B1-1275-adjacent: out=<varname>:<c-type> emits a file-scope static
+    declaration in the preamble; the call itself is unaffected (args= alone
+    still renders the &varname reference the marker author wrote)."""
+
+    def test_out_declaration_present_call_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_lifecycle_register "
+                "out=s_binding:bb_lifecycle_t args=cfg,&s_binding\n",
+            )
+            entries, _ = collect_manifest_entries(str(manifest_path))
+            source = render_source(topo_sort(entries))
+            self.assertIn("static bb_lifecycle_t s_binding;", source)
+            self.assertIn(
+                "bb_app_rc = bb_lifecycle_register(cfg,&s_binding);", source
+            )
+
+    def test_out_declaration_precedes_init_functions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_lifecycle_register "
+                "out=s_binding:bb_lifecycle_t args=cfg,&s_binding\n",
+            )
+            entries, _ = collect_manifest_entries(str(manifest_path))
+            source = render_source(topo_sort(entries))
+            decl_pos = source.index("static bb_lifecycle_t s_binding;")
+            early_pos = source.index("bb_err_t bb_app_init_early(void)")
+            self.assertLess(decl_pos, early_pos)
+
+    def test_no_out_entries_omits_declaration_block_entirely(self):
+        """Byte-stability guard: with no out= markers present, the
+        declarations block must be entirely ABSENT, not empty-but-present."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            entries = collect_entries(str(root), ["bb_log"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertNotIn("out-parameter handles", source)
+            self.assertNotIn("static bb_", source)
+
+    def test_duplicate_out_varname_across_entries_raises_naming_both(self):
+        """out= is manifest-only (see TestOutFieldRejectedInComponentHeader),
+        so the duplicate-varname collision is exercised across two manifest
+        entries rather than two component headers."""
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_a = Path(tmp) / "main" / "a.c"
+            manifest_b = Path(tmp) / "main" / "b.c"
+            _write(
+                manifest_a,
+                "// bbtool:init tier=early fn=bb_out_a_init out=s_shared:int\n",
+            )
+            _write(
+                manifest_b,
+                "// bbtool:init tier=early fn=bb_out_b_init out=s_shared:int\n",
+            )
+            entries_a, _ = collect_manifest_entries(str(manifest_a))
+            entries_b, _ = collect_manifest_entries(str(manifest_b))
+            with self.assertRaises(WireError) as ctx:
+                render_source(topo_sort(entries_a + entries_b))
+            msg = str(ctx.exception)
+            self.assertIn("bb_out_a_init", msg)
+            self.assertIn("bb_out_b_init", msg)
+            self.assertIn("s_shared", msg)
+
+    def test_out_varname_reserved_prefix_is_hard_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=early fn=bb_x_init out=bb_app_whatever:int\n",
+            )
+            entries, _ = collect_manifest_entries(str(manifest_path))
+            with self.assertRaises(WireError) as ctx:
+                render_source(topo_sort(entries))
+            msg = str(ctx.exception)
+            self.assertIn("bb_app_whatever", msg)
+            self.assertIn("bb_x_init", msg)
+            self.assertIn("reserved", msg)
+
+    def test_out_varname_colliding_with_http_handle_is_hard_error(self):
+        """Real failure shape #1: out=bb_app_http_handle would shadow the
+        __auto_type server-handle capture local -- generated code compiles
+        cleanly (C allows inner-scope shadowing) but any args= taking
+        &bb_app_http_handle silently captures the address of the
+        never-initialized file-scope static instead of the real handle."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=early fn=bb_x_init "
+                "out=bb_app_http_handle:bb_http_handle_t\n",
+            )
+            component_entries = collect_entries(
+                str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            manifest_entries, _ = collect_manifest_entries(str(manifest_path))
+            with self.assertRaises(WireError) as ctx:
+                render_source(topo_sort(component_entries + manifest_entries))
+            self.assertIn("bb_app_http_handle", str(ctx.exception))
+
+    def test_out_varname_colliding_with_avail_flag_is_hard_error(self):
+        """Real failure shape #2: on a composition that actually has a
+        requires=/provides= guarded token, out=bb_app_avail_<token> would
+        collide with the generated `static bool bb_app_avail_<token>;` flag
+        -- a duplicate-definition compile error, exactly the class the
+        duplicate-varname guard's own comment says it exists to prevent."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)  # bb_log: provides=log_stream / requires=log_stream
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=early fn=bb_x_init "
+                "out=bb_app_avail_log_stream:int\n",
+            )
+            component_entries = collect_entries(str(root), ["bb_log"], "espidf")
+            manifest_entries, _ = collect_manifest_entries(str(manifest_path))
+            with self.assertRaises(WireError) as ctx:
+                render_source(topo_sort(component_entries + manifest_entries))
+            self.assertIn("bb_app_avail_log_stream", str(ctx.exception))
+
+    def test_out_varname_colliding_with_init_tag_macro_is_hard_error(self):
+        """BB_APP_INIT_TAG is uppercase (a macro, not a bb_app_-prefixed
+        variable) -- it needs its own explicit reservation alongside the
+        prefix rule, not just the lowercase 'bb_app_' prefix check."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=early fn=bb_x_init out=BB_APP_INIT_TAG:int\n",
+            )
+            component_entries = collect_entries(str(root), ["bb_log"], "espidf")
+            manifest_entries, _ = collect_manifest_entries(str(manifest_path))
+            with self.assertRaises(WireError) as ctx:
+                render_source(topo_sort(component_entries + manifest_entries))
+            self.assertIn("BB_APP_INIT_TAG", str(ctx.exception))
+
+    def test_out_varname_near_miss_case_is_accepted(self):
+        """Pins a DELIBERATE decision, not incidental coverage: the reserved
+        check is startswith("bb_app_") -- case-sensitive -- because C
+        identifiers are case-sensitive, so an uppercase/mixed-case near-miss
+        (e.g. BB_APP_FOO, Bb_App_x) cannot actually collide with any
+        identifier codegen emits (all lowercase bb_app_*, plus the one exact
+        BB_APP_INIT_TAG reservation). _RESERVED_OUT_VAR_EXACT deliberately
+        holds ONLY that one macro name, not a general uppercase rule.
+
+        DO NOT delete this test as "just a near-miss, not a real case": a
+        future reader "hardening" the check by casefolding the comparison
+        would silently start rejecting valid author-chosen varnames, and
+        nothing else in this suite would catch that regression -- every
+        other out= test either uses an unambiguously-safe name or one of the
+        actually-reserved ones."""
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=early fn=bb_x_init out=BB_APP_FOO:int\n"
+                "// bbtool:init tier=early fn=bb_y_init out=Bb_App_x:int\n",
+            )
+            entries, _ = collect_manifest_entries(str(manifest_path))
+            source = render_source(topo_sort(entries))
+            self.assertIn("static int BB_APP_FOO;", source)
+            self.assertIn("static int Bb_App_x;", source)
+
+
+class TestByteStabilityNoOutMarkers(unittest.TestCase):
+    """The most important test in this commit: existing http_server/args=/
+    consumes= fixtures (none of which use out=) must render BYTE-IDENTICAL
+    output before and after out= support exists -- the declarations block
+    must be entirely absent, never empty-but-present."""
+
+    def test_http_fixture_unaffected_by_out_support(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)
+            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertNotIn("out-parameter handles", source)
+
+    def test_args_fixture_unaffected_by_out_support(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_args(tmp)
+            entries = collect_entries(str(root), ["bb_provider", "bb_wifi_prov"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertNotIn("out-parameter handles", source)
 
 
 if __name__ == "__main__":

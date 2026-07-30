@@ -232,6 +232,60 @@ class TestComponentField(unittest.TestCase):
             parse_markers("// bbtool:init tier=early fn=bb_x_init component=\n")
 
 
+class TestOutField(unittest.TestCase):
+    """out=<varname>:<c-type> -- parses onto InitEntry as out_var/out_type,
+    same context-agnostic posture as component= (rejection, if any, is
+    decided one layer up, in commands.wire)."""
+
+    def test_out_parses_onto_init_entry(self):
+        text = "// bbtool:init tier=regular fn=bb_lifecycle_register out=s_binding:bb_lifecycle_t\n"
+        e = parse_markers(text)[0]
+        self.assertEqual(e.out_var, "s_binding")
+        self.assertEqual(e.out_type, "bb_lifecycle_t")
+
+    def test_no_out_defaults_to_none(self):
+        text = "// bbtool:init tier=early fn=bb_x_init\n"
+        e = parse_markers(text)[0]
+        self.assertIsNone(e.out_var)
+        self.assertIsNone(e.out_type)
+
+    def test_out_combines_with_args(self):
+        text = (
+            "// bbtool:init tier=regular fn=bb_lifecycle_register "
+            "out=s_binding:bb_lifecycle_t args=cfg,&s_binding\n"
+        )
+        e = parse_markers(text)[0]
+        self.assertEqual(e.out_var, "s_binding")
+        self.assertEqual(e.out_type, "bb_lifecycle_t")
+        self.assertEqual(e.args, "cfg,&s_binding")
+
+    def test_out_missing_colon_is_error(self):
+        with self.assertRaises(ParseError) as ctx:
+            parse_markers("// bbtool:init tier=early fn=bb_x_init out=s_binding\n")
+        self.assertIn("':'", str(ctx.exception))
+
+    def test_out_empty_varname_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers("// bbtool:init tier=early fn=bb_x_init out=:bb_lifecycle_t\n")
+
+    def test_out_empty_type_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers("// bbtool:init tier=early fn=bb_x_init out=s_binding:\n")
+
+    def test_out_empty_value_is_error(self):
+        """Mirrors component='s/args='s empty-value handling: 'out=' alone
+        (nothing after '=') is already caught by the generic malformed-token
+        check before out='s own ':' validation ever runs."""
+        with self.assertRaises(ParseError):
+            parse_markers("// bbtool:init tier=early fn=bb_x_init out=\n")
+
+    def test_duplicate_out_key_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers(
+                "// bbtool:init tier=early fn=bb_x_init out=a:int out=b:int\n"
+            )
+
+
 class TestProvidesMarker(unittest.TestCase):
     def test_minimal_provides_marker(self):
         text = "// bbtool:provides key=demo_sink symbol=bb_example_emit\n"
