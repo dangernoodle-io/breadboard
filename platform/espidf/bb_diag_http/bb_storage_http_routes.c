@@ -402,26 +402,29 @@ static bb_err_t storage_delete_apply(const void *snap, const bb_data_apply_args_
 // DELETE /api/diag/storage — JSON body
 // ---------------------------------------------------------------------------
 
-// JSON parse scratch: worst case (an array namespace at
-// BB_STORAGE_HTTP_DELETE_NS_MAX elements) is a root object + 5 scalar/
-// string fields + one array token + up to 16 element tokens == ~23 tokens,
-// comfortably under the token recorder's own default-capacity pool (48 *
-// sizeof(bb_serialize_json_tok_t) == 2304 bytes) -- this must clear that
-// plus the control structs plus headroom for the escape-decode arena
-// regardless of body size, same fixed-pool-size rationale as
-// bb_wifi_http_routes.c's WIFI_PATCH_PARSE_SCRATCH_BYTES /
-// bb_system_routes.c's BB_SYSTEM_REBOOT_PARSE_SCRATCH_BYTES /
-// FACTORY_RESET_PARSE_SCRATCH_BYTES below.
-#define STORAGE_DELETE_PARSE_SCRATCH_BYTES 3072
-
 static bb_err_t storage_delete_handler(bb_http_request_t *req)
 {
+    // B1-1287 (httpd worker task stack-exhaustion fix, confirmed on
+    // hardware): body/parse_scratch now borrow bb_data's shared scratch pair
+    // instead of this handler's own `char body[1025]; char
+    // parse_scratch[3072];` stack locals -- this route had the DEEPEST
+    // pre-migration DWARF frame of the five bb_data-fed handlers migrated in
+    // that PR (largest body cap of the set). See bb_data.h's own doc comment
+    // for the concurrency invariant this relies on (one httpd worker task,
+    // one synchronous handler dispatched at a time).
+    bb_data_scratch_t scratch;
+    bb_err_t scratch_rc = bb_data_scratch_acquire(&scratch);
+    if (scratch_rc != BB_OK) {
+        send_500(req, "storage delete request processing failed");
+        return scratch_rc;
+    }
+
     // BB_STORAGE_HTTP_DELETE_BODY_MAX is MAX BODY BYTES (see
-    // bb_http_req_recv_body_stack()'s cap-semantics doc); the stack buffer
-    // itself is sized one byte larger for the NUL terminator.
-    char   body[BB_STORAGE_HTTP_DELETE_BODY_MAX + 1];
+    // bb_http_req_recv_body_stack()'s cap-semantics doc); the shared scratch
+    // buffer itself is sized one byte larger for the NUL terminator.
     size_t n = 0;
-    if (bb_http_req_recv_body_stack(req, body, sizeof(body), &n) != BB_OK) {
+    if (bb_http_req_recv_body_stack(req, scratch.body, BB_STORAGE_HTTP_DELETE_BODY_MAX + 1, &n) != BB_OK) {
+        bb_data_scratch_release();
         send_400(req, "missing, oversized, or unreadable body");
         return BB_ERR_INVALID_ARG;
     }
@@ -434,19 +437,19 @@ static bb_err_t storage_delete_handler(bb_http_request_t *req)
     // bb_data_apply() at all.
     storage_delete_apply_t dst_scratch;
 
-    char parse_scratch[STORAGE_DELETE_PARSE_SCRATCH_BYTES];
     bb_data_apply_req_t apply_req = {
         .fmt               = BB_FORMAT_JSON,
         .key               = "storage_delete",
         .mode              = BB_DATA_APPLY_PATCH,
-        .body              = body,
+        .body              = scratch.body,
         .body_len          = n,
-        .parse_scratch     = parse_scratch,
-        .parse_scratch_cap = sizeof(parse_scratch),
+        .parse_scratch     = scratch.parse_scratch,
+        .parse_scratch_cap = scratch.parse_scratch_cap,
         .dst_scratch       = &dst_scratch,
         .dst_scratch_cap   = sizeof(dst_scratch),
     };
     bb_err_t rc = bb_data_apply(&apply_req);
+    bb_data_scratch_release();
 
     // Same disjoint parse-layer codes (bb_core.h, B1-1090) every other
     // bb_data-fed route in this file/component maps to 400 -- a body that
@@ -875,15 +878,6 @@ static void factory_reset_reboot_work_fn(void *arg)
 }
 #endif /* ESP_PLATFORM */
 
-// JSON parse scratch: a flat 1-string-field document, comfortably under the
-// route's own 128-byte body cap -- but the token recorder's own
-// default-capacity pool alone is 48 * sizeof(bb_serialize_json_tok_t) ==
-// 2304 bytes, so this must clear that plus the control structs plus
-// headroom for the escape-decode arena regardless of body size (see
-// bb_wifi_http_routes.c's WIFI_PATCH_PARSE_SCRATCH_BYTES, the same
-// fixed-pool-size rationale).
-#define FACTORY_RESET_PARSE_SCRATCH_BYTES 3072
-
 // POST /api/diag/storage/factory-reset 202 response wire descriptor
 // (B1-1286) -- {"status":"factory_reset_accepted","reboot":true}, a fixed
 // literal pair; migration target for factory_reset_handler's success-path
@@ -911,30 +905,46 @@ static const bb_serialize_desc_t s_factory_reset_status_wire_desc = {
 
 static bb_err_t factory_reset_handler(bb_http_request_t *req)
 {
+    // B1-1287 (httpd worker task stack-exhaustion fix): body/parse_scratch
+    // now borrow bb_data's shared scratch pair instead of this handler's own
+    // `char body[129]; char parse_scratch[3072];` stack locals -- see
+    // bb_data.h's own doc comment for the concurrency invariant this relies
+    // on (one httpd worker task, one synchronous handler dispatched at a
+    // time). NOTE: this route (CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) is not
+    // compiled into examples/smoke, so its post-migration frame cannot be
+    // measured from a smoke build -- migrated for consistency anyway (same
+    // hand-rolled boilerplate as its four siblings).
+    bb_data_scratch_t scratch;
+    bb_err_t scratch_rc = bb_data_scratch_acquire(&scratch);
+    if (scratch_rc != BB_OK) {
+        send_500(req, "factory reset failed");
+        return scratch_rc;
+    }
+
     // BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX is MAX BODY BYTES (see
-    // bb_http_req_recv_body_stack()'s cap-semantics doc); the stack buffer
-    // itself is sized one byte larger for the NUL terminator.
-    char   body[BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX + 1];
+    // bb_http_req_recv_body_stack()'s cap-semantics doc); the shared scratch
+    // buffer itself is sized one byte larger for the NUL terminator.
     size_t n = 0;
-    if (bb_http_req_recv_body_stack(req, body, sizeof(body), &n) != BB_OK) {
+    if (bb_http_req_recv_body_stack(req, scratch.body, BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX + 1, &n) != BB_OK) {
+        bb_data_scratch_release();
         send_400(req, "missing, oversized, or unreadable body");
         return BB_ERR_INVALID_ARG;
     }
 
     bb_storage_factory_reset_apply_t dst_scratch;
-    char                             parse_scratch[FACTORY_RESET_PARSE_SCRATCH_BYTES];
     bb_data_apply_req_t apply_req = {
         .fmt               = BB_FORMAT_JSON,
         .key               = "factory_reset",
         .mode              = BB_DATA_APPLY_POST,
-        .body              = body,
+        .body              = scratch.body,
         .body_len          = n,
-        .parse_scratch     = parse_scratch,
-        .parse_scratch_cap = sizeof(parse_scratch),
+        .parse_scratch     = scratch.parse_scratch,
+        .parse_scratch_cap = scratch.parse_scratch_cap,
         .dst_scratch       = &dst_scratch,
         .dst_scratch_cap   = sizeof(dst_scratch),
     };
     bb_err_t rc = bb_data_apply(&apply_req);
+    bb_data_scratch_release();
 
     // Response shaping stays here in the route -- bb_data_apply()/apply()
     // stay HTTP-agnostic and never see a status code, only a bb_err_t (same

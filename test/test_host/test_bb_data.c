@@ -1253,3 +1253,119 @@ void test_bb_data_apply_patch_malformed_body_never_invokes_seed_gather(void)
     TEST_ASSERT_EQUAL(0, s_dt_split_gather_calls);  // seed gather() never reached: decode failed first
     TEST_ASSERT_EQUAL(0, s_dt_apply_spy_calls);
 }
+
+// ---------------------------------------------------------------------------
+// Scratch acquire/release (B1-1287, the httpd worker task stack-exhaustion
+// fix) -- bb_data_scratch_acquire()/_release()/bb_data_scratch_test_reset().
+// Every test below resets via bb_data_scratch_test_reset() first, same
+// test-isolation posture as dt_reset() for the binding table.
+// ---------------------------------------------------------------------------
+
+void test_bb_data_scratch_acquire_returns_sized_buffers(void)
+{
+    bb_data_scratch_test_reset();
+
+    bb_data_scratch_t scratch;
+    memset(&scratch, 0, sizeof(scratch));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_scratch_acquire(&scratch));
+
+    TEST_ASSERT_NOT_NULL(scratch.body);
+    TEST_ASSERT_EQUAL_UINT32(BB_DATA_SCRATCH_BODY_BYTES, scratch.body_cap);
+    TEST_ASSERT_NOT_NULL(scratch.parse_scratch);
+    TEST_ASSERT_EQUAL_UINT32(BB_DATA_SCRATCH_PARSE_BYTES, scratch.parse_scratch_cap);
+
+    // The two buffers are genuinely distinct and each is actually writable
+    // across its full advertised capacity -- not aliased, not undersized.
+    TEST_ASSERT_TRUE((void *)scratch.body != scratch.parse_scratch);
+    memset(scratch.body, 'b', scratch.body_cap);
+    memset(scratch.parse_scratch, 'p', scratch.parse_scratch_cap);
+    TEST_ASSERT_EQUAL_UINT8('b', ((unsigned char *)scratch.body)[scratch.body_cap - 1]);
+    TEST_ASSERT_EQUAL_UINT8('p', ((unsigned char *)scratch.parse_scratch)[scratch.parse_scratch_cap - 1]);
+
+    bb_data_scratch_release();
+}
+
+void test_bb_data_scratch_acquire_null_out_returns_invalid_arg(void)
+{
+    bb_data_scratch_test_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_scratch_acquire(NULL));
+}
+
+// A round trip (acquire then release) can be repeated indefinitely -- the
+// common case, one full HTTP request per acquire/release pair.
+void test_bb_data_scratch_acquire_release_round_trip_repeatable(void)
+{
+    bb_data_scratch_test_reset();
+
+    for (int i = 0; i < 3; i++) {
+        bb_data_scratch_t scratch;
+        TEST_ASSERT_EQUAL(BB_OK, bb_data_scratch_acquire(&scratch));
+        bb_data_scratch_release();
+    }
+}
+
+// THE reentrancy-guard test: a second acquire before the first's release
+// fails closed (BB_ERR_INVALID_STATE) and hands out NOTHING -- proves the
+// single `s_scratch_in_use` flag actually gates a concurrent/nested acquire,
+// the whole point of this pair existing as a SHARED static buffer rather
+// than a caller-owned one. The debug-build assert() this same misuse also
+// trips (see bb_data_scratch_acquire()'s own doc comment in bb_data.h) is
+// compiled out under BB_DATA_TESTING specifically so this path is
+// observable as a normal (non-aborting) Unity assertion instead.
+void test_bb_data_scratch_acquire_reentrant_returns_invalid_state(void)
+{
+    bb_data_scratch_test_reset();
+
+    bb_data_scratch_t first;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_scratch_acquire(&first));
+
+    bb_data_scratch_t second;
+    memset(&second, 0xAA, sizeof(second));  // poison -- must stay untouched on rejection
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_data_scratch_acquire(&second));
+    // Rejected before ever touching `out` -- the poison survives untouched
+    // (0xAAAAAAAAAAAAAAAA reinterpreted as a pointer, distinct from `first`'s
+    // real, non-poisoned buffer pointer).
+    TEST_ASSERT_TRUE((void *)second.body != (void *)first.body);
+
+    bb_data_scratch_release();
+
+    // Released -- a subsequent acquire succeeds again, and hands back the
+    // SAME shared buffers (there is only ever one instance).
+    bb_data_scratch_t third;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_scratch_acquire(&third));
+    TEST_ASSERT_EQUAL_PTR(first.body, third.body);
+    TEST_ASSERT_EQUAL_PTR(first.parse_scratch, third.parse_scratch);
+    bb_data_scratch_release();
+}
+
+// A release with nothing acquired is a benign no-op -- does not corrupt the
+// guard for a subsequent, legitimate acquire.
+void test_bb_data_scratch_release_without_acquire_is_noop(void)
+{
+    bb_data_scratch_test_reset();
+
+    bb_data_scratch_release();  // nothing acquired -- must not crash/misbehave
+
+    bb_data_scratch_t scratch;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_scratch_acquire(&scratch));
+    bb_data_scratch_release();
+}
+
+// bb_data_scratch_test_reset() forces the released state even mid-acquire --
+// lets a test recover a known-clean slate without depending on an earlier
+// test (possibly in a different file, same process) having released
+// symmetrically.
+void test_bb_data_scratch_test_reset_forces_released_state(void)
+{
+    bb_data_scratch_test_reset();
+
+    bb_data_scratch_t leaked;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_scratch_acquire(&leaked));
+    // Deliberately no release() -- simulates a leaked/never-released acquire.
+
+    bb_data_scratch_test_reset();
+
+    bb_data_scratch_t after_reset;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_scratch_acquire(&after_reset));
+    bb_data_scratch_release();
+}

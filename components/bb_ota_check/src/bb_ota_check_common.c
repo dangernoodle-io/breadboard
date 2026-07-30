@@ -890,9 +890,27 @@ bb_err_t bb_ota_check_config_post_handler(bb_http_request_t *req)
         return BB_OK;
     }
 
-    char body[BB_OTA_CHECK_CONFIG_BODY_MAX + 1];
-    int n = bb_http_req_recv(req, body, sizeof(body) - 1);
+    // B1-1287 (httpd worker task stack-exhaustion fix): body/parse_scratch
+    // now borrow bb_data's shared scratch pair (bb_data_scratch_acquire()/
+    // _release()) instead of this handler's own `char body[65]; char
+    // parse_scratch[3072];` stack locals -- see bb_data.h's own doc comment
+    // for the concurrency invariant this relies on (one httpd worker task,
+    // one synchronous handler dispatched at a time). Acquired here, AFTER
+    // the body-length gate above (which needs no buffer), not before.
+    bb_data_scratch_t scratch;
+    bb_err_t scratch_rc = bb_data_scratch_acquire(&scratch);
+    if (scratch_rc != BB_OK) {
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "internal error");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_OK;
+    }
+
+    int n = bb_http_req_recv(req, scratch.body, BB_OTA_CHECK_CONFIG_BODY_MAX);
     if (n < 0) {  // LCOV_EXCL_BR_LINE — recv failure path; both branches covered but gcov misattributes inner begin() arc
+        bb_data_scratch_release();
         bb_http_resp_set_status(req, 400);
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);
@@ -900,30 +918,22 @@ bb_err_t bb_ota_check_config_post_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
-    body[n] = '\0';
+    scratch.body[n] = '\0';
 
-    // JSON parse scratch: a flat 1-bool-field document, comfortably under
-    // this route's own BB_OTA_CHECK_CONFIG_BODY_MAX (64) body cap -- but the
-    // token recorder's own default-capacity pool alone is
-    // 48 * sizeof(bb_serialize_json_tok_t) == 2304 bytes, so this must clear
-    // that plus the control structs plus headroom for the escape-decode
-    // arena regardless of body size (see bb_wifi_http_routes.c's
-    // WIFI_PATCH_PARSE_SCRATCH_BYTES / the factory-reset cutover's
-    // FACTORY_RESET_PARSE_SCRATCH_BYTES, the same fixed-pool-size rationale).
     bb_ota_check_config_apply_t dst_scratch;
-    char                        parse_scratch[3072];
     bb_data_apply_req_t apply_req = {
         .fmt               = BB_FORMAT_JSON,
         .key               = "ota_check_config",
         .mode              = BB_DATA_APPLY_PATCH,
-        .body              = body,
+        .body              = scratch.body,
         .body_len          = (size_t)n,
-        .parse_scratch     = parse_scratch,
-        .parse_scratch_cap = sizeof(parse_scratch),
+        .parse_scratch     = scratch.parse_scratch,
+        .parse_scratch_cap = scratch.parse_scratch_cap,
         .dst_scratch       = &dst_scratch,
         .dst_scratch_cap   = sizeof(dst_scratch),
     };
     bb_err_t rc = bb_data_apply(&apply_req);
+    bb_data_scratch_release();
 
     // Response shaping stays here in the route -- bb_data_apply()/apply()
     // stay HTTP-agnostic and never see a status code, only a bb_err_t (same

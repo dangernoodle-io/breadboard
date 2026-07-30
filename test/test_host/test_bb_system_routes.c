@@ -628,6 +628,46 @@ void test_bb_system_reboot_route_json_obj_end_fail_propagates(void)
     TEST_ASSERT_TRUE(bb_system_reboot_capture_get_for_test(NULL, 0, NULL));
 }
 
+// B1-1287 (review finding 1): bb_data_scratch_acquire() failure (the scratch
+// pair already held by another in-flight caller) -- exercises the
+// composition-invariant 500 branch reboot_handler's own bb_data_scratch_
+// acquire() call added. Never reachable via client input (the real
+// invariant this guards is "one httpd worker task, one handler in flight"
+// -- see bb_data.h's own SAFETY doc comment), so this test drives it
+// directly by holding the scratch pair open before calling the handler.
+// Mirrors test_bb_ota_check.c's
+// test_update_check_config_post_scratch_acquire_failure_returns_500, except
+// reboot_handler propagates scratch_rc as its own return value (unlike the
+// OTA config-post handler, which always returns BB_OK and only varies the
+// HTTP status).
+void test_bb_system_reboot_route_scratch_acquire_failure_returns_500(void)
+{
+    bind_bb_data();
+    bb_data_scratch_test_reset();
+
+    bb_data_scratch_t held;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_scratch_acquire(&held));
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_body("{\"detail\":\"user requested\"}",
+                                      (int)strlen("{\"detail\":\"user requested\"}"));
+    bb_http_host_set_req_header("User-Agent", NULL);
+
+    bb_err_t rc = bb_system_reboot_handler_for_test(req);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, rc);
+
+    bb_http_host_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_EQUAL_INT(500, cap.status);
+    bb_http_host_capture_free(&cap);
+
+    TEST_ASSERT_FALSE(bb_system_reboot_capture_get_for_test(NULL, 0, NULL));
+
+    bb_data_scratch_release();
+}
+
 // ---------------------------------------------------------------------------
 // reboot_gather() coverage (B1-1148 PR2 review finding 2) -- mirrors
 // test_bb_storage_http_factory_reset.c's

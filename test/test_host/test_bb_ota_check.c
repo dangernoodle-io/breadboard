@@ -1618,6 +1618,36 @@ void test_update_check_config_post_nv_write_failure_returns_500(void)
     bb_http_host_capture_free(&cap);
 }
 
+// B1-1287: bb_data_scratch_acquire() failure (the scratch pair already held
+// by another in-flight caller) -- exercises the composition-invariant 500
+// branch this handler's own bb_data_scratch_acquire() call added. Never
+// reachable via client input (the real invariant this guards is "one httpd
+// worker task, one handler in flight" -- see bb_data.h's own SAFETY doc
+// comment), so this test drives it directly by holding the scratch pair
+// open before calling the handler.
+void test_update_check_config_post_scratch_acquire_failure_returns_500(void)
+{
+    reset_world();
+    bb_data_scratch_test_reset();
+
+    bb_data_scratch_t held;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_scratch_acquire(&held));
+
+    const char *body = "{\"enabled\":false}";
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_body(body, (int)strlen(body));
+    bb_err_t rc = bb_ota_check_config_post_handler(req);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(500, cap.status);
+    bb_http_host_capture_free(&cap);
+
+    bb_data_scratch_release();
+}
+
 // ---------------------------------------------------------------------------
 // B1-859: sentinel-default assertions -- drives bb_data_apply() directly
 // against the "ota_check_config" key (bypassing the HTTP handler) to prove

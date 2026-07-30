@@ -93,11 +93,22 @@ config BB_HTTP_TASK_STACK_SIZE
       default — headroom over the IDF default (4096) for the JSON-assembling
       /api handlers and response paths. Raise if a consumer's route handler
       does deep work (large stack frames, nested JSON); lower only on RAM-tight
-      builds with shallow handlers. DELETE /api/diag/storage
-      (bb_storage_http_routes.c's storage_delete_handler) is the deepest
-      bb_data-migrated handler in-tree (~5KB frame: request body buffer +
-      parse scratch + a multi-namespace snapshot struct) -- raise this if a
-      build adds even deeper /api handlers on top of it.
+      builds with shallow handlers.
+
+      B1-1287 (hardware-confirmed: 5/5 `Stack canary watchpoint triggered`
+      panics on POST /api/reboot at 6144 before this fix, 0/5 after) moved
+      the five bb_data-fed handlers' own `body`/`parse_scratch` buffers off
+      this task's stack onto bb_data's shared scratch pair
+      (bb_data_scratch_acquire(), components/bb_data). Post-migration DWARF
+      frames (xtensa esp32, examples/smoke): reboot_handler 192B (was
+      3504B), wifi_patch_handler 288B (was 3600B), storage_delete_handler
+      1456B (was 5552B, still the deepest of the five -- its own
+      multi-namespace snapshot struct + response-list locals stay on the
+      stack, only body/parse_scratch moved), bb_ota_check_config_post_handler
+      2192B (was 5312B). A raw frame sum is NOT proof of adequate headroom on
+      its own (interrupt frames nest onto this same task stack, invisible to
+      both a DWARF sum and a FreeRTOS high-water-mark read) -- raise this if
+      a build adds an even deeper /api handler on top of these.
 
 config BB_HTTP_LWIP_RESERVE
     int "Sockets reserved for non-httpd usage (stratum, mDNS, transient outbound)"

@@ -657,6 +657,32 @@ void test_storage_delete_key_not_found_still_returns_200(void)
     bb_http_host_capture_free(&cap);
 }
 
+// B1-1287 (review finding 1): bb_data_scratch_acquire() failure (the scratch
+// pair already held by another in-flight caller) -- exercises the
+// composition-invariant 500 branch storage_delete_handler's own bb_data_
+// scratch_acquire() call added. Never reachable via client input (the real
+// invariant this guards is "one httpd worker task, one handler in flight"
+// -- see bb_data.h's own SAFETY doc comment), so this test drives it
+// directly by holding the scratch pair open before calling the handler.
+// Mirrors test_bb_system_routes.c's own scratch-acquire-failure test for
+// reboot_handler -- storage_delete_handler propagates scratch_rc as its own
+// return value the same way.
+void test_storage_delete_scratch_acquire_failure_returns_500(void)
+{
+    reset_all();
+    bb_data_scratch_test_reset();
+
+    bb_data_scratch_t held;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_scratch_acquire(&held));
+
+    bb_http_host_capture_t cap = run_handler_body(
+        "{\"namespace\":\"bb_mqtt\",\"confirm\":true}");
+    TEST_ASSERT_EQUAL_INT(500, cap.status);
+    bb_http_host_capture_free(&cap);
+
+    bb_data_scratch_release();
+}
+
 // ---------------------------------------------------------------------------
 // Runtime-compose config-OFF fidelity (B1-1059 emit batch A, site 1) --
 // proves the for-test assemble/get accessors are a documented no-op at this
