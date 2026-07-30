@@ -36,6 +36,18 @@ static bool http_query_getter(void *ctx, const char *key, char *out, size_t out_
 
 static bb_err_t diag_section_dispatch(bb_http_request_t *req)
 {
+    // Single shared render-scratch buffer for BOTH branches below (the
+    // sec->iter two-phase path and the direct sec->fill path) -- they are
+    // mutually exclusive (the iter branch always returns before falling
+    // through), but at -Og (CONFIG_COMPILER_OPTIMIZATION_DEBUG=y) the
+    // compiler does NOT coalesce two same-sized locals declared in disjoint
+    // lexical scopes of one function; it reserved BOTH, doubling this
+    // function's stack frame (measured 3344B, the largest in the httpd
+    // call graph) and overflowing CONFIG_BB_HTTP_TASK_STACK_SIZE on a real
+    // /api/diag/* request. One buffer declared once at function scope,
+    // reused by whichever branch runs, makes the sharing explicit instead
+    // of relying on scope-exit reuse.
+    char render_scratch[BB_DIAG_SECTION_SCRATCH_BYTES];
     char uri[BB_DIAG_SECTION_URI_MAX];
     bb_err_t rc = bb_http_req_uri(req, uri, sizeof(uri));
     if (rc != BB_OK) {
@@ -70,9 +82,8 @@ static bb_err_t diag_section_dispatch(bb_http_request_t *req)
         // bb_diag_section.h's bb_diag_iter_fn doc). No defensive row-count
         // backstop knob -- bb_malloc_prefer_spiram() already fails closed
         // (NULL -> 500 below, before any chunk reaches the wire).
-        char dst[BB_DIAG_SECTION_SCRATCH_BYTES];
         size_t row_count = 0;
-        rc = sec->iter(dst, NULL, 0, &row_count, &fill_args);  // phase 1: count
+        rc = sec->iter(render_scratch, NULL, 0, &row_count, &fill_args);  // phase 1: count
         if (rc != BB_OK) {
             return bb_http_send_json_error(req, 500, "{\"error\":\"fill failed\"}");
         }
@@ -93,24 +104,23 @@ static bb_err_t diag_section_dispatch(bb_http_request_t *req)
             }
         }
 
-        rc = sec->iter(dst, arena, row_count, &row_count, &fill_args);  // phase 2: fill
+        rc = sec->iter(render_scratch, arena, row_count, &row_count, &fill_args);  // phase 2: fill
         if (rc != BB_OK) {
             bb_mem_free(arena);
             return bb_http_send_json_error(req, 500, "{\"error\":\"fill failed\"}");
         }
 
-        rc = bb_http_serialize_stream(req, sec->snap_desc, dst);
+        rc = bb_http_serialize_stream(req, sec->snap_desc, render_scratch);
         bb_mem_free(arena);
         return rc;
     }
 
-    char scratch[BB_DIAG_SECTION_SCRATCH_BYTES];
-    rc = sec->fill(scratch, &fill_args);
+    rc = sec->fill(render_scratch, &fill_args);
     if (rc != BB_OK) {
         return bb_http_send_json_error(req, 500, "{\"error\":\"fill failed\"}");
     }
 
-    return bb_http_serialize_stream(req, sec->snap_desc, scratch);
+    return bb_http_serialize_stream(req, sec->snap_desc, render_scratch);
 }
 
 // ---------------------------------------------------------------------------
