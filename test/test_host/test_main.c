@@ -1139,6 +1139,7 @@ void test_bb_log_info(void);
 void test_bb_log_debug(void);
 void test_bb_log_verbose(void);
 void test_bb_log_zero_args(void);
+void test_bb_log_flush_returns_ok(void);
 void test_bb_log_level_from_str_error(void);
 void test_bb_log_level_from_str_warn(void);
 void test_bb_log_level_from_str_info(void);
@@ -1200,6 +1201,22 @@ void test_bb_log_config_apply_invalid_default_is_non_fatal(void);
 void test_bb_log_config_apply_null_default_is_non_fatal(void);
 void test_bb_log_config_apply_default_plus_levels(void);
 void test_bb_log_config_init_applies_default(void);
+
+// Forward declarations from test_bb_log_flush_wait.c
+void test_bb_log_flush_seq_reached_exact_match(void);
+void test_bb_log_flush_seq_reached_completed_ahead(void);
+void test_bb_log_flush_seq_reached_completed_behind(void);
+void test_bb_log_flush_seq_reached_zero_not_reached_by_default(void);
+void test_bb_log_flush_seq_reached_wraparound_just_past(void);
+void test_bb_log_flush_seq_reached_wraparound_not_yet(void);
+void test_bb_log_flush_wait_decide_take_failed_is_timeout(void);
+void test_bb_log_flush_wait_decide_own_marker_is_done(void);
+void test_bb_log_flush_wait_decide_stale_give_is_retry(void);
+void test_bb_log_flush_wait_decide_ahead_give_is_done(void);
+void test_bb_log_flush_remaining_ms_partial_elapsed(void);
+void test_bb_log_flush_remaining_ms_zero_elapsed(void);
+void test_bb_log_flush_remaining_ms_exact_boundary_is_zero(void);
+void test_bb_log_flush_remaining_ms_overrun_clamps_to_zero(void);
 
 // Forward declarations from test_log_stream.c
 void test_log_stream_format_basic(void);
@@ -2872,6 +2889,17 @@ void test_bb_system_boot_banner_format_all_null(void);
 void test_bb_system_boot_banner_format_null_out(void);
 void test_bb_system_boot_banner_format_zero_len(void);
 void test_bb_system_boot_banner_format_truncation(void);
+void test_bb_system_boot_banner_format_reset_reason_task_wdt(void);
+void test_bb_system_boot_banner_format_reset_reason_out_of_range(void);
+void test_bb_system_get_reset_reason_raw_callable(void);
+void test_bb_system_reset_reason_format_mapped_matches_str(void);
+void test_bb_system_reset_reason_format_unknown_renders_raw_value(void);
+void test_bb_system_reset_reason_format_out_of_range_enum_renders_raw_value(void);
+void test_bb_system_reset_reason_format_worst_case_raw_value(void);
+void test_bb_system_reset_reason_format_null_out(void);
+void test_bb_system_reset_reason_format_zero_len(void);
+void test_bb_system_reset_reason_format_truncation_returns_false(void);
+void test_bb_system_boot_banner_format_worst_case_length_preserves_reset_field(void);
 void test_bb_system_boot_count_increment_returns_ok(void);
 void test_bb_system_boot_count_reset_returns_ok(void);
 void test_bb_system_boot_count_increment_does_not_overflow(void);
@@ -5998,6 +6026,7 @@ int main(void) {
     RUN_TEST(test_bb_log_debug);
     RUN_TEST(test_bb_log_verbose);
     RUN_TEST(test_bb_log_zero_args);
+    RUN_TEST(test_bb_log_flush_returns_ok);
 
     // bb_log level conversion tests
     RUN_TEST(test_bb_log_level_from_str_error);
@@ -6063,6 +6092,22 @@ int main(void) {
     RUN_TEST(test_bb_log_config_apply_null_default_is_non_fatal);
     RUN_TEST(test_bb_log_config_apply_default_plus_levels);
     RUN_TEST(test_bb_log_config_init_applies_default);
+
+    // bb_log_flush wait-loop decision core tests
+    RUN_TEST(test_bb_log_flush_seq_reached_exact_match);
+    RUN_TEST(test_bb_log_flush_seq_reached_completed_ahead);
+    RUN_TEST(test_bb_log_flush_seq_reached_completed_behind);
+    RUN_TEST(test_bb_log_flush_seq_reached_zero_not_reached_by_default);
+    RUN_TEST(test_bb_log_flush_seq_reached_wraparound_just_past);
+    RUN_TEST(test_bb_log_flush_seq_reached_wraparound_not_yet);
+    RUN_TEST(test_bb_log_flush_wait_decide_take_failed_is_timeout);
+    RUN_TEST(test_bb_log_flush_wait_decide_own_marker_is_done);
+    RUN_TEST(test_bb_log_flush_wait_decide_stale_give_is_retry);
+    RUN_TEST(test_bb_log_flush_wait_decide_ahead_give_is_done);
+    RUN_TEST(test_bb_log_flush_remaining_ms_partial_elapsed);
+    RUN_TEST(test_bb_log_flush_remaining_ms_zero_elapsed);
+    RUN_TEST(test_bb_log_flush_remaining_ms_exact_boundary_is_zero);
+    RUN_TEST(test_bb_log_flush_remaining_ms_overrun_clamps_to_zero);
 
     // Log stream tests
     RUN_TEST(test_log_stream_format_basic);
@@ -7395,6 +7440,17 @@ int main(void) {
     RUN_TEST(test_bb_system_boot_banner_format_null_out);
     RUN_TEST(test_bb_system_boot_banner_format_zero_len);
     RUN_TEST(test_bb_system_boot_banner_format_truncation);
+    RUN_TEST(test_bb_system_boot_banner_format_reset_reason_task_wdt);
+    RUN_TEST(test_bb_system_boot_banner_format_reset_reason_out_of_range);
+    RUN_TEST(test_bb_system_get_reset_reason_raw_callable);
+    RUN_TEST(test_bb_system_reset_reason_format_mapped_matches_str);
+    RUN_TEST(test_bb_system_reset_reason_format_unknown_renders_raw_value);
+    RUN_TEST(test_bb_system_reset_reason_format_out_of_range_enum_renders_raw_value);
+    RUN_TEST(test_bb_system_reset_reason_format_worst_case_raw_value);
+    RUN_TEST(test_bb_system_reset_reason_format_null_out);
+    RUN_TEST(test_bb_system_reset_reason_format_zero_len);
+    RUN_TEST(test_bb_system_reset_reason_format_truncation_returns_false);
+    RUN_TEST(test_bb_system_boot_banner_format_worst_case_length_preserves_reset_field);
     RUN_TEST(test_bb_system_boot_count_increment_returns_ok);
     RUN_TEST(test_bb_system_boot_count_reset_returns_ok);
     RUN_TEST(test_bb_system_boot_count_increment_does_not_overflow);

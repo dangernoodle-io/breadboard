@@ -2796,32 +2796,32 @@
       "type": "uncovered_branch"
     },
     {
-      "id": "165",
+      "id": "103",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_branch"
     },
     {
-      "id": "95",
+      "id": "173",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_branch"
     },
     {
-      "id": "42",
+      "id": "100",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "44",
+      "id": "102",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "47",
+      "id": "103",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "49",
+      "id": "104",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_line"
     },
@@ -2831,22 +2831,22 @@
       "type": "uncovered_line"
     },
     {
-      "id": "81",
+      "id": "52",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "83",
+      "id": "55",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "84",
+      "id": "57",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "87",
+      "id": "58",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_line"
     },
@@ -2856,7 +2856,7 @@
       "type": "uncovered_line"
     },
     {
-      "id": "90",
+      "id": "91",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_line"
     },
@@ -2866,17 +2866,17 @@
       "type": "uncovered_line"
     },
     {
-      "id": "94",
-      "path": "platform/host/bb_system/bb_system_host.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "95",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "96",
+      "id": "97",
+      "path": "platform/host/bb_system/bb_system_host.c",
+      "type": "uncovered_line"
+    },
+    {
+      "id": "98",
       "path": "platform/host/bb_system/bb_system_host.c",
       "type": "uncovered_line"
     },

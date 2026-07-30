@@ -31,6 +31,14 @@ void test_bb_log_zero_args(void) {
     TEST_PASS();
 }
 
+// bb_log_flush — host build has no async writer (bb_log_i/e/w write
+// straight through fprintf, see bb_log.h's non-ESP_PLATFORM branch), so this
+// degrades to a synchronous fflush(stdout) and always succeeds.
+void test_bb_log_flush_returns_ok(void) {
+    bb_log_i("TAG", "before flush");
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_log_flush());
+}
+
 void test_bb_log_level_from_str_error(void) {
     bb_log_level_t level;
     TEST_ASSERT_TRUE(bb_log_level_from_str("error", &level));
