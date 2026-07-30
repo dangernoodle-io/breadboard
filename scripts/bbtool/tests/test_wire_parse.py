@@ -203,6 +203,35 @@ class TestArgs(unittest.TestCase):
         self.assertIn("malformed token", str(ctx.exception))
 
 
+class TestComponentField(unittest.TestCase):
+    """B1-1275: 'component=<name>' parses onto InitEntry -- this module is
+    context-agnostic (manifest vs. component-header rejection is decided one
+    layer up, in commands.wire) so it accepts the field unconditionally."""
+
+    def test_component_parses_onto_init_entry(self):
+        text = "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit component=bb_wifi_prov\n"
+        e = parse_markers(text)[0]
+        self.assertEqual(e.component, "bb_wifi_prov")
+
+    def test_no_component_defaults_to_none(self):
+        text = "// bbtool:init tier=early fn=bb_x_init\n"
+        e = parse_markers(text)[0]
+        self.assertIsNone(e.component)
+
+    def test_component_combines_with_args(self):
+        text = (
+            "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+            "component=bb_wifi_prov args=bb_wifi_prov_default_form_get(),1,NULL\n"
+        )
+        e = parse_markers(text)[0]
+        self.assertEqual(e.component, "bb_wifi_prov")
+        self.assertEqual(e.args, "bb_wifi_prov_default_form_get(),1,NULL")
+
+    def test_empty_component_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers("// bbtool:init tier=early fn=bb_x_init component=\n")
+
+
 class TestProvidesMarker(unittest.TestCase):
     def test_minimal_provides_marker(self):
         text = "// bbtool:provides key=demo_sink symbol=bb_example_emit\n"

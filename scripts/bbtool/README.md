@@ -782,11 +782,47 @@ and merges its entries into the wire entry set **before** topo-sort — lets a
 composition-root file (an example's own `main/`, never a component) declare
 its own init markers, e.g. one that `requires=` a key a composed component
 `provides=`. This is a **distinct code path from component discovery**: the
-manifest file never joins the component namespace and never contributes to
-the REQUIRES/composition closure (`wire_graph.topo_sort` has no notion of an
-entry's origin — a manifest entry sorts in the same tier graph as any
-component entry). Omitted by default; output is byte-identical to not
-passing the flag at all.
+manifest file never joins the component namespace itself
+(`wire_graph.topo_sort` has no notion of an entry's origin — a manifest entry
+sorts in the same tier graph as any component entry). Omitted by default;
+output is byte-identical to not passing the flag at all.
+
+### `component=<name>` on a manifest marker (B1-1275)
+
+A manifest `// bbtool:init` marker may set an optional `component=<name>`
+field naming the component that must be composed for its `fn=` call to link,
+e.g.:
+
+```c
+// bbtool:init tier=regular fn=bb_wifi_prov_autoinit component=bb_wifi_prov
+//     args=bb_wifi_prov_default_form_get(),1,NULL
+```
+
+Without `component=`, a manifest call into a component NOT already in
+`--components`/the board's `[capability.*].components` list fails only at
+**link time**, forcing the consumer to hand-sync the component onto both the
+capability list AND the manifest call. `component=` closes that gap: the
+named component is folded into the SAME `boards.resolve_transitive` closure
+walk `[capability.*].components` feeds — via `resolve_composition_with_graph`
+— picking up its transitive `REQUIRES`/`PRIV_REQUIRES` exactly as if it had
+been listed directly (`component=bb_wifi_prov` also pulls in `bb_wifi_ap`,
+say, if `bb_wifi_prov` REQUIRES it). This only affects the REQUIRES/
+components-fragment resolution, never the (deliberately board-invariant)
+WIRE resolution — the named component's own headers are never grepped for
+markers as a result of `component=` alone.
+
+An unknown/misspelled `component=` name is a hard error naming both the
+component and the manifest file, never a silent skip and never a traceback.
+
+`component=` is valid **only** on a manifest marker. The same field on a
+marker grepped from a **component header** (`collect_entries`) is rejected
+as a hard `WireError` — a component header already has an owning component
+by construction, so allowing it there would let one component silently
+compose another with no `[capability.*]`/manifest declaration naming the
+edge.
+
+Omitting `component=` (the default) leaves output byte-identical to before
+this field existed.
 
 ## `codegen` command — multi-root discovery (B1-1084)
 
