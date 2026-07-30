@@ -31,3 +31,9 @@ CONFIG_LWIP_SO_LINGER=y
 # n, see components/bb_cache/Kconfig).
 CONFIG_BB_CACHE_SWEEP_ENABLE=y
 CONFIG_BB_CACHE_SWEEP_PERIOD_MS=5000
+# Enable uxTaskGetSystemState (used by bb_task_registry's periodic base-scan
+# and GET /api/diag/tasks) so per-task stack high-water-mark reporting is
+# non-stub in smoke builds. See bb_task_registry Kconfig and
+# platform/espidf/bb_task_registry/bb_task_registry_base_scan.c. Smoke-only:
+# examples/floor deliberately stays minimal (B1-1296).
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
