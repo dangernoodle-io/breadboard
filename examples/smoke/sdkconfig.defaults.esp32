@@ -3,10 +3,15 @@ CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_FREERTOS_HZ=1000
-# Stack overflow detection: method 2 (PTRVAL canary) prints the overflowing
-# task name instead of aborting silently. Recommended alongside bb_health stack
+# Stack overflow detection: PTRVAL canary prints the overflowing task name
+# instead of aborting silently. Recommended alongside bb_health stack
 # monitor. See CONFIG_BB_TASK_REGISTRY_BASE_POLL_MS in bb_task_registry Kconfig.
-CONFIG_FREERTOS_CHECK_STACKOVERFLOW=2
+# Original ESP32 has no assist-debug module (SOC_ASSIST_DEBUG_SUPPORTED is
+# unset), so CONFIG_ESP_SYSTEM_HW_STACK_GUARD isn't available here -- the
+# end-of-stack hardware watchpoint below is the best deterministic (not
+# sampled-at-context-switch) detection this chip offers.
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW_PTRVAL=y
+CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
 CONFIG_LOG_DEFAULT_LEVEL=3
 # Enable bb_log panic coredump capture
 CONFIG_BB_DIAG_PANIC_COREDUMP=y

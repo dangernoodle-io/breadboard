@@ -23,8 +23,12 @@ config BB_HEALTH_STACK_LOW_BYTES
 
         Strongly recommended: also set
           CONFIG_FREERTOS_CHECK_STACKOVERFLOW_PTRVAL=y
-        (CONFIG_FREERTOS_CHECK_STACKOVERFLOW=2) so a real overflow prints
-        an attributable task-name message instead of a silent abort.
+        so a real overflow prints an attributable task-name message instead
+        of a silent abort. This is a Kconfig choice symbol, not an int --
+        the older numeric form CONFIG_FREERTOS_CHECK_STACKOVERFLOW=2 is
+        silently discarded by kconfig (unknown symbol name) and leaves the
+        framework default (_CANARY, sampled at context switch, weaker) in
+        effect with no error. Always set the choice symbol directly.
 
 config BB_HEALTH_STACK_AUTOSTART
     bool "Auto-register the low-stack observer with bb_task_registry at PRE_HTTP"
