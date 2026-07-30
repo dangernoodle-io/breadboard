@@ -203,6 +203,48 @@ class TestArgs(unittest.TestCase):
         self.assertIn("malformed token", str(ctx.exception))
 
 
+class TestRegistersRoutes(unittest.TestCase):
+    """B1-1280 blind-spot closure: 'registers_routes=true' -- an opt-in
+    route-registration signal for the http_wildcard_last ordering guard,
+    orthogonal to server=true (see wire_parse's module docstring)."""
+
+    def test_registers_routes_true_parses_onto_init_entry(self):
+        text = "// bbtool:init tier=regular fn=bb_x_init registers_routes=true\n"
+        e = parse_markers(text)[0]
+        self.assertTrue(e.registers_routes)
+
+    def test_no_registers_routes_defaults_to_false(self):
+        text = "// bbtool:init tier=early fn=bb_x_init\n"
+        e = parse_markers(text)[0]
+        self.assertFalse(e.registers_routes)
+
+    def test_registers_routes_combines_with_args(self):
+        text = (
+            "// bbtool:init tier=regular fn=bb_x_register "
+            "args=bb_app_http_handle,\"/ping\" registers_routes=true\n"
+        )
+        e = parse_markers(text)[0]
+        self.assertTrue(e.registers_routes)
+        self.assertEqual(e.args, 'bb_app_http_handle,"/ping"')
+
+    def test_registers_routes_and_server_together_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers(
+                "// bbtool:init tier=regular fn=bb_x_init server=true "
+                "registers_routes=true\n"
+            )
+
+    def test_registers_routes_not_true_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers(
+                "// bbtool:init tier=regular fn=bb_x_init registers_routes=false\n"
+            )
+
+    def test_empty_registers_routes_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers("// bbtool:init tier=early fn=bb_x_init registers_routes=\n")
+
+
 class TestComponentField(unittest.TestCase):
     """B1-1275: 'component=<name>' parses onto InitEntry -- this module is
     context-agnostic (manifest vs. component-header rejection is decided one
