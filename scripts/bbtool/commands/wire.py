@@ -86,6 +86,35 @@ SAME varname is a hard WireError (otherwise a silent duplicate-definition
 compile error in generated code). See `wire_parse`'s module docstring for the
 full grammar/semantics.
 
+`provides=http_wildcard_last` (B1-1280) is a second reserved `provides=` key
+(alongside `http_server`), enforced the same singleton-then-shape way in
+`render_source`: **exactly one** entry in the resolved set may carry it, and
+every `server=true` entry (codegen's only signal that an entry registers HTTP
+routes) must sort strictly BEFORE it in the final topo-sorted `ordered` list —
+never merely given an `order=` and trusted to stay ahead, since an entry
+added later with no `order=` sorts to `+inf` (wire_graph.py's `_tie_key`) and
+would otherwise land after it silently (the exact B1-1278 regression this
+closes). Unlike `http_server`, this key carries no special emission of its
+own — it adds no call, no captured value, changes no generated output for a
+composition that never uses it — it is a pure codegen-time ordering *gate*
+over fields already parsed (`tier`, `order`, `server`); codegen cannot see
+what a function registers internally, so it deliberately does not attempt to
+infer route paths.
+
+**Known blind spot:** `server=true` is the ONLY signal this guard checks, and
+`args=`/`server=true` are mutually exclusive at parse time (see the
+`args=`/`server=` ParseError above) — so an `args=`-shaped entry that
+registers HTTP routes internally (the real `bb_wifi_prov_autoinit` marker
+this key protects is itself one such entry, via
+`bb_wifi_prov_default_form_get()`) is structurally invisible to this check
+if it sorts after the `http_wildcard_last` entry. Not a live hole today (the
+only `args=` marker in the tree IS the wildcard entry itself, and nothing
+composed after it also uses `args=` to register routes), but a future
+`args=`-shaped route-registering entry composed after the wildcard marker
+would silently reproduce B1-1278/B1-1283's failure mode with no WireError —
+the same class of gap `server=true` being "codegen's only signal" always
+implied, made explicit here rather than left as a surprise.
+
 DEFERRED (do not implement here): a PlatformIO pre-build hook wiring this in
 automatically; a lint rule that validates marker hygiene.
 """
@@ -100,6 +129,19 @@ from wire_parse import InitEntry, ProvidesEntry, parse_markers, parse_provides_m
 DEFAULT_OUT_REL = os.path.join("main", "generated", "bb_app_init.c")
 
 HTTP_SERVER_PROVIDES_KEY = "http_server"
+
+# B1-1280: the reserved `provides=http_wildcard_last` key marks the ONE entry
+# that registers a catch-all/wildcard HTTP route (e.g. bb_wifi_prov's captive
+# `GET /*`). Any `server=true` entry -- codegen's only signal that an entry
+# registers HTTP routes at all (see render_source's WireError checks below)
+# -- sorting at or after that marked entry in the FINAL, topo-sorted `ordered`
+# list is a hard error: a route registered after the wildcard is live would
+# never actually be reachable (the wildcard swallows the request first). This
+# closes the exact B1-1278 regression: an explicit `order=` on the prov entry
+# alone does NOT self-protect, since any FUTURE manifest entry added with no
+# `order=` sorts to +inf (wire_graph.py's `_tie_key`) and lands after it
+# unconditionally.
+WILDCARD_LAST_PROVIDES_KEY = "http_wildcard_last"
 
 # out= reserved namespace: the generator's OWN emitted identifiers all live
 # under this prefix (bb_app_http_handle, bb_app_rc, bb_app_first_err,
@@ -293,6 +335,10 @@ def _http_server_providers(entries: List[InitEntry]) -> List[InitEntry]:
     return [e for e in entries if HTTP_SERVER_PROVIDES_KEY in e.provides]
 
 
+def _wildcard_last_providers(entries: List[InitEntry]) -> List[InitEntry]:
+    return [e for e in entries if WILDCARD_LAST_PROVIDES_KEY in e.provides]
+
+
 def _requires_guard_cond(entry: InitEntry) -> str:
     return " && ".join(f"bb_app_avail_{tok}" for tok in entry.requires)
 
@@ -477,7 +523,14 @@ def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry
       - an entry's `out=` varname collides with codegen's own reserved
         `bb_app_*` namespace (or the `BB_APP_INIT_TAG` macro) -- would
         otherwise either shadow a generated local (silent wrong value) or
-        collide with a generated file-scope declaration (compile error).
+        collide with a generated file-scope declaration (compile error); or
+      - more than one entry in the resolved set provides
+        `http_wildcard_last` (B1-1280 -- mirrors the http_server singleton
+        check: ambiguous which wildcard registration the guard protects); or
+      - any `server=true` entry sorts at or after the (single)
+        `http_wildcard_last`-providing entry in the final, topo-sorted
+        `ordered` list -- a route registered after a catch-all wildcard is
+        live can never actually be reached (B1-1280/B1-1278).
     """
     early = [e for e in ordered if e.tier == "early"]
     pre_http = [e for e in ordered if e.tier == "pre_http"]
@@ -517,6 +570,41 @@ def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry
             f"producing the typed handle every server=true entry depends on "
             f"(B1-853); remove requires= from this marker"
         )
+
+    # B1-1280: http_wildcard_last singleton + ordering guard. Checked against
+    # the FINAL, already tier-major-topo-sorted `ordered` list (never a
+    # re-derived raw (order, parse-index) tie-key) -- `ordered`'s own position
+    # already encodes both the tier barrier (early entries all precede every
+    # pre_http entry, which all precede every regular entry, regardless of
+    # order=) and the same-tier requires=/provides=/tie-break resolution
+    # wire_graph.topo_sort performs, so checking list position here is
+    # strictly more accurate than recomputing the tie-key in isolation and
+    # needs no extra tier-boundary special-casing.
+    wildcard_providers = _wildcard_last_providers(ordered)
+    if len(wildcard_providers) > 1:
+        offenders = ", ".join(f"{e.fn} ({e.src_file}:{e.src_line})" for e in wildcard_providers)
+        raise WireError(
+            f"more than one entry provides '{WILDCARD_LAST_PROVIDES_KEY}' "
+            f"({offenders}) — exactly one is required"
+        )
+
+    wildcard_entry = wildcard_providers[0] if wildcard_providers else None
+    if wildcard_entry is not None:
+        wildcard_idx = next(i for i, e in enumerate(ordered) if e is wildcard_entry)
+        for i, e in enumerate(ordered):
+            if e is wildcard_entry or not e.server:
+                continue
+            if i >= wildcard_idx:
+                raise WireError(
+                    f"{e.src_file}:{e.src_line}: fn={e.fn}: server=true entry "
+                    f"sorts at or after "
+                    f"{wildcard_entry.src_file}:{wildcard_entry.src_line}: "
+                    f"fn={wildcard_entry.fn}, which provides "
+                    f"'{WILDCARD_LAST_PROVIDES_KEY}' -- consumer routes must "
+                    f"register before the wildcard-catching entry, or they "
+                    f"are never reachable; give {e.fn} an explicit order= "
+                    f"(or reorder its marker) so it sorts before {wildcard_entry.fn}"
+                )
 
     value_providers = _value_providers(list(provides_entries))
 
