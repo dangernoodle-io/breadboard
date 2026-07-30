@@ -600,6 +600,426 @@ class TestConsumerManifestFlag(unittest.TestCase):
                     run(args)
 
 
+class TestManifestComponentField(unittest.TestCase):
+    """B1-1275: a manifest '// bbtool:init' marker's optional 'component='
+    field folds the named component into the SAME resolved composition
+    closure --components/--board feed (boards.resolve_transitive), including
+    its transitive REQUIRES/PRIV_REQUIRES -- so the hand-sync a consumer
+    previously needed (add the component to --components/[capability.*]
+    AND emit the manifest call) disappears."""
+
+    def _fixture_with_target(self, tmp: str) -> Path:
+        """bb_target REQUIRES bb_target_dep -- a transitive REQUIRES chain
+        distinct from the bb_log/bb_meminfo fixture, so 'component=bb_target'
+        pulling in bb_target_dep too is load-bearing, not a coincidence of
+        an already-flat dependency graph."""
+        root = _fixture_root(tmp)
+        _make_component(
+            root, "bb_target_dep", "#pragma once\nbb_err_t bb_target_dep_init(void);\n",
+        )
+        _make_component(
+            root, "bb_target",
+            "#pragma once\n"
+            "bb_err_t bb_wifi_prov_autoinit(void);\n",
+            requires=["bb_target_dep"],
+        )
+        return root
+
+    def _requires_set(self, components_out: str) -> set:
+        content = Path(components_out).read_text(encoding="utf-8")
+        line = next(l for l in content.splitlines() if l.startswith("set(BB_AUTOWIRE_REQUIRES "))
+        return set(line[len("set(BB_AUTOWIRE_REQUIRES "):].rstrip(")").split())
+
+    def test_manifest_component_field_pulls_component_into_closure(self):
+        """The named component enters the REQUIRES/components-fragment
+        closure exactly as if it had been listed in --components (proof
+        target #1)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_with_target(tmp)
+            manifest_path = root / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+                "component=bb_target args=NULL\n",
+            )
+            components_out = str(root / "out" / "c.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo", platform="espidf",
+                components_out=components_out, wire_out=wire_out,
+                consumer_manifest=str(manifest_path),
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+            self.assertIn("bb_target", self._requires_set(components_out))
+
+    def test_manifest_component_field_pulls_transitive_priv_requires_too(self):
+        """Proof target #2: bb_target's own REQUIRES (bb_target_dep) arrives
+        transitively -- 'component=' does the SAME closure walk
+        [capability.*].components would, not a shallow single-name add."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_with_target(tmp)
+            manifest_path = root / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+                "component=bb_target args=NULL\n",
+            )
+            components_out = str(root / "out" / "c.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo", platform="espidf",
+                components_out=components_out, wire_out=wire_out,
+                consumer_manifest=str(manifest_path),
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+            resolved = self._requires_set(components_out)
+            self.assertIn("bb_target", resolved)
+            self.assertIn("bb_target_dep", resolved)
+
+    def test_manifest_component_field_matches_explicit_components_list(self):
+        """'component=bb_target' resolves to the IDENTICAL closure as
+        listing bb_target directly in --components -- same resolver, same
+        result, proving there's no separate/lesser resolution path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_with_target(tmp)
+
+            direct_out = str(root / "direct" / "c.cmake")
+            direct_args = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo,bb_target",
+                platform="espidf", components_out=direct_out,
+                wire_out=str(root / "direct" / "bb_app_init.c"),
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(direct_args)
+            self.assertEqual(rc, 0)
+
+            manifest_path = root / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+                "component=bb_target args=NULL\n",
+            )
+            via_manifest_out = str(root / "via_manifest" / "c.cmake")
+            manifest_args = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo", platform="espidf",
+                components_out=via_manifest_out,
+                wire_out=str(root / "via_manifest" / "bb_app_init.c"),
+                consumer_manifest=str(manifest_path),
+            )
+            buf2 = io.StringIO()
+            with contextlib.redirect_stdout(buf2):
+                rc2 = run(manifest_args)
+            self.assertEqual(rc2, 0)
+
+            self.assertEqual(
+                self._requires_set(direct_out), self._requires_set(via_manifest_out)
+            )
+
+    def test_manifest_component_field_unknown_component_errors_loudly(self):
+        """An unknown/misspelled 'component=' name is a hard, clean error
+        naming both the component and the manifest file -- never a silent
+        skip, never a raw traceback."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            manifest_path = root / "examples" / "smoke" / "main" / "smoke_app.c"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(
+                "// bbtool:init tier=regular fn=bb_ghost_autoinit "
+                "component=bb_ghost args=NULL\n",
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo", platform="espidf",
+                components_out=None, wire_out=None,
+                consumer_manifest=str(manifest_path),
+            )
+            err_buf = io.StringIO()
+            with contextlib.redirect_stderr(err_buf):
+                rc = run(args)
+            self.assertEqual(rc, 1)
+            err = err_buf.getvalue()
+            self.assertIn("bbtool codegen: error:", err)
+            self.assertIn("bb_ghost", err)
+            self.assertIn("smoke_app.c", err)
+
+    def test_manifest_component_field_conflicts_with_board_remove_components_hard_errors(self):
+        """Review finding 1: a manifest 'component=' must never silently
+        override a board's own remove_components -- board 'native' removes
+        bb_target, so a manifest naming component=bb_target on that same
+        board is a hard, clean error naming the board, the component, and
+        the manifest path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_with_target(tmp)
+            _write_toml(root, (
+                '[capability.demo]\n'
+                'components = ["bb_log", "bb_meminfo"]\n\n'
+                '[board.native]\n'
+                'capabilities = ["demo"]\n'
+                'remove_components = ["bb_target"]\n'
+            ))
+            manifest_path = root / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+                "component=bb_target args=NULL\n",
+            )
+            args = argparse.Namespace(
+                root=str(root), components=None, board="native", wire_board=None,
+                platform="espidf", components_out=None, wire_out=None,
+                consumer_manifest=str(manifest_path),
+            )
+            err_buf = io.StringIO()
+            with contextlib.redirect_stderr(err_buf):
+                rc = run(args)
+            self.assertEqual(rc, 1)
+            err = err_buf.getvalue()
+            self.assertIn("bbtool codegen: error:", err)
+            self.assertIn("bb_target", err)
+            self.assertIn("native", err)
+            self.assertIn("remove_components", err)
+            self.assertIn("smoke_app.c", err)
+
+    def test_manifest_component_field_removed_by_different_board_still_succeeds(self):
+        """Negative case for finding 1: bb_target is removed by board
+        'native' but board 'other' doesn't remove it -- building 'other'
+        with the same manifest must still succeed and fold bb_target in."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_with_target(tmp)
+            _write_toml(root, (
+                '[capability.demo]\n'
+                'components = ["bb_log", "bb_meminfo"]\n\n'
+                '[board.native]\n'
+                'capabilities = ["demo"]\n'
+                'remove_components = ["bb_target"]\n\n'
+                '[board.other]\n'
+                'capabilities = ["demo"]\n'
+            ))
+            manifest_path = root / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+                "component=bb_target args=NULL\n",
+            )
+            components_out = str(root / "out" / "c.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components=None, board="other", wire_board=None,
+                platform="espidf", components_out=components_out, wire_out=wire_out,
+                consumer_manifest=str(manifest_path),
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+            self.assertIn("bb_target", self._requires_set(components_out))
+
+    def test_manifest_component_field_transitive_removed_dependency_hard_errors(self):
+        """Transitive follow-up to finding 1: board 'native' does NOT list
+        bb_target itself in remove_components -- it removes bb_target_dep,
+        a REQUIRES-only dependency the manifest-named bb_target pulls in
+        transitively. component=bb_target must still hard-error, and the
+        message must name the requires-chain from bb_target to
+        bb_target_dep."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_with_target(tmp)
+            _write_toml(root, (
+                '[capability.demo]\n'
+                'components = ["bb_log", "bb_meminfo"]\n\n'
+                '[board.native]\n'
+                'capabilities = ["demo"]\n'
+                'remove_components = ["bb_target_dep"]\n'
+            ))
+            manifest_path = root / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+                "component=bb_target args=NULL\n",
+            )
+            args = argparse.Namespace(
+                root=str(root), components=None, board="native", wire_board=None,
+                platform="espidf", components_out=None, wire_out=None,
+                consumer_manifest=str(manifest_path),
+            )
+            err_buf = io.StringIO()
+            with contextlib.redirect_stderr(err_buf):
+                rc = run(args)
+            self.assertEqual(rc, 1)
+            err = err_buf.getvalue()
+            self.assertIn("bbtool codegen: error:", err)
+            self.assertIn("bb_target_dep", err)
+            self.assertIn("native", err)
+            self.assertIn("remove_components", err)
+            self.assertIn("bb_target -> bb_target_dep", err)
+
+    def test_manifest_component_field_multiple_names_chain_traces_to_the_culprit(self):
+        """Multi-named manifest: one entry declares component=bb_extra (an
+        innocent, dependency-free component), a second declares
+        component=bb_target on the SAME manifest file -- only bb_target
+        pulls in the removed bb_target_dep. The error must fire and the
+        requires-chain must name bb_target (the actual culprit), never the
+        innocent bb_extra."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_with_target(tmp)
+            _make_component(root, "bb_extra", "#pragma once\nbb_err_t bb_extra_noop(void);\n")
+            _write_toml(root, (
+                '[capability.demo]\n'
+                'components = ["bb_log", "bb_meminfo"]\n\n'
+                '[board.native]\n'
+                'capabilities = ["demo"]\n'
+                'remove_components = ["bb_target_dep"]\n'
+            ))
+            manifest_path = root / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_extra_noop component=bb_extra args=NULL\n"
+                "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+                "component=bb_target args=NULL\n",
+            )
+            args = argparse.Namespace(
+                root=str(root), components=None, board="native", wire_board=None,
+                platform="espidf", components_out=None, wire_out=None,
+                consumer_manifest=str(manifest_path),
+            )
+            err_buf = io.StringIO()
+            with contextlib.redirect_stderr(err_buf):
+                rc = run(args)
+            self.assertEqual(rc, 1)
+            err = err_buf.getvalue()
+            self.assertIn("bbtool codegen: error:", err)
+            self.assertIn("bb_target -> bb_target_dep", err)
+            self.assertNotIn("bb_extra ->", err)
+
+    def test_manifest_component_field_removed_component_already_in_base_closure_does_not_error(self):
+        """Negative case guarding against the naive fix (a blanket
+        intersection over the FULL resolved closure): board 'native's own
+        capability set already transitively pulls bb_target_dep in via
+        bb_target (remove_components nets out the flat REQUESTED set, not
+        the transitive closure, so listing bb_target_dep there is a no-op
+        against a dependency only ever reached transitively) -- that's
+        pre-existing, valid behavior. A manifest naming a completely
+        unrelated, dependency-free component must NOT newly error just
+        because bb_target_dep also happens to be in remove_components --
+        it was never introduced by the manifest fold (not in the delta)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_with_target(tmp)
+            _make_component(root, "bb_extra", "#pragma once\nbb_err_t bb_extra_noop(void);\n")
+            _write_toml(root, (
+                '[capability.demo]\n'
+                'components = ["bb_log", "bb_meminfo", "bb_target"]\n\n'
+                '[board.native]\n'
+                'capabilities = ["demo"]\n'
+                'remove_components = ["bb_target_dep"]\n'
+            ))
+            manifest_path = root / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_extra_noop "
+                "component=bb_extra args=NULL\n",
+            )
+            components_out = str(root / "out" / "c.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components=None, board="native", wire_board=None,
+                platform="espidf", components_out=components_out, wire_out=wire_out,
+                consumer_manifest=str(manifest_path),
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+            resolved = self._requires_set(components_out)
+            self.assertIn("bb_target_dep", resolved)
+            self.assertIn("bb_extra", resolved)
+
+    def test_manifest_component_field_does_not_scan_named_components_own_markers(self):
+        """Review finding 2 regression: the manifest-named component may
+        carry its OWN real '// bbtool:init' marker -- codegen must still
+        fold it into REQUIRES without scanning that marker (only the
+        manifest entry's own marker gets wired). Every other fixture in
+        this class uses a marker-free bb_target, which can't catch a
+        regression of the wire_names/names aliasing documented at its
+        capture site in codegen.run()."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            _make_component(
+                root, "bb_target_dep", "#pragma once\nbb_err_t bb_target_dep_init(void);\n",
+            )
+            _make_component(
+                root, "bb_target",
+                "#pragma once\n"
+                "// bbtool:init tier=early fn=bb_target_own_init\n"
+                "bb_err_t bb_target_own_init(void);\n"
+                "bb_err_t bb_wifi_prov_autoinit(void);\n",
+                requires=["bb_target_dep"],
+            )
+            manifest_path = root / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+                "component=bb_target args=NULL\n",
+            )
+            components_out = str(root / "out" / "c.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo", platform="espidf",
+                components_out=components_out, wire_out=wire_out,
+                consumer_manifest=str(manifest_path),
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+            self.assertIn("bb_target", self._requires_set(components_out))
+            source = Path(wire_out).read_text(encoding="utf-8")
+            self.assertIn("bb_wifi_prov_autoinit(NULL)", source)
+            self.assertNotIn("bb_target_own_init", source)
+
+    def test_manifest_without_component_field_byte_identical(self):
+        """A manifest entry with NO 'component=' field must not perturb the
+        REQUIRES closure at all -- byte-identical to --components alone."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            no_manifest_out = str(root / "no_manifest" / "c.cmake")
+            args1 = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo", platform="espidf",
+                components_out=no_manifest_out,
+                wire_out=str(root / "no_manifest" / "bb_app_init.c"),
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(args1)
+            self.assertEqual(rc, 0)
+
+            manifest_path = root / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=early fn=smoke_app_start requires=log_stream\n",
+            )
+            with_manifest_out = str(root / "with_manifest" / "c.cmake")
+            args2 = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo", platform="espidf",
+                components_out=with_manifest_out,
+                wire_out=str(root / "with_manifest" / "bb_app_init.c"),
+                consumer_manifest=str(manifest_path),
+            )
+            buf2 = io.StringIO()
+            with contextlib.redirect_stdout(buf2):
+                rc2 = run(args2)
+            self.assertEqual(rc2, 0)
+
+            self.assertEqual(
+                Path(no_manifest_out).read_text(encoding="utf-8"),
+                Path(with_manifest_out).read_text(encoding="utf-8"),
+            )
+
+
 class _FakeEnv:
     """Minimal stand-in for SCons' env object (mirrors test_scaffold.py's
     `_FakeEnv`): `pio_main` only ever calls `Exit()` on error (never

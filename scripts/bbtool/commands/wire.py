@@ -70,6 +70,12 @@ parse time in `wire_parse`), and reuses the SAME `_guard_requires`/
 `requires=`/`provides=` behave identically regardless of which emission
 path an entry took.
 
+`component=<name>` (B1-1275) -- valid ONLY on a marker parsed via
+`collect_manifest_entries` (a consumer manifest); `collect_entries` (component
+headers) hard-errors if it sees one set. See `wire_parse`'s module docstring
+for the grammar and `commands.codegen.run` for how the named component joins
+the composition closure.
+
 DEFERRED (do not implement here): a PlatformIO pre-build hook wiring this in
 automatically; a lint rule that validates marker hygiene.
 """
@@ -167,7 +173,23 @@ def collect_entries(roots, components: List[str], platform: str) -> List[InitEnt
             with open(abs_header, encoding="utf-8") as f:
                 text = f.read()
             src_file = _src_file_repr(entry_root, primary_root, rel_header)
-            entries.extend(parse_markers(text, src_file=src_file))
+            parsed = parse_markers(text, src_file=src_file)
+            for e in parsed:
+                if e.component is not None:
+                    # B1-1275: component= is meaningful only on a CONSUMER
+                    # MANIFEST marker (collect_manifest_entries) -- a
+                    # component header already has an owning component by
+                    # construction, so allowing it here would let one
+                    # component silently compose another with no
+                    # capability/manifest declaration naming the edge (the
+                    # same implicit-glue failure mode the DI-legacy fence
+                    # exists to prevent). Hard error, never a silent skip.
+                    raise WireError(
+                        f"{e.src_file}:{e.src_line}: fn={e.fn}: 'component=' is only "
+                        f"valid on a '// bbtool:init' marker in a --consumer-manifest "
+                        f"file, not a component header (found in component '{name}')"
+                    )
+            entries.extend(parsed)
     return entries
 
 
@@ -177,14 +199,22 @@ def collect_manifest_entries(path: str, src_file: str = None) -> Tuple[List[Init
     marker collectors `collect_entries`/`collect_provides_entries` use over
     component headers -- a DISTINCT code path, deliberately never folded
     into either of those: a manifest is a composition-root file (e.g. an
-    example's `main/`), never a component, so it must never join the
-    component namespace or contribute to the REQUIRES/composition closure.
-    `wire_graph.topo_sort` treats the returned `InitEntry` list exactly like
-    any other -- it has no notion of an entry's origin (component header vs.
-    manifest); the caller merges this function's output with
-    `collect_entries`'s BEFORE calling `topo_sort`, so a manifest entry's
-    `requires=` can be satisfied by a component's `provides=` (and vice
-    versa) in the same tier graph.
+    example's `main/`), never a component, so it never joins the component
+    namespace itself. `wire_graph.topo_sort` treats the returned `InitEntry`
+    list exactly like any other -- it has no notion of an entry's origin
+    (component header vs. manifest); the caller merges this function's
+    output with `collect_entries`'s BEFORE calling `topo_sort`, so a manifest
+    entry's `requires=` can be satisfied by a component's `provides=` (and
+    vice versa) in the same tier graph.
+
+    A manifest entry's optional `component=<name>` field (B1-1275) IS a
+    deliberate, narrow exception to "never contributes to the closure": it
+    lets a manifest declare which component owns the symbol it's calling, so
+    `commands.codegen.run` can fold that name into the same
+    `boards.resolve_transitive` walk the capability/board manifest feeds --
+    see `wire_parse`'s module docstring. `component=` on a marker collected
+    via `collect_entries` (a component header) is rejected there instead;
+    this function places no such restriction on what it parses.
 
     `src_file` defaults to `path` itself when omitted -- callers typically
     pass a root-relative path (mirrors `_src_file_repr`'s convention for

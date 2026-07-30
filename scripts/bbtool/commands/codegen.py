@@ -32,7 +32,7 @@ import inspect
 import os
 import sys
 
-from boards import ManifestError, load_manifest, resolve_component_names
+from boards import ManifestError, discover_components, load_manifest, resolve_component_names
 from cmake_parse import ConditionalSetError
 from composition import (
     DEFAULT_OUT_REL as COMPOSITION_DEFAULT_OUT_REL,
@@ -111,9 +111,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
              "main/) parsed for '// bbtool:init'/'// bbtool:provides' markers "
              "and merged into the wire entry set BEFORE topo-sort -- a "
              "DISTINCT path from component discovery: it never joins the "
-             "component namespace and never contributes to the REQUIRES "
-             "closure. Omitted by default -- output is byte-identical to "
-             "not passing this flag at all.",
+             "component namespace itself. A marker's optional 'component=' "
+             "field DOES fold the named component into the "
+             "resolved composition closure (same transitive REQUIRES/"
+             "PRIV_REQUIRES walk as --board's capability list). Omitted by "
+             "default -- output is byte-identical to not passing this flag "
+             "at all.",
     )
 
 
@@ -146,6 +149,34 @@ def _resolve_roots(root: str, config: dict, config_dir: str, cli_extra_roots) ->
         for r in (cli_extra_roots or [])
     ]
     return normalize_roots([root] + toml_roots + cli_roots)
+
+
+def _requires_chain(graph, starts, target):
+    """BFS forward through `graph[name]["depends"]` from each of `starts`,
+    returning the first found start->target path (inclusive, e.g.
+    `["bb_target", "bb_target_dep"]`) as a list of component names.
+    Deterministic: `starts` and each node's depends are visited in sorted
+    order, so the same input always reports the same chain -- used only to
+    make the remove_components hard-error below actionable (naming the
+    requires path from a manifest-named component to a
+    transitively-removed one). The sole call site never passes a `target`
+    that is itself a member of `starts` (that's the "named directly" case,
+    handled separately), so no start-equals-target short-circuit is needed
+    here."""
+    for start in sorted(starts):
+        seen = {start}
+        queue = [[start]]
+        while queue:
+            path = queue.pop(0)
+            for dep in sorted((graph.get(path[-1]) or {}).get("depends", []) or []):
+                if dep in seen:
+                    continue
+                new_path = path + [dep]
+                if dep == target:
+                    return new_path
+                seen.add(dep)
+                queue.append(new_path)
+    return None
 
 
 def run(args: argparse.Namespace) -> int:
@@ -189,6 +220,18 @@ def run(args: argparse.Namespace) -> int:
             capabilities, boards_map = load_manifest(config)
             names = resolve_component_names(board_arg, boards_map, capabilities)
             wire_board_arg = getattr(args, "wire_board", None) or board_arg
+            # `wire_names = names` deliberately captures the SAME list object
+            # names currently points to, BEFORE the --consumer-manifest
+            # component= fold below reassigns `names` to a NEW sorted-set
+            # object. That aliasing quirk is load-bearing, not a bug: it's
+            # the only thing that keeps a manifest-named component's own
+            # headers OUT of wire_names/wire_components, so codegen pulls the
+            # component into REQUIRES without also scanning its markers (see
+            # the module docstring's "WIRE resolution ... board-invariant"
+            # note, and test_codegen.py
+            # TestManifestComponentField.test_manifest_component_field_does_not_scan_named_components_own_markers).
+            # Do not "simplify" this to a fresh copy/rebind -- it would start
+            # double-wiring the named component's own init markers.
             wire_names = (
                 names if wire_board_arg == board_arg
                 else resolve_component_names(wire_board_arg, boards_map, capabilities)
@@ -196,6 +239,9 @@ def run(args: argparse.Namespace) -> int:
             board_guard = board_arg
         else:
             names = [n.strip() for n in (components_arg or "").split(",") if n.strip()]
+            # Same load-bearing aliasing as the --board branch above --
+            # `wire_names = names` must stay a same-object capture, not a
+            # copy; see the comment there.
             wire_names = names
 
         if not names:
@@ -208,6 +254,92 @@ def run(args: argparse.Namespace) -> int:
             else:
                 print("bbtool codegen: error: --components must list at least one component", file=sys.stderr)
             return 1
+
+        # --consumer-manifest (B1-731; component= B1-1275): parse the
+        # manifest EARLY, BEFORE composition resolution, so a marker's
+        # optional 'component=' field can fold its named component into the
+        # `names` set resolve_composition_with_graph resolves below --
+        # exactly the same boards.resolve_transitive closure walk
+        # `[capability.*].components` feeds (see wire_parse's module
+        # docstring). The OSError catch stays scoped to ONLY this read/parse
+        # (a missing manifest file), never masking an OSError from any path
+        # above or below -- see collect_manifest_entries's docstring and
+        # test_pre_existing_path_oserror_not_swallowed_by_manifest_catch.
+        consumer_manifest = getattr(args, "consumer_manifest", None)
+        manifest_entries = []
+        manifest_provides = []
+        if consumer_manifest:
+            manifest_path = os.path.abspath(consumer_manifest)
+            manifest_src = os.path.relpath(manifest_path, root).replace(os.sep, "/")
+            try:
+                manifest_entries, manifest_provides = collect_manifest_entries(
+                    manifest_path, src_file=manifest_src)
+            except OSError as e:
+                print(f"bbtool codegen: error: {e}", file=sys.stderr)
+                return 1
+
+            manifest_components = sorted({e.component for e in manifest_entries if e.component})
+            if manifest_components:
+                universe = discover_components(roots)
+                unknown = [c for c in manifest_components if c not in universe]
+                if unknown:
+                    raise ManifestError(
+                        f"consumer manifest {manifest_src}: 'component=' names unknown "
+                        f"component(s) {', '.join(unknown)} (not found under components/ "
+                        f"or platform/{{host,espidf,arduino}}/)"
+                    )
+                # Review finding 1 (+ its transitive follow-up): a manifest
+                # 'component=' must never silently reintroduce a component
+                # the board deliberately excludes via remove_components --
+                # whether it's NAMED directly, or only reachable
+                # TRANSITIVELY through a named component's own REQUIRES/
+                # PRIV_REQUIRES (e.g. remove_components lists a dependency of
+                # the named component, not the named component itself).
+                # Scoped to the closure DELTA the manifest fold introduces
+                # (full_closure - base_closure): a board's own
+                # capability-derived components can ALREADY legitimately
+                # transitively re-pull something remove_components lists
+                # today (pre-existing, valid behavior) -- a blanket check
+                # over the whole resolved closure would start hard-erroring
+                # on those existing configs. Hard-error rather than add an
+                # override escape hatch; the fix is for the board to stop
+                # removing the component if it genuinely needs it.
+                if board_arg:
+                    removed_cfg = set(boards_map[board_arg].get("remove_components", []) or [])
+                    if removed_cfg:
+                        base_closure, _ = resolve_composition_with_graph(roots, names, args.platform)
+                        candidate_names = sorted(set(names) | set(manifest_components))
+                        full_closure, full_graph = resolve_composition_with_graph(
+                            roots, candidate_names, args.platform)
+                        violating = sorted((set(full_closure) - set(base_closure)) & removed_cfg)
+                        if violating:
+                            details = []
+                            for v in violating:
+                                if v in manifest_components:
+                                    details.append(f"{v} (named directly)")
+                                else:
+                                    # v is in full_closure - base_closure and
+                                    # not itself manifest-named, so it must
+                                    # be reachable from some manifest
+                                    # component (candidate_names = names |
+                                    # manifest_components, and v is
+                                    # unreachable from names alone) --
+                                    # chain is never None here.
+                                    chain = _requires_chain(full_graph, manifest_components, v)
+                                    assert chain is not None, (
+                                        f"{v} is in the manifest-introduced closure delta "
+                                        "but unreachable from any manifest component -- "
+                                        "the delta/reachability invariant broke"
+                                    )
+                                    details.append(f"{v} (pulled transitively: {' -> '.join(chain)})")
+                            raise ManifestError(
+                                f"consumer manifest {manifest_src}: 'component=' pulls "
+                                f"component(s) that board '{board_arg}' explicitly removes "
+                                f"via remove_components: {', '.join(details)} (edit the "
+                                f"board's remove_components in bbtool.toml if it genuinely "
+                                f"needs the component)"
+                            )
+                names = sorted(set(names) | set(manifest_components))
 
         # REQUIRES/components-fragment resolution -- board-parameterized.
         # Also returns the already-built component graph so the B1-985
@@ -230,30 +362,14 @@ def run(args: argparse.Namespace) -> int:
         entries = collect_entries(roots, wire_components, args.platform)
         provides_entries = collect_provides_entries(roots, wire_components, args.platform)
 
-        # --consumer-manifest (B1-731): a SINGLE extra file parsed for the
-        # same markers, merged into the entry sets BEFORE topo_sort -- a
-        # distinct path from component discovery (see collect_manifest_entries
-        # docstring). Absent by default, so output stays byte-identical to
-        # not passing this flag.
-        consumer_manifest = getattr(args, "consumer_manifest", None)
-        if consumer_manifest:
-            manifest_path = os.path.abspath(consumer_manifest)
-            manifest_src = os.path.relpath(manifest_path, root).replace(os.sep, "/")
-            # OSError is caught ONLY around this read/parse (e.g. a missing
-            # manifest file), so it must never mask an OSError from any of
-            # the pre-existing paths above (board resolution,
-            # resolve_composition_with_graph, collect_entries,
-            # collect_provides_entries) or below (topo_sort/render_source)
-            # -- those keep their pre-B1-731 behavior (a raw traceback), not
-            # this command's clean one-line error.
-            try:
-                manifest_entries, manifest_provides = collect_manifest_entries(
-                    manifest_path, src_file=manifest_src)
-            except OSError as e:
-                print(f"bbtool codegen: error: {e}", file=sys.stderr)
-                return 1
-            entries = entries + manifest_entries
-            provides_entries = list(provides_entries) + manifest_provides
+        # --consumer-manifest (B1-731): merge the entries already parsed
+        # above (before composition resolution) into the wire entry set
+        # BEFORE topo_sort -- a distinct path from component discovery (see
+        # collect_manifest_entries docstring). Absent by default (both lists
+        # stay empty), so output stays byte-identical to not passing this
+        # flag.
+        entries = entries + manifest_entries
+        provides_entries = list(provides_entries) + manifest_provides
 
         ordered = topo_sort(entries)
         source = render_source(ordered, provides_entries)

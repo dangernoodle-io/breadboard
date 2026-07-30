@@ -112,6 +112,25 @@ class TestCollectEntries(unittest.TestCase):
             self.assertEqual(entries, [])
 
 
+class TestComponentFieldRejectedInComponentHeader(unittest.TestCase):
+    """B1-1275: 'component=' is only valid on a --consumer-manifest marker --
+    collect_entries (component headers) must hard-error, never silently
+    accept it (a component header already has an owning component; letting
+    it name ANOTHER component would be un-fenced implicit composition)."""
+
+    def test_component_field_in_component_header_is_wire_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(
+                root, "bb_sneaky",
+                "#pragma once\n"
+                "// bbtool:init tier=early fn=bb_sneaky_init component=bb_other\n"
+                "bb_err_t bb_sneaky_init(void);\n",
+            )
+            with self.assertRaises(WireError):
+                collect_entries(str(root), ["bb_sneaky"], "espidf")
+
+
 class TestComponentHeadersUnknownName(unittest.TestCase):
     """#3: `entry is None` guard in `_component_headers` -- a name absent
     from the discovery index falls back to `roots[0]` (or `""` when `roots`
@@ -842,6 +861,20 @@ class TestConsumerManifestEntries(unittest.TestCase):
             merged_provides = list(component_provides) + manifest_provides
             source = render_source(topo_sort(merged_entries), merged_provides)
             self.assertIn("bb_example_set_emit(bb_manifest_emit, NULL);", source)
+
+    def test_manifest_component_field_parses_through_collect_manifest_entries(self):
+        """B1-1275: collect_manifest_entries places no restriction on
+        component= -- the rejection lives in collect_entries only (see
+        TestComponentFieldRejectedInComponentHeader above)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+                "component=bb_wifi_prov args=NULL,0,NULL\n",
+            )
+            entries, _ = collect_manifest_entries(str(manifest_path))
+            self.assertEqual(entries[0].component, "bb_wifi_prov")
 
 
 if __name__ == "__main__":

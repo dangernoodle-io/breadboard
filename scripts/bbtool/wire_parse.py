@@ -6,6 +6,35 @@ Grammar (one marker per comment line, order of key=value tokens is free):
     // bbtool:init tier=early|pre_http|regular [order=N] fn=<sym>
                     [server=true] [provides=k,..] [requires=k,..] [consumes=k]
                     [ctx=<expr>] [args=<raw C argument text, whitespace-free>]
+                    [component=<name>]
+
+`component=<name>` (B1-1275) names the component that must be composed for
+this entry's `fn=` to link -- meaningful ONLY on a marker collected from a
+CONSUMER MANIFEST (`--consumer-manifest`, see `commands.wire.
+collect_manifest_entries`): a manifest entry deliberately has no owning
+component of its own (unlike a marker grepped from a component header, whose
+owning component is implicit), so it has no other way to tell codegen which
+component's REQUIRES/PRIV_REQUIRES closure to pull in for a call it emits
+into that component. `commands.codegen.run` reads this field off manifest
+entries BEFORE composition resolution and folds the named component(s) into
+the same `boards.resolve_transitive` closure walk `[capability.*].components`
+feeds -- so `component=bb_wifi_prov` pulls in exactly what listing
+`bb_wifi_prov` in a capability's `components` list would (its transitive
+REQUIRES/PRIV_REQUIRES included). An unknown/misspelled name is a hard error
+naming both the component and the manifest file (see codegen.py), never a
+silent skip.
+
+This parser accepts `component=` on ANY marker (it has no notion of manifest
+vs. component-header context -- that's a property of which collector
+(`collect_entries` vs `collect_manifest_entries`) parsed the text, not of the
+marker text itself). `component=` on a marker grepped from a COMPONENT
+HEADER (via `collect_entries`) is therefore rejected as a hard error one
+layer up, in `commands.wire.collect_entries` -- a component header already
+has an owning component by construction, so letting one component's marker
+silently pull in ANOTHER component via `component=` would be an unreviewed,
+un-fenced composition edge (exactly the kind of implicit glue the DI-legacy
+fence exists to prevent) with no `[capability.*]`/manifest declaration
+anywhere naming it.
 
 `args=<...>` (parameterized-call grammar) lets a marker's `fn` be called with
 an explicit, hand-authored C argument list instead of the zero-arg convention
@@ -72,7 +101,10 @@ TIER_RANK = {name: i for i, name in enumerate(TIERS)}
 _MARKER_PREFIX = "// bbtool:init"
 _PROVIDES_PREFIX = "// bbtool:provides"
 
-_KNOWN_KEYS = {"tier", "order", "fn", "server", "provides", "requires", "consumes", "ctx", "args"}
+_KNOWN_KEYS = {
+    "tier", "order", "fn", "server", "provides", "requires", "consumes", "ctx", "args",
+    "component",
+}
 _PROVIDES_KNOWN_KEYS = {"key", "symbol"}
 
 
@@ -92,6 +124,7 @@ class InitEntry:
     consumes: "str | None" = None
     ctx: "str | None" = None
     args: "str | None" = None
+    component: "str | None" = None
     src_file: str = "<string>"
     src_line: int = 0
 
@@ -214,6 +247,12 @@ def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
             f"supplies the setter's (symbol, ctx) argument pair)"
         )
 
+    # component= is captured verbatim, same as fn= -- meaning/validity is
+    # context-dependent (manifest vs. component-header marker), decided by
+    # the caller (see collect_manifest_entries/collect_entries in
+    # commands.wire), never here.
+    component = fields.get("component")
+
     return InitEntry(
         tier=tier,
         fn=fn,
@@ -224,6 +263,7 @@ def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
         consumes=consumes,
         ctx=ctx,
         args=args,
+        component=component,
         src_file=src_file,
         src_line=lineno,
     )
