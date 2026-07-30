@@ -33,6 +33,9 @@ typedef struct {
     int      prov_stop_seq;
     int      ap_stop_seq;
     int      creds_notify_seq;
+    // "provisioning active" signal (B1-1279 PR2).
+    int      prov_active_set_calls;
+    bool     prov_active_last;
 } fake_t;
 
 static fake_t s_fake;
@@ -75,6 +78,12 @@ static void fake_log(wifi_prov_log_evt_t evt)
     }
 }
 
+static void fake_prov_active_set(bool active)
+{
+    s_fake.prov_active_set_calls++;
+    s_fake.prov_active_last = active;
+}
+
 static const wifi_prov_adapter_t s_adapter = {
     .ap_start_fn             = fake_ap_start,
     .ap_stop_fn               = fake_ap_stop,
@@ -82,6 +91,7 @@ static const wifi_prov_adapter_t s_adapter = {
     .prov_stop_fn              = fake_prov_stop,
     .creds_arrived_notify_fn = fake_creds_notify,
     .log_fn                   = fake_log,
+    .prov_active_set_fn      = fake_prov_active_set,
 };
 
 // Fresh fixture: fake reset (default: both starts succeed -- the common
@@ -528,6 +538,86 @@ void test_wifi_prov_zero_settle_ms_arms_one_ms_timer_and_completes_cycle(void)
     TEST_ASSERT_EQUAL(2, s_fake.ap_stop_seq);
     TEST_ASSERT_EQUAL(3, s_fake.creds_notify_seq);
     TEST_ASSERT_EQUAL(WIFI_PROV_LOG_PORTAL_CLOSED, s_fake.log_hist[s_fake.log_hist_n - 1]);
+}
+
+// ===========================================================================
+// B1-1279 PR2 -- "provisioning active" signal (prov_active_set_fn). Publisher
+// side only: wp_active_on_entry/wp_idle_on_entry are the ONE place that
+// sets/clears it; wifi_prov_mgr.c's wifi_prov_mgr_is_active() (device-only,
+// not host-compiled -- platform/espidf/bb_wifi_prov is outside the native
+// scaffold glob) is the accessor these hooks feed. See wifi_prov_policy.c's
+// comments on both hooks for the has_creds-is-not-the-signal rationale.
+// ===========================================================================
+
+// --- Entering WP_ACTIVE sets the signal ---
+
+void test_wifi_prov_active_sets_prov_active_signal(void)
+{
+    wifi_prov_ctx_t ctx;
+    fixture_init(&ctx, WP_IDLE);
+    s_fake.prov_active_set_calls = 0; // discount fixture_init's own WP_IDLE on_entry call
+
+    wifi_prov_fsm_drive_entry(&ctx, EV_ENTRY_FIRST_BOOT);
+
+    TEST_ASSERT_EQUAL_INT(WP_ACTIVE, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(1, s_fake.prov_active_set_calls);
+    TEST_ASSERT_TRUE(s_fake.prov_active_last);
+}
+
+// --- Guardrail: entering WP_CLOSING does NOT clear the signal -------------
+//
+// This is the whole point of B1-1279: POST /save commits credentials via
+// bb_settings_wifi_set() and ONLY THEN does the FSM move to WP_CLOSING and
+// wait out the settle timer before the portal routes actually come down --
+// so for that window creds exist AND the captive portal is still live and
+// serving. If WP_CLOSING's on_entry cleared this signal, a consumer gating
+// on it would swing the full API open while an unauthenticated client is
+// still associated to the SoftAP. wp_closing_on_entry must never gain a
+// prov_active_set_fn(false) call -- if you're about to add one because "the
+// portal is closing, so it's not really active", read this comment again.
+void test_wifi_prov_closing_does_not_clear_prov_active_signal(void)
+{
+    wifi_prov_ctx_t ctx;
+    fixture_init(&ctx, WP_ACTIVE);
+    TEST_ASSERT_TRUE(s_fake.prov_active_last); // WP_ACTIVE's on_entry already set it
+    int calls_before = s_fake.prov_active_set_calls;
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_SAVE_SUCCESS, NULL));
+
+    TEST_ASSERT_EQUAL_INT(WP_CLOSING, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_EQUAL(calls_before, s_fake.prov_active_set_calls); // no new call
+    TEST_ASSERT_TRUE(s_fake.prov_active_last); // still true -- settle window is still "active"
+}
+
+// --- Entering WP_IDLE clears the signal (both a fresh init and the
+// settle-timeout return to rest) ---
+
+void test_wifi_prov_idle_clears_prov_active_signal(void)
+{
+    wifi_prov_ctx_t ctx;
+    fixture_init(&ctx, WP_IDLE);
+
+    // A fresh ctx constructed at WP_IDLE (production's only real starting
+    // point -- see wifi_prov_fsm_init's doc) publishes false immediately via
+    // bb_fsm_init's run_entry(initial), before any entry event is ever
+    // driven. This is the policy layer's contribution to
+    // wifi_prov_mgr_is_active()'s "never started -> false" guarantee (its
+    // own s_queue-unset guard, device-only, is verified separately -- see
+    // this test's comment block above).
+    TEST_ASSERT_EQUAL(1, s_fake.prov_active_set_calls);
+    TEST_ASSERT_FALSE(s_fake.prov_active_last);
+
+    wifi_prov_fsm_drive_entry(&ctx, EV_ENTRY_FIRST_BOOT);
+    TEST_ASSERT_EQUAL_INT(WP_ACTIVE, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_TRUE(s_fake.prov_active_last);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_SAVE_SUCCESS, NULL));
+    TEST_ASSERT_EQUAL_INT(WP_CLOSING, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_TRUE(s_fake.prov_active_last); // still active through the settle window
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_fsm_step(&ctx.fsm, EV_SETTLE_TIMEOUT, NULL));
+    TEST_ASSERT_EQUAL_INT(WP_IDLE, bb_fsm_state(&ctx.fsm));
+    TEST_ASSERT_FALSE(s_fake.prov_active_last); // cleared back at rest
 }
 
 // ===========================================================================

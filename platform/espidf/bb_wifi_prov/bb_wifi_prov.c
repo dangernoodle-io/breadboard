@@ -448,3 +448,8 @@ void bb_wifi_prov_request_portal(void)
 {
     wifi_prov_mgr_post_entry(EV_ENTRY_USER_REQUESTED);
 }
+
+bool bb_wifi_prov_is_active(void)
+{
+    return wifi_prov_mgr_is_active();
+}

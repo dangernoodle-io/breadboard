@@ -240,6 +240,34 @@ bb_err_t bb_wifi_prov_autoinit(const bb_http_asset_t *assets, size_t n,
  */
 void bb_wifi_prov_request_portal(void);
 
+/**
+ * "Provisioning active" signal (B1-1279 PR2). True from the moment the
+ * captive portal comes up (SoftAP + provisioning HTTP routes registered)
+ * until it is fully torn down, INCLUDING the settle window after a
+ * successful POST /save where credentials are already committed but the
+ * portal routes are still live while the in-flight HTTP response finishes
+ * flushing.
+ *
+ * Deliberately NOT equivalent to "credentials are absent" (has_creds):
+ * POST /save commits credentials via bb_settings_wifi_set() and only THEN
+ * starts that settle window before the portal actually closes -- so there
+ * is a window where credentials exist AND the captive portal is still live
+ * and serving. A caller gating on has_creds instead of this signal would
+ * treat that window as "not provisioning" and open its full API while an
+ * unauthenticated client may still be associated to the SoftAP. Use this
+ * accessor for any such gate, not a has_creds/provisioned check.
+ *
+ * Returns false if bb_wifi_prov_autoinit() was never called, or was called
+ * while credentials were already present (which deliberately never starts
+ * the provisioning manager -- see bb_wifi_prov_autoinit()'s doc).
+ *
+ * Non-blocking; safe to call from any task, including concurrently with the
+ * provisioning manager's own task.
+ *
+ * INERT in this PR -- no in-tree caller yet.
+ */
+bool bb_wifi_prov_is_active(void);
+
 #endif
 
 #ifdef __cplusplus

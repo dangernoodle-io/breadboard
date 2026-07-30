@@ -12,6 +12,7 @@
 // wifi_prov_mgr_on_save() (bb_wifi_prov.c's /save touch) takes its
 // `if (!s_queue) return;` early-out on every call.
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #include "bb_core.h"
@@ -45,3 +46,18 @@ void wifi_prov_mgr_on_save(void);
 // wifi_prov_mgr_init() (or when autoinit never started the manager because
 // creds were already present) is always safe.
 void wifi_prov_mgr_post_entry(wp_event_t event);
+
+// "Provisioning active" signal (B1-1279 PR2): true from the moment the FSM
+// enters WP_ACTIVE (portal up) through WP_CLOSING (save landed, portal
+// still serving out the settle window) until it returns to WP_IDLE. See
+// wifi_prov_policy.c's wp_active_on_entry/wp_idle_on_entry for exactly
+// which states set/clear it, and bb_wifi_prov.h's bb_wifi_prov_is_active()
+// for the full has_creds-is-not-this-signal rationale. Returns false if the
+// manager was never started (wifi_prov_mgr_init() not yet called, or
+// bb_wifi_prov_autoinit() short-circuited because creds were already
+// present). Non-blocking, safe to call from any task -- single writer (the
+// manager task, on FSM state entry), many readers, no lock (see the
+// s_prov_active field comment in wifi_prov_mgr.c).
+//
+// INERT in this PR -- no in-tree caller yet; PR3 wires a consumer.
+bool wifi_prov_mgr_is_active(void);

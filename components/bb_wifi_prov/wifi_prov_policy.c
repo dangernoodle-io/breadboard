@@ -134,11 +134,32 @@ static void act_close_portal(bb_fsm_t *fsm, void *vctx, bb_fsm_event_t event, vo
 
 // --- State on_entry hooks ---
 
+// B1-1279 PR2: publishes "provisioning active" for WP_ACTIVE. WP_CLOSING
+// (below) deliberately does NOT clear it -- see wp_idle_on_entry's comment
+// for why. This PR is inert: nothing reads the flag yet (bb_wifi_prov_mgr's
+// wifi_prov_mgr_is_active() accessor lands with it, PR3 wires a consumer).
 static void wp_active_on_entry(bb_fsm_t *fsm, void *vctx, bb_fsm_state_t state)
 {
     (void)fsm; (void)state;
     wifi_prov_ctx_t *ctx = vctx;
     ctx->adapter->log_fn(WIFI_PROV_LOG_PORTAL_OPEN);
+    ctx->adapter->prov_active_set_fn(true);
+}
+
+// B1-1279 PR2: clears "provisioning active" once back at rest. This is the
+// ONLY state that clears it -- WP_CLOSING (save landed, portal still up,
+// settling for BB_WIFI_PROV_SETTLE_MS before teardown) counts as active too.
+// has_creds is NOT this signal: POST /save commits credentials and THEN
+// moves to WP_CLOSING, where the portal keeps serving for the settle window
+// -- gating on has_creds would report "not provisioning" while an
+// unauthenticated client is still associated to the SoftAP and the full API
+// is meant to stay closed. Don't "simplify" this by moving the clear to
+// WP_CLOSING's entry.
+static void wp_idle_on_entry(bb_fsm_t *fsm, void *vctx, bb_fsm_state_t state)
+{
+    (void)fsm; (void)state;
+    wifi_prov_ctx_t *ctx = vctx;
+    ctx->adapter->prov_active_set_fn(false);
 }
 
 // Arms the settle timer -- see the "WHY THE SETTLE STATE" block above for
@@ -164,6 +185,7 @@ static const bb_fsm_row_t wp_rows[] = {
 };
 
 static const bb_fsm_state_desc_t wp_states[] = {
+    { WP_IDLE,    wp_idle_on_entry,    NULL },
     { WP_ACTIVE,  wp_active_on_entry,  NULL },
     { WP_CLOSING, wp_closing_on_entry, NULL },
 };
