@@ -1,12 +1,14 @@
 #include "bb_wifi_http.h"
 
 #include <inttypes.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "bb_http.h"
 #include "bb_http_body.h"
+#include "bb_http_serialize_error.h"
 #include "bb_http_serialize_stream.h"
 #include "bb_http_server.h"
 #include "bb_log.h"
@@ -30,6 +32,12 @@
 // Portable/unconditional (like the two wire headers above); only its
 // CONFIG_BB_WIFI_RECONFIGURE-gated usage below is feature-gated.
 #include "../../../components/bb_wifi_http/bb_wifi_http_creds_wire_priv.h"
+
+// PATCH /api/wifi 202 response wire descriptor (B1-1286, firmware-review
+// follow-up) -- private header, same relative-include convention as
+// bb_wifi_http_wire_priv.h above. Portable/unconditional; only its
+// CONFIG_BB_WIFI_RECONFIGURE-gated usage below is feature-gated.
+#include "../../../components/bb_wifi_http/bb_wifi_http_patch_status_wire_priv.h"
 
 // Pure bb_err_t -> bb_err_t mapper for a single route-registration attempt
 // (B1-1259) -- src/-private header, PRIV_INCLUDE_DIRS "src" (same convention
@@ -223,16 +231,27 @@ static bb_err_t wifi_creds_apply(const void *snap, const bb_data_apply_args_t *a
 // WIFI_PATCH_BODY_MAX + 1.
 #define WIFI_PATCH_BODY_MAX 256
 
+// PATCH /api/wifi 202 response: a single fixed literal field,
+// {"status":"rebooting_to_try_wifi"}; migration target for
+// wifi_patch_handler's success-path emission below. Wire type + descriptor
+// (bb_wifi_http_patch_status_wire_t / bb_wifi_http_patch_status_wire_desc)
+// extracted (firmware-review follow-up) into
+// components/bb_wifi_http/bb_wifi_http_patch_status_wire.c -- portable, so
+// a host fidelity test can drive the real production descriptor instead of
+// hand-copying its shape (mirrors bb_wifi_http_creds_wire.c's request-side
+// precedent, B1-1178; see bb_wifi_http_patch_status_wire_priv.h). The 400/
+// 500 error bodies below it are single-field-error-body shapes too,
+// migrated onto the shared bb_http_serialize_send_error()
+// (bb_http_serialize_error.h) instead -- see that fn's own doc comment for
+// why this common shape is factored centrally rather than getting its own
+// per-file descriptor here.
+
 static bb_err_t wifi_patch_handler(bb_http_request_t *req)
 {
     char   body[WIFI_PATCH_BODY_MAX + 1];
     size_t n = 0;
     if (bb_http_req_recv_body_stack(req, body, sizeof(body), &n) != BB_OK) {
-        bb_http_resp_set_status(req, 400);
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "missing, oversized, or unreadable body");
-        bb_http_resp_json_obj_end(&obj);
+        bb_http_serialize_send_error(req, 400, "missing, oversized, or unreadable body");
         return BB_ERR_INVALID_ARG;
     }
 
@@ -274,27 +293,19 @@ static bb_err_t wifi_patch_handler(bb_http_request_t *req)
     // the exact production list, not a hand-copy of it.
     int status = bb_wifi_http_status_for_apply_rc(rc);
     if (status == 400) {
-        bb_http_resp_set_status(req, 400);
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "invalid request body or credentials");
-        bb_http_resp_json_obj_end(&obj);
+        bb_http_serialize_send_error(req, 400, "invalid request body or credentials");
         return rc;
     }
     if (status != 202) {
-        bb_http_resp_set_status(req, 500);
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "internal error");
-        bb_http_resp_json_obj_end(&obj);
+        bb_http_serialize_send_error(req, 500, "internal error");
         return rc;
     }
 
     bb_http_resp_set_status(req, 202);
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "status", "rebooting_to_try_wifi");
-    return bb_http_resp_json_obj_end(&obj);
+    bb_wifi_http_patch_status_wire_t status_snap;
+    memset(&status_snap, 0, sizeof(status_snap));
+    strncpy(status_snap.status, "rebooting_to_try_wifi", sizeof(status_snap.status) - 1);
+    return bb_http_serialize_stream(req, &bb_wifi_http_patch_status_wire_desc, &status_snap);
 }
 
 static const bb_route_response_t s_wifi_patch_responses[] = {

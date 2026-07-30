@@ -70,6 +70,7 @@
 #include "bb_http.h"
 #include "bb_http_body.h"
 #include "bb_http_server.h"
+#include "bb_http_serialize_error.h"
 #include "bb_http_serialize_stream.h"
 #include "bb_log.h"
 #include "bb_serialize.h"
@@ -106,43 +107,33 @@ static const char *TAG = "bb_storage_http";
 #define BB_STORAGE_HTTP_DELETE_NAME_BUF    (BB_STORAGE_HTTP_DELETE_NS_LEN + 16)        // 32
 
 // ---------------------------------------------------------------------------
-// Error helpers
+// Error helpers (B1-1286: migrated off bb_http_json_obj_stream_t's
+// 1048-byte stack buffer onto the shared bb_http_serialize_send_error() --
+// see its own doc comment in bb_http_serialize_error.h. Shared by
+// factory_reset_handler (this migration's actual target -- its measured
+// frame statically exceeded the httpd task stack budget) and
+// storage_delete_handler (out of scope, unaffected in behavior; it already
+// streams its own 200 body via bb_http_serialize_stream()).
 // ---------------------------------------------------------------------------
 
 static void send_412(bb_http_request_t *req, const char *msg)
 {
-    bb_http_resp_set_status(req, 412);
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "error", msg);
-    bb_http_resp_json_obj_end(&obj);
+    bb_http_serialize_send_error(req, 412, msg);
 }
 
 static void send_400(bb_http_request_t *req, const char *msg)
 {
-    bb_http_resp_set_status(req, 400);
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "error", msg);
-    bb_http_resp_json_obj_end(&obj);
+    bb_http_serialize_send_error(req, 400, msg);
 }
 
 static void send_500(bb_http_request_t *req, const char *msg)
 {
-    bb_http_resp_set_status(req, 500);
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "error", msg);
-    bb_http_resp_json_obj_end(&obj);
+    bb_http_serialize_send_error(req, 500, msg);
 }
 
 static void send_501(bb_http_request_t *req, const char *msg)
 {
-    bb_http_resp_set_status(req, 501);
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "error", msg);
-    bb_http_resp_json_obj_end(&obj);
+    bb_http_serialize_send_error(req, 501, msg);
 }
 
 // ---------------------------------------------------------------------------
@@ -893,6 +884,31 @@ static void factory_reset_reboot_work_fn(void *arg)
 // fixed-pool-size rationale).
 #define FACTORY_RESET_PARSE_SCRATCH_BYTES 3072
 
+// POST /api/diag/storage/factory-reset 202 response wire descriptor
+// (B1-1286) -- {"status":"factory_reset_accepted","reboot":true}, a fixed
+// literal pair; migration target for factory_reset_handler's success-path
+// emission below (the second of this handler's two response paths -- the
+// first being the send_400/send_500/send_501 error helpers above).
+typedef struct {
+    char status[32];
+    bool reboot;
+} bb_storage_http_factory_reset_status_wire_t;
+
+static const bb_serialize_field_t s_factory_reset_status_wire_fields[] = {
+    { .key = "status", .type = BB_TYPE_STR,
+      .offset = offsetof(bb_storage_http_factory_reset_status_wire_t, status),
+      .max_len = sizeof(((bb_storage_http_factory_reset_status_wire_t *)0)->status) },
+    { .key = "reboot", .type = BB_TYPE_BOOL,
+      .offset = offsetof(bb_storage_http_factory_reset_status_wire_t, reboot) },
+};
+
+static const bb_serialize_desc_t s_factory_reset_status_wire_desc = {
+    .type_name = "bb_storage_http_factory_reset_status_wire_t",
+    .fields    = s_factory_reset_status_wire_fields,
+    .n_fields  = 2,
+    .snap_size = sizeof(bb_storage_http_factory_reset_status_wire_t),
+};
+
 static bb_err_t factory_reset_handler(bb_http_request_t *req)
 {
     // BB_STORAGE_HTTP_FACTORY_RESET_BODY_MAX is MAX BODY BYTES (see
@@ -968,11 +984,11 @@ static bb_err_t factory_reset_handler(bb_http_request_t *req)
     }
 
     bb_http_resp_set_status(req, 202);
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "status", "factory_reset_accepted");
-    bb_http_resp_json_obj_set_bool(&obj, "reboot", true);
-    bb_http_resp_json_obj_end(&obj);
+    bb_storage_http_factory_reset_status_wire_t status_snap;
+    memset(&status_snap, 0, sizeof(status_snap));
+    strncpy(status_snap.status, "factory_reset_accepted", sizeof(status_snap.status) - 1);
+    status_snap.reboot = true;
+    bb_http_serialize_stream(req, &s_factory_reset_status_wire_desc, &status_snap);
 
 #ifdef ESP_PLATFORM
     static bb_oneshot_timer_t s_reset_timer = NULL;

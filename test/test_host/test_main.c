@@ -1529,6 +1529,13 @@ void test_http_serialize_stream_null_snap_invalid_arg(void);
 void test_http_serialize_stream_set_type_fail_short_circuits(void);
 void test_http_serialize_stream_send_chunk_fail_propagates_original_error(void);
 
+// Forward declarations from test_bb_http_serialize_error.c (B1-1286)
+void test_http_serialize_send_error_happy_path(void);
+void test_http_serialize_send_error_null_req_invalid_arg(void);
+void test_http_serialize_send_error_invalid_status_propagates(void);
+void test_http_serialize_send_error_null_msg_renders_empty(void);
+void test_http_serialize_send_error_long_msg_truncates(void);
+
 // Forward declarations from test_bb_http_serialize_stream_compose.c (B1-1097)
 void test_http_serialize_stream_compose_happy_path(void);
 void test_http_serialize_stream_compose_mixed_shape_groups(void);
@@ -6675,6 +6682,12 @@ int main(void) {
     RUN_TEST(test_http_serialize_stream_null_snap_invalid_arg);
     RUN_TEST(test_http_serialize_stream_set_type_fail_short_circuits);
     RUN_TEST(test_http_serialize_stream_send_chunk_fail_propagates_original_error);
+
+    RUN_TEST(test_http_serialize_send_error_happy_path);
+    RUN_TEST(test_http_serialize_send_error_null_req_invalid_arg);
+    RUN_TEST(test_http_serialize_send_error_invalid_status_propagates);
+    RUN_TEST(test_http_serialize_send_error_null_msg_renders_empty);
+    RUN_TEST(test_http_serialize_send_error_long_msg_truncates);
 
     RUN_TEST(test_http_serialize_stream_compose_happy_path);
     RUN_TEST(test_http_serialize_stream_compose_mixed_shape_groups);

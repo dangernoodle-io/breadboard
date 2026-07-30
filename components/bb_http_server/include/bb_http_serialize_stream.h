@@ -36,6 +36,18 @@ extern "C" {
 // ORIGINAL bb_http_resp_send_chunk() error (not bb_serialize_json's
 // synthetic stream-abort code) -- the caller sees the real I/O failure.
 // Returns BB_ERR_INVALID_ARG if `req`, `desc`, or `snap` is NULL.
+//
+// Trap: this fn sets Content-Type itself before streaming, so a caller's own
+// bb_http_resp_set_type() pre-check LOOKS like a removable duplicate. It is
+// NOT removable if the caller's failure path has side effects beyond the
+// HTTP response -- e.g. a handler that arms a restart/reboot after this
+// call returns. This fn's own return value alone does not stop such a
+// caller from running that side effect: if the caller ignores this fn's
+// return (as a fire-and-forget restart handler may), a Content-Type-set
+// failure inside this call would be swallowed and the side effect would
+// still fire, having sent ZERO response bytes to the client. Keep the
+// caller's own pre-check in that case (see bb_system_routes.c's
+// reboot_handler for the precedent).
 bb_err_t bb_http_serialize_stream(bb_http_request_t *req,
                                    const bb_serialize_desc_t *desc, const void *snap);
 

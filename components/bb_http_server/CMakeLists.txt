@@ -10,6 +10,7 @@ idf_component_register(
          "src/bb_http_prov_gate.c"
          "src/bb_http_json_obj.c"
          "src/bb_http_serialize_stream.c"
+         "src/bb_http_serialize_error.c"
          "src/bb_http_section.c"
          "src/bb_http_section_status.c"
     INCLUDE_DIRS "include"

@@ -87,8 +87,10 @@ const char *bb_mdns_get_hostname(void);
 
 #include "cJSON.h"
 
+#include "bb_http_serialize_error.h"
 #include "bb_http_serialize_stream.h"
 #include "../../components/bb_wifi_http/bb_wifi_http_wire_priv.h"
+#include "../../components/bb_wifi_http/bb_wifi_http_patch_status_wire_priv.h"
 #include "../../components/bb_health/bb_health_wire_priv.h"
 
 // ---------------------------------------------------------------------------
@@ -503,40 +505,44 @@ static bb_err_t h_log_level_get(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
-// PATCH /api/wifi 202 — mirrors wifi_patch_handler success path.
+// PATCH /api/wifi 202 — mirrors wifi_patch_handler success path, driving the
+// REAL production wire descriptor (bb_wifi_http_patch_status_wire_desc,
+// components/bb_wifi_http/bb_wifi_http_patch_status_wire_priv.h) through
+// bb_http_serialize_stream() instead of hand-copying the shape (firmware-
+// review follow-up, B1-1286): that descriptor was extracted out of the
+// ESP-IDF-only bb_wifi_http_routes.c specifically so this fixture can link
+// and exercise it on host -- see the descriptor header's own doc comment.
 static bb_err_t h_wifi_patch_202(bb_http_request_t *req)
 {
     bb_http_resp_set_status(req, 202);
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "status", "rebooting_to_try_wifi");
-    return bb_http_resp_json_obj_end(&obj);
+    bb_wifi_http_patch_status_wire_t status_snap;
+    memset(&status_snap, 0, sizeof(status_snap));
+    strncpy(status_snap.status, "rebooting_to_try_wifi", sizeof(status_snap.status) - 1);
+    return bb_http_serialize_stream(req, &bb_wifi_http_patch_status_wire_desc, &status_snap);
 }
 
 // PATCH /api/wifi 400 — mirrors wifi_patch_handler validation failure path
 // (B1-1022: BB_ERR_VALIDATION/BB_ERR_INVALID_ARG/BB_ERR_UNSUPPORTED from
 // bb_data_apply() all shape to this same body; the pre-cutover "ssid
 // required" literal is gone -- see wifi_patch_handler's own comment on why
-// BB_ERR_NOT_FOUND is deliberately excluded from this branch).
+// BB_ERR_NOT_FOUND is deliberately excluded from this branch). Calls the
+// REAL shared bb_http_serialize_send_error() (firmware-review follow-up,
+// B1-1286) instead of hand-building the {"error":...} body -- that fn
+// carries its own independent host coverage (test_bb_http_serialize_error.c)
+// so this fixture drives production code, not a duplicate of its shape.
 static bb_err_t h_wifi_patch_400(bb_http_request_t *req)
 {
-    bb_http_resp_set_status(req, 400);
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "error", "invalid request body or credentials");
-    return bb_http_resp_json_obj_end(&obj);
+    return bb_http_serialize_send_error(req, 400, "invalid request body or credentials");
 }
 
 // PATCH /api/wifi 500 — mirrors wifi_patch_handler's fallthrough for any
 // bb_err_t not in the 400 list (incl. BB_ERR_NOT_FOUND per B1-1022 finding
-// #3 -- a composition-invariant violation, not client error).
+// #3 -- a composition-invariant violation, not client error). Calls the
+// REAL shared bb_http_serialize_send_error(), same rationale as
+// h_wifi_patch_400 above.
 static bb_err_t h_wifi_patch_500(bb_http_request_t *req)
 {
-    bb_http_resp_set_status(req, 500);
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "error", "internal error");
-    return bb_http_resp_json_obj_end(&obj);
+    return bb_http_serialize_send_error(req, 500, "internal error");
 }
 
 // ---------------------------------------------------------------------------
