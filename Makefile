@@ -81,22 +81,26 @@ smoke-gen: smoke-gen-esp32
 smoke-gen-esp32:
 	python3 scripts/bbtool.py codegen --root . --board esp32_wroom_32 --wire-board smoke_wire_baseline \
 	    --components-out examples/smoke/main/generated/bb_autowire_components.cmake \
-	    --wire-out examples/smoke/main/generated/bb_app_init.c
+	    --wire-out examples/smoke/main/generated/bb_app_init.c \
+	    --consumer-manifest examples/smoke/main/bb_wire.h
 
 smoke-gen-esp32c3:
 	python3 scripts/bbtool.py codegen --root . --board esp32_c3_devkitm_1 --wire-board smoke_wire_baseline \
 	    --components-out examples/smoke/main/generated/bb_autowire_components.cmake \
-	    --wire-out examples/smoke/main/generated/bb_app_init.c
+	    --wire-out examples/smoke/main/generated/bb_app_init.c \
+	    --consumer-manifest examples/smoke/main/bb_wire.h
 
 smoke-gen-tdongle:
 	python3 scripts/bbtool.py codegen --root . --board lilygo_t_dongle_s3 --wire-board smoke_wire_baseline \
 	    --components-out examples/smoke/main/generated/bb_autowire_components.cmake \
-	    --wire-out examples/smoke/main/generated/bb_app_init.c
+	    --wire-out examples/smoke/main/generated/bb_app_init.c \
+	    --consumer-manifest examples/smoke/main/bb_wire.h
 
 smoke-gen-elecrow-p4-hmi7:
 	python3 scripts/bbtool.py codegen --root . --board elecrow_p4_hmi7 --wire-board smoke_wire_baseline \
 	    --components-out examples/smoke/main/generated/bb_autowire_components.cmake \
-	    --wire-out examples/smoke/main/generated/bb_app_init.c
+	    --wire-out examples/smoke/main/generated/bb_app_init.c \
+	    --consumer-manifest examples/smoke/main/bb_wire.h
 
 smoke-elecrow-p4-hmi7: smoke-gen-elecrow-p4-hmi7 ## Build smoke example for Elecrow CrowPanel P4 HMI 7.0 (with display)
 	$(PIO) run -d examples/smoke -e elecrow-p4-hmi7

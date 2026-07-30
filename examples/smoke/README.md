@@ -15,8 +15,11 @@ A single portable smoke app that exercises `bb_log` + `bb_settings` + `bb_wifi` 
 
 ESP-IDF envs use NVS-provisioned wifi credentials — no `secrets.h` needed. The `secrets.h` setup below is Arduino-only.
 
-
 `uno_cc3000` is AVR-only — Adafruit_CC3000 uses deprecated SPI APIs that don't exist on Cortex-M Arduino cores. Folding CC3000 onto the R4 Minima would require a forked or replacement library.
+
+## Provisioning (ESP-IDF envs)
+
+A blank-NVS smoke board is self-provisionable: `bb_wifi_prov_autoinit()` is composed via `examples/smoke/main/bb_wire.h` (a `bbtool codegen --consumer-manifest` entry, since `bb_wifi_prov` must never self-register its own default form). At boot, when no wifi credentials are stored, it starts a SoftAP + captive-portal HTTP form instead of the previous silent `bb_wifi_autoinit: no ssid configured; skipping connect` dead end. Connect to the board's SoftAP and submit credentials via the captive portal — no flashing another example needed to recover a blank board. The portal closes itself once creds are saved and hands off to the normal reconnect path (no reboot required). A board that already has credentials skips the portal entirely (no-op on every subsequent boot).
 
 ## Setup
 

@@ -195,9 +195,26 @@ capabilities = ["core"]
 # compiles them cleanly. TaipanMiner's rebuild sits on all three (stratum
 # FSM, stratum transport, mining run-state), so a latent compile break
 # here would land squarely on TM.
+# B1-1274: bb_wifi_prov added -- makes a blank-NVS smoke board self-
+# provisionable (SoftAP + captive portal) instead of requiring a flash-over
+# to examples/floor to recover. Wired via the consumer manifest
+# examples/smoke/main/bb_wire.h (`--consumer-manifest`, see Makefile), not a
+# component header marker -- bb_wifi_prov must never self-register its own
+# default form (B1-966, `prov-default-form-internal-ref` lint). bb_wifi_ap
+# is NOT added here beyond its existing explicit entry below: it's already a
+# PRIV_REQUIRES of bb_wifi_prov's own CMakeLists.txt (mirrors the identical
+# B1-809 note on capability.floor.components below), so derive_component()
+# pulls it into the REQUIRES closure transitively regardless. Consequently
+# `[board.smoke_wire_baseline]`'s `remove_components = ["bb_wifi_ap"]` stays
+# unchanged: it removes bb_wifi_ap from that board's own wire-resolution
+# name list, but resolve_composition() re-derives it right back in via
+# bb_wifi_prov's transitive PRIV_REQUIRES before wire collection ever walks
+# component headers for markers -- and bb_wifi_ap carries no
+# `// bbtool:init` marker of its own (per the note above) either way, so
+# nothing is lost or gained by leaving that removal in place.
 [capability.smoke]
 components = [
-    "bb_log", "bb_log_event", "bb_wifi", "bb_wifi_ap",
+    "bb_log", "bb_log_event", "bb_wifi", "bb_wifi_ap", "bb_wifi_prov",
     "bb_wifi_http", "bb_settings", "bb_http", "bb_http_server", "bb_mdns",
     "bb_mdns_cache", "bb_ota_pull", "bb_ota_push", "bb_ota_boot",
     "bb_ota_validator", "bb_system", "bb_openapi",
