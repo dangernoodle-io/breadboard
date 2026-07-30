@@ -25,10 +25,14 @@ CONFIG_ESP_HOST_WIFI_ENABLED=y
 
 # FreeRTOS configuration
 CONFIG_FREERTOS_HZ=1000
-# Stack overflow detection: method 2 (PTRVAL canary) prints the overflowing
-# task name instead of aborting silently. Recommended alongside bb_health stack
+# Stack overflow detection: PTRVAL canary prints the overflowing task name
+# instead of aborting silently. Recommended alongside bb_health stack
 # monitor. See CONFIG_BB_TASK_REGISTRY_BASE_POLL_MS in bb_task_registry Kconfig.
-CONFIG_FREERTOS_CHECK_STACKOVERFLOW=2
+# No FREERTOS_WATCHPOINT_END_OF_STACK here: P4 has SOC_ASSIST_DEBUG_SUPPORTED,
+# so CONFIG_ESP_SYSTEM_HW_STACK_GUARD is already on by default -- a hardware
+# SP-bounds check that's deterministic like the watchpoint but costs no
+# per-task stack bytes and consumes no CPU watchpoint register.
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW_PTRVAL=y
 
 # Logging configuration
 CONFIG_LOG_DEFAULT_LEVEL=3
