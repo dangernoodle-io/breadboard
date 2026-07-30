@@ -105,6 +105,48 @@ def _fixture_root_with_wildcard(tmp: str, route_order=None, wildcard_order=None)
     return root
 
 
+def _fixture_root_with_wildcard_args_route(tmp: str, route_order=None, wildcard_order=None,
+                                            registers_routes: bool = True) -> Path:
+    """B1-1280 blind-spot-closure fixture: an http_server provider (bb_http)
+    + an `args=`-shaped route-registering consumer (bb_args_route, order=
+    configurable, `registers_routes=true` by default -- pass False to prove
+    a plain args= entry with no opt-in is unaffected) + an entry marking
+    provides=http_wildcard_last (bb_wildcard, order= configurable). Mirrors
+    _fixture_root_with_wildcard, but the consumer registers routes via
+    `args=` (referencing bb_app_http_handle directly) instead of
+    `server=true` -- the exact shape jae/smoke-compose-routes composes."""
+    root = _fixture_root(tmp)
+    _make_component(
+        root, "bb_http",
+        "#pragma once\n"
+        "// bbtool:init tier=pre_http fn=bb_http_start provides=http_server\n"
+        "bb_http_handle_t bb_http_start(void);\n",
+    )
+    route_marker = (
+        "// bbtool:init tier=regular fn=bb_args_route_register "
+        'args=bb_app_http_handle,"/ping"'
+    )
+    if registers_routes:
+        route_marker += " registers_routes=true"
+    if route_order is not None:
+        route_marker += f" order={route_order}"
+    _make_component(
+        root, "bb_args_route",
+        "#pragma once\n" + route_marker + "\n"
+        "bb_err_t bb_args_route_register(bb_http_handle_t server, const char *path);\n",
+        requires=["bb_http"],
+    )
+    wildcard_marker = "// bbtool:init tier=regular fn=bb_wildcard_register provides=http_wildcard_last"
+    if wildcard_order is not None:
+        wildcard_marker += f" order={wildcard_order}"
+    _make_component(
+        root, "bb_wildcard",
+        "#pragma once\n" + wildcard_marker + "\n"
+        "bb_err_t bb_wildcard_register(void);\n",
+    )
+    return root
+
+
 def _fixture_root_with_consumes(tmp: str, provider: bool, consumer: bool,
                                 ctx: str = None) -> Path:
     """A fake provider (`// bbtool:provides key=demo_sink symbol=bb_example_emit`)
@@ -1276,6 +1318,64 @@ class TestWildcardLastGuard(unittest.TestCase):
             entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
             source = render_source(topo_sort(entries))  # must not raise
             self.assertNotIn("http_wildcard_last", source)
+
+    def test_registers_routes_args_entry_sorting_after_wildcard_raises(self):
+        """B1-1280 blind-spot closure: an `args=`-shaped entry (structurally
+        unable to carry server=true, the guard's original only signal)
+        opting into the guard via registers_routes=true and sorting AFTER
+        the wildcard entry must be a hard WireError, naming both sites --
+        this is the exact regression this key exists to catch (it must fail
+        without the registers_routes= support, since server=true alone would
+        never see this entry at all)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_wildcard_args_route(
+                tmp, route_order=2, wildcard_order=1, registers_routes=True)
+            entries = collect_entries(
+                str(root), ["bb_log", "bb_http", "bb_args_route", "bb_wildcard"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                render_source(ordered)
+            message = str(ctx.exception)
+            self.assertIn("fn=bb_args_route_register", message)
+            self.assertIn("fn=bb_wildcard_register", message)
+            self.assertIn("registers_routes=true", message)
+
+    def test_wildcard_entry_itself_does_not_self_flag(self):
+        """The wildcard entry (args=-shaped, provides=http_wildcard_last) is
+        excluded from the guard's scan by identity (`e is wildcard_entry`),
+        not by the absence of registers_routes= -- proven by giving the
+        wildcard entry BOTH provides=http_wildcard_last AND
+        registers_routes=true (a realistic combination: the wildcard entry
+        itself genuinely registers routes) and asserting it still renders
+        without raising."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            _make_component(
+                root, "bb_wildcard",
+                "#pragma once\n"
+                "// bbtool:init tier=regular fn=bb_wildcard_register "
+                "provides=http_wildcard_last registers_routes=true\n"
+                "bb_err_t bb_wildcard_register(void);\n",
+            )
+            entries = collect_entries(str(root), ["bb_log", "bb_wildcard"], "espidf")
+            ordered = topo_sort(entries)
+            source = render_source(ordered)  # must not raise
+            self.assertIn("bb_wildcard_register();", source)
+
+    def test_args_entry_without_registers_routes_after_wildcard_unaffected(self):
+        """A plain `args=`-shaped entry that does NOT opt into the guard
+        (registers_routes not set) sorting after the wildcard entry is NOT
+        flagged -- registers_routes=true is opt-in, not inferred from
+        args=/bb_app_http_handle text."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_wildcard_args_route(
+                tmp, route_order=2, wildcard_order=1, registers_routes=False)
+            entries = collect_entries(
+                str(root), ["bb_log", "bb_http", "bb_args_route", "bb_wildcard"], "espidf")
+            ordered = topo_sort(entries)
+            source = render_source(ordered)  # must not raise
+            self.assertIn("bb_args_route_register(bb_app_http_handle,\"/ping\");", source)
+            self.assertIn("bb_wildcard_register();", source)
 
 
 class TestWildcardLastByteStability(unittest.TestCase):

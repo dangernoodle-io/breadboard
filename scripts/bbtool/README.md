@@ -770,6 +770,18 @@ exclusive with `server=true` (the http-handle path supplies its own
 argument) and with `consumes=` (the setter-injection path supplies its own
 `(symbol, ctx)` pair).
 
+**`registers_routes=true`** (B1-1280 blind-spot closure) marks an entry —
+typically `args=`-shaped, since `args=`/`server=true` are mutually
+exclusive — as one that registers HTTP routes internally by some means
+codegen cannot otherwise see (e.g. via an `args=`-supplied handle). It is a
+pure opt-in signal for the `provides=http_wildcard_last` ordering guard
+(same guard `server=true` entries are already checked against): an entry
+carrying `registers_routes=true` must sort strictly before the single
+`http_wildcard_last`-providing entry, or codegen hard-errors. It adds no
+call, no argument injection, no emitted output of its own. Mutually
+exclusive with `server=true` on the same marker (redundant otherwise — see
+`wire_parse`'s module docstring for the full grammar/rationale).
+
 ### `--consumer-manifest <path>`
 
 ```

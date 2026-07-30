@@ -4,8 +4,9 @@
 Grammar (one marker per comment line, order of key=value tokens is free):
 
     // bbtool:init tier=early|pre_http|regular [order=N] fn=<sym>
-                    [server=true] [provides=k,..] [requires=k,..] [consumes=k]
-                    [ctx=<expr>] [args=<raw C argument text, whitespace-free>]
+                    [server=true] [registers_routes=true] [provides=k,..]
+                    [requires=k,..] [consumes=k] [ctx=<expr>]
+                    [args=<raw C argument text, whitespace-free>]
                     [component=<name>] [out=<varname>:<c-type>]
 
 `component=<name>` (B1-1275) names the component that must be composed for
@@ -54,6 +55,23 @@ below). `args=` is mutually exclusive with `server=true` (the http-handle
 path already supplies its own argument) and with `consumes=` (the
 setter-injection path already supplies its own `(symbol, ctx)` argument
 pair).
+
+`registers_routes=true` (B1-1280 blind-spot closure) is a second, orthogonal
+route-registration signal alongside `server=true` -- it exists because
+`args=`/`server=` are mutually exclusive at parse time (see above), which
+makes an `args=`-shaped entry that registers HTTP routes internally
+structurally invisible to `commands.wire.render_source`'s
+`provides=http_wildcard_last` ordering guard (that guard's only signal was
+`server=true`, until this key). An entry that registers routes via an
+`args=`-supplied handle (or any other means the guard cannot see) opts into
+the same guard by carrying `registers_routes=true`. It adds no emission of
+its own -- unlike `server=true`, it never causes the argument-injection call
+shape, never changes generated output for a composition that doesn't use
+`provides=http_wildcard_last` -- it is purely an extra fact the ordering
+guard consults. Mutually exclusive with `server=true` on the same marker:
+`server=true` already IS a route-registration signal to that guard, so
+setting both is always redundant and a hard ParseError catches the
+confusion at parse time rather than silently accepting a no-op combination.
 
 `ctx=<expr>` (B1-1045 PR-1) names a C expression passed as the second
 argument to a `consumes=` setter call (see `commands.wire._emit_consumes_call`)
@@ -126,8 +144,8 @@ _MARKER_PREFIX = "// bbtool:init"
 _PROVIDES_PREFIX = "// bbtool:provides"
 
 _KNOWN_KEYS = {
-    "tier", "order", "fn", "server", "provides", "requires", "consumes", "ctx", "args",
-    "component", "out",
+    "tier", "order", "fn", "server", "registers_routes", "provides", "requires", "consumes",
+    "ctx", "args", "component", "out",
 }
 _PROVIDES_KNOWN_KEYS = {"key", "symbol"}
 
@@ -143,6 +161,7 @@ class InitEntry:
     fn: str
     order: "int | None" = None
     server: bool = False
+    registers_routes: bool = False
     provides: Tuple[str, ...] = field(default_factory=tuple)
     requires: Tuple[str, ...] = field(default_factory=tuple)
     consumes: "str | None" = None
@@ -228,6 +247,23 @@ def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
             )
         server = True
 
+    registers_routes = False
+    if "registers_routes" in fields:
+        raw_registers_routes = fields["registers_routes"]
+        if raw_registers_routes != "true":
+            raise ParseError(
+                f"{src_file}:{lineno}: 'registers_routes=' must be 'true', "
+                f"got '{raw_registers_routes}'"
+            )
+        registers_routes = True
+    if registers_routes and server:
+        raise ParseError(
+            f"{src_file}:{lineno}: 'registers_routes=' and 'server=true' are "
+            f"mutually exclusive (server=true is already a route-registration "
+            f"signal to the http_wildcard_last ordering guard -- setting both "
+            f"is redundant)"
+        )
+
     provides = _split_csv(fields["provides"]) if "provides" in fields else ()
     requires = _split_csv(fields["requires"]) if "requires" in fields else ()
 
@@ -309,6 +345,7 @@ def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
         fn=fn,
         order=order,
         server=server,
+        registers_routes=registers_routes,
         provides=provides,
         requires=requires,
         consumes=consumes,
