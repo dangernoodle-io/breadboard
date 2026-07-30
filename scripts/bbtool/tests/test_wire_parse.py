@@ -155,6 +155,54 @@ class TestConsumes(unittest.TestCase):
             parse_markers("// bbtool:init tier=early fn=bb_x_init ctx=&s_binding\n")
 
 
+class TestArgs(unittest.TestCase):
+    def test_args_parses_verbatim_including_commas_and_parens(self):
+        text = (
+            "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+            "args=bb_wifi_prov_default_form_get(),1,NULL\n"
+        )
+        e = parse_markers(text)[0]
+        self.assertEqual(e.args, "bb_wifi_prov_default_form_get(),1,NULL")
+
+    def test_no_args_defaults_to_none(self):
+        text = "// bbtool:init tier=early fn=bb_x_init\n"
+        e = parse_markers(text)[0]
+        self.assertIsNone(e.args)
+
+    def test_args_and_server_together_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers(
+                "// bbtool:init tier=regular fn=bb_x_init args=1,2 server=true\n"
+            )
+
+    def test_args_and_consumes_together_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers(
+                "// bbtool:init tier=early fn=bb_x_set args=1,2 consumes=demo_sink\n"
+            )
+
+    def test_empty_args_is_error(self):
+        """Mirrors every other key's malformed-token handling: an empty
+        value after '=' is a hard ParseError, not a silent empty-string
+        args= (which would otherwise render a syntactically bogus
+        'fn();' -- indistinguishable from the zero-arg convention but for
+        the wrong reason)."""
+        with self.assertRaises(ParseError):
+            parse_markers("// bbtool:init tier=early fn=bb_x_init args=\n")
+
+    def test_args_with_embedded_space_splits_into_malformed_token(self):
+        """args= values are documented whitespace-free -- the marker line
+        is itself whitespace-tokenized, so a space inside an intended args=
+        value splits it into a second, unrelated token ('2)', with no
+        '=') -- surfaces as a malformed-token ParseError, never a silently
+        truncated args= value."""
+        with self.assertRaises(ParseError) as ctx:
+            parse_markers(
+                "// bbtool:init tier=early fn=bb_x_init args=foo(1, 2)\n"
+            )
+        self.assertIn("malformed token", str(ctx.exception))
+
+
 class TestProvidesMarker(unittest.TestCase):
     def test_minimal_provides_marker(self):
         text = "// bbtool:provides key=demo_sink symbol=bb_example_emit\n"

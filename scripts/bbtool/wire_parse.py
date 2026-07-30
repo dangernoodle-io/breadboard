@@ -5,7 +5,26 @@ Grammar (one marker per comment line, order of key=value tokens is free):
 
     // bbtool:init tier=early|pre_http|regular [order=N] fn=<sym>
                     [server=true] [provides=k,..] [requires=k,..] [consumes=k]
-                    [ctx=<expr>]
+                    [ctx=<expr>] [args=<raw C argument text, whitespace-free>]
+
+`args=<...>` (parameterized-call grammar) lets a marker's `fn` be called with
+an explicit, hand-authored C argument list instead of the zero-arg convention
+-- e.g. `args=bb_wifi_prov_default_form_get(),1,NULL` renders
+`bb_wifi_prov_autoinit(bb_wifi_prov_default_form_get(),1,NULL);` (see
+`commands.wire._emit_args_call`). The value is spliced VERBATIM into the
+generated call -- it is NEVER split on its internal commas (unlike
+`provides=`/`requires=`, whose commas ARE list separators): `args=` is
+captured as a single raw token up to the next whitespace, precisely because
+its own commas are payload, not delimiters. This is why `args=` values MUST
+be whitespace-free -- the marker line is itself whitespace-tokenized (see
+`_parse_marker_line` below), so any space inside an `args=` value would be
+parsed as the start of a new, unrelated token. Nothing here validates the
+symbols/types inside `args=` -- the C compiler is the real validator, exactly
+like the rest of this grep-time DSL (see the "Known limitation" paragraph
+below). `args=` is mutually exclusive with `server=true` (the http-handle
+path already supplies its own argument) and with `consumes=` (the
+setter-injection path already supplies its own `(symbol, ctx)` argument
+pair).
 
 `ctx=<expr>` (B1-1045 PR-1) names a C expression passed as the second
 argument to a `consumes=` setter call (see `commands.wire._emit_consumes_call`)
@@ -53,7 +72,7 @@ TIER_RANK = {name: i for i, name in enumerate(TIERS)}
 _MARKER_PREFIX = "// bbtool:init"
 _PROVIDES_PREFIX = "// bbtool:provides"
 
-_KNOWN_KEYS = {"tier", "order", "fn", "server", "provides", "requires", "consumes", "ctx"}
+_KNOWN_KEYS = {"tier", "order", "fn", "server", "provides", "requires", "consumes", "ctx", "args"}
 _PROVIDES_KNOWN_KEYS = {"key", "symbol"}
 
 
@@ -72,6 +91,7 @@ class InitEntry:
     requires: Tuple[str, ...] = field(default_factory=tuple)
     consumes: "str | None" = None
     ctx: "str | None" = None
+    args: "str | None" = None
     src_file: str = "<string>"
     src_line: int = 0
 
@@ -173,6 +193,27 @@ def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
             f"marker (ctx is meaningless without a setter to pass it to)"
         )
 
+    # args= is captured VERBATIM -- it must never go through _split_csv
+    # (its own commas are payload, not list separators). The value is
+    # already whitespace-free by construction: the marker line itself is
+    # whitespace-tokenized above, so an embedded space would have already
+    # split into a separate, unrelated (likely "unknown key") token before
+    # reaching this point -- there is no extra validation to do here beyond
+    # the mutual-exclusion checks.
+    args = fields.get("args")
+    if args is not None and server:
+        raise ParseError(
+            f"{src_file}:{lineno}: 'args=' and 'server=true' are mutually "
+            f"exclusive (args supplies its own argument list, server "
+            f"supplies the captured http handle as the sole argument)"
+        )
+    if args is not None and consumes is not None:
+        raise ParseError(
+            f"{src_file}:{lineno}: 'args=' and 'consumes=' are mutually "
+            f"exclusive (args supplies its own argument list, consumes "
+            f"supplies the setter's (symbol, ctx) argument pair)"
+        )
+
     return InitEntry(
         tier=tier,
         fn=fn,
@@ -182,6 +223,7 @@ def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
         requires=requires,
         consumes=consumes,
         ctx=ctx,
+        args=args,
         src_file=src_file,
         src_line=lineno,
     )

@@ -46,6 +46,7 @@ from commands.wire import (
     DEFAULT_OUT_REL as WIRE_DEFAULT_OUT_REL,
     WireError,
     collect_entries,
+    collect_manifest_entries,
     collect_provides_entries,
     render_cmake_fragment as render_wire_cmake_fragment,
     render_source,
@@ -103,6 +104,16 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--wire-out", default=None,
         help=f"output bb_app_init.c path (default: <root>/{WIRE_DEFAULT_OUT_REL}); a "
              "sibling '.cmake' is written alongside it",
+    )
+    parser.add_argument(
+        "--consumer-manifest", default=None,
+        help="path to a single consumer manifest file (e.g. an example's own "
+             "main/) parsed for '// bbtool:init'/'// bbtool:provides' markers "
+             "and merged into the wire entry set BEFORE topo-sort -- a "
+             "DISTINCT path from component discovery: it never joins the "
+             "component namespace and never contributes to the REQUIRES "
+             "closure. Omitted by default -- output is byte-identical to "
+             "not passing this flag at all.",
     )
 
 
@@ -218,6 +229,32 @@ def run(args: argparse.Namespace) -> int:
 
         entries = collect_entries(roots, wire_components, args.platform)
         provides_entries = collect_provides_entries(roots, wire_components, args.platform)
+
+        # --consumer-manifest (B1-731): a SINGLE extra file parsed for the
+        # same markers, merged into the entry sets BEFORE topo_sort -- a
+        # distinct path from component discovery (see collect_manifest_entries
+        # docstring). Absent by default, so output stays byte-identical to
+        # not passing this flag.
+        consumer_manifest = getattr(args, "consumer_manifest", None)
+        if consumer_manifest:
+            manifest_path = os.path.abspath(consumer_manifest)
+            manifest_src = os.path.relpath(manifest_path, root).replace(os.sep, "/")
+            # OSError is caught ONLY around this read/parse (e.g. a missing
+            # manifest file), so it must never mask an OSError from any of
+            # the pre-existing paths above (board resolution,
+            # resolve_composition_with_graph, collect_entries,
+            # collect_provides_entries) or below (topo_sort/render_source)
+            # -- those keep their pre-B1-731 behavior (a raw traceback), not
+            # this command's clean one-line error.
+            try:
+                manifest_entries, manifest_provides = collect_manifest_entries(
+                    manifest_path, src_file=manifest_src)
+            except OSError as e:
+                print(f"bbtool codegen: error: {e}", file=sys.stderr)
+                return 1
+            entries = entries + manifest_entries
+            provides_entries = list(provides_entries) + manifest_provides
+
         ordered = topo_sort(entries)
         source = render_source(ordered, provides_entries)
     except (ManifestError, ConditionalSetError, ParseError, CycleError, MissingProviderError,

@@ -737,6 +737,57 @@ This embeds the version into `esp_app_desc.version`.
 
 ---
 
+## `codegen` command — `args=` (parameterized init calls) and `--consumer-manifest`
+
+`// bbtool:init` markers default to a parameterless call convention
+(`fn()`, expected to return `bb_err_t`). `args=<raw C argument text>` opts a
+marker into a PARAMETERIZED call instead — the value is spliced VERBATIM
+into the generated call, e.g.:
+
+```c
+// bbtool:init tier=regular fn=bb_wifi_prov_autoinit
+//     args=bb_wifi_prov_default_form_get(),1,NULL
+bb_err_t bb_wifi_prov_autoinit(const bb_http_asset_t *assets, size_t n,
+                                bb_wifi_prov_cb_t cb);
+```
+
+generates `bb_app_rc = bb_wifi_prov_autoinit(bb_wifi_prov_default_form_get(),1,NULL);`
+— still wrapped in the normal `bb_err_t`/`bb_app_rc` convention, and still
+subject to `tier=`/`order=`/`requires=`/`provides=` exactly like any other
+marker.
+
+**`args=` values MUST be whitespace-free.** The marker line itself is
+whitespace-tokenized (one `key=value` token per space-separated word), so
+this parser is deliberately a naive grep, not a real tokenizer — a space
+inside an `args=` value splits into a second, unrelated token instead of
+extending the value, and surfaces as a parse error (usually "malformed
+token" or "unknown key"), never a silently truncated argument list. The
+value's own commas are never re-split (unlike `provides=`/`requires=`,
+which ARE csv lists) and the symbols/expressions inside it are never
+validated here — **the C compiler is the real validator**, exactly like
+every other `fn=`/`ctx=` value in this grep-time DSL. `args=` is mutually
+exclusive with `server=true` (the http-handle path supplies its own
+argument) and with `consumes=` (the setter-injection path supplies its own
+`(symbol, ctx)` pair).
+
+### `--consumer-manifest <path>`
+
+```
+python3 scripts/bbtool.py codegen --root . --board my_board \
+    --consumer-manifest examples/smoke/main/smoke_app.c
+```
+
+Parses **one** extra file for `// bbtool:init`/`// bbtool:provides` markers
+and merges its entries into the wire entry set **before** topo-sort — lets a
+composition-root file (an example's own `main/`, never a component) declare
+its own init markers, e.g. one that `requires=` a key a composed component
+`provides=`. This is a **distinct code path from component discovery**: the
+manifest file never joins the component namespace and never contributes to
+the REQUIRES/composition closure (`wire_graph.topo_sort` has no notion of an
+entry's origin — a manifest entry sorts in the same tier graph as any
+component entry). Omitted by default; output is byte-identical to not
+passing the flag at all.
+
 ## `codegen` command — multi-root discovery (B1-1084)
 
 `bbtool codegen` resolves the composition over a discovery `roots` list, not just a

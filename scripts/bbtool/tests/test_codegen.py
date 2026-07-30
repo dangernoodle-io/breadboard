@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
@@ -473,6 +474,130 @@ class TestMultiRootDiscovery(unittest.TestCase):
             self.assertEqual(rc, 1)
             self.assertIn("bbtool codegen: error:", err_buf.getvalue())
             self.assertIn("bb_dup", err_buf.getvalue())
+
+
+class TestConsumerManifestFlag(unittest.TestCase):
+    """B1-731: `--consumer-manifest <path>` parses ONE extra file for
+    markers and merges it into the wire entry set before topo_sort -- a
+    manifest entry's requires= can be satisfied by a component's provides=
+    (the forcing case: an example's main/ requiring a component-provided
+    key), and omitting the flag must be byte-identical to today."""
+
+    def test_manifest_absent_output_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo", platform="espidf",
+                components_out=str(root / "out" / "c.cmake"), wire_out=wire_out,
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+            without_flag = Path(wire_out).read_text(encoding="utf-8")
+
+            wire_out2 = str(root / "out2" / "bb_app_init.c")
+            args2 = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo", platform="espidf",
+                components_out=str(root / "out2" / "c.cmake"), wire_out=wire_out2,
+                consumer_manifest=None,
+            )
+            buf2 = io.StringIO()
+            with contextlib.redirect_stdout(buf2):
+                rc2 = run(args2)
+            self.assertEqual(rc2, 0)
+            with_none_flag = Path(wire_out2).read_text(encoding="utf-8")
+            self.assertEqual(without_flag, with_none_flag)
+
+    def test_manifest_entry_requires_component_provided_key(self):
+        """B1-731 forcing case: a manifest entry (standing in for an
+        example's main/) requires= a key only a composed COMPONENT
+        provides= -- must resolve and sort after it, never a
+        MissingProviderError."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            manifest_path = root / "examples" / "smoke" / "main" / "smoke_app.c"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(
+                "// bbtool:init tier=early fn=smoke_app_start requires=log_stream\n",
+                encoding="utf-8",
+            )
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo", platform="espidf",
+                components_out=str(root / "out" / "c.cmake"), wire_out=wire_out,
+                consumer_manifest=str(manifest_path),
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+            source = Path(wire_out).read_text(encoding="utf-8")
+            stream_pos = source.index("bb_log_stream_init()")
+            smoke_pos = source.index("smoke_app_start()")
+            self.assertLess(stream_pos, smoke_pos)
+
+    def test_manifest_entry_never_joins_component_namespace(self):
+        """The manifest path must stay distinct from component discovery --
+        a manifest containing a requires= key nothing (component OR
+        manifest) provides= must still hard-fail, proving the manifest
+        entries were merged, not silently ignored / never validated."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            manifest_path = root / "examples" / "smoke" / "main" / "smoke_app.c"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(
+                "// bbtool:init tier=early fn=smoke_app_start requires=ghost_key\n",
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo", platform="espidf",
+                components_out=None, wire_out=None,
+                consumer_manifest=str(manifest_path),
+            )
+            rc = run(args)
+            self.assertEqual(rc, 1)
+
+    def test_manifest_missing_file_is_clean_error_not_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            args = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo", platform="espidf",
+                components_out=None, wire_out=None,
+                consumer_manifest=str(root / "no_such_manifest.c"),
+            )
+            err_buf = io.StringIO()
+            with contextlib.redirect_stderr(err_buf):
+                rc = run(args)
+            self.assertEqual(rc, 1)
+            self.assertIn("bbtool codegen: error:", err_buf.getvalue())
+
+    def test_pre_existing_path_oserror_not_swallowed_by_manifest_catch(self):
+        """The OSError catch is scoped to the --consumer-manifest read only
+        -- an OSError from a PRE-EXISTING path (e.g. collect_entries hitting
+        an unreadable component header) must propagate as a raw exception,
+        not get silently downgraded to this command's clean one-line
+        manifest-missing-file error."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            manifest_path = root / "examples" / "smoke" / "main" / "smoke_app.c"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(
+                "// bbtool:init tier=early fn=smoke_app_start requires=log_stream\n",
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo", platform="espidf",
+                components_out=None, wire_out=None,
+                consumer_manifest=str(manifest_path),
+            )
+            with mock.patch(
+                "commands.codegen.collect_entries",
+                side_effect=OSError("permission denied: bb_log.h"),
+            ):
+                with self.assertRaises(OSError):
+                    run(args)
 
 
 class _FakeEnv:
