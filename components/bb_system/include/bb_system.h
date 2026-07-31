@@ -187,6 +187,44 @@ void bb_system_restart_reason(bb_reset_source_t src, const char *detail);
 /// bb_system_restart_reason is exactly this call with caller_epoch_s=0.
 void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint32_t caller_epoch_s);
 
+/// Arms a deferred restart: delay_us after this call, work runs on the
+/// shared bb_timer_disp task (bb_timer_deferred_oneshot_create/
+/// bb_timer_oneshot_start under the hood) -- OFF the caller's task -- and
+/// then calls bb_system_restart_reason(src, detail), which never returns.
+/// Re-arming (a second call before the first fires) restarts the delay with
+/// the new src/detail, same "re-arming a pending timer restarts it"
+/// semantics as bb_timer_oneshot_start.
+///
+/// detail may be NULL; non-NULL values are copied into a small internal
+/// static bounded at 49 bytes (matching bb_reboot_record_encode's 48-char
+/// bound) -- the caller's pointer need not outlive this call.
+///
+/// ONE shared static oneshot timer for the whole process, lazily created on
+/// first call -- mirrors the lazy-static idiom this extracts from its two
+/// prior hand-rolled call sites (bb_wifi.c's bb_wifi_reconfigure,
+/// examples/floor's provisioning-is-transient reboot).
+///
+/// Synchronization: the pending src/detail statics and the timer (re-)arm
+/// are internally lock-protected (bb_lock_t, lazily initialized) against
+/// concurrent callers, AND against the timer's own fire callback -- a fire
+/// already dequeued off the shared timer-dispatch task can be reading
+/// src/detail at the same instant another task calls this function, so the
+/// fire path takes the same lock around its read. No caller-visible action
+/// is required; this only rules out a torn/corrupted detail string.
+///
+/// CAVEAT (accepted): because the timer and its pending src/detail are
+/// process-wide singletons, two distinct causes arming within the same
+/// delay_us window still collapse to last-arm-wins -- only the winning
+/// arm's src/detail get persisted/logged. Synchronization above guarantees
+/// that collapse is clean (a real string, never a torn one), not that it is
+/// avoided: which caller's write actually lands as "last" is still
+/// timing-dependent when two calls genuinely race. The restart still
+/// happens either way; only the *recorded reason* may not match whichever
+/// caller armed first. Do not engineer around this -- callers needing
+/// distinguishable causes racing in the same window need a different
+/// primitive.
+void bb_system_restart_deferred(bb_reset_source_t src, const char *detail, uint32_t delay_us);
+
 /// Encode and persist a reboot record (src, detail, epoch_s, uptime_s) under
 /// BB_REBOOT_NVS_NS/BB_REBOOT_KEY_LAST via bb_reboot_record_encode +
 /// bb_nv_set_str. detail may be NULL; non-NULL values are bounded and

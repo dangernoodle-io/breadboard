@@ -8,6 +8,7 @@ set(_sys_srcs
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_boot_fail.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_reboot_budget.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_safeguard_reboot.c"
+    "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_restart_deferred.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_snap.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system.c")
 # bb_serialize: REQUIRES -- bb_system_snap.h is now a public header
@@ -18,7 +19,7 @@ set(_sys_srcs
 # bb_board (B1-977 dissolution) -- esp_ota_get_running_partition (app_update),
 # esp_flash_get_size (spi_flash), esp_chip_info/esp_read_mac/esp_clk_cpu_freq
 # (esp_hw_support).
-set(_sys_priv_reqs bb_log bb_config esp_app_format bb_http esp_driver_tsens esp_system bb_ntp bb_data bb_str bb_storage app_update spi_flash esp_hw_support)
+set(_sys_priv_reqs bb_log bb_config esp_app_format bb_http esp_driver_tsens esp_system bb_ntp bb_data bb_str bb_storage app_update spi_flash esp_hw_support bb_timer)
 
 if(CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER)
     list(APPEND _sys_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system_routes.c")
