@@ -1,0 +1,19 @@
+# no-psram — shared sdkconfig defaults for no-PSRAM-class smoke boards
+# (esp32, esp32-autofan, esp32-boot-progress, esp32-boot-status,
+# esp32-cache-sweep, esp32c3). elecrow-p4-hmi7 and tdongle set
+# CONFIG_SPIRAM=y and do NOT include this fragment.
+#
+# One place for settings shared by every no-PSRAM board in this example, so
+# adding a new no-PSRAM-class constraint is a one-file change instead of
+# repeating it across every board's sdkconfig.defaults.*. Listed FIRST in
+# SDKCONFIG_DEFAULTS so board-specific files still win on overlap. Follows
+# the TaipanMiner sdkconfig/no-psram fragment convention.
+#
+# Only settings whose correct value depends on the PSRAM axis belong here.
+
+# bb_mdns batch ring (see components/bb_mdns/Kconfig BB_MDNS_BATCH_MAX):
+# the Kconfig default of 16 targets PSRAM-equipped boards, where the ring
+# allocator places large items in SPIRAM. On no-PSRAM boards the same ring
+# and scratch item come out of internal heap, so cap at 4 to stay within
+# budget.
+CONFIG_BB_MDNS_BATCH_MAX=4
