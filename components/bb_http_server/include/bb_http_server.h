@@ -352,11 +352,6 @@ bb_http_handle_t bb_http_server_get_handle(void);
 // bbtool:init tier=pre_http provides=http_server fn=bb_http_autostart_init
 bb_http_handle_t bb_http_autostart_init(void);
 
-// Route-registry-cap audit; runs last among regular-tier entries so it sees
-// every route registration.
-// bbtool:init tier=regular fn=bb_http_route_audit_init server=true
-bb_err_t bb_http_route_audit_init(bb_http_handle_t server);
-
 // Poll the server for new connections (Arduino backend only; no-op on ESP-IDF).
 void bb_http_server_poll(void);
 

@@ -150,15 +150,16 @@ config BB_HTTP_LWIP_SEM_PER_THREAD
       know you're not running SSE or chunked emits under load.
 
 config BB_HTTP_ROUTE_REGISTRY_STRICT
-    bool "Panic/assert on route registry overflow after regular-tier walk"
+    bool "Panic/assert on route registry overflow at registration time"
     default y
     help
-      After the regular-tier (route-registration) walk finishes, audit
-      bb_http_route_registry_count() against BB_ROUTE_REGISTRY_CAP.
-      When enabled (default), overflow triggers an assert (fatal). At count >=
-      CAP-8 a bb_log_w warning fires unconditionally even when strict is off.
-      Disable only on explicitly constrained ROM builds where the silent-drop
-      behaviour is acceptable.
+      Checked inline at the route registration that overflows the registry
+      (registry_add() in route_registry.c), not after any walk — it fires
+      the instant CONFIG_BB_HTTP_ROUTE_REGISTRY_CAP is exceeded, regardless
+      of registration order. When enabled (default), overflow triggers an
+      assert (fatal). At count >= CAP-8 a bb_log_w warning fires once
+      unconditionally, even when strict is off. Disable only on explicitly
+      constrained ROM builds where the silent-drop behaviour is acceptable.
 
 config BB_HTTP_ROUTE_DUP_STRICT
     bool "Panic/assert on duplicate (method,path) route registration"
