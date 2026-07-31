@@ -22,9 +22,19 @@ void test_prov_gate_disable_unconditionally_allows(void)
     TEST_ASSERT_TRUE(bb_http_prov_gate_allow(true, BB_HTTP_POST, "/anything"));
 }
 
+// bb_http_prov_gate_is_active() has the same compiled-in escape-hatch guard
+// as bb_http_prov_gate_allow() -- this env is the ONLY place that branch is
+// actually compiled (see the file header comment); prove it too, not just
+// the allow() escape hatch.
+void test_prov_gate_disable_is_active_always_false(void)
+{
+    TEST_ASSERT_FALSE(bb_http_prov_gate_is_active());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_prov_gate_disable_unconditionally_allows);
+    RUN_TEST(test_prov_gate_disable_is_active_always_false);
     return UNITY_END();
 }

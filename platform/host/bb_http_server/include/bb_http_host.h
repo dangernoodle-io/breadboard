@@ -113,6 +113,44 @@ bb_err_t bb_http_host_asset_wildcard(bb_http_request_t *req, const char *uri);
 // Reset the stored asset table (call in teardown after wildcard tests).
 void bb_http_host_reset_assets(void);
 
+// ---------------------------------------------------------------------------
+// Provisioning-gate dispatch mirrors (B1-1279 PR3). Each mirrors one of the
+// three ESP-IDF insertion points in bb_http.c so host tests can exercise the
+// actual gate-checking logic at each site, not just the underlying pure
+// bb_http_prov_gate_allow() predicate. See bb_http.c for the device-side
+// counterparts (api_dispatch_handler, bb_shim_handler, asset_wildcard_handler
+// — the asset counterpart is bb_http_host_asset_wildcard() above, which
+// gates internally).
+// ---------------------------------------------------------------------------
+
+// Host mirror of api_dispatch_handler: gate, then dispatch through the
+// shared bb_dispatch_api table (register routes first via
+// bb_http_register_route with an "/api/..." path).
+bb_err_t bb_http_host_api_dispatch(bb_http_request_t *req,
+                                   bb_http_method_t method,
+                                   const char *uri);
+
+// Host mirror of bb_shim_handler: gate, then dispatch a non-/api route
+// previously registered via bb_http_register_route. Denied and
+// never-registered both resolve to 404, matching the device handler's
+// deny-looks-like-404 contract.
+bb_err_t bb_http_host_dispatch_route(bb_http_request_t *req,
+                                     bb_http_method_t method,
+                                     const char *uri);
+
+// Reset the non-/api route registry populated by bb_http_register_route
+// (call in teardown after bb_http_host_dispatch_route tests).
+void bb_http_host_reset_routes(void);
+
+// Host mirror of method_not_allowed_err_handler: gate on `method` when
+// `mapped` is true (mirrors bb_http_method_from_httpd() succeeding); when
+// `mapped` is false (mirrors an unmappable method, e.g. HEAD), fails closed
+// with 404 while provisioning is active instead of falling through to the
+// registration check. Otherwise resolves 404 (unregistered) vs 405
+// (registered, wrong method) exactly like the device handler.
+bb_err_t bb_http_host_method_not_allowed(bb_http_request_t *req, bool mapped,
+                                         bb_http_method_t method, const char *uri);
+
 #ifdef __cplusplus
 }
 #endif

@@ -379,6 +379,15 @@ bb_err_t bb_wifi_prov_start(const bb_http_asset_t *assets, size_t n,
     // wildcard is silently rejected (ESP_ERR_HTTPD_HANDLER_EXISTS) and the
     // redirect never fires. Registered LAST so all specific GETs above win
     // first-match.
+    // INVARIANT: prov_redirect_handler is dispatched ungated on an asset
+    // MISS (bb_http.c's asset_wildcard_handler, "deliberately NOT gated").
+    // That's safe only because reaching this line already means THIS call
+    // won the single "/*" httpd registration below — wifi_prov_policy.c's
+    // wp_active_on_entry (which flips the gate active) runs only after
+    // act_try_prov_start observes that success. Do not pass a non-NULL
+    // fallback to bb_http_register_assets_with_fallback() from anywhere
+    // that can be reached while the gate is active without re-checking that
+    // ordering (see that function's own warning).
     bb_err_t assets_err = bb_http_register_assets_with_fallback(server, assets, n, prov_redirect_handler);
     if (assets_err != BB_OK) {
         bb_log_e(TAG, "failed to register asset/captive-portal wildcard: %d", (int)assets_err);

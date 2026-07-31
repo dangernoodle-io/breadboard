@@ -12,6 +12,7 @@
 /* dispatch API decls now live in bb_http_server.h (included above) */
 #include "bb_http_status.h"
 #include "bb_http_query.h"
+#include "bb_http_prov_gate.h"
 #include "bb_mem.h"
 #include "bb_str.h"
 #include <stdlib.h>
@@ -91,6 +92,24 @@ void bb_http_host_force_send_chunk_term_fail(bool fail)
     s_force_send_chunk_term_fail = fail;
 }
 
+// ============================================================================
+// Non-/api imperative route registry — host mirror of the espidf backend's
+// per-route httpd_uri_t registrations dispatched through bb_shim_handler
+// (bb_http.c). Small and exact-match-only (real non-/api routes, e.g. /ping,
+// /save, are registered by exact path) — this exists purely so
+// bb_http_host_dispatch_route() can exercise the SAME provisioning-gate
+// check bb_shim_handler makes, on host (B1-1279 PR3).
+// ============================================================================
+#define BB_HTTP_HOST_ROUTE_CAP 16
+typedef struct {
+    bb_http_method_t   method;
+    const char         *path;
+    bb_http_handler_fn handler;
+} host_route_entry_t;
+
+static host_route_entry_t s_host_routes[BB_HTTP_HOST_ROUTE_CAP];
+static size_t             s_host_route_count;
+
 bb_err_t bb_http_register_route(bb_http_handle_t server,
                                 bb_http_method_t method,
                                 const char *path,
@@ -112,9 +131,54 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
         bb_err_t derr = bb_dispatch_api_add(method, path, handler);
         return derr == BB_ERR_INVALID_STATE ? BB_OK : derr;
     }
-    (void)method;
-    (void)path;
-    (void)handler;
+    // Non-/api path: store in the small host route registry above so
+    // bb_http_host_dispatch_route() can look it up (mirrors bb_shim_handler
+    // dispatching a real httpd_uri_t registration). Overflow is silently
+    // dropped (test-infra cap, not a production path) — existing callers
+    // only assert BB_OK here (see test_register_route_non_api_path_unaffected),
+    // so this stays additive rather than a behavior change.
+    if (path && handler && s_host_route_count < BB_HTTP_HOST_ROUTE_CAP) {
+        s_host_routes[s_host_route_count].method  = method;
+        s_host_routes[s_host_route_count].path    = path;
+        s_host_routes[s_host_route_count].handler = handler;
+        s_host_route_count++;
+    }
+    return BB_OK;
+}
+
+// Test-only reset for the non-/api route registry (mirrors
+// bb_http_host_reset_assets()).
+void bb_http_host_reset_routes(void)
+{
+    memset(s_host_routes, 0, sizeof(s_host_routes));
+    s_host_route_count = 0;
+}
+
+// Host mirror of bb_shim_handler (bb_http.c): look up a previously
+// registered non-/api route by exact (method,path) and, gated by
+// bb_http_prov_gate_check(), invoke it. Sets 404 (via the capture-backed
+// bb_http_resp_set_status) and returns BB_OK, without invoking the handler,
+// when either no such route is registered or the gate denies it — the two
+// cases are deliberately indistinguishable to the caller, matching the
+// device handler's contract.
+bb_err_t bb_http_host_dispatch_route(bb_http_request_t *req,
+                                     bb_http_method_t method,
+                                     const char *uri)
+{
+    if (!req || !uri) return BB_ERR_INVALID_ARG;
+
+    for (size_t i = 0; i < s_host_route_count; i++) {
+        if (s_host_routes[i].method != method) continue;
+        if (strcmp(s_host_routes[i].path, uri) != 0) continue;
+
+        if (!bb_http_prov_gate_check(method, uri)) {
+            bb_http_resp_set_status(req, 404);
+            return BB_OK;
+        }
+        return s_host_routes[i].handler(req);
+    }
+
+    bb_http_resp_set_status(req, 404);
     return BB_OK;
 }
 
@@ -243,6 +307,9 @@ static size_t                 s_asset_count   = 0;
 // mirrors the espidf backend's s_asset_fallback for host-side test coverage.
 static bb_http_handler_fn     s_asset_fallback = NULL;
 
+// WARNING (mirrors bb_http.c's espidf-side warning at this same function
+// name): any non-NULL `fallback` is dispatched ungated on a wildcard miss —
+// a caller must not be reachable while bb_http_prov_gate can be active.
 bb_err_t bb_http_register_assets_with_fallback(bb_http_handle_t server,
                                                const bb_http_asset_t *assets,
                                                size_t n,
@@ -305,18 +372,110 @@ bb_err_t bb_http_host_asset_wildcard(bb_http_request_t *req, const char *uri)
 
     for (size_t i = 0; i < s_asset_count; i++) {
         if (strcmp(s_assets[i].path, uri) == 0) {
+            // Provisioning gate — host mirror of asset_wildcard_handler's
+            // own check (bb_http.c, insertion point 3/3, B1-1279 PR3).
+            // Gated ONLY on an asset-table HIT — mirrors the device
+            // handler's fix: a MISS falls through to the registered
+            // fallback below ungated (see bb_http.c's asset_wildcard_handler
+            // for the full rationale, captive-portal auto-detect).
+            if (!bb_http_prov_gate_check(BB_HTTP_GET, uri)) {
+                bb_http_resp_set_status(req, 404);
+                return BB_OK;
+            }
             return bb_http_host_serve_asset(req, &s_assets[i]);
         }
     }
 
     // No match: hand off to a registered fallback (mirrors the espidf
-    // backend's asset_wildcard_handler fallback dispatch).
+    // backend's asset_wildcard_handler fallback dispatch). Deliberately NOT
+    // gated — see the comment above.
+    //
+    // INVARIANT this relies on (mirrors bb_http.c's asset_wildcard_handler):
+    // s_asset_fallback can only be non-NULL while the gate can be active
+    // because the only in-tree non-NULL-fallback caller is
+    // bb_wifi_prov_start(), which is ESP-IDF-only and commits its fallback
+    // only after its own "/*" registration wins — untestable on host, hence
+    // this mirror exists only to exercise the dispatch mechanics, not the
+    // invariant itself.
     if (s_asset_fallback) {
         return s_asset_fallback(req);
     }
 
     // Not found, no fallback → 404
     bb_http_resp_set_status(req, 404);
+    return BB_OK;
+}
+
+// Host mirror of api_dispatch_handler (bb_http.c): gate, then look up
+// (method,uri) in the shared bb_dispatch_api table and invoke the handler on
+// a hit, mirroring the device handler's status-code mapping (200-ish via the
+// handler itself / 404 MISS / 405 METHOD_MISMATCH). Insertion point 1/3
+// (B1-1279 PR3).
+bb_err_t bb_http_host_api_dispatch(bb_http_request_t *req,
+                                   bb_http_method_t method,
+                                   const char *uri)
+{
+    if (!req || !uri) return BB_ERR_INVALID_ARG;
+
+    if (!bb_http_prov_gate_check(method, uri)) {
+        bb_http_resp_set_status(req, 404);
+        return BB_OK;
+    }
+
+    bb_http_handler_fn handler = NULL;
+    bb_dispatch_api_result_t res = bb_dispatch_api_lookup(method, uri, &handler);
+
+    if (res == BB_DISPATCH_API_HIT) {
+        if (!handler) {
+            bb_http_resp_set_status(req, 501);
+            return BB_OK;
+        }
+        return handler(req);
+    }
+
+    if (res == BB_DISPATCH_API_METHOD_MISMATCH) {
+        bb_http_resp_set_status(req, 405);
+        return BB_OK;
+    }
+
+    // MISS
+    bb_http_resp_set_status(req, 404);
+    return BB_OK;
+}
+
+// Host mirror of method_not_allowed_err_handler (bb_http.c, insertion point
+// 4/4). Host has no httpd method-int space (HTTP_HEAD etc.) to map from, so
+// the caller supplies the mapped outcome directly via `mapped` instead of a
+// raw method integer — pass false to simulate an unmappable method (e.g.
+// HEAD). Mirrors the device handler's fail-closed branch for that case
+// exactly: while provisioning is active, an unmappable method 404s
+// unconditionally rather than falling through to the registration check.
+//
+// Cross-reference: `mapped` is caller-supplied, not derived from a host
+// mirror of bb_http_method_from_httpd()'s switch (bb_http.c) — a method
+// added there is invisible to host tests unless callers of this fn are
+// updated by hand. Check bb_http_method_from_httpd()'s own comment when
+// adding/removing a case.
+bb_err_t bb_http_host_method_not_allowed(bb_http_request_t *req, bool mapped,
+                                         bb_http_method_t method, const char *uri)
+{
+    if (!req || !uri) return BB_ERR_INVALID_ARG;
+
+    if (mapped) {
+        if (!bb_http_prov_gate_check(method, uri)) {
+            bb_http_resp_set_status(req, 404);
+            return BB_OK;
+        }
+    } else if (bb_http_prov_gate_is_active()) {
+        bb_http_resp_set_status(req, 404);
+        return BB_OK;
+    }
+
+    if (!bb_http_uri_is_registered(uri)) {
+        bb_http_resp_set_status(req, 404);
+    } else {
+        bb_http_resp_set_status(req, 405);
+    }
     return BB_OK;
 }
 

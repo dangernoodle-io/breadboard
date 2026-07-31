@@ -2,6 +2,7 @@
 #include "bb_http_server.h"
 #include "bb_http_status.h"
 #include "bb_http_query.h"
+#include "bb_http_prov_gate.h"
 #include "bb_mem.h"
 #include "esp_http_server.h"
 #include "esp_event.h"
@@ -60,6 +61,35 @@ static const char *bb_http_method_str(bb_http_method_t method)
         case BB_HTTP_DELETE:  return "DELETE";
         case BB_HTTP_OPTIONS: return "OPTIONS";
         default:              return "UNKNOWN";
+    }
+}
+
+// Reverse of bb_http_register_route's method mapping: httpd's method integer
+// -> bb_http_method_t. Shared by every dispatch entry point that needs to
+// resolve the requesting method for a bb_http_prov_gate_check() call
+// (api_dispatch_handler, bb_shim_handler, method_not_allowed_err_handler) —
+// asset_wildcard_handler doesn't need it, it's GET-only by registration.
+// Returns false for a method no route ever registers on purpose (e.g. HEAD)
+// — unlike the other three call sites, method_not_allowed_err_handler CAN
+// see one of these for real: httpd's 405 error handler fires for ANY
+// method against ANY URI, not just registered ones, so a genuine HEAD
+// request reaches it and must be handled explicitly (see that handler's own
+// unmappable-method branch) rather than treated as defensive/unreachable.
+// Cross-reference: bb_http_host_method_not_allowed()'s `mapped` bool
+// (bb_http_host.c) is caller-supplied rather than derived from a host
+// mirror of this switch — editing the method list here does not get caught
+// by any host test. Check that call site's own comment when adding/removing
+// a case.
+static bool bb_http_method_from_httpd(int http_method, bb_http_method_t *out)
+{
+    switch (http_method) {
+        case HTTP_GET:     *out = BB_HTTP_GET;     return true;
+        case HTTP_POST:    *out = BB_HTTP_POST;    return true;
+        case HTTP_PUT:     *out = BB_HTTP_PUT;     return true;
+        case HTTP_PATCH:   *out = BB_HTTP_PATCH;   return true;
+        case HTTP_DELETE:  *out = BB_HTTP_DELETE;  return true;
+        case HTTP_OPTIONS: *out = BB_HTTP_OPTIONS; return true;
+        default:           return false;
     }
 }
 
@@ -259,10 +289,37 @@ static esp_err_t preflight_handler(httpd_req_t *req)
 // (excluding the internal OPTIONS/* and GET/* catch-all wildcards), we send
 // 404. Only genuine method-mismatch requests (e.g. GET on a POST-only route)
 // keep the 405.
+// Provisioning-gate note: this handler fires on a genuine method mismatch —
+// a URI IS registered, just not for req->method. Left unguarded, a
+// non-allowlisted route would still leak "this URI exists" via 405 for a
+// wrong-method request during provisioning, even though the correct-method
+// request would 404 through bb_shim_handler's own gate check below. Gate
+// here too so a denied (method,uri) reads as plain 404 regardless of which
+// method the caller guesses.
+//
+// Unmappable-method note: bb_http_method_from_httpd() covers only
+// GET/POST/PUT/PATCH/DELETE/OPTIONS. A method it can't map (e.g. HEAD, sent
+// by browsers and `curl -I`) has no bb_http_method_t to run through the
+// allowlist at all, so the check above is skipped for it — but that must
+// NOT mean "unguarded": falling through to the plain registration check
+// below would still 405 an unmappable-method request for a registered URI,
+// reproducing exactly the leak this handler exists to close. While
+// provisioning is active, an unmappable method fails closed (404)
+// unconditionally instead.
 static esp_err_t method_not_allowed_err_handler(httpd_req_t *req,
                                                 httpd_err_code_t err)
 {
     (void)err;
+    bb_http_method_t method;
+    if (bb_http_method_from_httpd(req->method, &method)) {
+        if (!bb_http_prov_gate_check(method, req->uri)) {
+            httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
+            return ESP_OK;
+        }
+    } else if (bb_http_prov_gate_is_active()) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
+        return ESP_OK;
+    }
     if (!bb_http_uri_is_registered(req->uri)) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
     } else {
@@ -283,22 +340,27 @@ static esp_err_t api_dispatch_handler(httpd_req_t *req)
 {
     // Map httpd method integer → bb_http_method_t.
     bb_http_method_t method;
-    switch (req->method) {
-        case HTTP_GET:    method = BB_HTTP_GET;    break;
-        case HTTP_POST:   method = BB_HTTP_POST;   break;
-        case HTTP_PUT:    method = BB_HTTP_PUT;    break;
-        case HTTP_PATCH:  method = BB_HTTP_PATCH;  break;
-        case HTTP_DELETE: method = BB_HTTP_DELETE; break;
-        default:
-            httpd_resp_set_status(req, "405 Method Not Allowed");
-            httpd_resp_set_type(req, "application/json");
-            httpd_resp_sendstr(req, "{\"error\":\"method not allowed\"}");
-            return ESP_OK;
+    if (!bb_http_method_from_httpd(req->method, &method)) {
+        httpd_resp_set_status(req, "405 Method Not Allowed");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"method not allowed\"}");
+        return ESP_OK;
     }
 
     // Strip query string: dispatch lookup accepts URI with query but doing it
     // here avoids duplicate work across many handlers.
     const char *uri = req->uri;
+
+    // Provisioning gate — insertion point 1/3. During provisioning, deny
+    // anything not explicitly allowlisted with the same 404 shape as a
+    // genuine MISS below, so a denied route is indistinguishable from one
+    // that doesn't exist (see bb_http_prov_gate.h).
+    if (!bb_http_prov_gate_check(method, uri)) {
+        httpd_resp_set_status(req, "404 Not Found");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"not found\"}");
+        return ESP_OK;
+    }
 
     bb_http_handler_fn handler = NULL;
     bb_dispatch_api_result_t res = bb_dispatch_api_lookup(method, uri, &handler);
@@ -434,6 +496,18 @@ static esp_err_t bb_shim_handler(httpd_req_t *req)
     }
     bb_http_handler_fn fn = (bb_http_handler_fn)req->user_ctx;
     if (!fn) return ESP_FAIL;
+
+    // Provisioning gate — insertion point 2/3. Every non-/api imperative
+    // route registered via bb_http_register_route (e.g. /ping, /save)
+    // dispatches through this one shim, so gating here covers all of them
+    // in one place. Denied requests never reach the consumer's handler.
+    bb_http_method_t method;
+    if (bb_http_method_from_httpd(req->method, &method) &&
+        !bb_http_prov_gate_check(method, req->uri)) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
+        return ESP_OK;
+    }
+
     return fn((bb_http_request_t*)req) == BB_OK ? ESP_OK : ESP_FAIL;
 }
 
@@ -476,6 +550,30 @@ static esp_err_t asset_wildcard_handler(httpd_req_t *req)
 
     for (size_t i = 0; i < s_asset_count; i++) {
         if (strcmp(s_assets[i].path, uri) == 0) {
+            // Provisioning gate — insertion point 3/3. This handler is
+            // registered directly as "/*"'s .handler (see
+            // bb_http_register_assets_with_fallback below) and does NOT go
+            // through bb_shim_handler, so it needs its own gate check — this
+            // is exactly the hole the design work behind this PR flagged:
+            // gating only api_dispatch_handler + bb_shim_handler would have
+            // left every asset request ungated.
+            //
+            // Gated ONLY on an asset-table HIT, deliberately — NOT
+            // unconditionally at the top of this handler. A MISS falls
+            // through to the registered fallback below (e.g. bb_wifi_prov's
+            // captive-portal redirect) ungated: client OSes probe
+            // unenumerable paths (/generate_204, /hotspot-detect.html, …)
+            // to auto-detect the captive portal, and bb_http_prov_gate's
+            // wildcard allowlist entries are restricted to /api/ paths (see
+            // bb_http_prov_gate.h), so those probe paths could never be
+            // allowlisted directly. The fallback itself is
+            // provisioning-required (it's what makes portal auto-popup
+            // work), so "no asset match -> registered fallback" is treated
+            // as an allowed outcome rather than gated here.
+            if (!bb_http_prov_gate_check(BB_HTTP_GET, req->uri)) {
+                httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
+                return ESP_OK;
+            }
             return bb_http_serve_asset(req, &s_assets[i]);
         }
     }
@@ -484,7 +582,16 @@ static esp_err_t asset_wildcard_handler(httpd_req_t *req)
     // captive-portal redirect) using the same bb_shim_handler bridging
     // contract — cast req to bb_http_request_t* and translate BB_OK/error to
     // ESP_OK/ESP_FAIL. Falls through to the plain 404 when no fallback is
-    // registered.
+    // registered. Deliberately NOT gated — see the comment above.
+    //
+    // INVARIANT this relies on: s_asset_fallback can only be non-NULL while
+    // the gate can be active because the only in-tree non-NULL-fallback
+    // caller is bb_wifi_prov_start() (bb_wifi_prov.c), which commits its
+    // fallback only after ITS OWN "/*" registration wins (see
+    // bb_http_register_assets_with_fallback below, which commits state only
+    // post-success) — so a live fallback here means bb_wifi_prov owns this
+    // wildcard. See bb_http_register_assets_with_fallback's own comment for
+    // the obligation this places on any future non-NULL-fallback caller.
     if (s_asset_fallback) {
         return s_asset_fallback((bb_http_request_t*)req) == BB_OK ? ESP_OK : ESP_FAIL;
     }
@@ -649,6 +756,13 @@ bb_err_t bb_http_req_get_header(bb_http_request_t *req, const char *name,
     return BB_ERR_NOT_FOUND;
 }
 
+// WARNING for any future non-NULL-fallback caller: asset_wildcard_handler's
+// no-match branch dispatches to `fallback` UNGATED (see that handler's own
+// comment). That is safe today only because the sole caller,
+// bb_wifi_prov_start(), is unreachable-while-ungated by construction — a new
+// caller passing non-NULL here must not be reachable while
+// bb_http_prov_gate can be active, or it reopens the hole the gate exists to
+// close.
 bb_err_t bb_http_register_assets_with_fallback(bb_http_handle_t server,
                                                const bb_http_asset_t *assets,
                                                size_t n,

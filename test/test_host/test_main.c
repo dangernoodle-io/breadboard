@@ -1715,6 +1715,68 @@ void test_bb_http_prov_gate_exact_same_length_mismatch_denies(void);
 void test_bb_http_prov_gate_wildcard_non_api_path_rejected(void);
 void test_bb_http_prov_gate_wildcard_api_path_accepted(void);
 
+// Forward declarations from test_bb_http_prov_gate_wire.c
+void test_bb_http_prov_gate_wire_api_active_allowlisted_reaches_handler(void);
+void test_bb_http_prov_gate_wire_api_active_non_allowlisted_denies_404(void);
+void test_bb_http_prov_gate_wire_api_inactive_unaffected(void);
+void test_bb_http_prov_gate_wire_shim_active_ping_allowlisted_reaches_handler(void);
+void test_bb_http_prov_gate_wire_shim_active_non_allowlisted_denies_404(void);
+void test_bb_http_prov_gate_wire_shim_inactive_unaffected(void);
+void test_bb_http_prov_gate_wire_asset_active_allowlisted_serves(void);
+void test_bb_http_prov_gate_wire_asset_active_non_allowlisted_denies_404(void);
+void test_bb_http_prov_gate_wire_asset_inactive_unaffected(void);
+void test_bb_http_prov_gate_wire_closing_settle_window_gates_like_active(void);
+void test_bb_http_prov_gate_wire_no_active_fn_registered_unaffected(void);
+void test_bb_http_prov_gate_wire_asset_active_miss_reaches_fallback_ungated(void);
+void test_bb_http_prov_gate_wire_unmapped_method_active_denies_404(void);
+void test_bb_http_prov_gate_wire_unmapped_method_inactive_falls_through_to_405(void);
+void test_bb_http_prov_gate_wire_unmapped_method_unregistered_uri_404(void);
+void test_bb_http_prov_gate_wire_unmapped_method_no_active_fn_falls_through_to_405(void);
+void test_bb_http_prov_gate_wire_method_not_allowed_null_args_invalid_arg(void);
+void test_bb_http_prov_gate_wire_mapped_method_active_non_allowlisted_denies_404(void);
+void test_bb_http_prov_gate_wire_mapped_method_active_allowlisted_falls_through_to_405(void);
+
+// Forward declarations from test_bb_http_host_coverage.c
+void test_bb_http_host_register_route_non_api_overflow_silently_dropped(void);
+void test_bb_http_host_register_route_null_path_and_handler_tolerated(void);
+void test_bb_http_host_dispatch_route_null_req_invalid_arg(void);
+void test_bb_http_host_dispatch_route_null_uri_invalid_arg(void);
+void test_bb_http_host_dispatch_route_method_mismatch_denies_404(void);
+void test_bb_http_host_dispatch_route_path_mismatch_denies_404(void);
+void test_bb_http_host_dispatch_route_never_registered_denies_404(void);
+void test_bb_http_host_api_dispatch_null_req_invalid_arg(void);
+void test_bb_http_host_api_dispatch_null_uri_invalid_arg(void);
+void test_bb_http_host_api_dispatch_hit_with_null_handler_returns_501(void);
+void test_bb_http_host_api_dispatch_method_mismatch_returns_405(void);
+void test_bb_http_host_api_dispatch_miss_returns_404(void);
+void test_bb_http_resp_set_type_null_mime_leaves_content_type_unset(void);
+void test_bb_http_resp_set_header_null_key_noop(void);
+void test_bb_http_resp_set_header_no_active_capture_noop(void);
+void test_bb_http_req_body_len_no_body_injected_returns_zero(void);
+void test_bb_http_req_body_len_no_active_capture_returns_zero(void);
+void test_bb_http_req_recv_truncates_to_buf_size(void);
+void test_bb_http_req_recv_body_injected_but_zero_length_returns_zero(void);
+void test_bb_http_host_serve_asset_null_args_invalid_arg(void);
+void test_bb_http_host_serve_asset_propagates_set_type_failure(void);
+void test_bb_http_host_asset_wildcard_null_args_invalid_arg(void);
+void test_bb_http_host_asset_wildcard_long_path_query_truncated_to_404(void);
+void test_bb_http_resp_sendstr_null_str_sends_empty(void);
+void test_bb_http_resp_sendstr_propagates_send_chunk_failure(void);
+void test_bb_http_resp_send_chunk_zero_length_buf_skips_growth(void);
+void test_bb_http_resp_send_chunk_realloc_failure_leaves_body_unchanged(void);
+void test_bb_http_resp_no_content_no_active_capture_noop(void);
+void test_bb_http_req_uri_no_active_capture_defaults_empty(void);
+void test_bb_http_req_query_key_value_bare_key_zero_outlen_invalid_arg(void);
+void test_bb_http_req_query_key_value_segment_shorter_than_key_skipped(void);
+void test_bb_http_req_query_key_value_legacy_mismatch_invalid_arg(void);
+void test_bb_http_req_query_key_value_legacy_key_matches_but_val_null_invalid_arg(void);
+void test_bb_http_req_query_has_key_legacy_mismatch_false(void);
+void test_bb_http_req_query_has_key_no_query_key_set_false(void);
+void test_bb_http_host_capture_begin_null_out_req_noop(void);
+void test_bb_http_host_capture_set_req_body_null_body_zeroes_len(void);
+void test_bb_http_host_capture_end_mismatched_req_invalid_arg(void);
+void test_bb_http_host_capture_free_null_cap_noop(void);
+
 // Forward declarations from test_bb_route_uri_match.c
 void test_bb_route_uri_match_null_pattern_false(void);
 void test_bb_route_uri_match_null_uri_false(void);
@@ -9178,6 +9240,70 @@ int main(void) {
     RUN_TEST(test_bb_http_prov_gate_exact_same_length_mismatch_denies);
     RUN_TEST(test_bb_http_prov_gate_wildcard_non_api_path_rejected);
     RUN_TEST(test_bb_http_prov_gate_wildcard_api_path_accepted);
+
+    // bb_http_prov_gate wiring tests (B1-1279 PR3 -- the three dispatch
+    // insertion points, via their host mirrors)
+    RUN_TEST(test_bb_http_prov_gate_wire_api_active_allowlisted_reaches_handler);
+    RUN_TEST(test_bb_http_prov_gate_wire_api_active_non_allowlisted_denies_404);
+    RUN_TEST(test_bb_http_prov_gate_wire_api_inactive_unaffected);
+    RUN_TEST(test_bb_http_prov_gate_wire_shim_active_ping_allowlisted_reaches_handler);
+    RUN_TEST(test_bb_http_prov_gate_wire_shim_active_non_allowlisted_denies_404);
+    RUN_TEST(test_bb_http_prov_gate_wire_shim_inactive_unaffected);
+    RUN_TEST(test_bb_http_prov_gate_wire_asset_active_allowlisted_serves);
+    RUN_TEST(test_bb_http_prov_gate_wire_asset_active_non_allowlisted_denies_404);
+    RUN_TEST(test_bb_http_prov_gate_wire_asset_inactive_unaffected);
+    RUN_TEST(test_bb_http_prov_gate_wire_closing_settle_window_gates_like_active);
+    RUN_TEST(test_bb_http_prov_gate_wire_no_active_fn_registered_unaffected);
+    RUN_TEST(test_bb_http_prov_gate_wire_asset_active_miss_reaches_fallback_ungated);
+    RUN_TEST(test_bb_http_prov_gate_wire_unmapped_method_active_denies_404);
+    RUN_TEST(test_bb_http_prov_gate_wire_unmapped_method_inactive_falls_through_to_405);
+    RUN_TEST(test_bb_http_prov_gate_wire_unmapped_method_unregistered_uri_404);
+    RUN_TEST(test_bb_http_prov_gate_wire_unmapped_method_no_active_fn_falls_through_to_405);
+    RUN_TEST(test_bb_http_prov_gate_wire_method_not_allowed_null_args_invalid_arg);
+    RUN_TEST(test_bb_http_prov_gate_wire_mapped_method_active_non_allowlisted_denies_404);
+    RUN_TEST(test_bb_http_prov_gate_wire_mapped_method_active_allowlisted_falls_through_to_405);
+
+    // bb_http_host.c residual coverage (B1-1279 PR3 -- line-shift ratchet,
+    // see test_bb_http_host_coverage.c)
+    RUN_TEST(test_bb_http_host_register_route_non_api_overflow_silently_dropped);
+    RUN_TEST(test_bb_http_host_register_route_null_path_and_handler_tolerated);
+    RUN_TEST(test_bb_http_host_dispatch_route_null_req_invalid_arg);
+    RUN_TEST(test_bb_http_host_dispatch_route_null_uri_invalid_arg);
+    RUN_TEST(test_bb_http_host_dispatch_route_method_mismatch_denies_404);
+    RUN_TEST(test_bb_http_host_dispatch_route_path_mismatch_denies_404);
+    RUN_TEST(test_bb_http_host_dispatch_route_never_registered_denies_404);
+    RUN_TEST(test_bb_http_host_api_dispatch_null_req_invalid_arg);
+    RUN_TEST(test_bb_http_host_api_dispatch_null_uri_invalid_arg);
+    RUN_TEST(test_bb_http_host_api_dispatch_hit_with_null_handler_returns_501);
+    RUN_TEST(test_bb_http_host_api_dispatch_method_mismatch_returns_405);
+    RUN_TEST(test_bb_http_host_api_dispatch_miss_returns_404);
+    RUN_TEST(test_bb_http_resp_set_type_null_mime_leaves_content_type_unset);
+    RUN_TEST(test_bb_http_resp_set_header_null_key_noop);
+    RUN_TEST(test_bb_http_resp_set_header_no_active_capture_noop);
+    RUN_TEST(test_bb_http_req_body_len_no_body_injected_returns_zero);
+    RUN_TEST(test_bb_http_req_body_len_no_active_capture_returns_zero);
+    RUN_TEST(test_bb_http_req_recv_truncates_to_buf_size);
+    RUN_TEST(test_bb_http_req_recv_body_injected_but_zero_length_returns_zero);
+    RUN_TEST(test_bb_http_host_serve_asset_null_args_invalid_arg);
+    RUN_TEST(test_bb_http_host_serve_asset_propagates_set_type_failure);
+    RUN_TEST(test_bb_http_host_asset_wildcard_null_args_invalid_arg);
+    RUN_TEST(test_bb_http_host_asset_wildcard_long_path_query_truncated_to_404);
+    RUN_TEST(test_bb_http_resp_sendstr_null_str_sends_empty);
+    RUN_TEST(test_bb_http_resp_sendstr_propagates_send_chunk_failure);
+    RUN_TEST(test_bb_http_resp_send_chunk_zero_length_buf_skips_growth);
+    RUN_TEST(test_bb_http_resp_send_chunk_realloc_failure_leaves_body_unchanged);
+    RUN_TEST(test_bb_http_resp_no_content_no_active_capture_noop);
+    RUN_TEST(test_bb_http_req_uri_no_active_capture_defaults_empty);
+    RUN_TEST(test_bb_http_req_query_key_value_bare_key_zero_outlen_invalid_arg);
+    RUN_TEST(test_bb_http_req_query_key_value_segment_shorter_than_key_skipped);
+    RUN_TEST(test_bb_http_req_query_key_value_legacy_mismatch_invalid_arg);
+    RUN_TEST(test_bb_http_req_query_key_value_legacy_key_matches_but_val_null_invalid_arg);
+    RUN_TEST(test_bb_http_req_query_has_key_legacy_mismatch_false);
+    RUN_TEST(test_bb_http_req_query_has_key_no_query_key_set_false);
+    RUN_TEST(test_bb_http_host_capture_begin_null_out_req_noop);
+    RUN_TEST(test_bb_http_host_capture_set_req_body_null_body_zeroes_len);
+    RUN_TEST(test_bb_http_host_capture_end_mismatched_req_invalid_arg);
+    RUN_TEST(test_bb_http_host_capture_free_null_cap_noop);
 
     // bb_route_uri_match tests (the shared pattern-vs-uri predicate seam)
     RUN_TEST(test_bb_route_uri_match_null_pattern_false);
