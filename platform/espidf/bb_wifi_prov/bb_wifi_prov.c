@@ -1,10 +1,12 @@
 #include "bb_wifi_prov.h"
+#include "bb_http_prov_gate.h"
 #include "bb_http_serialize_stream.h"
 #include "bb_http_server.h"
 #include "bb_log.h"
 #include "bb_settings.h"
 #include "bb_wifi.h"
 #include "bb_wifi_prov_scan_wire.h"
+#include "wifi_prov_gate_wire.h"
 #include "wifi_prov_mgr.h"
 #include "wifi_prov_policy.h"
 #include "freertos/FreeRTOS.h"
@@ -27,6 +29,14 @@ static bb_wifi_prov_save_cb_t s_save_cb = NULL;
 // call is a harmless idempotent write, same posture as bb_wifi.c's own
 // unlocked s_scan_in_progress flag.
 static bool s_scan_ever_requested = false;
+
+// B1-1279 PR-4: guards bb_http_prov_gate_set_active_fn()/wifi_prov_gate_wire_
+// register() so a second bb_wifi_prov_start() call (documented idempotent,
+// see this function's own comment) does not re-add duplicate allowlist
+// entries and burn BB_HTTP_PROV_ALLOWLIST_CAP slots. Set exactly once, from
+// the HTTP task inside bb_wifi_prov_start() -- same single-writer posture as
+// s_scan_ever_requested above.
+static bool s_gate_wired = false;
 
 void bb_wifi_prov_set_save_callback(bb_wifi_prov_save_cb_t cb) { s_save_cb = cb; }
 
@@ -394,6 +404,45 @@ bb_err_t bb_wifi_prov_start(const bb_http_asset_t *assets, size_t n,
         return assets_err;
     }
 
+    // B1-1279 PR-4: activate the provisioning route gate. Wires bb_wifi_prov_
+    // is_active() as bb_http_prov_gate's signal source and allowlists exactly
+    // the routes provisioning cannot complete without (see wifi_prov_gate_
+    // wire.h) -- everything else served by the shared HTTP server 404s while
+    // WP_ACTIVE/WP_CLOSING (bb_http_prov_gate_check()'s call sites in
+    // platform/espidf/bb_http_server/bb_http.c). Guarded by s_gate_wired so a
+    // second bb_wifi_prov_start() call doesn't double-register allowlist
+    // entries. Runs BEFORE this function returns BB_OK, which is always
+    // before wp_active_on_entry can flip the gate active (that hook fires
+    // only after this call's caller, act_try_prov_start, observes BB_OK --
+    // see wifi_prov_policy.c) -- so the gate is never active with an
+    // incomplete allowlist.
+    if (!s_gate_wired) {
+        bb_http_prov_gate_set_active_fn(bb_wifi_prov_is_active);
+        bb_err_t gate_err = wifi_prov_gate_wire_register(assets, n);
+        if (gate_err != BB_OK) {
+            // MEDIUM review fix (B1-1279 PR-4): this used to be logged and
+            // discarded, so bb_wifi_prov_start() still returned BB_OK with no
+            // other trace of a degraded portal. Deliberately still return
+            // BB_OK here rather than propagating gate_err out of this
+            // function -- a composition whose fixed(3)+n allowlist entries
+            // exceed BB_HTTP_PROV_ALLOWLIST_CAP is a build-time asset-count
+            // mistake, not a security regression (the gate still fails
+            // CLOSED on whatever didn't fit), and failing the whole
+            // provisioning flow over it would leave the device
+            // unprovisionable rather than merely portal-degraded. Instead,
+            // wifi_prov_gate_wire_register() itself records the incomplete
+            // outcome (wifi_prov_gate_wire_last_registration_complete()) so
+            // bb_wifi_prov_gate_degraded() can surface it distinctly to any
+            // caller that wants to detect and report a degraded portal
+            // rather than relying on this one log line.
+            bb_log_e(TAG, "provisioning allowlist registration incomplete: %d "
+                     "(BB_HTTP_PROV_ALLOWLIST_CAP too small for this composition?) "
+                     "-- portal degraded, see bb_wifi_prov_gate_degraded()",
+                     (int)gate_err);
+        }
+        s_gate_wired = true;
+    }
+
     bb_log_i(TAG, "provisioning server started on port 80");
 
     // Prefetch the SSID list so the portal's auto-scan on first page-load
@@ -461,4 +510,9 @@ void bb_wifi_prov_request_portal(void)
 bool bb_wifi_prov_is_active(void)
 {
     return wifi_prov_mgr_is_active();
+}
+
+bool bb_wifi_prov_gate_degraded(void)
+{
+    return !wifi_prov_gate_wire_last_registration_complete();
 }
