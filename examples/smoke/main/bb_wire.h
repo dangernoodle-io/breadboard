@@ -64,6 +64,11 @@
 #include "bb_system_routes.h"
 #include "bb_health.h"
 #include "bb_openapi.h"
+#include "bb_storage_http.h"
+#include "bb_log_http.h"
+#include "bb_diag_http.h"
+#include "bb_wifi_http.h"
+#include "bb_sensor_http.h"
 
 // bbtool:init tier=early fn=bb_lifecycle_register out=s_smoke_wifi_svc:bb_lifecycle_svc_t args=&(bb_lifecycle_config_t){.name="wifi"},&s_smoke_wifi_svc
 
@@ -80,6 +85,34 @@
 // bbtool:init tier=regular fn=bb_health_init server=true component=bb_health
 
 // bbtool:init tier=regular fn=bb_openapi_init server=true component=bb_openapi
+
+// B1-1316: bb_storage_http_routes_init/bb_storage_http_factory_reset_routes_init/
+// bb_log_register_routes_init/bb_diag_routes_init/bb_diag_sections_init
+// (bb_diag_http component) plus bb_wifi_routes_init (bb_wifi_http) and
+// bb_sensor_http_init (bb_sensor_http) are the second batch of
+// route-registering registry hooks relocated out of their component headers
+// (B1-1279/B1-1314) -- most pointedly bb_diag_routes_init/
+// bb_diag_sections_init, which register GET /api/diag/meminfo among other
+// diagnostics: a component composed only for its SSOT (reset-reason latch,
+// panic capture, WiFi STA core, sensor bb_data keys) must not also be
+// forced to expose its full HTTP surface to an unauthenticated provisioning
+// SoftAP client (B1-1279, hardware-confirmed). `component=` (B1-1275) pulls
+// each component's own REQUIRES/PRIV_REQUIRES closure so the manifest entry
+// composes correctly.
+
+// bbtool:init tier=regular fn=bb_storage_http_routes_init server=true component=bb_diag_http
+
+// bbtool:init tier=regular fn=bb_storage_http_factory_reset_routes_init server=true component=bb_diag_http
+
+// bbtool:init tier=regular fn=bb_log_register_routes_init server=true component=bb_diag_http
+
+// bbtool:init tier=regular fn=bb_diag_routes_init server=true component=bb_diag_http
+
+// bbtool:init tier=regular fn=bb_diag_sections_init server=true component=bb_diag_http
+
+// bbtool:init tier=regular fn=bb_wifi_routes_init server=true component=bb_wifi_http
+
+// bbtool:init tier=regular fn=bb_sensor_http_init server=true component=bb_sensor_http
 
 // B1-1274-adjacent: GET /ping, GET /ws, and POST /api/wsbcast are smoke's
 // own app-level routes (examples/smoke/main/smoke_app.c), not a component

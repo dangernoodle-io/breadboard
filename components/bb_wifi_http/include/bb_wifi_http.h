@@ -49,7 +49,6 @@ bb_err_t bb_wifi_routes_reserve(void);
 
 /// Registry hook — registers GET /api/wifi, POST /api/wifi/scan, GET
 /// /api/diag/wifi, and (when CONFIG_BB_WIFI_RECONFIGURE=y) PATCH /api/wifi.
-// bbtool:init tier=regular fn=bb_wifi_routes_init server=true
 bb_err_t bb_wifi_routes_init(bb_http_handle_t server);
 
 #ifdef __cplusplus
