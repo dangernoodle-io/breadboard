@@ -75,6 +75,8 @@
 #include "bb_ota_check.h"
 #include "bb_ota_pull.h"
 #include "bb_ota_push.h"
+#include "bb_mdns.h"
+#include "bb_log_event.h"
 
 // bbtool:init tier=early fn=bb_lifecycle_register out=s_smoke_wifi_svc:bb_lifecycle_svc_t args=&(bb_lifecycle_config_t){.name="wifi"},&s_smoke_wifi_svc
 
@@ -142,6 +144,48 @@
 // bbtool:init tier=regular fn=bb_ota_pull_init server=true component=bb_ota_pull
 
 // bbtool:init tier=regular fn=bb_ota_push_init server=true component=bb_ota_push
+
+// B1-1318 (epic B1-1314), fourth batch: bb_mdns_registry_init and
+// bb_log_event_init are route-registering registry hooks relocated out of
+// their component headers (B1-1279/B1-1314), same shape as batches 1-3.
+// `component=` (B1-1275) pulls each component's own REQUIRES/PRIV_REQUIRES
+// closure so the manifest entry composes correctly. bb_log_event_init's
+// source header is platform/espidf/bb_log_event/bb_log_event.h -- a
+// flat (no include/ subdir) platform-only header, not a components/<name>/
+// include/ one; wire.py's _component_headers falls back to the component's
+// flat dir the same way for both components/ and platform/ layouts, so
+// relocating a platform-only marker behaves identically to a components/
+// one (verified against wire.py's docstring and this batch's generated
+// bb_app_init.c diff).
+//
+// bb_display_info_register_init (components/display/bb_display/include/
+// bb_display_info.h) is DELIBERATELY NOT relocated here, unlike the other
+// two -- its header marker is deleted (closing the real B1-1279 exposure: a
+// direct `bbtool codegen --board elecrow_p4_hmi7` omitting `--wire-board`
+// would otherwise auto-scan bb_display's header via collect_entries and
+// force-register the route) but no manifest entry replaces it. Smoke's wire
+// generation is deliberately board-invariant (`--wire-board
+// smoke_wire_baseline`, shared by all four `smoke-gen-*` Makefile targets),
+// while `component=` folds into the REQUIRES/components-fragment resolution
+// PER REAL --board (codegen.py's run(), before resolve_composition_with_
+// graph). Adding `component=bb_display` here would therefore pull bb_display
+// into REQUIRES for every smoke board (not just the two display boards that
+// add it via bbtool.toml's per-board add_components) and emit the call
+// unconditionally, since wire generation doesn't vary by board -- an
+// unvalidated runtime behavior change on display boards, exactly what
+// bbtool.toml's `[board.smoke_wire_baseline]` comment already flags as
+// needing hardware validation via a separate ticket. Removing the marker
+// changes nothing for any build today: wire generation's fixed baseline
+// never included bb_display, so the function has zero generated call sites
+// in this repo currently. bb_display_info_register_init becomes reachable
+// only via explicit handwire (matching its current de-facto status);
+// bb_display_register_info() -- the different function entry_espidf.c
+// already handwires under `__has_include("bb_display_info.h")` -- is
+// untouched.
+
+// bbtool:init tier=regular fn=bb_mdns_registry_init server=true component=bb_mdns
+
+// bbtool:init tier=regular fn=bb_log_event_init server=true component=bb_log_event
 
 // B1-1274-adjacent: GET /ping, GET /ws, and POST /api/wsbcast are smoke's
 // own app-level routes (examples/smoke/main/smoke_app.c), not a component

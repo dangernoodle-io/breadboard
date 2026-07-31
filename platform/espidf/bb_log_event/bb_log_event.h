@@ -10,7 +10,6 @@
 #include "bb_core.h"
 #include "bb_http_server.h"
 
-// bbtool:init tier=regular fn=bb_log_event_init server=true
 bb_err_t bb_log_event_init(bb_http_handle_t server);
 
 #endif /* ESP_PLATFORM */

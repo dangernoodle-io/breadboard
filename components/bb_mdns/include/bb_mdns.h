@@ -40,7 +40,6 @@ bool bb_mdns_started(void);
 const char *bb_mdns_get_hostname(void);
 
 // Registry init: calls bb_mdns_init(). server is unused.
-// bbtool:init tier=regular fn=bb_mdns_registry_init server=true
 bb_err_t bb_mdns_registry_init(bb_http_handle_t server);
 
 #endif /* ESP_PLATFORM */
