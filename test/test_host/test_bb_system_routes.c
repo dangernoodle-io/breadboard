@@ -56,6 +56,7 @@
 
 #include "unity.h"
 #include "bb_system.h"
+#include "bb_system_routes.h"
 #include "bb_system_test.h"
 #include "bb_data.h"
 #include "bb_http.h"

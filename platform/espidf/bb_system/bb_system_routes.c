@@ -37,6 +37,7 @@
 #include "bb_log.h"
 #include "bb_serialize.h"
 #include "bb_system.h"
+#include "bb_system_routes.h"
 
 #ifdef BB_SYSTEM_TESTING
 #include "bb_system_test.h"
