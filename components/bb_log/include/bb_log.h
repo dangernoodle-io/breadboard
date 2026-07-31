@@ -98,6 +98,48 @@ bool bb_log_tag_at(size_t index, const char **tag_out, bb_log_level_t *level_out
  * fprintf(stderr|stdout, ...). Debug and verbose are compiled out on host
  * to keep test output clean.
  */
+/**
+ * Fixed-width mask substituted for a secret by bb_log_secret() below.
+ * Deliberately constant regardless of the real value's length: a length-
+ * preserving mask (e.g. one '*' per character) leaks how long the secret
+ * is, which narrows a brute-force/guessing search -- giving up nothing is
+ * strictly safer than giving up the length. Exposed so tests can assert
+ * against it without hardcoding "***" twice.
+ */
+#define BB_LOG_SECRET_MASK "***"
+
+/**
+ * The ONLY sanctioned way to put a secret-derived value (WiFi/MQTT
+ * password, PSK, token, ...) into a log line. `secret`'s bytes are read
+ * exactly once, to tell "unset" (NULL or "") from "set" -- they are never
+ * copied into a printf-style format string or otherwise interpolated, so
+ * there is no call shape that leaks the raw value through this function.
+ * Emits "<label>=<mask>" (BB_LOG_SECRET_MASK) when set, "<label>=(unset)"
+ * when NULL/empty, at `level`. The literal text "(unset)" can never
+ * collide with a real masked secret: any non-NULL, non-empty `secret` --
+ * even one whose actual value happens to BE the string "(unset)" -- always
+ * takes the `secret && secret[0]` branch and is masked as
+ * BB_LOG_SECRET_MASK, never emitted verbatim as the sentinel text. The
+ * "(unset)" line therefore always means exactly one thing: no value was
+ * supplied.
+ *
+ * Callers must never pre-mask a secret themselves and hand the masked
+ * string to a plain bb_log_i/e/w/d/v — that bypass is exactly what let the
+ * SoftAP password ship in plaintext once; route every secret through this
+ * function instead, and log any non-secret context (SSID, ssid-derived
+ * strings, etc.) with a normal bb_log_* call alongside it.
+ *
+ * `tag` and `label` are forwarded into a printf-style "%s" internally and
+ * are normalized to "?" if NULL (never UB on a NULL tag/label the way a
+ * bare vprintf-family "%s" would be) -- only `secret` carries the
+ * documented "read once to classify unset-vs-set" NULL-safety above.
+ *
+ * Portable — implemented once in bb_log_secret.c and compiled on every
+ * backend (ESP-IDF/Arduino/host), so the masking policy is identical
+ * everywhere bb_log runs.
+ */
+void bb_log_secret(bb_log_level_t level, const char *tag, const char *label, const char *secret);
+
 #ifdef ESP_PLATFORM
   #include "esp_log.h"
   #define bb_log_e(tag, fmt, ...) ESP_LOGE(tag, fmt, ##__VA_ARGS__)

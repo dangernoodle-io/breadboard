@@ -219,7 +219,15 @@ bb_err_t bb_wifi_ap_start(void)
         return ESP_FAIL;
     }
 
-    bb_log_i(TAG, "AP started: SSID=%s, password=%s", ssid, s_ap_password);
+    // Never log the password value in plaintext -- bb_log_secret is the
+    // only sanctioned path for a secret to reach a log line (see bb_log.h).
+    // Defence-in-depth here specifically: the default AP password
+    // ("breadboard", see s_ap_password's initializer above) is a build-time
+    // constant anyone with the firmware image can already read, so this is
+    // about consistent masking policy, not hiding a true secret -- a
+    // user-set non-default password gets the same treatment either way.
+    bb_log_i(TAG, "AP started: SSID=%s", ssid);
+    bb_log_secret(BB_LOG_LEVEL_INFO, TAG, "password", s_ap_password);
 
     return ESP_OK;
 }

@@ -1139,6 +1139,21 @@ void test_bb_system_reboot_meta_golden_matches_hand_literal(void);
 void test_bb_storage_http_delete_apply_meta_validates_against_desc(void);
 void test_bb_storage_http_delete_apply_meta_golden_matches_hand_literal(void);
 
+// Forward declarations from test_bb_log_secret.c
+void test_bb_log_secret_info_never_contains_raw_value(void);
+void test_bb_log_secret_error_never_contains_raw_value(void);
+void test_bb_log_secret_warn_never_contains_raw_value(void);
+void test_bb_log_secret_null_secret_reports_unset(void);
+void test_bb_log_secret_empty_secret_reports_unset(void);
+void test_bb_log_secret_mask_is_fixed_width_regardless_of_secret_length(void);
+void test_bb_log_secret_none_level_emits_nothing(void);
+void test_bb_log_secret_debug_level_does_not_crash(void);
+void test_bb_log_secret_verbose_level_does_not_crash(void);
+void test_bb_log_secret_unknown_level_emits_nothing(void);
+void test_bb_log_secret_null_tag_and_label_normalizes_instead_of_crashing(void);
+void test_bb_wifi_ap_start_routes_password_through_bb_log_secret(void);
+void test_bb_wifi_ap_start_never_hand_rolls_password_format(void);
+
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
 void test_bb_log_warning(void);
@@ -6138,6 +6153,21 @@ int main(void) {
     RUN_TEST(test_claim_holder_free_returns_null);
     RUN_TEST(test_claim_reset_clears_holder);
     RUN_TEST(test_claim_release_then_reacquire);
+
+    // bb_log_secret tests
+    RUN_TEST(test_bb_log_secret_info_never_contains_raw_value);
+    RUN_TEST(test_bb_log_secret_error_never_contains_raw_value);
+    RUN_TEST(test_bb_log_secret_warn_never_contains_raw_value);
+    RUN_TEST(test_bb_log_secret_null_secret_reports_unset);
+    RUN_TEST(test_bb_log_secret_empty_secret_reports_unset);
+    RUN_TEST(test_bb_log_secret_mask_is_fixed_width_regardless_of_secret_length);
+    RUN_TEST(test_bb_log_secret_none_level_emits_nothing);
+    RUN_TEST(test_bb_log_secret_debug_level_does_not_crash);
+    RUN_TEST(test_bb_log_secret_verbose_level_does_not_crash);
+    RUN_TEST(test_bb_log_secret_unknown_level_emits_nothing);
+    RUN_TEST(test_bb_log_secret_null_tag_and_label_normalizes_instead_of_crashing);
+    RUN_TEST(test_bb_wifi_ap_start_routes_password_through_bb_log_secret);
+    RUN_TEST(test_bb_wifi_ap_start_never_hand_rolls_password_format);
 
     // bb_log macro tests
     RUN_TEST(test_bb_log_error);
