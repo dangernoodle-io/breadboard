@@ -36,7 +36,6 @@ bb_err_t bb_ota_push_reserve_routes(void);
 /**
  * Register OTA push HTTP handler with an existing httpd instance.
  */
-// bbtool:init tier=regular fn=bb_ota_push_init server=true
 bb_err_t bb_ota_push_init(bb_http_handle_t server);
 
 #endif // ESP_PLATFORM

@@ -69,6 +69,12 @@
 #include "bb_diag_http.h"
 #include "bb_wifi_http.h"
 #include "bb_sensor_http.h"
+#include "bb_ota_boot.h"
+#include "bb_ota_hooks.h"
+#include "bb_ota_validator.h"
+#include "bb_ota_check.h"
+#include "bb_ota_pull.h"
+#include "bb_ota_push.h"
 
 // bbtool:init tier=early fn=bb_lifecycle_register out=s_smoke_wifi_svc:bb_lifecycle_svc_t args=&(bb_lifecycle_config_t){.name="wifi"},&s_smoke_wifi_svc
 
@@ -113,6 +119,29 @@
 // bbtool:init tier=regular fn=bb_wifi_routes_init server=true component=bb_wifi_http
 
 // bbtool:init tier=regular fn=bb_sensor_http_init server=true component=bb_sensor_http
+
+// B1-1317: bb_ota_boot_init/bb_ota_hooks_init/bb_ota_validator_init/
+// bb_ota_check_register_init/bb_ota_pull_init/bb_ota_push_init are the
+// third batch of route-registering registry hooks relocated out of their
+// component headers (B1-1279/B1-1314) -- the OTA family accepts firmware
+// images, so a board that composes an adjacent component must not end up
+// serving OTA endpoints it never asked for. `component=` (B1-1275) pulls
+// each component's own REQUIRES/PRIV_REQUIRES closure so the manifest
+// entry composes correctly. bb_ota_boot_init/bb_ota_pull_init keep their
+// existing Kconfig-bridge stub shape in-header (BB_OTA_STRATEGY_BOOT/PULL,
+// see bb_ota_boot.h/bb_ota_pull.h) -- only the marker line moved.
+
+// bbtool:init tier=regular fn=bb_ota_boot_init server=true component=bb_ota_boot
+
+// bbtool:init tier=regular fn=bb_ota_hooks_init server=true component=bb_ota_hooks
+
+// bbtool:init tier=regular fn=bb_ota_validator_init server=true component=bb_ota_validator
+
+// bbtool:init tier=regular fn=bb_ota_check_register_init server=true component=bb_ota_check
+
+// bbtool:init tier=regular fn=bb_ota_pull_init server=true component=bb_ota_pull
+
+// bbtool:init tier=regular fn=bb_ota_push_init server=true component=bb_ota_push
 
 // B1-1274-adjacent: GET /ping, GET /ws, and POST /api/wsbcast are smoke's
 // own app-level routes (examples/smoke/main/smoke_app.c), not a component

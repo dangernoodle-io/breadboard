@@ -100,7 +100,6 @@ bb_err_t bb_ota_pull_reserve_routes(void);
 /**
  * Register OTA pull HTTP handlers with an existing httpd instance.
  */
-// bbtool:init tier=regular fn=bb_ota_pull_init server=true
 bb_err_t bb_ota_pull_init(bb_http_handle_t server);
 #else
 static inline bb_err_t bb_ota_pull_init(bb_http_handle_t server) { (void)server; return BB_OK; }

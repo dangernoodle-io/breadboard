@@ -44,7 +44,6 @@ bb_err_t bb_ota_validator_reserve_routes(void);
 
 /* Registers POST /api/update/mark-valid, GET /api/update/partitions,
  * POST /api/update/recover with an existing httpd instance. */
-// bbtool:init tier=regular fn=bb_ota_validator_init server=true
 bb_err_t bb_ota_validator_init(bb_http_handle_t server);
 
 #endif /* ESP_PLATFORM */
