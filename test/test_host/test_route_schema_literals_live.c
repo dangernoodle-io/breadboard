@@ -51,7 +51,7 @@
 #include "bb_http_server.h"
 #include "bb_storage_http.h"
 #include "bb_log_http.h"
-#include "bb_system.h"
+#include "bb_system_routes.h"
 #include "bb_data.h"
 #include "test_route_schema_walk_common.h"
 

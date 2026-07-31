@@ -19,7 +19,15 @@ set(_sys_srcs
 # bb_board (B1-977 dissolution) -- esp_ota_get_running_partition (app_update),
 # esp_flash_get_size (spi_flash), esp_chip_info/esp_read_mac/esp_clk_cpu_freq
 # (esp_hw_support).
-set(_sys_priv_reqs bb_log bb_config esp_app_format bb_http esp_driver_tsens esp_system bb_ntp bb_data bb_str bb_storage app_update spi_flash esp_hw_support bb_timer)
+# bb_http_server: PRIV -- B1-1313: bb_http_handle_t/route declarations moved
+# off bb_system.h onto the co-located include/bb_system_routes.h (bb_diag_http/
+# bb_storage_http.h precedent), so bb_system's own public header no longer
+# needs it; only bb_system_routes.c (this component's own .c, gated behind
+# CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER below) still calls into it. A codegen
+# consumer taking bb_system's primitives (reboot-reason SSOT, boot banner,
+# boot-fail counters, bb_system_snap) no longer inherits this edge unless it
+# separately includes bb_system_routes.h.
+set(_sys_priv_reqs bb_log bb_config esp_app_format bb_http esp_driver_tsens esp_system bb_ntp bb_data bb_str bb_storage app_update spi_flash esp_hw_support bb_timer bb_http_server)
 
 if(CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER)
     list(APPEND _sys_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system_routes.c")
@@ -37,7 +45,7 @@ endif()
 idf_component_register(
     SRCS ${_sys_srcs}
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_http_server bb_serialize bb_serialize_meta
+    REQUIRES bb_core bb_serialize bb_serialize_meta
     PRIV_REQUIRES ${_sys_priv_reqs}
 )
 
