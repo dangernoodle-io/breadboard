@@ -31,7 +31,6 @@ bb_err_t bb_health_reserve_routes(void);
 
 // Registry hook — registers GET /api/health and starts the stack
 // high-water monitor.
-// bbtool:init tier=regular fn=bb_health_init server=true
 bb_err_t bb_health_init(bb_http_handle_t server);
 
 // Registry hook — registers the low-stack transition handler with
