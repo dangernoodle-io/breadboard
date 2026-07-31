@@ -22,6 +22,11 @@ typedef struct {
 static bb_http_prov_gate_entry_t s_allowlist[BB_HTTP_PROV_ALLOWLIST_CAP];
 static size_t                    s_allowlist_count;
 
+// Injected "is provisioning active" signal source (see bb_http_prov_gate.h).
+// NULL (the default) means "never active" — an app that never wires a
+// source sees zero gating.
+static bb_http_prov_active_fn_t  s_active_fn;
+
 void bb_http_prov_gate_reset(void)
 {
     // TEST-ONLY (see header) — clear the count BEFORE zeroing the entries
@@ -30,6 +35,29 @@ void bb_http_prov_gate_reset(void)
     // rather than a stale count over zeroed (NULL-path) entries.
     s_allowlist_count = 0;
     memset(s_allowlist, 0, sizeof(s_allowlist));
+    s_active_fn = NULL;
+}
+
+void bb_http_prov_gate_set_active_fn(bb_http_prov_active_fn_t fn)
+{
+    s_active_fn = fn;
+}
+
+bool bb_http_prov_gate_check(bb_http_method_t method, const char *uri)
+{
+    bool prov_active = s_active_fn ? s_active_fn() : false;
+    return bb_http_prov_gate_allow(prov_active, method, uri);
+}
+
+bool bb_http_prov_gate_is_active(void)
+{
+#if defined(CONFIG_BB_WIFI_PROV_GATE_DISABLE) && CONFIG_BB_WIFI_PROV_GATE_DISABLE
+    // Same escape hatch as bb_http_prov_gate_allow(): fully defeated, so
+    // callers deciding whether to fail closed see "never active".
+    return false;
+#else
+    return s_active_fn ? s_active_fn() : false;
+#endif
 }
 
 bb_err_t bb_http_prov_allow(bb_http_method_t method, const char *path)
