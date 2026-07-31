@@ -966,6 +966,216 @@ void test_register_route_cross_component_scan_dup_bb_wifi_http_then_bb_wifi_prov
 // Overflow returns BB_ERR_NO_SPACE (audit F14)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Route-registry-cap fold (B1-1319): the overflow-strict escalation and the
+// high-watermark warn used to live in bb_http_route_audit_init(), a
+// bbtool:init composition entry that codegen always emitted BEFORE every
+// route registration (it has no `order=`-solvable dependency edge on the
+// routes it's meant to audit), so it always audited a near-empty registry
+// and never fired. Folded into registry_add() itself, both behaviors are
+// now order-independent -- they run at the registration that actually
+// crosses the threshold.
+// ---------------------------------------------------------------------------
+
+extern bool bb_http_route_registry_strict_would_fire(void);
+extern bool bb_http_route_registry_strict_trap_hit(void);
+extern void bb_http_route_registry_strict_trap_reset(void);
+extern void bb_http_route_registry_strict_force(bool enabled);
+extern void bb_http_route_registry_strict_force_reset(void);
+
+// The STRICT decision (CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT, Kconfig default
+// y) drives a process-aborting assert() on host, which a Unity test cannot
+// observe as a passing result (BB_HTTP_TESTING compiles the assert() itself
+// out -- see registry_add()). Pinning the predicate alone only proves the
+// Kconfig default resolves to true in isolation -- it says nothing about
+// whether registry_add() actually wires that predicate into the overflow
+// path (a reviewer confirmed the escalation block could be deleted wholesale
+// without failing a single native test under the predicate-only version of
+// this test). This test instead drives a REAL overflow through
+// registry_add() and asserts the trap hook (set inside the escalation
+// block) actually fired -- so removing or short-circuiting that block
+// fails this test, not just an isolated predicate check. The trap's
+// setter/reset function SHAPE echoes bb_http_host_force_register_fail(),
+// but the trap lives in the portable, always-compiled route_registry.c
+// (guarded #ifdef BB_HTTP_TESTING) rather than in a host-only TU, since
+// registry_add() itself needs to set it.
+void test_route_registry_strict_trap_fires_on_overflow(void)
+{
+    // bb_http_route_registry_clear() resets the trap/override test seams
+    // too (see its own doc comment in route_registry.c).
+    bb_http_route_registry_clear();
+    TEST_ASSERT_FALSE(bb_http_route_registry_strict_trap_hit());
+
+    static const bb_route_response_t s_resp[] = {
+        { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+        { .status = 0 },
+    };
+    static bb_route_t s_routes[65];
+    static char       s_paths[65][16];
+    for (int i = 0; i < 65; i++) {
+        snprintf(s_paths[i], sizeof(s_paths[i]), "/api/trap%d", i);
+        s_routes[i] = (bb_route_t){
+            .method    = BB_HTTP_GET,
+            .path      = s_paths[i],
+            .tag       = "trap",
+            .summary   = "strict trap test",
+            .responses = s_resp,
+            .handler   = stub_handler,
+        };
+    }
+
+    // Fill to cap -- trap must not have fired yet (no overflow reached).
+    for (int i = 0; i < 64; i++) {
+        bb_err_t err = bb_http_register_route_descriptor_only(&s_routes[i]);
+        TEST_ASSERT_EQUAL(BB_OK, err);
+    }
+    TEST_ASSERT_FALSE(bb_http_route_registry_strict_trap_hit());
+
+    // 65th registration overflows -- with STRICT on (host default), the
+    // escalation block in registry_add() must actually run.
+    bb_err_t overflow_err = bb_http_register_route_descriptor_only(&s_routes[64]);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, overflow_err);
+    TEST_ASSERT_TRUE(bb_http_route_registry_strict_trap_hit());
+
+    bb_http_route_registry_strict_trap_reset();
+}
+
+// The Kconfig default resolves the STRICT decision the same way on every
+// host test run, so without an override the false branch of
+// "if (bb_http_route_registry_strict_would_fire())" in registry_add() is
+// unreachable from a host test. bb_http_route_registry_strict_force()
+// flips the decision for this test only, proving overflow with STRICT off
+// still returns BB_ERR_NO_SPACE (fail-closed) but does NOT trip the trap
+// hook -- the complementary case to
+// test_route_registry_strict_trap_fires_on_overflow above.
+void test_route_registry_strict_trap_does_not_fire_when_strict_disabled(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_route_registry_strict_force(false);
+
+    static const bb_route_response_t s_resp[] = {
+        { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+        { .status = 0 },
+    };
+    static bb_route_t s_routes[65];
+    static char       s_paths[65][16];
+    for (int i = 0; i < 65; i++) {
+        snprintf(s_paths[i], sizeof(s_paths[i]), "/api/nostrict%d", i);
+        s_routes[i] = (bb_route_t){
+            .method    = BB_HTTP_GET,
+            .path      = s_paths[i],
+            .tag       = "nostrict",
+            .summary   = "strict-disabled overflow test",
+            .responses = s_resp,
+            .handler   = stub_handler,
+        };
+    }
+
+    for (int i = 0; i < 64; i++) {
+        bb_err_t err = bb_http_register_route_descriptor_only(&s_routes[i]);
+        TEST_ASSERT_EQUAL(BB_OK, err);
+    }
+
+    bb_err_t overflow_err = bb_http_register_route_descriptor_only(&s_routes[64]);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, overflow_err);
+    TEST_ASSERT_FALSE(bb_http_route_registry_strict_trap_hit());
+
+    bb_http_route_registry_strict_force_reset();
+    bb_http_route_registry_strict_trap_reset();
+}
+
+// High-watermark warn fires once when the count crosses CAP-8, mirroring
+// bb_dispatch_api_add()'s s_dispatch_warned one-shot latch. There is no
+// host-side log-capture seam (same limitation noted in
+// test_bb_task_registry.c), so this test exercises both the true branch
+// (first crossing) and the false branch (already-warned) without crashing,
+// and pins that registrations keep succeeding all the way to cap.
+void test_route_registry_watermark_warn_fires_once_at_cap_minus_8(void)
+{
+    bb_http_route_registry_clear();
+
+    static const bb_route_response_t s_resp[] = {
+        { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+        { .status = 0 },
+    };
+    static bb_route_t s_routes[64];
+    static char       s_paths[64][16];
+
+    for (int i = 0; i < 64; i++) {
+        snprintf(s_paths[i], sizeof(s_paths[i]), "/api/wm%d", i);
+        s_routes[i] = (bb_route_t){
+            .method    = BB_HTTP_GET,
+            .path      = s_paths[i],
+            .tag       = "watermark",
+            .summary   = "watermark test",
+            .responses = s_resp,
+            .handler   = stub_handler,
+        };
+    }
+
+    // Registrations 0..55 (56 = CAP-8) stay below the watermark.
+    for (int i = 0; i < 56; i++) {
+        bb_err_t err = bb_http_register_route_descriptor_only(&s_routes[i]);
+        TEST_ASSERT_EQUAL_MESSAGE(BB_OK, err, "expected BB_OK below watermark");
+    }
+    TEST_ASSERT_EQUAL(56, bb_http_route_registry_count());
+
+    // Registration 56 (count becomes 57 = CAP-8+1) crosses the watermark --
+    // exercises the one-shot latch's true branch. Still succeeds (warn is
+    // informational, not a rejection).
+    bb_err_t crossing = bb_http_register_route_descriptor_only(&s_routes[56]);
+    TEST_ASSERT_EQUAL(BB_OK, crossing);
+    TEST_ASSERT_EQUAL(57, bb_http_route_registry_count());
+
+    // Registrations 57..63 stay above the watermark -- exercises the
+    // already-warned (false) branch of the latch on every subsequent add,
+    // and all the way to cap (64) still succeed.
+    for (int i = 57; i < 64; i++) {
+        bb_err_t err = bb_http_register_route_descriptor_only(&s_routes[i]);
+        TEST_ASSERT_EQUAL_MESSAGE(BB_OK, err, "expected BB_OK up to cap");
+    }
+    TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
+}
+
+// ---------------------------------------------------------------------------
+// bb_http_uri_strip_query_copy invalid-arg branch. This function's own
+// tests otherwise all reach it indirectly via bb_http_req_uri() (see
+// platform/host/bb_http_server/bb_http_host.c and
+// platform/espidf/bb_http_server/bb_http.c), which never passes invalid
+// args -- so the reject-invalid-args branch was never directly exercised.
+// This coverage gap pre-dates B1-1319's edit but the touched-file rule
+// (a file with pre-existing baseline gaps must have ALL of them closed
+// once you touch it) requires closing it here.
+// ---------------------------------------------------------------------------
+
+void test_uri_strip_query_copy_rejects_null_uri(void)
+{
+    char out[16];
+    bb_err_t err = bb_http_uri_strip_query_copy(NULL, out, sizeof(out));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_uri_strip_query_copy_rejects_null_out(void)
+{
+    bb_err_t err = bb_http_uri_strip_query_copy("/api/stats", NULL, 16);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_uri_strip_query_copy_rejects_zero_cap(void)
+{
+    char out[16];
+    bb_err_t err = bb_http_uri_strip_query_copy("/api/stats", out, 0);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_uri_strip_query_copy_accepts_valid_args(void)
+{
+    char out[16];
+    bb_err_t err = bb_http_uri_strip_query_copy("/api/stats?x=1", out, sizeof(out));
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_STRING("/api/stats", out);
+}
+
 void test_registry_overflow_returns_no_space(void)
 {
     bb_http_route_registry_clear();

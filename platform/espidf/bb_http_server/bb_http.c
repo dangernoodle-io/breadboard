@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <stdbool.h>
-#include <assert.h>
 #include <sys/socket.h>
 #include "lwip/sockets.h"
 #include "sdkconfig.h"
@@ -455,31 +454,6 @@ bb_http_handle_t bb_http_autostart_init(void)
     }
 #endif
     return bb_http_server_get_handle();
-}
-
-// Strict registry-cap audit: after all routes are registered, check whether
-// the route descriptor registry overflowed. A high-watermark warning fires
-// at count >= CAP-8 so developers notice before hitting the hard cap.
-// CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT (default y) elevates overflow to a
-// fatal assert so miscounted reserve declarations surface at boot rather than
-// silently dropping route descriptors from the OpenAPI / introspection registry.
-bb_err_t bb_http_route_audit_init(bb_http_handle_t server)
-{
-    (void)server;
-
-    size_t reg_count = bb_http_route_registry_count();
-    size_t cap = (size_t)CONFIG_BB_HTTP_ROUTE_REGISTRY_CAP;
-    if (reg_count >= cap) {
-        bb_log_e(TAG, "route registry FULL: %u/%u descriptors registered — increase BB_HTTP_ROUTE_REGISTRY_CAP",
-                 (unsigned)reg_count, (unsigned)cap);
-#if defined(CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT) && CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT
-        assert(reg_count < cap && "route registry overflow — increase BB_HTTP_ROUTE_REGISTRY_CAP");
-#endif
-    } else if (reg_count + 8 >= cap) {
-        bb_log_w(TAG, "route registry high-watermark: %u/%u descriptors — consider raising BB_HTTP_ROUTE_REGISTRY_CAP",
-                 (unsigned)reg_count, (unsigned)cap);
-    }
-    return BB_OK;
 }
 
 // ============================================================================

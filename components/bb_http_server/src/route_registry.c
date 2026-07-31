@@ -3,6 +3,7 @@
 #include "bb_log.h"
 #include "bb_route_match.h"
 #include "bb_str.h"
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -16,12 +17,90 @@
 #define BB_ROUTE_REGISTRY_CAP 64
 #endif
 
+// Elevate a registry-overflow drop to a fatal assert (see registry_add()).
+// Kconfig bridge, not a bare #ifndef shadow of the generated symbol.
+#ifdef CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT
+#define BB_HTTP_ROUTE_REGISTRY_STRICT CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT
+#else
+#define BB_HTTP_ROUTE_REGISTRY_STRICT 1
+#endif
+
 static const char *TAG = "bb_http_registry";
 
 // Process-wide static registry.  Stores pointers only — descriptor
 // lifetime is the caller's responsibility (same convention as bb_http_asset_t).
 static const bb_route_t *s_registry[BB_ROUTE_REGISTRY_CAP];
 static size_t             s_count = 0;
+static bool                s_watermark_warned = false;
+
+// ---------------------------------------------------------------------------
+// Host-only test seams (B1-1319 review): structurally excluded from every
+// production build via #ifdef BB_HTTP_TESTING (defined only by
+// [env:native]'s build_flags, platformio.ini) -- NOT relying on
+// --gc-sections to strip them, which is incidental dead-code elimination,
+// not a compile-time guarantee, and regresses the moment any production
+// call site references one. route_registry.c is in
+// components/bb_http_server/CMakeLists.txt's unconditional SRCS (unlike
+// bb_http_host_force_register_fail(), which lives in the host-only TU
+// platform/host/bb_http_server/bb_http_host.c and is never linked into
+// device firmware) -- the setter/reset function SHAPE mirrors that
+// precedent, but the PLACEMENT does not, hence the explicit guard here
+// instead of relying on file location to keep it off-device.
+// ---------------------------------------------------------------------------
+
+#ifdef BB_HTTP_TESTING
+// Host-testable override for the STRICT decision: the compile-time
+// BB_HTTP_ROUTE_REGISTRY_STRICT default is fixed per build, so without this
+// override a host test could only ever exercise the true branch of
+// registry_add()'s "if (bb_http_route_registry_strict_would_fire())" --
+// this lets a test flip it to false and prove the escalation (and its trap
+// hook below) does NOT run when STRICT is off. Not a public API — declared
+// extern in test_route_registry.c only.
+static bool s_strict_override_active = false;
+static bool s_strict_override_value  = false;
+
+void bb_http_route_registry_strict_force(bool enabled)
+{
+    s_strict_override_active = true;
+    s_strict_override_value  = enabled;
+}
+
+void bb_http_route_registry_strict_force_reset(void)
+{
+    s_strict_override_active = false;
+}
+#endif // BB_HTTP_TESTING
+
+bool bb_http_route_registry_strict_would_fire(void)
+{
+#ifdef BB_HTTP_TESTING
+    if (s_strict_override_active) return s_strict_override_value;
+#endif
+    return (bool)BB_HTTP_ROUTE_REGISTRY_STRICT;
+}
+
+#ifdef BB_HTTP_TESTING
+// Host-testable trap hook: set the instant registry_add() actually ENTERS
+// the overflow+STRICT escalation branch, before the (also
+// BB_HTTP_TESTING-compiled-out) assert(). bb_http_route_registry_strict_
+// would_fire() alone only proves the Kconfig default resolves to true in
+// isolation -- it says nothing about whether that predicate is actually
+// wired into the overflow path. This trap does: a host test drives a real
+// overflow through registry_add() and asserts the trap fired, so deleting
+// or short-circuiting the escalation block in registry_add() fails the
+// test. Not a public API — declared extern in test_route_registry.c only.
+static bool s_strict_trap_hit = false;
+
+bool bb_http_route_registry_strict_trap_hit(void)
+{
+    return s_strict_trap_hit;
+}
+
+void bb_http_route_registry_strict_trap_reset(void)
+{
+    s_strict_trap_hit = false;
+}
+#endif // BB_HTTP_TESTING
 
 // ---------------------------------------------------------------------------
 // Public registry API
@@ -33,6 +112,15 @@ void bb_http_route_registry_clear(void)
         s_registry[i] = NULL;
     }
     s_count = 0;
+    s_watermark_warned = false;
+#ifdef BB_HTTP_TESTING
+    // Reset the host-only test seams too, so a test that forgets an
+    // explicit _trap_reset()/_force_reset() call still starts clean --
+    // clear() is already the universal per-test setup call.
+    s_strict_trap_hit         = false;
+    s_strict_override_active  = false;
+    s_strict_override_value   = false;
+#endif
 }
 
 size_t bb_http_route_registry_count(void)
@@ -62,9 +150,36 @@ static bb_err_t registry_add(const bb_route_t *route)
     if (s_count >= BB_ROUTE_REGISTRY_CAP) {
         bb_log_e(TAG, "route registry full (cap=%d); dropping descriptor for %s",
                  BB_ROUTE_REGISTRY_CAP, route->path ? route->path : "(null)");
+        if (bb_http_route_registry_strict_would_fire()) {
+#ifdef BB_HTTP_TESTING
+            // Host-testable trap hook only -- see its definition above.
+            // The non-test (production/ESP-IDF) path below does not
+            // depend on this symbol; it only calls
+            // bb_http_route_registry_strict_would_fire(), which stays
+            // defined in every build.
+            s_strict_trap_hit = true;
+#else
+            // Loud trap in a real (non-test) build -- a process-aborting
+            // assert() is not something a Unity host test can observe as a
+            // passing result, so a host test instead exercises the STRICT
+            // decision directly via bb_http_route_registry_strict_would_fire()
+            // and the fail-closed BB_ERR_NO_SPACE return below (same
+            // BB_*_TESTING convention as bb_data_scratch_acquire()).
+            assert(0 && "route registry overflow — increase BB_HTTP_ROUTE_REGISTRY_CAP");
+#endif
+        }
         return BB_ERR_NO_SPACE;
     }
     s_registry[s_count++] = route;
+
+    // High-watermark warn: fire once when count crosses CAP-8, same
+    // one-shot-latch idiom as bb_dispatch_api_add()'s s_dispatch_warned.
+    if (!s_watermark_warned && s_count + 8 >= BB_ROUTE_REGISTRY_CAP) {
+        s_watermark_warned = true;
+        bb_log_w(TAG, "route registry high-watermark: %u/%u descriptors — consider raising BB_HTTP_ROUTE_REGISTRY_CAP",
+                 (unsigned)s_count, (unsigned)BB_ROUTE_REGISTRY_CAP);
+    }
+
     return BB_OK;
 }
 
