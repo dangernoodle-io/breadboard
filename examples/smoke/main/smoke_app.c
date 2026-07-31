@@ -25,6 +25,7 @@ extern bb_http_asset_t demo_site[];
 extern const bb_http_asset_t *demo_site_get(size_t *n);
 #endif
 #include "smoke_app.h"
+#include "smoke_routes.h"
 
 static const char *TAG = "smoke";
 
@@ -46,7 +47,10 @@ static const bb_config_field_t s_boot_count_field = {
     .has_default = true,
 };
 
-static bb_err_t ping_handler(bb_http_request_t *req) {
+// Not static: composed by examples/smoke/main/bb_wire.h (the `bbtool
+// codegen` consumer manifest) into the generated composition root, a
+// separate translation unit -- see smoke_routes.h for the declaration.
+bb_err_t smoke_ping_handler(bb_http_request_t *req) {
     bb_http_resp_set_header(req, "Content-Type", "text/plain");
     bb_http_resp_send_chunk(req, "pong\n", 5);
     bb_http_resp_send_chunk(req, NULL, 0);
@@ -55,9 +59,10 @@ static bb_err_t ping_handler(bb_http_request_t *req) {
 }
 
 #ifdef ESP_PLATFORM
-// WebSocket echo handler: reflects received TEXT/BINARY frames back to sender.
-static bb_err_t ws_echo_handler(bb_http_request_t *req,
-                                const bb_ws_server_frame_t *frame)
+// WebSocket echo handler: reflects received TEXT/BINARY frames back to
+// sender. Not static -- see smoke_ping_handler's comment above.
+bb_err_t smoke_ws_echo_handler(bb_http_request_t *req,
+                               const bb_ws_server_frame_t *frame)
 {
     if (frame->type == BB_WS_TYPE_TEXT || frame->type == BB_WS_TYPE_BINARY) {
         bb_log_i(TAG, "ws: echo %zu bytes", frame->len);
@@ -72,8 +77,9 @@ static bb_err_t ws_echo_handler(bb_http_request_t *req,
     return BB_OK;
 }
 
-// POST /api/wsbcast: broadcast a text message to all WS clients.
-static bb_err_t wsbcast_handler(bb_http_request_t *req)
+// POST /api/wsbcast: broadcast a text message to all WS clients. Not
+// static -- see smoke_ping_handler's comment above.
+bb_err_t smoke_wsbcast_handler(bb_http_request_t *req)
 {
     char buf[128] = {0};
     int len = bb_http_req_recv(req, buf, sizeof(buf) - 1);
@@ -100,7 +106,8 @@ static const bb_route_response_t s_ws_responses[] = {
     { .status = 0 },
 };
 
-static const bb_route_t s_ws_route = {
+// Not static -- see smoke_ping_handler's comment above.
+const bb_route_t smoke_ws_route = {
     .method       = BB_HTTP_GET,
     .path         = "/ws",
     .tag          = "websocket",
@@ -149,12 +156,12 @@ void smoke_app_setup(void) {
     bb_log_i(TAG, "boot=%lu", (unsigned long)boot_count);
 
     bb_wifi_set_hostname("bb-smoke");
-    // WiFi init and HTTP server start are handled by bb_app_init_early()
-    // (bb_wifi_autoinit) and bb_app_init() (bb_http_autostart_init)
-    // respectively -- the `bbtool codegen`-generated composition root.
-    // Route registration still happens here because /ping is not a
-    // codegen-composed entry.
-    bb_http_register_route(bb_http_server_get_handle(), BB_HTTP_GET, "/ping", ping_handler);
+    // WiFi init, HTTP server start, and route registration (GET /ping, GET
+    // /ws, POST /api/wsbcast) are all handled by bb_app_init_early()
+    // (bb_wifi_autoinit) and bb_app_init_rest() (bb_http_autostart_init,
+    // then the regular-tier route registrations composed from
+    // examples/smoke/main/bb_wire.h) -- the `bbtool codegen`-generated
+    // composition root.
 
 #ifdef ESP_PLATFORM
     // bb_meminfo heap baseline: boot line immediately, then hand off to a
@@ -186,24 +193,9 @@ void smoke_app_setup(void) {
         bb_log_w(TAG, "bb_ota_check: init failed");
     }
 
-    // bb_ws_server: /ws echo + /api/wsbcast broadcast demo.
-    {
-        bb_http_handle_t svr = bb_http_server_get_handle();
-        bb_err_t wserr = bb_ws_server_register_described_endpoint(
-            svr, "/ws", ws_echo_handler, &s_ws_route);
-        if (wserr == BB_OK) {
-            bb_log_i(TAG, "bb_ws_server: /ws registered");
-        } else {
-            bb_log_w(TAG, "bb_ws_server: /ws register failed (%d)", (int)wserr);
-        }
-        bb_err_t wsbcast_err = bb_http_register_route(svr, BB_HTTP_POST, "/api/wsbcast",
-                                                      wsbcast_handler);
-        if (wsbcast_err == BB_OK) {
-            bb_log_i(TAG, "bb_ws_server: /api/wsbcast registered");
-        } else {
-            bb_log_w(TAG, "bb_ws_server: /api/wsbcast register failed (%d)", (int)wsbcast_err);
-        }
-    }
+    // bb_ws_server: /ws echo + /api/wsbcast broadcast demo -- registration
+    // is codegen-composed (examples/smoke/main/bb_wire.h), see the comment
+    // above bb_wifi_set_hostname().
 
     // bb_embed_site smoke: register the demo SPA assets to prove the
     // codegen→C→link path compiles correctly on every ESP-IDF board target.

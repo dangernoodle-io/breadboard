@@ -60,7 +60,33 @@
 #include "bb_lifecycle.h"
 #include "bb_wifi_prov.h"
 #include "bb_wifi_prov_default_form.h"
+#include "smoke_routes.h"
 
 // bbtool:init tier=early fn=bb_lifecycle_register out=s_smoke_wifi_svc:bb_lifecycle_svc_t args=&(bb_lifecycle_config_t){.name="wifi"},&s_smoke_wifi_svc
+
+// B1-1274-adjacent: GET /ping, GET /ws, and POST /api/wsbcast are smoke's
+// own app-level routes (examples/smoke/main/smoke_app.c), not a component
+// intrinsic -- the URI and handler are consumer policy, so these markers
+// live here rather than in any component header (mirrors the
+// bb_wifi_prov_autoinit marker below, which the same rule places here for
+// bb_wifi_prov_default_form_get()). Each is `args=` (not `server=true`)
+// because the handle is threaded explicitly via `bb_app_http_handle` --
+// per wire_parse's module docstring, `args=`/`server=` are mutually
+// exclusive, so each of these three also carries `registers_routes=true`
+// (B1-1280) to opt back into the automatic `http_wildcard_last` ordering
+// guard that `server=true` entries get for free: codegen hard-errors if any
+// of these three sorts at or after bb_wifi_prov's captive-portal marker
+// below. They are also placed textually BEFORE that marker (manifest
+// entries with no explicit `order=` tie-break by parse/line order --
+// wire_graph.topo_sort) to keep them ahead of bb_wifi_prov's catch-all
+// `GET /*`, but the guard -- not just this placement -- is what makes a
+// future reorder fail loudly instead of silently shadowing a route. Do not
+// reorder below the captive-portal marker.
+//
+// bbtool:init tier=regular fn=bb_http_register_route registers_routes=true args=bb_app_http_handle,BB_HTTP_GET,"/ping",smoke_ping_handler
+
+// bbtool:init tier=regular fn=bb_ws_server_register_described_endpoint registers_routes=true args=bb_app_http_handle,"/ws",smoke_ws_echo_handler,&smoke_ws_route
+
+// bbtool:init tier=regular fn=bb_http_register_route registers_routes=true args=bb_app_http_handle,BB_HTTP_POST,"/api/wsbcast",smoke_wsbcast_handler
 
 // bbtool:init tier=regular fn=bb_wifi_prov_autoinit args=bb_wifi_prov_default_form_get(),1,NULL provides=http_wildcard_last
