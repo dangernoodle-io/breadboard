@@ -18,6 +18,7 @@
 #include "bb_serialize_console.h"
 #include "bb_serialize_logfmt.h"
 #include "bb_http_prov_gate.h"
+#include "wifi_prov_gate_wire.h"
 #include "test_openapi_capture.h"
 // Forward declarations from test_bb_lifecycle.c
 void test_bb_lifecycle_autoinit_returns_ok(void);
@@ -1750,6 +1751,25 @@ void test_bb_http_prov_gate_wire_unmapped_method_no_active_fn_falls_through_to_4
 void test_bb_http_prov_gate_wire_method_not_allowed_null_args_invalid_arg(void);
 void test_bb_http_prov_gate_wire_mapped_method_active_non_allowlisted_denies_404(void);
 void test_bb_http_prov_gate_wire_mapped_method_active_allowlisted_falls_through_to_405(void);
+
+// Forward declarations from test_wifi_prov_gate_wire.c (B1-1279 PR4)
+void test_wifi_prov_gate_wire_register_allows_fixed_and_single_asset(void);
+void test_wifi_prov_gate_wire_register_allows_every_custom_asset_path(void);
+void test_wifi_prov_gate_wire_register_zero_assets_still_allows_fixed_entries(void);
+void test_wifi_prov_gate_wire_register_does_not_allow_extra_route(void);
+void test_wifi_prov_gate_wire_register_full_cap_returns_first_error_best_effort(void);
+void test_wifi_prov_gate_wire_register_cap_overflow_marks_registration_incomplete(void);
+void test_wifi_prov_gate_wire_register_under_cap_marks_registration_complete(void);
+void test_wifi_prov_gate_wire_active_allowlisted_save_reaches_handler(void);
+void test_wifi_prov_gate_wire_active_allowlisted_scan_reaches_handler(void);
+void test_wifi_prov_gate_wire_active_allowlisted_ping_reaches_handler(void);
+void test_wifi_prov_gate_wire_active_allowlisted_index_asset_serves(void);
+void test_wifi_prov_gate_wire_active_diag_meminfo_denied_and_handler_not_invoked(void);
+void test_wifi_prov_gate_wire_active_api_reboot_denied_and_handler_not_invoked(void);
+void test_wifi_prov_gate_wire_active_non_api_route_denied_and_handler_not_invoked(void);
+void test_wifi_prov_gate_wire_inactive_diag_meminfo_unaffected(void);
+void test_wifi_prov_gate_wire_inactive_api_reboot_unaffected(void);
+void test_wifi_prov_gate_wire_inactive_non_api_route_unaffected(void);
 
 // Forward declarations from test_bb_http_host_coverage.c
 void test_bb_http_host_register_route_non_api_overflow_silently_dropped(void);
@@ -5546,6 +5566,12 @@ void setUp(void) {
     // before each test for the same isolation reason as bb_dispatch_api_reset()
     // above.
     bb_http_prov_gate_reset();
+    // wifi_prov_gate_wire.c's completeness signal (B1-1279 PR-4 review fix)
+    // is likewise a process-wide static -- reset it here too as a defence-
+    // in-depth backstop for the local teardown() in
+    // test_wifi_prov_gate_wire.c, which a mid-test TEST_ASSERT failure
+    // (longjmp) can skip.
+    wifi_prov_gate_wire_reset_for_test();
     // Several consumers (bb_diag_section, bb_http_section, bb_sensor_http, ...)
     // dispatch through the format-dispatch registry rather than a hardcoded
     // BB_FORMAT_JSON branch, so a test that exercises them needs
@@ -9294,6 +9320,24 @@ int main(void) {
     RUN_TEST(test_bb_http_prov_gate_wire_method_not_allowed_null_args_invalid_arg);
     RUN_TEST(test_bb_http_prov_gate_wire_mapped_method_active_non_allowlisted_denies_404);
     RUN_TEST(test_bb_http_prov_gate_wire_mapped_method_active_allowlisted_falls_through_to_405);
+
+    RUN_TEST(test_wifi_prov_gate_wire_register_allows_fixed_and_single_asset);
+    RUN_TEST(test_wifi_prov_gate_wire_register_allows_every_custom_asset_path);
+    RUN_TEST(test_wifi_prov_gate_wire_register_zero_assets_still_allows_fixed_entries);
+    RUN_TEST(test_wifi_prov_gate_wire_register_does_not_allow_extra_route);
+    RUN_TEST(test_wifi_prov_gate_wire_register_full_cap_returns_first_error_best_effort);
+    RUN_TEST(test_wifi_prov_gate_wire_register_cap_overflow_marks_registration_incomplete);
+    RUN_TEST(test_wifi_prov_gate_wire_register_under_cap_marks_registration_complete);
+    RUN_TEST(test_wifi_prov_gate_wire_active_allowlisted_save_reaches_handler);
+    RUN_TEST(test_wifi_prov_gate_wire_active_allowlisted_scan_reaches_handler);
+    RUN_TEST(test_wifi_prov_gate_wire_active_allowlisted_ping_reaches_handler);
+    RUN_TEST(test_wifi_prov_gate_wire_active_allowlisted_index_asset_serves);
+    RUN_TEST(test_wifi_prov_gate_wire_active_diag_meminfo_denied_and_handler_not_invoked);
+    RUN_TEST(test_wifi_prov_gate_wire_active_api_reboot_denied_and_handler_not_invoked);
+    RUN_TEST(test_wifi_prov_gate_wire_active_non_api_route_denied_and_handler_not_invoked);
+    RUN_TEST(test_wifi_prov_gate_wire_inactive_diag_meminfo_unaffected);
+    RUN_TEST(test_wifi_prov_gate_wire_inactive_api_reboot_unaffected);
+    RUN_TEST(test_wifi_prov_gate_wire_inactive_non_api_route_unaffected);
 
     // bb_http_host.c residual coverage (B1-1279 PR3 -- line-shift ratchet,
     // see test_bb_http_host_coverage.c)

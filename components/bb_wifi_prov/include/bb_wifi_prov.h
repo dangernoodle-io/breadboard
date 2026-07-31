@@ -176,6 +176,20 @@ typedef bb_err_t (*bb_wifi_prov_extra_routes_fn_t)(bb_http_handle_t server);
  *   const bb_http_asset_t *a = bb_wifi_prov_default_form_get();
  *   bb_wifi_prov_start(a, 1, NULL);
  *
+ * Also activates the provisioning route gate (B1-1279 PR-4): wires
+ * bb_wifi_prov_is_active() as bb_http_prov_gate's active-fn and allowlists
+ * GET /ping, POST /save, POST /api/wifi/scan, and a GET entry per @p assets
+ * path -- everything else served by the shared HTTP server 404s while
+ * provisioning is active. @p extra's routes are NOT auto-allowlisted; a
+ * consumer whose custom UI genuinely needs one reachable during
+ * provisioning must call bb_http_prov_allow() for it itself. See
+ * wifi_prov_gate_wire.h for the full rationale.
+ *
+ * If this composition's fixed(3)+n allowlist entries exceed
+ * BB_HTTP_PROV_ALLOWLIST_CAP, this call still returns BB_OK (a dropped
+ * asset fails closed, it does not abort provisioning) -- see
+ * bb_wifi_prov_gate_degraded() to detect and report that condition.
+ *
  * @param assets  Array of static HTTP assets; must contain a path="/" entry.
  * @param n       Number of entries in @p assets.
  * @param extra   Optional callback for consumer-specific dynamic routes.
@@ -264,9 +278,38 @@ void bb_wifi_prov_request_portal(void);
  * Non-blocking; safe to call from any task, including concurrently with the
  * provisioning manager's own task.
  *
- * INERT in this PR -- no in-tree caller yet.
+ * Wired as bb_http_prov_gate's active-fn (bb_http_prov_gate_set_active_fn())
+ * by bb_wifi_prov_start() itself (B1-1279 PR-4) -- this is what makes the
+ * default-deny provisioning route gate (components/bb_http_server/include/
+ * bb_http_prov_gate.h) actually gate anything in production.
  */
 bool bb_wifi_prov_is_active(void);
+
+/**
+ * Review fix (B1-1279 PR-4 finding): was the provisioning route gate's
+ * allowlist fully registered? False means bb_wifi_prov_start()'s composition
+ * (fixed(3) required routes + n caller-supplied asset paths) exceeded
+ * BB_HTTP_PROV_ALLOWLIST_CAP (bb_http_prov_gate.h) and one or more entries
+ * were dropped -- typically a custom-branded portal shipping more assets
+ * than the cap allows. The gate still fails CLOSED on whatever didn't fit
+ * (denied, not leaked) -- this is a portal-breakage signal (the dropped
+ * asset(s) 404 for the life of the process), not a security regression.
+ *
+ * bb_wifi_prov_start() deliberately still returns BB_OK in this case rather
+ * than aborting provisioning -- a branded-portal asset-count mistake is a
+ * build-time composition bug, and failing the whole provisioning flow over
+ * it would leave the device unprovisionable rather than merely
+ * portal-degraded. Callers that want to surface this loudly (diagnostics,
+ * an operator-visible health check, a log-and-reboot policy, etc.) must poll
+ * this accessor themselves -- bb_wifi_prov_start() only logs it once.
+ *
+ * Returns false before bb_wifi_prov_start() has ever been called. Sticky
+ * for the life of the process once true: the allowlist is wired at most
+ * once (see s_gate_wired in bb_wifi_prov.c), so a later stop/start cycle
+ * cannot retry or clear a degraded state -- only a reboot with a corrected
+ * asset composition can.
+ */
+bool bb_wifi_prov_gate_degraded(void);
 
 #endif
 
