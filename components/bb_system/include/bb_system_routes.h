@@ -37,7 +37,6 @@ extern const char *const bb_system_reboot_request_schema;
 bb_err_t bb_system_routes_reserve(void);
 
 /// Registry hook — registers POST /api/reboot.
-// bbtool:init tier=regular fn=bb_system_routes_init server=true
 bb_err_t bb_system_routes_init(bb_http_handle_t server);
 
 #ifdef BB_SYSTEM_TESTING

@@ -61,8 +61,25 @@
 #include "bb_wifi_prov.h"
 #include "bb_wifi_prov_default_form.h"
 #include "smoke_routes.h"
+#include "bb_system_routes.h"
+#include "bb_health.h"
+#include "bb_openapi.h"
 
 // bbtool:init tier=early fn=bb_lifecycle_register out=s_smoke_wifi_svc:bb_lifecycle_svc_t args=&(bb_lifecycle_config_t){.name="wifi"},&s_smoke_wifi_svc
+
+// B1-1315: bb_system_routes_init/bb_health_init/bb_openapi_init are
+// route-registering registry hooks relocated out of their component headers
+// (B1-1279/B1-1314) -- a component composing bb_system for its
+// reboot-reason SSOT (etc.) must not also be forced to expose POST
+// /api/reboot. `component=` (B1-1275) pulls in each component's own
+// REQUIRES/PRIV_REQUIRES closure so the manifest entry composes correctly.
+// See bb_wifi_prov_autoinit below for the precedent this mirrors.
+
+// bbtool:init tier=regular fn=bb_system_routes_init server=true component=bb_system
+
+// bbtool:init tier=regular fn=bb_health_init server=true component=bb_health
+
+// bbtool:init tier=regular fn=bb_openapi_init server=true component=bb_openapi
 
 // B1-1274-adjacent: GET /ping, GET /ws, and POST /api/wsbcast are smoke's
 // own app-level routes (examples/smoke/main/smoke_app.c), not a component
