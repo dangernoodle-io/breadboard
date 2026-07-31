@@ -18,8 +18,10 @@ extern "C" {
  * backend before calling this for a meaningful "present" snapshot.
  *
  * Presence of this header's registration call in the build is the opt-in
- * mechanism (handwire) or the bbtool:init marker below drives it via
- * codegen -- no Kconfig gate on the registration itself.
+ * mechanism (handwire), or a consumer manifest's `// bbtool:init` marker
+ * drives it via codegen (B1-1318: relocated out of this header, see
+ * examples/smoke/main/bb_wire.h) -- no Kconfig gate on the registration
+ * itself.
  */
 void bb_display_register_info(void);
 
@@ -29,7 +31,6 @@ void bb_display_register_info(void);
  * /api/events is a composition-root concern (bb_data_http_attach()). No-op
  * (returns BB_OK) if bb_display_register_info() was never called.
  */
-// bbtool:init tier=regular fn=bb_display_info_register_init server=true
 bb_err_t bb_display_info_register_init(bb_http_handle_t server);
 
 #ifdef __cplusplus
