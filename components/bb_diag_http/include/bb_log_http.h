@@ -21,7 +21,6 @@
 #include "bb_core.h"
 #include "bb_http_server.h"
 
-// bbtool:init tier=regular fn=bb_log_register_routes_init server=true
 bb_err_t bb_log_register_routes_init(bb_http_handle_t server);
 
 // bbtool:init tier=pre_http fn=bb_log_register_routes_reserve

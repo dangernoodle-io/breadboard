@@ -33,7 +33,6 @@ extern "C" {
 // Binds the built-in fan/power/thermal bb_data keys and registers GET+PATCH
 // /api/sensors/* with the HTTP server via the bb_http_section dispatch
 // helper (regular-tier init fn).
-// bbtool:init tier=regular fn=bb_sensor_http_init server=true
 bb_err_t bb_sensor_http_init(bb_http_handle_t server);
 
 #ifdef __cplusplus

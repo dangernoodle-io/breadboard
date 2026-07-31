@@ -65,7 +65,6 @@ extern "C" {
 #endif
 
 // Registry hook — registers DELETE /api/diag/storage.
-// bbtool:init tier=regular fn=bb_storage_http_routes_init server=true
 bb_err_t bb_storage_http_routes_init(bb_http_handle_t server);
 
 // Hand-authored JSON Schema for DELETE /api/diag/storage's request body
@@ -94,7 +93,6 @@ extern const char *const bb_storage_http_delete_request_schema;
 // always links, mirroring bb_nv.h's bb_nv_factory_reset_routes_init stub
 // pattern.
 #if defined(CONFIG_BB_STORAGE_HTTP_FACTORY_RESET) && CONFIG_BB_STORAGE_HTTP_FACTORY_RESET
-// bbtool:init tier=regular fn=bb_storage_http_factory_reset_routes_init server=true
 bb_err_t bb_storage_http_factory_reset_routes_init(bb_http_handle_t server);
 
 // Hand-authored JSON Schema for POST /api/diag/factory-reset's request body

@@ -72,7 +72,6 @@ bb_err_t bb_diag_boot_render_envelope(bb_http_request_t *req);
  * Registry hook — registers GET/DELETE /api/diag/panic, GET /api/diag/boot,
  * plus heap-check/tasks/sockets diagnostics.
  */
-// bbtool:init tier=regular fn=bb_diag_routes_init server=true
 bb_err_t bb_diag_routes_init(bb_http_handle_t server);
 
 #endif /* ESP_PLATFORM */
@@ -85,7 +84,6 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server);
 // whichever section a request names (platform/espidf/bb_diag_http/
 // bb_diag_http_section_dispatch.c). ESP-IDF only -- there is no host server
 // to register against.
-// bbtool:init tier=regular fn=bb_diag_sections_init server=true
 bb_err_t bb_diag_sections_init(bb_http_handle_t server);
 
 #endif /* ESP_PLATFORM */
