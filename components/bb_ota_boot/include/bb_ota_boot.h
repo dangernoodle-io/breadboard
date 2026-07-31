@@ -80,7 +80,6 @@ bb_err_t bb_ota_boot_reserve_routes(void);
 // the bb_cache_evict_start Kconfig-bridge stub pattern (bb_cache.h).
 #if defined(CONFIG_BB_OTA_STRATEGY_BOOT) && CONFIG_BB_OTA_STRATEGY_BOOT
 /* Registry hook — registers POST /api/update/apply (arm + reboot). */
-// bbtool:init tier=regular fn=bb_ota_boot_init server=true
 bb_err_t bb_ota_boot_init(bb_http_handle_t server);
 #else
 static inline bb_err_t bb_ota_boot_init(bb_http_handle_t server) { (void)server; return BB_OK; }
