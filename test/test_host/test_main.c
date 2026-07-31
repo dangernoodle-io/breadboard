@@ -3779,6 +3779,14 @@ void test_bb_system_get_mac_zero_size_returns_invalid_arg(void);
 void test_bb_system_get_mac_writes_empty_string_on_host(void);
 void test_bb_system_chip_revision_callable(void);
 void test_bb_system_cpu_freq_mhz_callable(void);
+void test_bb_system_restart_deferred_arms_but_does_not_fire_immediately(void);
+void test_bb_system_restart_deferred_fire_captures_src_and_detail(void);
+void test_bb_system_restart_deferred_fire_captures_different_src_and_detail(void);
+void test_bb_system_restart_deferred_null_detail_captures_empty_string(void);
+void test_bb_system_restart_deferred_fire_capture_get_null_out_params_still_reports_called(void);
+void test_bb_system_restart_deferred_fire_capture_get_zero_size_skips_detail_write(void);
+void test_bb_system_restart_deferred_reuses_shared_timer_across_calls(void);
+void test_bb_system_restart_deferred_pending_lock_acquired_on_arm_and_fire(void);
 
 // Forward declarations from test_bb_system_routes.c
 void test_bb_system_reboot_route_no_body_returns_200(void);
@@ -5529,6 +5537,7 @@ void setUp(void) {
     _bb_log_registry_reset();
     bb_system_boot_count_reset_for_test();
     bb_system_reboot_capture_reset_for_test();
+    bb_system_restart_deferred_capture_reset_for_test();
     bb_mdns_host_reset();
     wifi_reconn_policy_test_reset();
     bb_mdns_lifecycle_test_reset();
@@ -8098,6 +8107,14 @@ int main(void) {
     RUN_TEST(test_bb_system_get_mac_writes_empty_string_on_host);
     RUN_TEST(test_bb_system_chip_revision_callable);
     RUN_TEST(test_bb_system_cpu_freq_mhz_callable);
+    RUN_TEST(test_bb_system_restart_deferred_arms_but_does_not_fire_immediately);
+    RUN_TEST(test_bb_system_restart_deferred_fire_captures_src_and_detail);
+    RUN_TEST(test_bb_system_restart_deferred_fire_captures_different_src_and_detail);
+    RUN_TEST(test_bb_system_restart_deferred_null_detail_captures_empty_string);
+    RUN_TEST(test_bb_system_restart_deferred_fire_capture_get_null_out_params_still_reports_called);
+    RUN_TEST(test_bb_system_restart_deferred_fire_capture_get_zero_size_skips_detail_write);
+    RUN_TEST(test_bb_system_restart_deferred_reuses_shared_timer_across_calls);
+    RUN_TEST(test_bb_system_restart_deferred_pending_lock_acquired_on_arm_and_fire);
 
     // bb_system POST /api/reboot route tests (B1-1148 PR1)
     RUN_TEST(test_bb_system_reboot_route_no_body_returns_200);

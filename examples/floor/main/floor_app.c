@@ -110,9 +110,9 @@ static bool s_prov_reboot_triggered = false;
 // closely enough that both the reboot record and the confirming log line
 // were lost (HW: preceding log line truncated mid-word, no restart_reason
 // log, no NVS record). Mirrors bb_wifi.c's existing bb_wifi_reconfigure()
-// reboot (reconfig_reboot_work_fn/s_reconfig_timer): a deferred one-shot
-// timer moves the work onto the shared bb_timer_disp task instead.
-static bb_oneshot_timer_t s_prov_reboot_timer = NULL;
+// reboot: bb_system_restart_deferred (components/bb_system) moves the work
+// onto the shared bb_timer_disp task instead -- see wifi_lifecycle_observer
+// below.
 
 // Real httpd socket state, set synchronously by http_lifecycle_observer (it
 // fires inside bb_lifecycle_start() on this same task) -- the SSOT for
@@ -193,23 +193,6 @@ static bb_err_t gather_log(void *dst, const bb_data_gather_args_t *args)
     return bb_log_event_gather((bb_log_event_wire_t *)dst);
 }
 
-// bb_timer_deferred_oneshot_create work_fn for the provisioning-is-transient
-// reboot (armed by wifi_lifecycle_observer below): runs on the shared
-// bb_timer_disp task, off the sys_evt task the observer itself runs on. See
-// wifi_lifecycle_observer's HW-CONFIRMED fix comment for the full rationale.
-static void prov_reboot_work_fn(void *arg)
-{
-    (void)arg;
-    bb_log_w(TAG, "provisioning: credentials validated (got IP) -- "
-             "restarting into normal boot");
-    // LOW review fix (predates the HW-CONFIRMED timer fix): a dedicated
-    // reason -- BB_RESET_SRC_WIFI_RECONFIGURE is also used by bb_wifi.c's
-    // existing runtime-reconfigure reboot, which would otherwise conflate
-    // two distinct reboot causes in reboot-reason telemetry (weakening the
-    // SSOT, B1-532).
-    bb_system_restart_reason(BB_RESET_SRC_WIFI_PROVISIONED, "provisioning validated");
-}
-
 // Provisioning-is-transient reboot trigger: fires on the "wifi" service's
 // STOPPED/PAUSED->RUNNING edge, which is exactly the first GOT_IP of this
 // boot (bb_wifi_classify_lifecycle() maps GOT_IP -> START, see bb_wifi.h).
@@ -236,8 +219,10 @@ static void prov_reboot_work_fn(void *arg)
 // preventing a boot loop, is no longer covered by a single golden HW path
 // alone.
 //
-// HW-CONFIRMED fix: this observer only DECIDES and arms prov_reboot_work_fn
-// (below) via a deferred one-shot bb_timer -- it must not call
+// HW-CONFIRMED fix: this observer only DECIDES and arms the shared
+// bb_system_restart_deferred primitive (B1-refactor extraction of this
+// file's former private prov_reboot_work_fn/s_prov_reboot_timer pair,
+// mirroring bb_wifi.c's bb_wifi_reconfigure() precedent) -- it must not call
 // bb_system_restart_reason() itself. That call does a synchronous NVS flash
 // write (nvs_open/nvs_set_str/nvs_commit/nvs_close) followed by
 // esp_restart(); run inline here it executes on the shared ESP-IDF default
@@ -246,10 +231,9 @@ static void prov_reboot_work_fn(void *arg)
 // both the reboot record and the confirming log line (see the module header
 // block's HW-CONFIRMED note). A plain vTaskDelay() here is not the fix either
 // -- that would block sys_evt for no reason (LOW review fix from a prior
-// revision, which is why one was removed). Deferring via bb_timer_deferred_
-// oneshot_create (MODE A: work_fn runs on the shared bb_timer_disp task, not
-// sys_evt and not the esp_timer service task) is the fix, mirroring
-// bb_wifi.c's bb_wifi_reconfigure()/reconfig_reboot_work_fn precedent.
+// revision, which is why one was removed). bb_system_restart_deferred's
+// work_fn runs on the shared bb_timer_disp task, not sys_evt and not the
+// esp_timer service task -- that's the fix.
 static void wifi_lifecycle_observer(const bb_lifecycle_event_t *evt, void *user)
 {
     (void)user;
@@ -277,14 +261,17 @@ static void wifi_lifecycle_observer(const bb_lifecycle_event_t *evt, void *user)
     // for a different reason: it gets the blocking flash write and
     // esp_restart() off the shared sys_evt task, onto bb_timer_disp instead,
     // and gives bb_log's buffered writer task (see bb_log.c's
-    // s_writer_task_fn) time to actually drain and print
-    // prov_reboot_work_fn's log line before the CPU halts -- so the reboot
-    // reason is observable both in NVS and on the serial console.
-    if (!s_prov_reboot_timer) {
-        bb_timer_deferred_oneshot_create(prov_reboot_work_fn, NULL,
-                                         "floor_prov_reboot", &s_prov_reboot_timer);
-    }
-    bb_timer_oneshot_start(s_prov_reboot_timer, 500 * 1000); // 500 ms -- see doc above
+    // s_writer_task_fn) time to actually drain and print the log line just
+    // below before the CPU halts -- so the reboot reason is observable both
+    // in NVS and on the serial console.
+    bb_log_w(TAG, "provisioning: credentials validated (got IP) -- "
+             "restarting into normal boot");
+    // LOW review fix (predates the HW-CONFIRMED timer fix): a dedicated
+    // reason -- BB_RESET_SRC_WIFI_RECONFIGURE is also used by bb_wifi.c's
+    // existing runtime-reconfigure reboot, which would otherwise conflate
+    // two distinct reboot causes in reboot-reason telemetry (weakening the
+    // SSOT, B1-532).
+    bb_system_restart_deferred(BB_RESET_SRC_WIFI_PROVISIONED, "provisioning validated", 500 * 1000);
 }
 
 // bb_lifecycle observer: bb_http_server_start()/stop() are driven purely by

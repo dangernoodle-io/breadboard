@@ -6,6 +6,9 @@
 #include "bb_config.h"
 #include "bb_storage.h"
 #include "fake_nvs_backend.h"
+#include "bb_timer.h"
+#include "bb_timer_deferred_test.h"
+#include "bb_lock.h"
 #include <string.h>
 
 // bb_system_reboot_record_save persists via bb_config (B1-756, bb_nv
@@ -1154,4 +1157,141 @@ void test_bb_system_chip_revision_callable(void)
 void test_bb_system_cpu_freq_mhz_callable(void)
 {
     TEST_ASSERT_EQUAL_UINT32(0, bb_system_cpu_freq_mhz());
+}
+
+// ---------------------------------------------------------------------------
+// bb_system_restart_deferred (refactor: shared deferred-restart primitive,
+// extracted from bb_wifi.c's bb_wifi_reconfigure and examples/floor's
+// provisioning-is-transient reboot). setUp() calls
+// bb_system_restart_deferred_capture_reset_for_test() so each test starts
+// with "not called". The work_fn's real bb_system_restart_reason() call is
+// ESP_PLATFORM-only (host would exit(0)) -- these tests fire it via the
+// shared timer's test hook and assert the resolved src/detail via the
+// capture, mirroring bb_system_routes.c's s_reboot_capture pattern.
+// ---------------------------------------------------------------------------
+
+void test_bb_system_restart_deferred_arms_but_does_not_fire_immediately(void)
+{
+    bb_system_restart_deferred(BB_RESET_SRC_WIFI_RECONFIGURE, "arm-only", 500 * 1000);
+
+    bb_reset_source_t src;
+    char detail[64];
+    TEST_ASSERT_FALSE(bb_system_restart_deferred_capture_get_for_test(&src, detail, sizeof(detail)));
+}
+
+void test_bb_system_restart_deferred_fire_captures_src_and_detail(void)
+{
+    bb_system_restart_deferred(BB_RESET_SRC_WIFI_RECONFIGURE, "reconfigure test", 500 * 1000);
+
+    bb_oneshot_timer_t t = bb_system_restart_deferred_timer_for_test();
+    TEST_ASSERT_NOT_NULL(t);
+    bb_timer_deferred_oneshot_fire_for_test(t);
+
+    bb_reset_source_t src;
+    char detail[64] = {0};
+    TEST_ASSERT_TRUE(bb_system_restart_deferred_capture_get_for_test(&src, detail, sizeof(detail)));
+    TEST_ASSERT_EQUAL_INT(BB_RESET_SRC_WIFI_RECONFIGURE, src);
+    TEST_ASSERT_EQUAL_STRING("reconfigure test", detail);
+}
+
+void test_bb_system_restart_deferred_fire_captures_different_src_and_detail(void)
+{
+    // Distinct cause/detail from the previous test — proves the capture
+    // reflects the LATEST arm's args, not a hardcoded/stale value.
+    bb_system_restart_deferred(BB_RESET_SRC_WIFI_PROVISIONED, "provisioning validated", 500 * 1000);
+
+    bb_oneshot_timer_t t = bb_system_restart_deferred_timer_for_test();
+    bb_timer_deferred_oneshot_fire_for_test(t);
+
+    bb_reset_source_t src;
+    char detail[64] = {0};
+    TEST_ASSERT_TRUE(bb_system_restart_deferred_capture_get_for_test(&src, detail, sizeof(detail)));
+    TEST_ASSERT_EQUAL_INT(BB_RESET_SRC_WIFI_PROVISIONED, src);
+    TEST_ASSERT_EQUAL_STRING("provisioning validated", detail);
+}
+
+void test_bb_system_restart_deferred_null_detail_captures_empty_string(void)
+{
+    bb_system_restart_deferred(BB_RESET_SRC_WIFI_RECONFIGURE, NULL, 500 * 1000);
+
+    bb_oneshot_timer_t t = bb_system_restart_deferred_timer_for_test();
+    bb_timer_deferred_oneshot_fire_for_test(t);
+
+    bb_reset_source_t src;
+    char detail[64] = "not-empty";
+    TEST_ASSERT_TRUE(bb_system_restart_deferred_capture_get_for_test(&src, detail, sizeof(detail)));
+    TEST_ASSERT_EQUAL_INT(BB_RESET_SRC_WIFI_RECONFIGURE, src);
+    TEST_ASSERT_EQUAL_STRING("", detail);
+}
+
+void test_bb_system_restart_deferred_fire_capture_get_null_out_params_still_reports_called(void)
+{
+    // Both out params are optional -- a caller that only wants "did it
+    // fire" (not the resolved value) must not be forced to pass storage.
+    bb_system_restart_deferred(BB_RESET_SRC_WIFI_RECONFIGURE, "ignored-outs", 500 * 1000);
+
+    bb_oneshot_timer_t t = bb_system_restart_deferred_timer_for_test();
+    bb_timer_deferred_oneshot_fire_for_test(t);
+
+    TEST_ASSERT_TRUE(bb_system_restart_deferred_capture_get_for_test(NULL, NULL, 0));
+}
+
+void test_bb_system_restart_deferred_fire_capture_get_zero_size_skips_detail_write(void)
+{
+    // out_detail non-NULL but out_detail_size==0 -- the short-circuit's
+    // second operand (out_detail_size > 0) must independently gate the
+    // write, distinct from the out_detail==NULL case above.
+    bb_system_restart_deferred(BB_RESET_SRC_WIFI_RECONFIGURE, "zero-size", 500 * 1000);
+
+    bb_oneshot_timer_t t = bb_system_restart_deferred_timer_for_test();
+    bb_timer_deferred_oneshot_fire_for_test(t);
+
+    char detail[16] = "unwritten";
+    TEST_ASSERT_TRUE(bb_system_restart_deferred_capture_get_for_test(NULL, detail, 0));
+    TEST_ASSERT_EQUAL_STRING("unwritten", detail);
+}
+
+void test_bb_system_restart_deferred_reuses_shared_timer_across_calls(void)
+{
+    // Two arms in a row must reuse the SAME lazily-created timer handle
+    // (ONE shared static timer for the whole process — the point of the
+    // extraction), not allocate a second one.
+    bb_system_restart_deferred(BB_RESET_SRC_WIFI_RECONFIGURE, "first", 500 * 1000);
+    bb_oneshot_timer_t t1 = bb_system_restart_deferred_timer_for_test();
+    TEST_ASSERT_NOT_NULL(t1);
+
+    bb_system_restart_deferred(BB_RESET_SRC_WIFI_PROVISIONED, "second", 500 * 1000);
+    bb_oneshot_timer_t t2 = bb_system_restart_deferred_timer_for_test();
+    TEST_ASSERT_EQUAL_PTR(t1, t2);
+}
+
+// s_pending_src/s_pending_detail are shared statics now written from two
+// independent callers (bb_wifi_reconfigure, floor's provisioning arm) —
+// bb_system_restart_deferred.c guards both the arm() write and the fire()
+// read with an internal bb_lock_t (see bb_system.h's doc comment). Host is
+// single-threaded, so the actual data race between two concurrent callers
+// is NOT reproducible here — this instead proves NON-VACUOUSLY that the
+// lock is genuinely taken on both paths (via bb_lock's acquisition-count
+// stat), which a silently-neutered/removed lock call would fail.
+void test_bb_system_restart_deferred_pending_lock_acquired_on_arm_and_fire(void)
+{
+    bb_lock_t *lock = bb_system_restart_deferred_pending_lock_for_test();
+    TEST_ASSERT_NOT_NULL(lock);
+
+    bb_lock_stats_set_enabled(true);
+    bb_lock_reset_stats(lock);
+
+    bb_system_restart_deferred(BB_RESET_SRC_WIFI_RECONFIGURE, "lock-proof-arm", 500 * 1000);
+
+    bb_lock_stats_t stats;
+    bb_lock_get_stats(lock, &stats);
+    TEST_ASSERT_EQUAL_UINT32(1, stats.acquisition_count);
+
+    bb_oneshot_timer_t t = bb_system_restart_deferred_timer_for_test();
+    bb_timer_deferred_oneshot_fire_for_test(t);
+
+    bb_lock_get_stats(lock, &stats);
+    TEST_ASSERT_EQUAL_UINT32(2, stats.acquisition_count);
+
+    bb_lock_stats_set_enabled(false);
 }

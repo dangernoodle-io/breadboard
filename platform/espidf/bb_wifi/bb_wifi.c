@@ -1323,12 +1323,6 @@ bb_err_t bb_wifi_set_hostname(const char *hostname)
 }
 
 #if CONFIG_BB_WIFI_RECONFIGURE
-static void reconfig_reboot_work_fn(void *arg)
-{
-    (void)arg;
-    bb_system_restart_reason(BB_RESET_SRC_WIFI_RECONFIGURE, NULL);
-}
-
 bb_err_t bb_wifi_reconfigure(const char *ssid, const char *pass)
 {
     bb_err_t err = bb_wifi_pending_validate(ssid, pass);
@@ -1337,13 +1331,9 @@ bb_err_t bb_wifi_reconfigure(const char *ssid, const char *pass)
     err = bb_settings_wifi_pending_set(ssid, pass);
     if (err != BB_OK) return err;
 
-    static bb_oneshot_timer_t s_reconfig_timer = NULL;
-    if (!s_reconfig_timer) {
-        bb_timer_deferred_oneshot_create(reconfig_reboot_work_fn, NULL,
-                                         "bb_wifi_reconfig", &s_reconfig_timer);
-    }
-    bb_timer_oneshot_stop(s_reconfig_timer);
-    bb_timer_oneshot_start(s_reconfig_timer, 500 * 1000); // 500 ms — lets HTTP 202 flush
+    // 500 ms — lets HTTP 202 flush before bb_system_restart_deferred's
+    // work_fn runs the blocking NVS write + esp_restart() off this task.
+    bb_system_restart_deferred(BB_RESET_SRC_WIFI_RECONFIGURE, NULL, 500 * 1000);
     return BB_OK;
 }
 #else
