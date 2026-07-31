@@ -28,12 +28,17 @@
 #include "unity.h"
 
 #include "bb_data.h"
+#include "bb_http.h"
+#include "bb_http_host.h"
+#include "bb_http_server.h"
 #include "bb_serialize_format.h"
 #include "bb_serialize_json.h"
 #include "bb_settings.h"
 #include "bb_storage.h"
 #include "bb_wifi_http_apply_status.h"
+#include "bb_wifi_http_patch_scratch.h"
 #include "bb_wifi_pending.h"
+#include "cJSON.h"
 #include "fake_nvs_backend.h"
 
 #include "../../components/bb_wifi_http/bb_wifi_http_creds_wire_priv.h"
@@ -299,4 +304,81 @@ void test_wifi_creds_apply_invalid_arg_and_unsupported_map_to_400(void)
 void test_wifi_creds_apply_validation_maps_to_400(void)
 {
     TEST_ASSERT_EQUAL_INT(400, bb_wifi_http_status_for_apply_rc(BB_ERR_VALIDATION));
+}
+
+// ---------------------------------------------------------------------------
+// B1-1285: wifi_patch_handler's scratch-acquire fail-closed branch
+// (bb_wifi_http_patch_scratch.h). platform/espidf/bb_wifi_http/
+// bb_wifi_http_routes.c cannot be host-compiled at all (unconditional
+// <esp_wifi.h>, esp_wifi in PRIV_REQUIRES), so this extraction is what makes
+// the branch reachable from a host test -- the tests below drive the REAL
+// production fn (bb_wifi_http_patch_acquire_scratch()), not a hand-copied
+// mirror: bb_data_scratch_acquire() and bb_http_serialize_send_error() both
+// run for real, exercising the same insertion point wifi_patch_handler
+// itself calls. Mirrors test_bb_storage_http_factory_reset.c's own
+// scratch-acquire-failure test for factory_reset_handler and
+// test_bb_system_routes.c's for reboot_handler.
+// ---------------------------------------------------------------------------
+
+// Success path: scratch acquires cleanly, out is populated, no response is
+// sent (status stays at the capture default, 200).
+void test_wifi_http_patch_acquire_scratch_success_populates_out_and_sends_nothing(void)
+{
+    bb_data_scratch_test_reset();
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_data_scratch_t out;
+    memset(&out, 0, sizeof(out));
+    bb_err_t rc = bb_wifi_http_patch_acquire_scratch(req, &out);
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_NOT_NULL(out.body);
+    TEST_ASSERT_NOT_NULL(out.parse_scratch);
+
+    bb_http_host_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_EQUAL_INT(200, cap.status);
+    TEST_ASSERT_NULL(cap.body);
+    bb_http_host_capture_free(&cap);
+
+    bb_data_scratch_release();
+}
+
+// Fail-closed path: the scratch pair is already held by another in-flight
+// caller (the real invariant this guards -- "one httpd worker task, one
+// handler in flight", see bb_data.h's SAFETY doc comment). This fn must
+// send {"error":"internal error"} 500 and return the scratch_rc unchanged,
+// never a silently-successful acquire.
+void test_wifi_http_patch_acquire_scratch_reentrant_returns_500(void)
+{
+    bb_data_scratch_test_reset();
+
+    bb_data_scratch_t held;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_scratch_acquire(&held));
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_data_scratch_t out;
+    memset(&out, 0, sizeof(out));
+    bb_err_t rc = bb_wifi_http_patch_acquire_scratch(req, &out);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, rc);
+
+    bb_http_host_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_EQUAL_INT(500, cap.status);
+    TEST_ASSERT_NOT_NULL(cap.body);
+    cJSON *j = cJSON_Parse(cap.body);
+    TEST_ASSERT_NOT_NULL(j);
+    cJSON *err = cJSON_GetObjectItemCaseSensitive(j, "error");
+    TEST_ASSERT_NOT_NULL(err);
+    TEST_ASSERT_TRUE(cJSON_IsString(err));
+    TEST_ASSERT_EQUAL_STRING("internal error", err->valuestring);
+    cJSON_Delete(j);
+    bb_http_host_capture_free(&cap);
+
+    bb_data_scratch_release();
 }

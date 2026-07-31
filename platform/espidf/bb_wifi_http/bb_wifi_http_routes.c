@@ -44,6 +44,15 @@
 // as bb_wifi_http_apply_status.h below).
 #include "bb_wifi_http_route_dup_status.h"
 
+// PATCH /api/wifi's scratch-acquire fail-closed branch (B1-1285 host-
+// testability follow-up to B1-1287) -- src/-private header, same
+// PRIV_INCLUDE_DIRS "src" convention as the two headers above. Extracted so
+// this insertion point's real bb_data_scratch_acquire()/bb_http_serialize_
+// send_error() call chain is host-testable even though this TU (unconditional
+// <esp_wifi.h>) cannot itself be host-compiled -- see that header's own doc
+// comment.
+#include "bb_wifi_http_patch_scratch.h"
+
 #if CONFIG_BB_WIFI_RECONFIGURE
 #include "bb_data.h"
 #include "bb_settings.h"
@@ -240,11 +249,12 @@ static bb_err_t wifi_patch_handler(bb_http_request_t *req)
     // `char body[257]; char parse_scratch[3072];` stack locals -- see
     // bb_data.h's own doc comment for the concurrency invariant this relies
     // on (one httpd worker task, one synchronous handler dispatched at a
-    // time).
+    // time). The acquire-or-fail-closed-500 sequence itself is extracted
+    // into bb_wifi_http_patch_acquire_scratch() (B1-1285) so this insertion
+    // point is host-testable -- see bb_wifi_http_patch_scratch.h.
     bb_data_scratch_t scratch;
-    bb_err_t scratch_rc = bb_data_scratch_acquire(&scratch);
+    bb_err_t scratch_rc = bb_wifi_http_patch_acquire_scratch(req, &scratch);
     if (scratch_rc != BB_OK) {
-        bb_http_serialize_send_error(req, 500, "internal error");
         return scratch_rc;
     }
 
