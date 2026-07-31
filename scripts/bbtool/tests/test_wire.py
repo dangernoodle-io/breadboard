@@ -38,6 +38,18 @@ def _make_component(root: Path, name: str, header_body: str, requires=None) -> N
     _write(comp / "include" / f"{name}.h", header_body)
 
 
+def _make_platform_component(root: Path, name: str, header_body: str, platform: str = "espidf") -> None:
+    """A platform-only public header — `platform/<platform>/<name>/include/
+    <name>.h` — discovered the same way as a components/<name> header
+    (discovery.py's platform-side scan is a one-level iterdir(), no
+    CMakeLists.txt needed), but with no components/<name> counterpart at
+    all: proves the B1-1320 gate fires for a PLATFORM header, not only a
+    components/ one (the epic's inventory missed platform-only headers on
+    the first pass)."""
+    plat = root / "platform" / platform / name
+    _write(plat / "include" / f"{name}.h", header_body)
+
+
 def _fixture_root(tmp: str) -> Path:
     """bb_log-alike: stream then config (requires=log_stream), and an
     independent bb_meminfo with no markers at all (no init function)."""
@@ -54,6 +66,40 @@ def _fixture_root(tmp: str) -> Path:
     return root
 
 
+def _write_routes_manifest(tmp: str, order: int = None) -> Path:
+    """B1-1320: server=true is manifest-only now -- collect_entries hard-
+    errors on it in a component header (see
+    TestServerFieldRejectedInComponentHeader below), so the route-
+    registering marker that used to live on a synthetic 'bb_routes'
+    component header lives in a consumer-manifest fixture instead,
+    mirroring real composition (examples/*/main/bb_wire.h)."""
+    marker = "// bbtool:init tier=regular fn=bb_routes_register server=true"
+    if order is not None:
+        marker += f" order={order}"
+    manifest_path = Path(tmp) / "main" / "bb_wire.h"
+    _write(manifest_path, marker + "\n")
+    return manifest_path
+
+
+def _collect_with_routes_manifest(tmp: str, root: Path, components) -> list:
+    """Merge collect_entries(component headers) with the routes-manifest
+    fixture's collect_manifest_entries -- mirrors commands.codegen.run's
+    real merge order (components, then manifest entries) now that
+    server=true/registers_routes=true route markers are manifest-only
+    (B1-1320). `components` accepts the (now manifest-only) fixture names
+    "bb_routes"/"bb_args_route" for readability at call sites unchanged from
+    before this migration; they're dropped from the collect_entries() call
+    and satisfied by the manifest merge instead."""
+    manifest_only = {"bb_routes", "bb_args_route"}
+    header_components = [c for c in components if c not in manifest_only]
+    entries = collect_entries(str(root), header_components, "espidf")
+    manifest_path = Path(tmp) / "main" / "bb_wire.h"
+    if manifest_path.exists():
+        manifest_entries, _ = collect_manifest_entries(str(manifest_path))
+        entries += manifest_entries
+    return entries
+
+
 def _fixture_root_with_http(tmp: str) -> Path:
     root = _fixture_root(tmp)
     _make_component(
@@ -62,22 +108,17 @@ def _fixture_root_with_http(tmp: str) -> Path:
         "// bbtool:init tier=pre_http fn=bb_http_start provides=http_server\n"
         "bb_http_handle_t bb_http_start(void);\n",
     )
-    _make_component(
-        root, "bb_routes",
-        "#pragma once\n"
-        "// bbtool:init tier=regular fn=bb_routes_register server=true\n"
-        "bb_err_t bb_routes_register(bb_http_handle_t server);\n",
-        requires=["bb_http"],
-    )
+    _write_routes_manifest(tmp)
     return root
 
 
 def _fixture_root_with_wildcard(tmp: str, route_order=None, wildcard_order=None) -> Path:
-    """B1-1280: an http_server provider (bb_http) + a server=true consumer
-    route (bb_routes, order= configurable) + an entry marking
-    provides=http_wildcard_last (bb_wildcard, order= configurable) --
-    isolated from _fixture_root_with_http so route/wildcard order= can be
-    controlled precisely per test case."""
+    """B1-1280: an http_server provider (bb_http) + a manifest server=true
+    consumer route (bb_routes_register, order= configurable, B1-1320
+    manifest-only) + an entry marking provides=http_wildcard_last
+    (bb_wildcard, order= configurable) -- isolated from
+    _fixture_root_with_http so route/wildcard order= can be controlled
+    precisely per test case."""
     root = _fixture_root(tmp)
     _make_component(
         root, "bb_http",
@@ -85,15 +126,7 @@ def _fixture_root_with_wildcard(tmp: str, route_order=None, wildcard_order=None)
         "// bbtool:init tier=pre_http fn=bb_http_start provides=http_server\n"
         "bb_http_handle_t bb_http_start(void);\n",
     )
-    route_marker = "// bbtool:init tier=regular fn=bb_routes_register server=true"
-    if route_order is not None:
-        route_marker += f" order={route_order}"
-    _make_component(
-        root, "bb_routes",
-        "#pragma once\n" + route_marker + "\n"
-        "bb_err_t bb_routes_register(bb_http_handle_t server);\n",
-        requires=["bb_http"],
-    )
+    _write_routes_manifest(tmp, order=route_order)
     wildcard_marker = "// bbtool:init tier=regular fn=bb_wildcard_register provides=http_wildcard_last"
     if wildcard_order is not None:
         wildcard_marker += f" order={wildcard_order}"
@@ -108,9 +141,10 @@ def _fixture_root_with_wildcard(tmp: str, route_order=None, wildcard_order=None)
 def _fixture_root_with_wildcard_args_route(tmp: str, route_order=None, wildcard_order=None,
                                             registers_routes: bool = True) -> Path:
     """B1-1280 blind-spot-closure fixture: an http_server provider (bb_http)
-    + an `args=`-shaped route-registering consumer (bb_args_route, order=
-    configurable, `registers_routes=true` by default -- pass False to prove
-    a plain args= entry with no opt-in is unaffected) + an entry marking
+    + an `args=`-shaped route-registering CONSUMER MANIFEST entry
+    (bb_args_route_register, order= configurable, `registers_routes=true` by
+    default -- pass False to prove a plain args= entry with no opt-in is
+    unaffected; B1-1320 manifest-only) + an entry marking
     provides=http_wildcard_last (bb_wildcard, order= configurable). Mirrors
     _fixture_root_with_wildcard, but the consumer registers routes via
     `args=` (referencing bb_app_http_handle directly) instead of
@@ -130,12 +164,7 @@ def _fixture_root_with_wildcard_args_route(tmp: str, route_order=None, wildcard_
         route_marker += " registers_routes=true"
     if route_order is not None:
         route_marker += f" order={route_order}"
-    _make_component(
-        root, "bb_args_route",
-        "#pragma once\n" + route_marker + "\n"
-        "bb_err_t bb_args_route_register(bb_http_handle_t server, const char *path);\n",
-        requires=["bb_http"],
-    )
+    _write(Path(tmp) / "main" / "bb_wire.h", route_marker + "\n")
     wildcard_marker = "// bbtool:init tier=regular fn=bb_wildcard_register provides=http_wildcard_last"
     if wildcard_order is not None:
         wildcard_marker += f" order={wildcard_order}"
@@ -225,6 +254,107 @@ class TestOutFieldRejectedInComponentHeader(unittest.TestCase):
                 collect_entries(str(root), ["bb_sneaky_out"], "espidf")
 
 
+class TestServerFieldRejectedInComponentHeader(unittest.TestCase):
+    """B1-1320: 'server=true' / 'registers_routes=true' are only valid on a
+    --consumer-manifest marker -- collect_entries (component AND platform
+    headers) must hard-error, never silently accept either, mirroring
+    component=/out='s manifest-only restriction exactly (same rejection
+    point, same exception type). Which HTTP routes a composition exposes is
+    the CONSUMER's decision; a component (or its platform backend) must
+    never be able to force a route onto the consumer merely by being
+    composed -- the exact defect epic B1-1314 closed by relocating 20
+    markers out of component/platform headers into consumer manifests."""
+
+    def test_server_true_in_component_header_is_wire_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(
+                root, "bb_sneaky_server",
+                "#pragma once\n"
+                "// bbtool:init tier=regular fn=bb_sneaky_route_init server=true\n"
+                "bb_err_t bb_sneaky_route_init(bb_http_handle_t server);\n",
+            )
+            with self.assertRaises(WireError):
+                collect_entries(str(root), ["bb_sneaky_server"], "espidf")
+
+    def test_server_true_in_platform_header_is_wire_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_platform_component(
+                root, "bb_sneaky_plat_server",
+                "#pragma once\n"
+                "// bbtool:init tier=regular fn=bb_sneaky_plat_route_init server=true\n"
+                "bb_err_t bb_sneaky_plat_route_init(bb_http_handle_t server);\n",
+            )
+            with self.assertRaises(WireError):
+                collect_entries(str(root), ["bb_sneaky_plat_server"], "espidf")
+
+    def test_registers_routes_true_in_component_header_is_wire_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(
+                root, "bb_sneaky_args_route",
+                "#pragma once\n"
+                "// bbtool:init tier=regular fn=bb_sneaky_args_route_init "
+                'args=bb_app_http_handle,"/sneaky" registers_routes=true\n'
+                "bb_err_t bb_sneaky_args_route_init(bb_http_handle_t server, const char *path);\n",
+            )
+            with self.assertRaises(WireError):
+                collect_entries(str(root), ["bb_sneaky_args_route"], "espidf")
+
+    def test_registers_routes_true_in_platform_header_is_wire_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_platform_component(
+                root, "bb_sneaky_plat_args_route",
+                "#pragma once\n"
+                "// bbtool:init tier=regular fn=bb_sneaky_plat_args_route_init "
+                'args=bb_app_http_handle,"/sneaky" registers_routes=true\n'
+                "bb_err_t bb_sneaky_plat_args_route_init(bb_http_handle_t server, const char *path);\n",
+            )
+            with self.assertRaises(WireError):
+                collect_entries(str(root), ["bb_sneaky_plat_args_route"], "espidf")
+
+    def test_server_true_and_registers_routes_true_accepted_in_consumer_manifest(self):
+        """The positive companion: BOTH fields parse through unrestricted
+        (no rejection) when collected via collect_manifest_entries -- the
+        gate lives in collect_entries only, exactly like component=/out=."""
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "main" / "bb_wire.h"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=regular fn=bb_routes_register server=true\n"
+                "// bbtool:init tier=regular fn=bb_args_route_register "
+                'args=bb_app_http_handle,"/ping" registers_routes=true\n',
+            )
+            entries, _ = collect_manifest_entries(str(manifest_path))
+            self.assertEqual(len(entries), 2)
+            self.assertTrue(entries[0].server)
+            self.assertTrue(entries[1].registers_routes)
+
+    def test_error_message_names_file_line_and_function(self):
+        """The error must be actionable: which file, which line, which
+        function, and what to do instead (move the marker to the consumer
+        manifest, adding component=<name>)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(
+                root, "bb_sneaky_server",
+                "#pragma once\n"
+                "line 2 filler so the marker isn't line 1\n"
+                "// bbtool:init tier=regular fn=bb_sneaky_route_init server=true\n"
+                "bb_err_t bb_sneaky_route_init(bb_http_handle_t server);\n",
+            )
+            with self.assertRaises(WireError) as ctx:
+                collect_entries(str(root), ["bb_sneaky_server"], "espidf")
+            message = str(ctx.exception)
+            self.assertIn("bb_sneaky_server.h:3", message)
+            self.assertIn("fn=bb_sneaky_route_init", message)
+            self.assertIn("server=true", message)
+            self.assertIn("consumer manifest", message)
+            self.assertIn("component=bb_sneaky_server", message)
+
+
 class TestComponentHeadersUnknownName(unittest.TestCase):
     """#3: `entry is None` guard in `_component_headers` -- a name absent
     from the discovery index falls back to `roots[0]` (or `""` when `roots`
@@ -257,7 +387,7 @@ class TestRenderSource(unittest.TestCase):
     def test_http_start_line_present_when_http_component_in_set(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root_with_http(tmp)
-            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            entries = _collect_with_routes_manifest(tmp, root, ["bb_log", "bb_http", "bb_routes"])
             source = render_source(topo_sort(entries))
             self.assertIn("__auto_type bb_app_http_handle = bb_http_start();", source)
             self.assertIn("bb_routes_register(bb_app_http_handle);", source)
@@ -272,7 +402,7 @@ class TestRenderSource(unittest.TestCase):
     def test_server_entry_without_http_provider_raises(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root_with_http(tmp)
-            entries = collect_entries(str(root), ["bb_routes"], "espidf")
+            entries = _collect_with_routes_manifest(tmp, root, ["bb_routes"])
             with self.assertRaises(WireError):
                 render_source(topo_sort(entries))
 
@@ -287,7 +417,8 @@ class TestRenderSource(unittest.TestCase):
                 "// bbtool:init tier=pre_http fn=bb_http2_start provides=http_server\n"
                 "bb_http_handle_t bb_http2_start(void);\n",
             )
-            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_http2", "bb_routes"], "espidf")
+            entries = _collect_with_routes_manifest(
+                tmp, root, ["bb_log", "bb_http", "bb_http2", "bb_routes"])
             ordered = topo_sort(entries)
             with self.assertRaises(WireError):
                 render_source(ordered)
@@ -331,8 +462,8 @@ class TestRenderSource(unittest.TestCase):
                 "provides=http_server requires=http_dep\n"
                 "bb_http_handle_t bb_http_gated_start(void);\n",
             )
-            entries = collect_entries(
-                str(root), ["bb_log", "bb_http_dep", "bb_http_gated", "bb_routes"], "espidf")
+            entries = _collect_with_routes_manifest(
+                tmp, root, ["bb_log", "bb_http_dep", "bb_http_gated", "bb_routes"])
             ordered = topo_sort(entries)
             with self.assertRaises(WireError) as ctx:
                 render_source(ordered)
@@ -345,7 +476,7 @@ class TestRenderSource(unittest.TestCase):
         (the default `()` must be indistinguishable from omitting it)."""
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root_with_http(tmp)
-            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            entries = _collect_with_routes_manifest(tmp, root, ["bb_log", "bb_http", "bb_routes"])
             ordered = topo_sort(entries)
             self.assertEqual(render_source(ordered), render_source(ordered, []))
 
@@ -419,8 +550,8 @@ class TestConsumesSetterInjection(unittest.TestCase):
         to prove the setter-injection path adds nothing to that output."""
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root_with_http(tmp)
-            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
-            provides = collect_provides_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            entries = _collect_with_routes_manifest(tmp, root, ["bb_log", "bb_http", "bb_routes"])
+            provides = collect_provides_entries(str(root), ["bb_log", "bb_http"], "espidf")
             self.assertEqual(provides, [])
             source = render_source(topo_sort(entries), provides)
             self.assertIn("__auto_type bb_app_http_handle = bb_http_start();", source)
@@ -1083,8 +1214,8 @@ class TestOutEmission(unittest.TestCase):
                 "// bbtool:init tier=early fn=bb_x_init "
                 "out=bb_app_http_handle:bb_http_handle_t\n",
             )
-            component_entries = collect_entries(
-                str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            component_entries = _collect_with_routes_manifest(
+                tmp, root, ["bb_log", "bb_http", "bb_routes"])
             manifest_entries, _ = collect_manifest_entries(str(manifest_path))
             with self.assertRaises(WireError) as ctx:
                 render_source(topo_sort(component_entries + manifest_entries))
@@ -1164,7 +1295,7 @@ class TestByteStabilityNoOutMarkers(unittest.TestCase):
     def test_http_fixture_unaffected_by_out_support(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root_with_http(tmp)
-            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            entries = _collect_with_routes_manifest(tmp, root, ["bb_log", "bb_http", "bb_routes"])
             source = render_source(topo_sort(entries))
             self.assertNotIn("out-parameter handles", source)
 
@@ -1187,20 +1318,22 @@ class TestWildcardLastGuard(unittest.TestCase):
         wildcard's order= -- the general (not no-order-specific) violation."""
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root_with_wildcard(tmp, route_order=2, wildcard_order=1)
-            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes", "bb_wildcard"], "espidf")
+            entries = _collect_with_routes_manifest(
+                tmp, root, ["bb_log", "bb_http", "bb_routes", "bb_wildcard"])
             ordered = topo_sort(entries)
             with self.assertRaises(WireError) as ctx:
                 render_source(ordered)
             message = str(ctx.exception)
             self.assertIn("fn=bb_routes_register", message)
             self.assertIn("fn=bb_wildcard_register", message)
-            self.assertIn("bb_routes.h", message)
+            self.assertIn("bb_wire.h", message)
             self.assertIn("bb_wildcard.h", message)
 
     def test_correct_composition_route_before_wildcard_does_not_fire(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root_with_wildcard(tmp, route_order=1, wildcard_order=2)
-            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes", "bb_wildcard"], "espidf")
+            entries = _collect_with_routes_manifest(
+                tmp, root, ["bb_log", "bb_http", "bb_routes", "bb_wildcard"])
             ordered = topo_sort(entries)
             source = render_source(ordered)  # must not raise
             self.assertIn("bb_routes_register(bb_app_http_handle);", source)
@@ -1213,7 +1346,8 @@ class TestWildcardLastGuard(unittest.TestCase):
         order= on the wildcard entry alone does NOT self-protect."""
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root_with_wildcard(tmp, route_order=None, wildcard_order=1)
-            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes", "bb_wildcard"], "espidf")
+            entries = _collect_with_routes_manifest(
+                tmp, root, ["bb_log", "bb_http", "bb_routes", "bb_wildcard"])
             ordered = topo_sort(entries)
             with self.assertRaises(WireError) as ctx:
                 render_source(ordered)
@@ -1234,8 +1368,8 @@ class TestWildcardLastGuard(unittest.TestCase):
                 "provides=http_wildcard_last order=3\n"
                 "bb_err_t bb_wildcard2_register(void);\n",
             )
-            entries = collect_entries(
-                str(root), ["bb_log", "bb_http", "bb_routes", "bb_wildcard", "bb_wildcard2"], "espidf")
+            entries = _collect_with_routes_manifest(
+                tmp, root, ["bb_log", "bb_http", "bb_routes", "bb_wildcard", "bb_wildcard2"])
             ordered = topo_sort(entries)
             with self.assertRaises(WireError) as ctx:
                 render_source(ordered)
@@ -1250,21 +1384,21 @@ class TestWildcardLastGuard(unittest.TestCase):
         manifest_entries, never collect_entries) carrying BOTH `args=` (not
         `server=true` -- the prov entry threads the http handle internally,
         never as a codegen-supplied argument) and `provides=http_wildcard_last`,
-        with NO explicit order=, merged against component `server=true` route
-        entries exactly as commands.codegen.run merges them. Must NOT raise:
-        proves the guard's singleton/ordering check works over the real
-        merge-then-topo_sort shape, not only a synthetic single-collector
-        fixture."""
+        with NO explicit order=, sharing the SAME consumer-manifest file as
+        the (B1-1320 manifest-only) `bb_routes_register server=true` route
+        entry, exactly as a real bb_wire.h would. Must NOT raise: proves the
+        guard's singleton/ordering check works over the real merge-then-
+        topo_sort shape, not only a synthetic single-collector fixture."""
         with tempfile.TemporaryDirectory() as tmp:
-            root = _fixture_root_with_http(tmp)  # bb_http (http_server) + bb_routes (server=true)
+            root = _fixture_root_with_http(tmp)  # bb_http (http_server); manifest has bb_routes (server=true)
             manifest_path = Path(tmp) / "main" / "bb_wire.h"
-            _write(
-                manifest_path,
-                "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
-                "args=bb_wifi_prov_default_form_get(),1,NULL "
-                "provides=http_wildcard_last\n",
-            )
-            component_entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            with open(manifest_path, "a", encoding="utf-8") as f:
+                f.write(
+                    "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+                    "args=bb_wifi_prov_default_form_get(),1,NULL "
+                    "provides=http_wildcard_last\n"
+                )
+            component_entries = collect_entries(str(root), ["bb_log", "bb_http"], "espidf")
             manifest_entries, _ = collect_manifest_entries(
                 str(manifest_path), src_file="main/bb_wire.h")
             merged = component_entries + manifest_entries
@@ -1287,18 +1421,20 @@ class TestWildcardLastGuard(unittest.TestCase):
         no order=, which is exactly what PR #1140 did: it added the prov
         marker to bb_wire.h without accounting for a route-registering entry
         that ends up composed after it. `collect_manifest_entries` preserves
-        file (parse) order, so this fixture reproduces that shape precisely."""
+        file (parse) order, so this fixture reproduces that shape precisely
+        (the fixture's own bb_routes_register marker precedes both, same as
+        a real bb_wire.h)."""
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root_with_http(tmp)
             manifest_path = Path(tmp) / "main" / "bb_wire.h"
-            _write(
-                manifest_path,
-                "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
-                "args=bb_wifi_prov_default_form_get(),1,NULL "
-                "provides=http_wildcard_last\n"
-                "// bbtool:init tier=regular fn=bb_ping_route_register server=true\n",
-            )
-            component_entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            with open(manifest_path, "a", encoding="utf-8") as f:
+                f.write(
+                    "// bbtool:init tier=regular fn=bb_wifi_prov_autoinit "
+                    "args=bb_wifi_prov_default_form_get(),1,NULL "
+                    "provides=http_wildcard_last\n"
+                    "// bbtool:init tier=regular fn=bb_ping_route_register server=true\n"
+                )
+            component_entries = collect_entries(str(root), ["bb_log", "bb_http"], "espidf")
             manifest_entries, _ = collect_manifest_entries(
                 str(manifest_path), src_file="main/bb_wire.h")
             merged = component_entries + manifest_entries
@@ -1315,7 +1451,7 @@ class TestWildcardLastGuard(unittest.TestCase):
         are both skipped when wildcard_providers is empty."""
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root_with_http(tmp)
-            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            entries = _collect_with_routes_manifest(tmp, root, ["bb_log", "bb_http", "bb_routes"])
             source = render_source(topo_sort(entries))  # must not raise
             self.assertNotIn("http_wildcard_last", source)
 
@@ -1330,8 +1466,8 @@ class TestWildcardLastGuard(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root_with_wildcard_args_route(
                 tmp, route_order=2, wildcard_order=1, registers_routes=True)
-            entries = collect_entries(
-                str(root), ["bb_log", "bb_http", "bb_args_route", "bb_wildcard"], "espidf")
+            entries = _collect_with_routes_manifest(
+                tmp, root, ["bb_log", "bb_http", "bb_args_route", "bb_wildcard"])
             ordered = topo_sort(entries)
             with self.assertRaises(WireError) as ctx:
                 render_source(ordered)
@@ -1350,14 +1486,15 @@ class TestWildcardLastGuard(unittest.TestCase):
         without raising."""
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root(tmp)
-            _make_component(
-                root, "bb_wildcard",
-                "#pragma once\n"
+            manifest_path = Path(tmp) / "main" / "bb_wire.h"
+            _write(
+                manifest_path,
                 "// bbtool:init tier=regular fn=bb_wildcard_register "
-                "provides=http_wildcard_last registers_routes=true\n"
-                "bb_err_t bb_wildcard_register(void);\n",
+                "provides=http_wildcard_last registers_routes=true\n",
             )
-            entries = collect_entries(str(root), ["bb_log", "bb_wildcard"], "espidf")
+            component_entries = collect_entries(str(root), ["bb_log"], "espidf")
+            manifest_entries, _ = collect_manifest_entries(str(manifest_path))
+            entries = component_entries + manifest_entries
             ordered = topo_sort(entries)
             source = render_source(ordered)  # must not raise
             self.assertIn("bb_wildcard_register();", source)
@@ -1370,8 +1507,8 @@ class TestWildcardLastGuard(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root_with_wildcard_args_route(
                 tmp, route_order=2, wildcard_order=1, registers_routes=False)
-            entries = collect_entries(
-                str(root), ["bb_log", "bb_http", "bb_args_route", "bb_wildcard"], "espidf")
+            entries = _collect_with_routes_manifest(
+                tmp, root, ["bb_log", "bb_http", "bb_args_route", "bb_wildcard"])
             ordered = topo_sort(entries)
             source = render_source(ordered)  # must not raise
             self.assertIn("bb_args_route_register(bb_app_http_handle,\"/ping\");", source)
@@ -1386,7 +1523,7 @@ class TestWildcardLastByteStability(unittest.TestCase):
     def test_http_fixture_unaffected_by_wildcard_guard(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root_with_http(tmp)
-            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            entries = _collect_with_routes_manifest(tmp, root, ["bb_log", "bb_http", "bb_routes"])
             source = render_source(topo_sort(entries))
             self.assertIn("__auto_type bb_app_http_handle = bb_http_start();", source)
             self.assertIn("bb_routes_register(bb_app_http_handle);", source)

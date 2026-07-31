@@ -270,6 +270,35 @@ def collect_entries(roots, components: List[str], platform: str) -> List[InitEnt
                         f"valid on a '// bbtool:init' marker in a --consumer-manifest "
                         f"file, not a component header (found in component '{name}')"
                     )
+                if e.server:
+                    # B1-1320: server=true marks a REGULAR-tier entry that
+                    # registers an HTTP route -- which HTTP routes a
+                    # composition exposes is the CONSUMER's decision, never
+                    # a component's. Allowing it here would let merely
+                    # composing a component silently force its route(s) onto
+                    # the consumer's HTTP surface (the exact defect epic
+                    # B1-1314 relocated 20 markers to close). Hard error,
+                    # never a silent skip -- same shape as component=/out=
+                    # above, plus a pointer to the fix.
+                    raise WireError(
+                        f"{e.src_file}:{e.src_line}: fn={e.fn}: 'server=true' is only "
+                        f"valid on a '// bbtool:init' marker in a --consumer-manifest "
+                        f"file, not a component header (found in component '{name}') "
+                        f"-- move this marker to the consumer manifest (e.g. "
+                        f"examples/smoke/main/bb_wire.h), adding 'component={name}'"
+                    )
+                if e.registers_routes:
+                    # Same reasoning as server=true above -- registers_routes=
+                    # is the args=-shaped route-registration signal (B1-1280),
+                    # equally a consumer-owned HTTP-surface decision.
+                    raise WireError(
+                        f"{e.src_file}:{e.src_line}: fn={e.fn}: 'registers_routes=true' "
+                        f"is only valid on a '// bbtool:init' marker in a "
+                        f"--consumer-manifest file, not a component header (found in "
+                        f"component '{name}') -- move this marker to the consumer "
+                        f"manifest (e.g. examples/smoke/main/bb_wire.h), adding "
+                        f"'component={name}'"
+                    )
             entries.extend(parsed)
     return entries
 
