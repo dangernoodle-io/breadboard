@@ -2293,6 +2293,8 @@ void test_wifi_creds_apply_non_parse_error_maps_to_500(void);
 void test_wifi_creds_apply_ok_maps_to_202(void);
 void test_wifi_creds_apply_invalid_arg_and_unsupported_map_to_400(void);
 void test_wifi_creds_apply_validation_maps_to_400(void);
+void test_wifi_http_patch_acquire_scratch_success_populates_out_and_sends_nothing(void);
+void test_wifi_http_patch_acquire_scratch_reentrant_returns_500(void);
 
 // Forward declarations from test_wifi_route_dup_status.c
 void test_wifi_http_route_register_outcome_dup_maps_to_ok(void);
@@ -11416,6 +11418,8 @@ int main(void) {
     RUN_TEST(test_wifi_creds_apply_ok_maps_to_202);
     RUN_TEST(test_wifi_creds_apply_invalid_arg_and_unsupported_map_to_400);
     RUN_TEST(test_wifi_creds_apply_validation_maps_to_400);
+    RUN_TEST(test_wifi_http_patch_acquire_scratch_success_populates_out_and_sends_nothing);
+    RUN_TEST(test_wifi_http_patch_acquire_scratch_reentrant_returns_500);
 
     RUN_TEST(test_wifi_http_route_register_outcome_dup_maps_to_ok);
     RUN_TEST(test_wifi_http_route_register_outcome_ok_stays_ok);
