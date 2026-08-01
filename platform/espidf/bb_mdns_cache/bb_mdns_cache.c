@@ -354,17 +354,4 @@ bb_err_t bb_mdns_cache_stop(void)
     return BB_OK;
 }
 
-// ---------------------------------------------------------------------------
-// Composition seam for codegen (see the bbtool:init marker on the
-// declaration in bb_mdns_cache.h): always a no-op. Self-start is not a
-// supported pattern here -- a consumer wires bb_mdns_cache in by calling
-// bb_mdns_cache_start() explicitly (handwire) with its own chosen
-// service/proto, e.g. taipan-brood's app/main/main.c.
-// ---------------------------------------------------------------------------
-
-bb_err_t bb_mdns_cache_init(void)
-{
-    return BB_OK;
-}
-
 #endif /* ESP_PLATFORM */
