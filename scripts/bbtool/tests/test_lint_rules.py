@@ -2480,6 +2480,33 @@ class TestInitMarkerGatedSrcs(unittest.TestCase):
                 " the marker -- it's reachable regardless of which"
                 " earlier arm's condition is false")
 
+    def test_no_fire_with_header_else_stub_nested_in_platform_guard(self):
+        """The real bb_ota_boot.h shape (B1-1347 fix regression): a genuine
+        Kconfig `#else` stub sits INSIDE an outer `#ifdef ESP_PLATFORM`
+        that itself has no `#else`/terminal arm. The outer platform frame
+        must NOT block the inner Kconfig `#else` stub from counting as
+        trusted -- a non-Kconfig platform selector is structurally fixed
+        for the backend TU the header is compiled into, not a knob a
+        board's sdkconfig can flip."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_gated_component(
+                td,
+                "// bbtool:init tier=early fn=bb_fake_gated_init\n"
+                "#ifdef ESP_PLATFORM\n"
+                "#if CONFIG_BB_FAKE_ROUTES\n"
+                "bb_err_t bb_fake_gated_init(void);\n"
+                "#else\n"
+                "static inline bb_err_t bb_fake_gated_init(void)"
+                " { return BB_OK; }\n"
+                "#endif\n"
+                "#endif\n")
+            violations = _check_init_marker_gated_srcs(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "a Kconfig #else stub nested inside a no-#else platform"
+                " guard (#ifdef ESP_PLATFORM) must still exempt the"
+                " marker -- the platform frame is not a Kconfig knob")
+
     def test_no_fire_on_ungated_file(self):
         with tempfile.TemporaryDirectory() as td:
             self._write(
@@ -2531,6 +2558,150 @@ class TestInitMarkerGatedSrcs(unittest.TestCase):
                 ")\n")
             self._write(td, "components/bb_fake/bb_fake.c", "void noop(void) {}\n")
             self.assertEqual(_check_init_marker_gated_srcs(make_ctx(td)), [])
+
+    def _make_ungated_srcs_component(self, tmpdir: str, def_body: str) -> None:
+        """components/bb_fake/ with a SINGLE .c file that is UNCONDITIONALLY
+        added to SRCS -- the `_srcs_gate_map` unconditional-file exemption
+        must not, by itself, prove `fn` is safe; the definition's own body
+        may still be wrapped in an in-file preprocessor conditional. This
+        is the real bb_mqtt_client_init_default shape (B1-1347): the
+        DEFINING FILE was unconditional in SRCS, but the function body
+        inside it was wrapped in `#if ... CONFIG_BB_MQTT_CLIENT_AUTOREGISTER`
+        while the marker/declaration were ungated."""
+        self._write(
+            tmpdir, "components/bb_fake/CMakeLists.txt",
+            "idf_component_register(\n"
+            '    SRCS "${CMAKE_CURRENT_LIST_DIR}/bb_fake_unconditional.c"\n'
+            '    INCLUDE_DIRS "include"\n'
+            ")\n")
+        self._write(
+            tmpdir, "components/bb_fake/bb_fake_unconditional.c",
+            def_body)
+        self._write(
+            tmpdir, "components/bb_fake/include/bb_fake.h",
+            "#pragma once\n"
+            "// bbtool:init tier=early fn=bb_fake_unconditional_init\n"
+            "bb_err_t bb_fake_unconditional_init(void);\n")
+
+    def test_fires_on_infile_kconfig_gated_definition(self):
+        """The bb_mqtt_client_init_default shape: the SRCS entry is
+        unconditional, but the definition's own BODY sits inside an
+        in-file `#if CONFIG_X` with no unconditional/terminal-#else
+        fallback -- disabling CONFIG_X leaves the (unconditionally
+        compiled) file with no definition of fn at all, exactly the same
+        link/compile failure as the SRCS-gated case."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_ungated_srcs_component(
+                td,
+                "#if CONFIG_BB_FAKE_AUTOREGISTER\n"
+                "bb_err_t bb_fake_unconditional_init(void) { return BB_OK; }\n"
+                "#endif\n")
+            violations = _check_init_marker_gated_srcs(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "an in-file #if CONFIG_X gate around the definition body,"
+                " with no unconditional/terminal-#else fallback, must fire"
+                " even though the defining .c file is unconditional in SRCS")
+            self.assertIn("bb_fake_unconditional_init", violations[0]["detail"])
+            self.assertIn("CONFIG_BB_FAKE_AUTOREGISTER", violations[0]["detail"])
+            self.assertIn(
+                "disabling CONFIG_BB_FAKE_AUTOREGISTER", violations[0]["detail"],
+                "the real-Kconfig-symbol message must keep the"
+                " 'disabling X' framing -- only the opaque-condition"
+                " case drops it (B1-1347 review LOW)")
+
+    def test_no_fire_on_infile_esp_platform_guard(self):
+        """A definition body wrapped in `#ifdef ESP_PLATFORM` is a platform
+        selector, not a Kconfig knob a board can flip -- it's structurally
+        always-true or always-false for a given backend TU (this file
+        lives under an espidf-only component and is only ever compiled
+        into an ESP-IDF build). Must NOT fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_ungated_srcs_component(
+                td,
+                "#ifdef ESP_PLATFORM\n"
+                "bb_err_t bb_fake_unconditional_init(void) { return BB_OK; }\n"
+                "#endif\n")
+            violations = _check_init_marker_gated_srcs(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "#ifdef ESP_PLATFORM is a platform selector, not a"
+                " board-flippable Kconfig knob -- must not fire")
+
+    def test_no_fire_on_infile_testing_guard(self):
+        """A definition body wrapped in an in-tree `*_TESTING` compile-mode
+        macro (e.g. BB_LIFECYCLE_TESTING/BB_DATA_TESTING-style host-test
+        gating) is a build-mode selector set by the test harness, never a
+        Kconfig option a board's sdkconfig can turn off -- must NOT fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_ungated_srcs_component(
+                td,
+                "#ifdef BB_FAKE_TESTING\n"
+                "bb_err_t bb_fake_unconditional_init(void) { return BB_OK; }\n"
+                "#endif\n")
+            violations = _check_init_marker_gated_srcs(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "*_TESTING is a build-mode selector, not a Kconfig knob --"
+                " must not fire")
+
+    def test_fires_on_infile_if_zero_guard(self):
+        """B1-1347 review MEDIUM: `#if 0` is neither a CONFIG_* Kconfig
+        token nor an allowlisted platform/build-mode selector -- it's an
+        OPAQUE condition this text-only checker cannot prove is safe, so
+        it must default to blocking, exactly like the old fully-generic
+        mask did for every unrecognized condition. An earlier cut of this
+        rule treated "not CONFIG_*" as "safe", which silently exempted
+        this -- the single most obviously unreachable construct there
+        is."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_ungated_srcs_component(
+                td,
+                "#if 0\n"
+                "bb_err_t bb_fake_unconditional_init(void) { return BB_OK; }\n"
+                "#endif\n")
+            violations = _check_init_marker_gated_srcs(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "#if 0 around the only definition must fire -- it is"
+                " never reachable, and being unrecognized (not CONFIG_*,"
+                " not an allowlisted platform guard) must mean dangerous,"
+                " never safe")
+            detail = violations[0]["detail"]
+            self.assertIn(
+                "cannot prove is always true", detail,
+                "the opaque-condition message must explain the checker"
+                " can't prove the guard is always true (B1-1347 review LOW)")
+            self.assertNotIn(
+                "disabling", detail,
+                "the opaque-condition message must NOT use the"
+                " 'disabling X' framing -- that only makes sense for a"
+                " real CONFIG_* symbol with an off state (B1-1347 review"
+                " LOW: 'disabling #if 0' / 'when #if 0 is off' is"
+                " nonsense)")
+            self.assertNotIn(
+                "is off", detail,
+                "the opaque-condition message must NOT use the"
+                " 'when X is off' framing (same B1-1347 review LOW nit)")
+
+    def test_fires_on_infile_typoed_config_symbol(self):
+        """B1-1347 review MEDIUM: a one-character typo in the CONFIG_
+        symbol name (CONFGI_ instead of CONFIG_) makes `_CONFIG_TOKEN_RE`
+        miss it -- but it's still not an allowlisted platform/build-mode
+        selector, so it must be treated as OPAQUE (blocking), not safe.
+        Same defect class as #if 0: unrecognized must mean dangerous."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_ungated_srcs_component(
+                td,
+                "#if CONFGI_BB_FAKE_AUTOREGISTER\n"
+                "bb_err_t bb_fake_unconditional_init(void) { return BB_OK; }\n"
+                "#endif\n")
+            violations = _check_init_marker_gated_srcs(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "a typo'd/unrecognized macro gating the only definition"
+                " must fire -- this checker cannot prove it's safe, so it"
+                " must not be silently trusted")
 
 
 if __name__ == "__main__":

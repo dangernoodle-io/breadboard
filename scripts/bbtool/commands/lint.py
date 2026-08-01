@@ -2219,89 +2219,16 @@ _PREPROC_ELSE_RE = re.compile(r'^\s*#\s*else\b')
 _PREPROC_ENDIF_RE = re.compile(r'^\s*#\s*endif\b')
 
 
-def _preproc_trusted_line_mask(stripped: str) -> List[bool]:
-    """Return `[bool, ...]`, one entry per line of `stripped`, `True` iff
-    that line is either fully unguarded, or inside a TERMINAL `#else` arm
-    of every enclosing preprocessor conditional -- i.e. NOT inside the
-    `#if`/`#ifdef`/`#ifndef` PRIMARY arm, and NOT inside an `#elif` arm.
-
-    A stack of booleans tracks, per enclosing conditional, whether we're
-    still short of a terminal `#else` for it (`True`) or have crossed one
-    (`False`); a line is trusted iff every frame on the stack is `False`
-    (no enclosing conditional is still short of its terminal `#else`) --
-    an empty stack (no enclosing conditional at all) is trivially trusted.
-
-    `#elif` does NOT flip a frame to `False` (B1-1337 review HIGH,
-    round 2): only `#else` is a genuine, EXHAUSTIVE catch-all -- reached
-    whenever the primary condition (and every earlier `#elif`) is false,
-    with no further condition of its own that could ALSO be false. An
-    `#elif` arm is just as conditional as the primary `#if` arm (its own
-    condition can be false too), so treating it as "reached when the gate
-    is off" is the same false-negative the primary-arm-blind version of
-    this check had, one level removed: `#if A / #elif B / #endif` (no
-    `#else`) has NO body at all when both A and B are false, exactly like
-    a bare `#if A / #endif`. Proving an `#elif` chain exhaustive would
-    require showing the disjunction of every arm's condition covers every
-    case, which this text-only checker cannot do -- so no `#elif` arm is
-    ever trusted, only a REAL terminal `#else` (or being unguarded).
-
-    Deliberately line-based (not full-expression-aware): the `#if`/
-    `#elif`/`#else`/`#endif` KEYWORDS are unambiguous textually; this
-    function makes no attempt to evaluate which branch is actually
-    Kconfig-live (that's the same "no preprocessor" posture every other
-    lint rule and `wire_parse` already take).
-
-    KNOWN LIMITATION (documented, not fixed -- B1-1337 review HIGH round
-    2 flagged this as a related, deeper case): this mask only proves a
-    SINGLE textual position is reachable along its OWN nesting path (every
-    enclosing frame terminal-`#else`-or-unguarded); it does NOT prove that
-    path is the ONLY relevant one. A stub nested two levels deep --
-    `#if OUTER ... #else #if INNER decl-only #else stub #endif #endif` --
-    has its stub correctly marked trusted (both frames are past their
-    terminal `#else`), but a DIFFERENT combination (`OUTER` false, `INNER`
-    true) reaches the `decl-only` branch, which has no body at that leaf.
-    If the `.c` file's SRCS gate correlates only with `OUTER` (not
-    `INNER`), that combination still link-errors, and this mask cannot
-    detect it -- proving every LEAF of an arbitrarily nested conditional
-    tree has a body requires full recursive tree-exhaustiveness checking,
-    which this line-based mask does not attempt (the same class of
-    limitation `find_conditional_srcs`'s nested-`if()` attribution already
-    documents for the CMake side). No such shape exists in this codebase's
-    `// bbtool:init`-marked headers today."""
-    mask: List[bool] = []
-    stack: List[bool] = []
-    for line in stripped.splitlines():
-        if _PREPROC_IF_OPEN_RE.match(line):
-            stack.append(True)
-        elif _PREPROC_ELIF_RE.match(line):
-            pass  # not terminal -- leaves the frame's trust state unchanged
-        elif _PREPROC_ELSE_RE.match(line):
-            if stack:
-                stack[-1] = False
-        elif _PREPROC_ENDIF_RE.match(line):
-            if stack:
-                stack.pop()
-        mask.append(not any(stack))
-    return mask
-
-
-def _has_trusted_header_stub(stripped: str, fn: str) -> bool:
-    """True iff `fn` has a textual definition (`fn(...) { ... }`) in
-    `stripped` at a position the enclosing `#if`-nest (per
-    `_preproc_trusted_line_mask`) shows is reachable when every enclosing
-    conditional is either unguarded or has reached its TERMINAL `#else`
-    arm (never merely an `#elif` arm -- see that function's docstring).
-    Mirrors `_find_cb_body`'s definition-detection (word boundary, balanced
-    `(...)`, then a balanced `{...}` body) but walks EVERY textual
-    occurrence (not just the first) and only accepts one that is trusted
-    -- a `#if CONFIG_X ... #endif`-only stub, or one confined to an
-    `#elif` arm with no trailing `#else`, is a definition that textually
-    exists but is NEVER reachable for every combination of the gate(s)
-    being off, so it must not exempt the marker it's meant to be the
-    fallback for (B1-1337 review HIGH)."""
+def _iter_fn_def_line_nos(stripped: str, fn: str):
+    """Yield the 0-based line number of EVERY textual DEFINITION occurrence
+    of `fn` in `stripped` -- mirrors `_find_cb_body`'s definition-detection
+    (word boundary, balanced `(...)`, then a balanced `{...}` body) but
+    walks every occurrence instead of stopping at the first. Shared
+    scanning core for both `_has_trusted_header_stub` (header `#else`-stub
+    exemption) and `_definition_kconfig_gate` (in-file Kconfig-gated
+    definition-body detection, B1-1347)."""
     word_re = re.compile(r'\b' + re.escape(fn) + r'\b')
     n = len(stripped)
-    mask = _preproc_trusted_line_mask(stripped)
     for m in word_re.finditer(stripped):
         pos = m.end()
         while pos < n and stripped[pos] in ' \t\r\n':
@@ -2319,10 +2246,225 @@ def _has_trusted_header_stub(stripped: str, fn: str) -> bool:
         close_brace = _walk_balanced(stripped, pos, '{', '}')
         if close_brace < 0:
             continue
-        line_no = stripped[:m.start()].count('\n')
+        yield stripped[:m.start()].count('\n')
+
+
+_CONFIG_TOKEN_RE = re.compile(r'\bCONFIG_[A-Za-z0-9_]+\b')
+
+# Explicit ALLOWLIST of non-Kconfig conditions this rule knows are
+# structurally fixed for the TU/build-mode a marked function's definition
+# already lives in -- NOT a catch-all for "anything that isn't CONFIG_*"
+# (B1-1347 review MEDIUM). Anything NOT matching either this or
+# `_CONFIG_TOKEN_RE` is OPAQUE and blocks trust exactly like a Kconfig
+# frame (see `_preproc_condition_blocks`/`_preproc_kconfig_gate_mask`).
+#
+# KNOWN LIMITATION (documented, not fixed -- B1-1347 review, same
+# "state it, don't silently widen it" posture as B1-1345): the `*_TESTING`
+# arm is a bare substring/suffix match, not "one of the project's known
+# `BB_*_TESTING` harness macros" -- a hypothetical macro that merely ends
+# in `_TESTING` without being a real build-mode selector (e.g. a
+# `NOT_TESTING` guard, per B1-1347 review) would also be treated as safe.
+# Every real in-tree instance today is the `BB_*_TESTING` host-harness
+# shape (grepped clean), so this is not a live bug -- but a text-only
+# checker can't distinguish "ends in _TESTING" from "IS a project
+# build-mode macro" without a second allowlist of exact names, which
+# would need updating every time a new one is added. Deliberately left
+# loose rather than narrowed to a name list that would bit-rot silently.
+_SAFE_GUARD_RE = re.compile(
+    r'\b(?:ESP_PLATFORM|ARDUINO|__AVR__|[A-Za-z0-9_]*_TESTING)\b'
+)
+
+
+def _preproc_condition_blocks(line: str):
+    """Classify a single `#if`/`#ifdef`/`#ifndef`/`#elif` line's condition
+    text into `(blocks, text)`:
+      - a `CONFIG_*` token present -> `(True, <token text>)` -- Kconfig-
+        gated, a board can flip it, so this frame blocks trust unless it
+        reaches a genuine terminal `#else`.
+      - no `CONFIG_*` token, but `_SAFE_GUARD_RE` matches -> `(False, "")`
+        -- an explicitly allowlisted platform/build-mode selector,
+        structurally fixed for this TU, never blocks trust.
+      - neither matches -> `(True, <stripped line text>)` -- OPAQUE: this
+        text-only checker cannot prove the condition is safe, so it
+        defaults to blocking, same as the old fully-generic mask did for
+        every condition (B1-1347 review MEDIUM: this is what catches
+        `#if 0` and a typo'd/unknown macro like
+        `CONFGI_BB_FAKE_AUTOREGISTER` -- both are unrecognized text, and
+        "unrecognized" must mean "dangerous", never "safe")."""
+    cfg = _CONFIG_TOKEN_RE.search(line)
+    if cfg is not None:
+        return True, cfg.group(0)
+    if _SAFE_GUARD_RE.search(line):
+        return False, ""
+    return True, line.strip()
+
+
+def _preproc_kconfig_gate_mask(stripped: str):
+    """Return `(trusted, gate_texts)`, one entry per line of `stripped`:
+      - `trusted[i]` is `True` iff that line is either fully unguarded, or
+        every CURRENTLY-OPEN enclosing preprocessor conditional whose OWN
+        `#if`/`#ifdef`/`#ifndef`/`#elif` condition text contains a Kconfig
+        `CONFIG_*` token has reached ITS terminal `#else` arm -- i.e. no
+        Kconfig-gated frame is still short of its terminal `#else`.
+
+        A frame gated on a condition matching the EXPLICIT
+        `_SAFE_GUARD_RE` allowlist (platform selectors `ESP_PLATFORM`/
+        `ARDUINO`/`__AVR__`, or an in-tree `*_TESTING` build-mode macro)
+        NEVER contributes to `trusted` going `False`, even while open and
+        non-terminal (B1-1347) -- those select a structurally fixed axis
+        (the backend TU / build mode the file already belongs to), never a
+        knob a BOARD's sdkconfig can flip, so a body nested inside e.g.
+        `#ifdef ESP_PLATFORM` with no `#else` is exactly as reachable as
+        one with no ESP_PLATFORM guard at all, for the purposes this rule
+        cares about. This is the Kconfig-vs-platform-guard distinction the
+        rule is built around (see `_check_init_marker_gated_srcs`
+        docstring): only a symbol a board can turn off via `sdkconfig`
+        creates the danger this rule exists to catch.
+
+        CRITICAL: the safe bucket is an ALLOWLIST, not "everything that
+        isn't `CONFIG_*`" (B1-1347 review MEDIUM -- the first cut of this
+        mask made that mistake and reintroduced, one layer down, the exact
+        defect class this rule exists to catch: `#if 0` around a
+        definition body, or a typo'd/unknown macro like
+        `CONFGI_BB_FAKE_AUTOREGISTER`, both textually fail
+        `_CONFIG_TOKEN_RE` and were silently treated as unconditionally
+        reachable). A condition that matches NEITHER `_CONFIG_TOKEN_RE`
+        NOR `_SAFE_GUARD_RE` is OPAQUE -- this checker cannot prove what
+        it depends on, so it is treated exactly like a Kconfig frame:
+        blocking, unless it reaches a genuine terminal `#else`. This
+        matches the old fully-generic mask's default-deny posture for
+        every condition this rule doesn't explicitly know is safe.
+
+        `#elif` does NOT flip a frame to terminal (B1-1337 review HIGH,
+        round 2): only `#else` is a genuine, EXHAUSTIVE catch-all --
+        reached whenever the primary condition (and every earlier `#elif`)
+        is false, with no further condition of its own that could ALSO be
+        false. An `#elif` arm is just as conditional as the primary `#if`
+        arm, so treating it as terminal would reproduce the same
+        false-negative the primary-arm-blind version of this check had,
+        one level removed: `#if A / #elif B / #endif` (no `#else`) has NO
+        body at all when both A and B are false, exactly like a bare
+        `#if A / #endif`. Proving an `#elif` chain exhaustive would
+        require showing the disjunction of every arm's condition covers
+        every case, which this text-only checker cannot do -- so no
+        `#elif` arm is ever trusted, only a REAL terminal `#else` (or
+        being unguarded).
+
+        Deliberately line-based (not full-expression-aware): the `#if`/
+        `#elif`/`#else`/`#endif` KEYWORDS are unambiguous textually; this
+        function makes no attempt to evaluate which branch is actually
+        Kconfig-live (that's the same "no preprocessor" posture every
+        other lint rule and `wire_parse` already take).
+
+        KNOWN LIMITATION (documented, not fixed -- B1-1337 review HIGH
+        round 2; explicitly OUT OF SCOPE for B1-1347 too, see that
+        ticket): this mask only proves a SINGLE textual position is
+        reachable along its OWN nesting path (every enclosing Kconfig
+        frame terminal-`#else`-or-unguarded); it does NOT prove that path
+        is the ONLY relevant one -- a stub nested two Kconfig levels deep
+        can be marked trusted while a DIFFERENT arm combination reaches a
+        sibling leaf with no body, which this line-based mask cannot
+        detect (the same class of limitation `find_conditional_srcs`'s
+        nested-`if()` attribution already documents for the CMake side).
+      - `gate_texts[i]` is the innermost still-open, non-terminal
+        BLOCKING condition's text when `trusted[i]` is `False` -- the
+        matched `CONFIG_*` token for a Kconfig frame, or the raw stripped
+        condition text for an opaque (unrecognized) frame -- else `None`,
+        used only for the violation message."""
+    mask: List[bool] = []
+    gate_texts: List[Optional[str]] = []
+    stack: List[dict] = []  # {"terminal": bool, "blocks": bool, "text": str}
+    for line in stripped.splitlines():
+        if _PREPROC_IF_OPEN_RE.match(line):
+            blocks, text = _preproc_condition_blocks(line)
+            stack.append({"terminal": False, "blocks": blocks, "text": text})
+        elif _PREPROC_ELIF_RE.match(line):
+            if stack:
+                blocks, text = _preproc_condition_blocks(line)
+                # Once ANY arm along this frame's chain is Kconfig-gated
+                # or opaque, the whole (non-terminal) frame stays blocking
+                # -- an earlier safe/platform-only #if arm doesn't make a
+                # later dangerous #elif arm safe, and vice versa a later
+                # safe #elif doesn't retroactively clear an earlier
+                # dangerous arm (never downgrade `blocks` back to False).
+                if blocks:
+                    stack[-1]["blocks"] = True
+                    stack[-1]["text"] = text
+        elif _PREPROC_ELSE_RE.match(line):
+            if stack:
+                stack[-1]["terminal"] = True
+        elif _PREPROC_ENDIF_RE.match(line):
+            if stack:
+                stack.pop()
+        open_kconfig = [f for f in stack if f["blocks"] and not f["terminal"]]
+        mask.append(not open_kconfig)
+        gate_texts.append(open_kconfig[-1]["text"] if open_kconfig else None)
+    return mask, gate_texts
+
+
+def _has_trusted_header_stub(stripped: str, fn: str) -> bool:
+    """True iff `fn` has a textual definition (`fn(...) { ... }`) in
+    `stripped` at a position `_preproc_kconfig_gate_mask` shows is
+    reachable regardless of build configuration. Per
+    `_preproc_condition_blocks`'s three-way classification, a position is
+    reachable when every enclosing frame is one of: unguarded; gated ONLY
+    by a condition matching the explicit `_SAFE_GUARD_RE` allowlist
+    (platform/build-mode selector, structurally fixed for this TU); or
+    past a genuine terminal `#else` if the frame is Kconfig-gated (a
+    `CONFIG_*` token) OR opaque (an unrecognized condition this checker
+    cannot prove safe, e.g. `#if 0` or a typo'd Kconfig symbol) -- never
+    merely an `#elif` arm (see that function's docstring). Walks EVERY
+    textual occurrence (`_iter_fn_def_line_nos`) and only accepts one that
+    is trusted -- a `#if CONFIG_X ... #endif`-only stub, or one confined
+    to an `#elif` arm with no trailing `#else`, is a definition that
+    textually exists but is NEVER reachable for every combination of the
+    gate(s) being off, so it must not exempt the marker it's meant to be
+    the fallback for (B1-1337 review HIGH). Using the Kconfig-scoped mask
+    (rather than a fully generic preprocessor-nest mask) matters here: a
+    real fallback stub routinely sits nested inside an ALLOWLISTED
+    platform guard with no `#else` of its own (e.g.
+    `#ifdef ESP_PLATFORM { #if CONFIG_X decl #else stub #endif }` -- see
+    bb_ota_boot.h) -- that outer frame must not block the inner Kconfig
+    `#else` stub from counting as trusted (B1-1347)."""
+    mask, _ = _preproc_kconfig_gate_mask(stripped)
+    for line_no in _iter_fn_def_line_nos(stripped, fn):
         if line_no < len(mask) and mask[line_no]:
             return True
     return False
+
+
+def _definition_kconfig_gate(stripped: str, fn: str) -> Optional[str]:
+    """Return `None` if `fn` has a definition (`_iter_fn_def_line_nos`)
+    reachable regardless of build configuration per
+    `_preproc_kconfig_gate_mask` -- per `_preproc_condition_blocks`'s
+    three-way classification: unguarded; gated ONLY by a condition
+    matching the explicit `_SAFE_GUARD_RE` allowlist (platform/build-mode
+    selector); or past a genuine terminal `#else` of every enclosing
+    Kconfig-gated OR OPAQUE frame (an opaque condition is one matching
+    neither `_CONFIG_TOKEN_RE` nor `_SAFE_GUARD_RE` -- unrecognized text
+    this checker cannot prove is always true, e.g. `#if 0` or a typo'd
+    Kconfig symbol like `CONFGI_BB_FAKE_AUTOREGISTER` -- treated exactly
+    like a Kconfig frame: blocking by default). Otherwise return the
+    gating condition text of the (first found) untrusted enclosing
+    frame -- the matched `CONFIG_*` token for a Kconfig frame, or the raw
+    stripped condition text for an opaque frame -- for the violation
+    message (B1-1347; the caller distinguishes the two shapes via
+    `_CONFIG_TOKEN_RE.fullmatch` to pick the right message wording, see
+    `_check_init_marker_gated_srcs`). Companion to
+    `_has_trusted_header_stub`, but applied to a `.c` file's OWN body
+    rather than a header fallback stub -- catches a marked function whose
+    definition sits inside an in-file `#if`/`#ifdef` even though its SRCS
+    entry is unconditional (the real `bb_mqtt_client_init_default` shape:
+    SRCS was unconditional, but the body was wrapped in
+    `#if ... CONFIG_BB_MQTT_CLIENT_AUTOREGISTER`)."""
+    mask, gate_texts = _preproc_kconfig_gate_mask(stripped)
+    first_gate: Optional[str] = None
+    for line_no in _iter_fn_def_line_nos(stripped, fn):
+        if line_no < len(mask) and mask[line_no]:
+            return None
+        if first_gate is None and line_no < len(gate_texts):
+            first_gate = gate_texts[line_no]
+    return first_gate
 
 
 def _collect_init_markers(ctx: Context) -> list:
@@ -2462,30 +2604,71 @@ def _check_init_marker_gated_srcs(ctx: Context) -> list:
         Kconfig `#if` gating the real declaration -- exactly B1-1336's fix
         shape, e.g. `bb_storage_http.h`'s
         `bb_storage_http_factory_reset_routes_init` stub). "Trusted" is
-        preprocessor-aware, via `_preproc_trusted_line_mask`/
+        preprocessor-aware, via `_preproc_kconfig_gate_mask`/
         `_has_trusted_header_stub` (B1-1337 review HIGH, two rounds): a
         textual stub found INSIDE the PRIMARY `#if`/`#ifdef`/`#ifndef` arm
-        of an enclosing conditional, OR inside an `#elif` arm, with no
-        TERMINAL `#else` making it reachable regardless of which arm's
-        condition is false, is NOT trusted and does NOT exempt the marker
-        -- it is exactly as dangerous as no stub at all (the same
-        symbol-off compile break the SRCS-gate case produces). `#elif` is
-        deliberately NOT treated as terminal (round 2 fix): it is just as
-        conditional as the primary arm, so a stub confined to it is still
-        unreachable for the (valid, uncoupled) combination where every
-        arm's condition is false. Only a stub that's unguarded, or that
-        sits in a genuine terminal `#else` arm, counts. This still does
-        NOT re-derive that the stub's specific gating symbol is the SAME
-        one gating the `.c` file's SRCS entry -- that remains out of scope
-        for a text-only checker -- it only requires that SOME textual path
-        to a definition survives regardless of which condition is false.
-        `_preproc_trusted_line_mask` also documents a known, un-closed
-        deeper limitation (a stub nested two conditional levels inside a
-        terminal `#else` isn't checked against every sibling leaf) -- see
-        that function's docstring.
+        of an enclosing Kconfig-gated conditional, OR inside an `#elif`
+        arm, with no TERMINAL `#else` making it reachable regardless of
+        which arm's condition is false, is NOT trusted and does NOT
+        exempt the marker -- it is exactly as dangerous as no stub at all
+        (the same symbol-off compile break the SRCS-gate case produces).
+        `#elif` is deliberately NOT treated as terminal (round 2 fix): it
+        is just as conditional as the primary arm, so a stub confined to
+        it is still unreachable for the (valid, uncoupled) combination
+        where every arm's condition is false. Only a stub that's
+        unguarded, or that sits in a genuine terminal `#else` arm of every
+        enclosing KCONFIG-gated frame, counts -- an enclosing NON-Kconfig
+        frame (platform selector, `*_TESTING` build mode) never blocks
+        trust, even with no `#else` of its own (B1-1347; see
+        `_preproc_kconfig_gate_mask`'s docstring for the full
+        Kconfig-vs-platform-guard rule and why). This still does NOT
+        re-derive that the stub's specific gating symbol is the SAME one
+        gating the `.c` file's SRCS entry -- that remains out of scope for
+        a text-only checker -- it only requires that SOME textual path to
+        a definition survives regardless of which Kconfig condition is
+        false. `_preproc_kconfig_gate_mask` also documents a known,
+        un-closed deeper limitation (a stub nested two Kconfig conditional
+        levels inside a terminal `#else` isn't checked against every
+        sibling leaf, B1-1345) -- see that function's docstring.
       - No definition of `fn` found anywhere: out of scope (a genuine
         undefined marker is a link-time failure this rule doesn't attempt
         to preempt); never guessed at, never flagged.
+
+    B1-1347 EXTENSION -- in-file Kconfig-gated DEFINITION BODY: an
+    unconditional SRCS entry is NOT, by itself, sufficient anymore. If the
+    only reachable definition's BODY is itself wrapped in an in-file
+    `#if`/`#ifdef` keyed on a Kconfig `CONFIG_*` symbol, with no
+    unconditional/terminal-`#else` fallback in that same file
+    (`_definition_kconfig_gate`), the marker is flagged exactly like the
+    SRCS-gated case -- this is the real historical shape
+    (`bb_mqtt_client_init_default` in
+    `bb_mqtt_client_espidf.c`: the SRCS entry was unconditional, but the
+    function body was wrapped in
+    `#if ... CONFIG_BB_MQTT_CLIENT_AUTOREGISTER`). The KCONFIG-VS-PLATFORM-
+    GUARD RULE (deliberately conservative, default-deny, false-positive-
+    avoiding) is a two-way split, NOT "anything non-`CONFIG_*` is safe"
+    (B1-1347 review MEDIUM -- an earlier cut of this rule made that
+    mistake and silently exempted `#if 0` and typo'd/unknown macros, the
+    exact "unreachable under some real config" defect class this rule
+    exists to catch, reintroduced one layer down):
+      - a gating condition containing a `CONFIG_*` token blocks (Kconfig
+        knob a board can flip).
+      - a gating condition matching the EXPLICIT `_SAFE_GUARD_RE`
+        allowlist (`ESP_PLATFORM`/`ARDUINO`/`__AVR__`/an in-tree
+        `*_TESTING` build-mode macro) never blocks -- neither is a knob a
+        board's `sdkconfig` can turn off: a platform selector is
+        structurally fixed by which backend TU the file already belongs
+        to (an espidf-backend `.c` file is only ever compiled into an
+        ESP-IDF build, so `#ifdef ESP_PLATFORM` inside it is always
+        true), and a `*_TESTING` macro is a host-test-harness build mode,
+        not a per-board Kconfig choice.
+      - EVERYTHING ELSE -- an unrecognized/opaque condition this checker
+        cannot prove is safe (a stale `#if 0`, a mistyped Kconfig symbol,
+        an unknown project macro) -- blocks, exactly like a Kconfig frame.
+        Unrecognized must mean dangerous, never safe.
+    See `_preproc_kconfig_gate_mask`/`_preproc_condition_blocks` for the
+    full mask semantics shared by both this extension and the header-stub
+    check.
 
     Scans component/platform/example HEADER TEXT only (`_collect_init_markers`)
     and component CMakeLists.txt TEXT only (`_srcs_gate_map`) -- no resolved
@@ -2516,6 +2699,7 @@ def _check_init_marker_gated_srcs(ctx: Context) -> list:
 
     h_stripped = {p: _strip_noise(ctx.read(p)) for p in h_files}
     c_stripped = {p: _strip_noise(ctx.read(p)) for p in c_files}
+    c_stripped_by_abs = {str(p.resolve()): s for p, s in c_stripped.items()}
 
     header_stub_fns: set = set()
     definitions: dict = {}  # fn -> [abs_path, ...]
@@ -2543,8 +2727,20 @@ def _check_init_marker_gated_srcs(ctx: Context) -> list:
         dangerous = None
         for abs_def in defs:
             if abs_def in unconditional_paths:
-                dangerous = None
-                break
+                # The SRCS entry itself is unconditional, but the
+                # definition's own BODY may still sit inside an in-file
+                # `#if CONFIG_X` with no unconditional/terminal-#else
+                # fallback (B1-1347 -- the real bb_mqtt_client_init_default
+                # shape). Only a genuinely reachable-regardless-of-Kconfig
+                # definition counts as a safe fallback here.
+                infile_gate = _definition_kconfig_gate(
+                    c_stripped_by_abs.get(abs_def, ""), fn)
+                if infile_gate is None:
+                    dangerous = None
+                    break
+                if dangerous is None:
+                    dangerous = ("infile", abs_def, infile_gate)
+                continue
             gate = conditional_paths.get(abs_def)
             if gate is None:
                 # Not referenced as a SRCS token by any component's
@@ -2554,16 +2750,61 @@ def _check_init_marker_gated_srcs(ctx: Context) -> list:
                 dangerous = None
                 break
             if dangerous is None:
-                dangerous = (abs_def, gate)
+                dangerous = ("srcs", abs_def, gate)
         if dangerous is None:
             continue
 
-        abs_def, (condition, cmake_rel, comp_name) = dangerous
+        kind, abs_def, gate_info = dangerous
         abs_def_path = Path(abs_def)
         rel_def = (
             str(abs_def_path.relative_to(root_resolved))
             if abs_def_path.is_relative_to(root_resolved) else abs_def
         )
+
+        if kind == "infile":
+            # `gate_info` is either a real `CONFIG_*` symbol (the
+            # "disabling X / when X is off" framing reads correctly), or
+            # the raw stripped condition text of an OPAQUE frame (B1-1347
+            # review LOW -- an unrecognized condition like `#if 0` or a
+            # typo'd Kconfig symbol has no "off" state to disable; that
+            # framing produced nonsense like "when #if 0 is off"). Use
+            # `_CONFIG_TOKEN_RE.fullmatch` (not `.search`) to distinguish
+            # them -- `_definition_kconfig_gate` returns the Kconfig case
+            # as exactly the matched token, nothing else, so a fullmatch
+            # is definitive.
+            if _CONFIG_TOKEN_RE.fullmatch(gate_info):
+                violations.append(ctx.violation(
+                    root / entry.src_file, entry.src_line,
+                    f"fn={fn}: {rel_def} is unconditionally compiled, but its"
+                    f" DEFINITION BODY is wrapped in an in-file #if/#ifdef"
+                    f" gated on {gate_info}, with no unconditional or"
+                    f" terminal-#else fallback -- disabling {gate_info} would"
+                    f" emit a call to an uncompiled symbol (B1-1347); add an"
+                    f" unconditional fallback (e.g. a static inline #else"
+                    f" stub in the public header, mirroring"
+                    f" bb_storage_http.h's"
+                    f" bb_storage_http_factory_reset_routes_init) or drop the"
+                    f" marker so it isn't emitted when {gate_info} is off",
+                ))
+            else:
+                violations.append(ctx.violation(
+                    root / entry.src_file, entry.src_line,
+                    f"fn={fn}: {rel_def} is unconditionally compiled, but its"
+                    f" DEFINITION BODY is wrapped in an in-file preprocessor"
+                    f" condition ({gate_info!r}) this checker cannot prove is"
+                    f" always true, with no unconditional or terminal-#else"
+                    f" fallback -- if that condition is ever false at build"
+                    f" time, this leaves the (unconditionally compiled) file"
+                    f" with no definition of {fn} at all (B1-1347); add an"
+                    f" unconditional fallback (e.g. a static inline #else"
+                    f" stub in the public header, mirroring"
+                    f" bb_storage_http.h's"
+                    f" bb_storage_http_factory_reset_routes_init), drop the"
+                    f" marker, or fix the condition if it's stale/dead code",
+                ))
+            continue
+
+        condition, cmake_rel, comp_name = gate_info
         violations.append(ctx.violation(
             root / entry.src_file, entry.src_line,
             f"fn={fn}: only definition is {rel_def}, which is conditionally"
