@@ -74,11 +74,6 @@ static int  s_task_priority = CONFIG_BB_OTA_CHECK_TASK_PRIORITY;
 // the race-safe gate so two concurrent timer fires / kicks cannot both proceed.
 static atomic_bool s_check_in_flight = false;
 
-#if CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_CHECK_AUTOREGISTER
-static StaticTask_t s_upd_check_task_buf;
-static StackType_t  s_upd_check_stack[BB_HTTP_CLIENT_TASK_STACK / sizeof(StackType_t)];
-#endif
-
 // OTA operation exclusive-slot claim. ota_pull acquires "ota_pull" before
 // spawning the download worker; upd_check acquires "upd_check" before the
 // fetch. Only one OTA-class operation runs at a time.
@@ -132,26 +127,6 @@ static bool try_spawn(void)
 
     // Unicore (core absent) is clamped to no-affinity inside
     // bb_task_resolve() (mirrors the hand-rolled clamp this replaced).
-#if CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_CHECK_AUTOREGISTER
-    TaskHandle_t upd_task = NULL;
-    bb_task_config_t upd_cfg = {
-        .entry       = ondemand_task,
-        .name        = "upd_check",
-        .arg         = NULL,
-        .stack_bytes = BB_HTTP_CLIENT_TASK_STACK,
-        .priority    = s_task_priority,
-        .core        = s_task_core,
-        .backing     = BB_TASK_BACKING_STATIC,
-        .stack_buf   = s_upd_check_stack,
-        .tcb_buf     = &s_upd_check_task_buf,
-        .wdt_arm     = false,
-    };
-    if (bb_task_create(&upd_cfg, (void **)&upd_task) != BB_OK) {
-        atomic_store(&s_check_in_flight, false);
-        bb_log_w(TAG, "spawn failed; will retry next interval");
-        return false;
-    }
-#else
     TaskHandle_t upd_task = NULL;
     bb_task_config_t upd_cfg = {
         .entry       = ondemand_task,
@@ -170,7 +145,6 @@ static bool try_spawn(void)
         bb_log_w(TAG, "spawn failed (low heap?); will retry next interval");
         return false;
     }
-#endif
 
     return true;
 }
