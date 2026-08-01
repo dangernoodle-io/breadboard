@@ -2,8 +2,21 @@
 // one-time boot banner naming project/version/build/idf via the existing
 // bb_system accessors. Lives in bb_system because it uses only bb_system
 // accessors; bb_system already PRIV_REQUIRES bb_log.
+//
+// This file is now unconditionally compiled (B1-1337: the Kconfig-gated-SRCS
+// defect class -- codegen is Kconfig-blind and emits the
+// bb_system_boot_banner_init() call unconditionally from the header marker,
+// so gating the SRCS entry instead of the body produced a link error when
+// CONFIG_BB_SYSTEM_BOOT_BANNER=n). The Kconfig check moves inside the .c;
+// when disabled, bb_system_boot_banner_init() is a no-op stub.
 #include "bb_system.h"
 #include "bb_log.h"
+
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
+
+#if defined(CONFIG_BB_SYSTEM_BOOT_BANNER) && CONFIG_BB_SYSTEM_BOOT_BANNER
 
 static const char *TAG = "bb_system_boot";
 
@@ -68,3 +81,12 @@ bb_err_t bb_system_boot_banner_init(void)
     }
     return BB_OK;
 }
+
+#else /* !CONFIG_BB_SYSTEM_BOOT_BANNER */
+
+bb_err_t bb_system_boot_banner_init(void)
+{
+    return BB_OK;
+}
+
+#endif /* CONFIG_BB_SYSTEM_BOOT_BANNER */
