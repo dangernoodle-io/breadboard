@@ -11,7 +11,9 @@
 #include "bb_ws_server_host.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
+#include "bb_http_prov_gate.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -893,4 +895,336 @@ void test_bb_ws_server_connect_cb_cleared_by_reset_captures(void)
     bb_ws_server_host_reset_captures();
     bb_ws_server_host_simulate_connect(NULL, 1);
     TEST_ASSERT_EQUAL(0, s_conn_call_count);
+}
+
+// ---------------------------------------------------------------------------
+// Provisioning gate (B1-1348) — exercises the SAME two insertion points as
+// the device handlers in platform/espidf/bb_ws_server/bb_ws_server.c
+// (ws_pre_handshake_gate_cb and ws_shim_handler's per-frame check) through
+// their host mirrors (bb_ws_server_host_handshake, bb_ws_server_host_
+// inject_frame) — NOT just the underlying pure bb_http_prov_gate_allow()
+// predicate (already covered by test_bb_http_prov_gate.c). A suite that
+// only exercised bb_http_prov_gate_allow() directly would miss either call
+// site forgetting to invoke it.
+//
+// setUp() (test_main.c) already resets the allowlist + injected active-fn
+// before every test (bb_http_prov_gate_reset()), so every test below starts
+// from a clean, inactive gate.
+// ---------------------------------------------------------------------------
+
+static bool s_ws_mock_prov_active;
+
+static bool ws_mock_prov_active_fn(void)
+{
+    return s_ws_mock_prov_active;
+}
+
+static bool s_gate_handler_invoked;
+
+static bb_err_t gate_test_handler(bb_http_request_t *req,
+                                  const bb_ws_server_frame_t *frame)
+{
+    (void)req;
+    (void)frame;
+    s_gate_handler_invoked = true;
+    return BB_OK;
+}
+
+static void arm_ws_mock_active_fn(void)
+{
+    s_ws_mock_prov_active = false;
+    bb_http_prov_gate_set_active_fn(ws_mock_prov_active_fn);
+}
+
+static void ws_gate_teardown(void)
+{
+    bb_http_prov_gate_set_active_fn(NULL);
+    s_gate_handler_invoked = false;
+}
+
+// ---- Insertion point 1/2 — ws_pre_handshake_gate_cb (host mirror:
+// bb_ws_server_host_handshake) ----
+
+void test_bb_ws_server_prov_gate_handshake_active_non_allowlisted_denies(void)
+{
+    ws_test_setup();
+    arm_ws_mock_active_fn();
+    bb_ws_server_register_endpoint(NULL, "/ws", gate_test_handler);
+    // deliberately NOT allowlisted
+    s_ws_mock_prov_active = true;
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_ws_server_host_handshake());
+    // Pins the fix: a denied handshake must send an explicit 404, not just
+    // silently close (see ws_pre_handshake_gate_cb's comment) — otherwise a
+    // bare rejected handshake is distinguishable on the wire from a
+    // genuinely-unregistered WS path.
+    TEST_ASSERT_TRUE(bb_ws_server_host_handshake_404_sent());
+
+    ws_gate_teardown();
+}
+
+void test_bb_ws_server_prov_gate_handshake_active_allowlisted_allows(void)
+{
+    ws_test_setup();
+    arm_ws_mock_active_fn();
+    bb_ws_server_register_endpoint(NULL, "/ws", gate_test_handler);
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_prov_allow(BB_HTTP_GET, "/ws"));
+    s_ws_mock_prov_active = true;
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_ws_server_host_handshake());
+    TEST_ASSERT_FALSE(bb_ws_server_host_handshake_404_sent());
+
+    ws_gate_teardown();
+}
+
+void test_bb_ws_server_prov_gate_handshake_inactive_allows(void)
+{
+    ws_test_setup();
+    arm_ws_mock_active_fn();
+    bb_ws_server_register_endpoint(NULL, "/ws", gate_test_handler);
+    // gate never armed active; not allowlisted either — must still allow.
+    TEST_ASSERT_FALSE(s_ws_mock_prov_active);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_ws_server_host_handshake());
+    TEST_ASSERT_FALSE(bb_ws_server_host_handshake_404_sent());
+
+    ws_gate_teardown();
+}
+
+// ---- Insertion point 2/2 — ws_shim_handler's per-frame check (host
+// mirror: bb_ws_server_host_inject_frame) ----
+
+void test_bb_ws_server_prov_gate_frame_active_non_allowlisted_denies(void)
+{
+    ws_test_setup();
+    arm_ws_mock_active_fn();
+    bb_ws_server_register_endpoint(NULL, "/ws", gate_test_handler);
+    // deliberately NOT allowlisted
+    s_ws_mock_prov_active = true;
+
+    bb_http_request_t *req = NULL;
+    bb_ws_server_host_capture_begin(&req);
+    uint8_t data[] = "hi";
+    bb_ws_server_frame_t in = { .final = true, .type = BB_WS_TYPE_TEXT,
+                                .payload = data, .len = sizeof(data) };
+    bb_err_t err = bb_ws_server_host_inject_frame(req, &in);
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    TEST_ASSERT_FALSE(s_gate_handler_invoked);
+
+    ws_gate_teardown();
+}
+
+void test_bb_ws_server_prov_gate_frame_active_allowlisted_invokes_handler(void)
+{
+    ws_test_setup();
+    arm_ws_mock_active_fn();
+    bb_ws_server_register_endpoint(NULL, "/ws", gate_test_handler);
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_prov_allow(BB_HTTP_GET, "/ws"));
+    s_ws_mock_prov_active = true;
+
+    bb_http_request_t *req = NULL;
+    bb_ws_server_host_capture_begin(&req);
+    uint8_t data[] = "hi";
+    bb_ws_server_frame_t in = { .final = true, .type = BB_WS_TYPE_TEXT,
+                                .payload = data, .len = sizeof(data) };
+    bb_err_t err = bb_ws_server_host_inject_frame(req, &in);
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_TRUE(s_gate_handler_invoked);
+
+    ws_gate_teardown();
+}
+
+void test_bb_ws_server_prov_gate_frame_inactive_invokes_handler(void)
+{
+    ws_test_setup();
+    arm_ws_mock_active_fn();
+    bb_ws_server_register_endpoint(NULL, "/ws", gate_test_handler);
+    TEST_ASSERT_FALSE(s_ws_mock_prov_active);
+
+    bb_http_request_t *req = NULL;
+    bb_ws_server_host_capture_begin(&req);
+    uint8_t data[] = "hi";
+    bb_ws_server_frame_t in = { .final = true, .type = BB_WS_TYPE_TEXT,
+                                .payload = data, .len = sizeof(data) };
+    bb_err_t err = bb_ws_server_host_inject_frame(req, &in);
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_TRUE(s_gate_handler_invoked);
+
+    ws_gate_teardown();
+}
+
+// ---- Established-connection scenario: a session that handshook while the
+// gate was inactive must still be denied per-frame once provisioning
+// becomes active later. This is the case B1-1348 calls out explicitly:
+// gating the handshake alone is not sufficient because a WS session
+// outlives the handshake call. ----
+
+void test_bb_ws_server_prov_gate_session_open_before_active_denies_frame_once_active(void)
+{
+    ws_test_setup();
+    arm_ws_mock_active_fn();
+    bb_ws_server_register_endpoint(NULL, "/ws", gate_test_handler);
+
+    // Handshake while gate is inactive — allowed, session "opens".
+    TEST_ASSERT_FALSE(s_ws_mock_prov_active);
+    TEST_ASSERT_EQUAL(BB_OK, bb_ws_server_host_handshake());
+
+    // Provisioning becomes active afterward, with /ws never allowlisted —
+    // the already-open session's next frame must now be denied.
+    s_ws_mock_prov_active = true;
+
+    bb_http_request_t *req = NULL;
+    bb_ws_server_host_capture_begin(&req);
+    uint8_t data[] = "hi";
+    bb_ws_server_frame_t in = { .final = true, .type = BB_WS_TYPE_TEXT,
+                                .payload = data, .len = sizeof(data) };
+    bb_err_t err = bb_ws_server_host_inject_frame(req, &in);
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    TEST_ASSERT_FALSE(s_gate_handler_invoked);
+
+    ws_gate_teardown();
+}
+
+void test_bb_ws_server_prov_gate_no_active_fn_registered_unaffected(void)
+{
+    ws_test_setup();
+    // Deliberately does NOT call arm_ws_mock_active_fn() — active-fn stays
+    // NULL (setUp()'s bb_http_prov_gate_reset() already cleared it).
+    bb_ws_server_register_endpoint(NULL, "/ws", gate_test_handler);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_ws_server_host_handshake());
+    TEST_ASSERT_FALSE(bb_ws_server_host_handshake_404_sent());
+
+    bb_http_request_t *req = NULL;
+    bb_ws_server_host_capture_begin(&req);
+    uint8_t data[] = "hi";
+    bb_ws_server_frame_t in = { .final = true, .type = BB_WS_TYPE_TEXT,
+                                .payload = data, .len = sizeof(data) };
+    bb_err_t err = bb_ws_server_host_inject_frame(req, &in);
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_TRUE(s_gate_handler_invoked);
+
+    ws_gate_teardown();
+}
+
+// ---- Refusal-shape contrast: a denied handshake must be indistinguishable
+// from a genuine miss (explicit 404), while a denied frame on an
+// already-upgraded connection must NOT attempt an HTTP-shaped response at
+// all -- see ws_pre_handshake_gate_cb's and ws_shim_handler's own comments
+// for why the two insertion points intentionally differ. This test pins
+// both halves of that contrast in one place so a future change that makes
+// them accidentally match (in either direction) is caught. ----
+
+void test_bb_ws_server_prov_gate_refusal_shape_handshake_404_frame_silent(void)
+{
+    ws_test_setup();
+    arm_ws_mock_active_fn();
+    bb_ws_server_register_endpoint(NULL, "/ws", gate_test_handler);
+    // deliberately NOT allowlisted
+    s_ws_mock_prov_active = true;
+
+    // Handshake denial: must report the explicit-404 shape.
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_ws_server_host_handshake());
+    TEST_ASSERT_TRUE(bb_ws_server_host_handshake_404_sent());
+
+    // Frame denial on an (already-upgraded, per the real backend) session:
+    // no response is captured -- the handler (the only thing that could
+    // write a WS reply via bb_ws_server_send_frame) is never invoked, and
+    // there is no HTTP-response capture to assert on at all, unlike the
+    // handshake case above.
+    bb_http_request_t *req = NULL;
+    bb_ws_server_host_capture_begin(&req);
+    uint8_t data[] = "hi";
+    bb_ws_server_frame_t in = { .final = true, .type = BB_WS_TYPE_TEXT,
+                                .payload = data, .len = sizeof(data) };
+    bb_err_t err = bb_ws_server_host_inject_frame(req, &in);
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    TEST_ASSERT_FALSE(s_gate_handler_invoked);
+
+    bb_ws_server_host_capture_t cap = {0};
+    bb_ws_server_host_capture_sent_frame(&cap);
+    TEST_ASSERT_NULL(cap.payload);
+    TEST_ASSERT_EQUAL(0, cap.len);
+    bb_ws_server_host_capture_free(&cap);
+
+    ws_gate_teardown();
+}
+
+// ---------------------------------------------------------------------------
+// Call-site guard -- proves the real ESP-IDF backend
+// (platform/espidf/bb_ws_server/bb_ws_server.c) gates on ctx->path, never
+// req->uri. Source-scan rather than execution because that file is
+// ESP-IDF-only and has no host build, and because the host mirror's own
+// capture harness cannot reproduce the defect this guards against in the
+// first place: bb_http_request_t is fully opaque on host (no uri field, no
+// httpd_req_t-shaped struct at all -- see bb_ws_server_host.c's own comment
+// on this), so bb_ws_server_host_inject_frame() was never able to check
+// against anything OTHER than the correctly-populated s_registered_path.
+// The host mirror was accidentally correct by construction even while the
+// real ESP-IDF backend used req->uri (which is reliably "" on every real
+// data frame -- see ws_pre_handshake_gate_cb's block comment in
+// bb_ws_server.c for the full vendored-source trace) -- so
+// test_bb_ws_server_prov_gate_frame_active_allowlisted_invokes_handler
+// above passed throughout even while the device path silently denied every
+// frame of an allowlisted session. This guard closes that blind spot the
+// only way available without an on-device test: reading the real source.
+//
+// Path is relative to the worktree root, matching this repo's existing
+// convention (see test_bb_log_secret.c's identical guard for bb_wifi_ap.c).
+// ---------------------------------------------------------------------------
+
+#define BB_WS_SERVER_SRC_PATH "platform/espidf/bb_ws_server/bb_ws_server.c"
+
+// Sized generously above the current ~31KB source file -- see
+// test_bb_log_secret.c's identical pattern for why (a truncated read that
+// happens to cut off the target line would falsely FAIL this guard, not
+// falsely pass it).
+static char s_ws_source_buf[65536];
+
+static size_t read_bb_ws_server_source(void)
+{
+    FILE *f = fopen(BB_WS_SERVER_SRC_PATH, "r");
+    TEST_ASSERT_NOT_NULL_MESSAGE(f, "could not open " BB_WS_SERVER_SRC_PATH
+                                     " -- run host tests with cwd at the worktree root");
+    size_t n = fread(s_ws_source_buf, 1, sizeof(s_ws_source_buf) - 1, f);
+    s_ws_source_buf[n] = '\0';
+    fclose(f);
+    return n;
+}
+
+void test_bb_ws_server_prov_gate_never_keys_on_req_uri(void)
+{
+    read_bb_ws_server_source();
+    // The exact pattern that shipped the frame-denial defect: gating on
+    // req->uri, which is only ever populated for the handshake-completion
+    // call and reliably "" for every real data frame.
+    TEST_ASSERT_NULL_MESSAGE(strstr(s_ws_source_buf, "bb_http_prov_gate_check(BB_HTTP_GET, req->uri)"),
+                              "bb_ws_server.c must never gate on req->uri -- it is unreliable "
+                              "for WS data frames (see ws_pre_handshake_gate_cb's comment); "
+                              "gate on ctx->path instead");
+}
+
+void test_bb_ws_server_prov_gate_both_insertion_points_key_on_ctx_path(void)
+{
+    read_bb_ws_server_source();
+    // Both ws_pre_handshake_gate_cb and ws_shim_handler's per-frame check
+    // must route through ctx->path -- count, not just presence, so a
+    // regression that keeps one call site correct while the other reverts
+    // (e.g. back to req->uri, or to some other field) is still caught.
+    const char *needle = "bb_http_prov_gate_check(BB_HTTP_GET, ctx->path)";
+    int count = 0;
+    const char *p = s_ws_source_buf;
+    while ((p = strstr(p, needle)) != NULL) {
+        count++;
+        p += strlen(needle);
+    }
+    TEST_ASSERT_EQUAL_MESSAGE(2, count,
+        "bb_ws_server.c must gate BOTH ws_pre_handshake_gate_cb and "
+        "ws_shim_handler's per-frame check on ctx->path");
 }

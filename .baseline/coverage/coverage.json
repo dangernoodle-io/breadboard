@@ -3091,74 +3091,74 @@
       "type": "uncovered_line"
     },
     {
-      "id": "159",
+      "id": "187",
       "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
       "type": "uncovered_branch"
     },
     {
-      "id": "186",
+      "id": "214",
       "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
       "type": "uncovered_branch"
     },
     {
-      "id": "188",
+      "id": "216",
       "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
       "type": "uncovered_branch"
     },
     {
-      "id": "228",
+      "id": "256",
       "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
       "type": "uncovered_branch"
     },
     {
-      "id": "233",
+      "id": "261",
       "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
       "type": "uncovered_branch"
     },
     {
-      "id": "243",
-      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "245",
-      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "275",
-      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "319",
-      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "338",
-      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "340",
-      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "443",
-      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "234",
+      "id": "262",
       "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "276",
+      "id": "271",
+      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "273",
+      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "303",
+      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "304",
       "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
       "type": "uncovered_line"
+    },
+    {
+      "id": "347",
+      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "402",
+      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "404",
+      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "509",
+      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
+      "type": "uncovered_branch"
     }
   ]
 }

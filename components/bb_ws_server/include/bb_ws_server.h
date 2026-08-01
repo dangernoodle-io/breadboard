@@ -75,6 +75,9 @@ typedef void (*bb_ws_server_send_cb_t)(bb_err_t err, int fd, void *ctx);
 // ---------------------------------------------------------------------------
 
 // Register a WebSocket endpoint at `path` on an already-started server.
+// `path` must have static/persistent storage duration -- only the pointer
+// is stored (used for every provisioning-gate check on this endpoint for
+// the lifetime of the server, not just at registration time).
 // On ESP-IDF registers an httpd_uri_t with is_websocket=true + HTTP_GET.
 // On host uses the capture harness (no-op registration, records the handler).
 // Returns BB_OK on success.
