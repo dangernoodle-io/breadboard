@@ -1,7 +1,9 @@
 // bb_task — ESP-IDF creation shell: bb_task_resolve() -> the matching
-// xTaskCreate* variant -> bb_task_base_upsert(). Coverage-ungated (thin
-// FreeRTOS glue only; the resolver + base ops it calls are the
-// coverage-gated pure code in components/bb_task/src/bb_task_common.c).
+// xTaskCreate* variant -> bb_task_base_upsert(). Also the espidf shell for
+// bb_task_delay_ms()/bb_task_yield() (vTaskDelay()/taskYIELD() thin
+// wrappers). Coverage-ungated (thin FreeRTOS glue only; the resolver +
+// tick-conversion + base ops it calls are the coverage-gated pure code in
+// components/bb_task/src/bb_task_common.c).
 #include "bb_task.h"
 
 #include "freertos/FreeRTOS.h"
@@ -79,4 +81,15 @@ bb_err_t bb_task_create(const bb_task_config_t *cfg, void **out_handle)
         *out_handle = handle;
     }
     return BB_OK;
+}
+
+void bb_task_delay_ms(uint32_t ms)
+{
+    uint32_t ticks = bb_task_delay_ticks_for_ms(ms, configTICK_RATE_HZ);
+    vTaskDelay(ticks);
+}
+
+void bb_task_yield(void)
+{
+    taskYIELD();
 }

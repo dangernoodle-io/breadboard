@@ -4893,6 +4893,14 @@ void test_bb_task_create_success_upserts_base_entry(void);
 void test_bb_task_create_out_handle_may_be_null(void);
 void test_bb_task_deregister_unregistered_returns_not_found(void);
 void test_bb_task_deregister_null_returns_invalid_arg(void);
+void test_bb_task_delay_ticks_for_ms_zero_ms_returns_zero_ticks(void);
+void test_bb_task_delay_ticks_for_ms_zero_tick_rate_returns_zero(void);
+void test_bb_task_delay_ticks_for_ms_truncation_clamped_to_minimum_one_tick(void);
+void test_bb_task_delay_ticks_for_ms_exact_conversion_no_truncation(void);
+void test_bb_task_delay_ticks_for_ms_truncates_toward_zero_above_one_tick(void);
+void test_bb_task_delay_ticks_for_ms_clamps_to_uint32_max_on_overflow(void);
+void test_bb_task_delay_ms_host_stub_does_not_crash(void);
+void test_bb_task_yield_host_stub_does_not_crash(void);
 
 
 
@@ -9101,7 +9109,14 @@ int main(void) {
     RUN_TEST(test_bb_task_create_out_handle_may_be_null);
     RUN_TEST(test_bb_task_deregister_unregistered_returns_not_found);
     RUN_TEST(test_bb_task_deregister_null_returns_invalid_arg);
-
+    RUN_TEST(test_bb_task_delay_ticks_for_ms_zero_ms_returns_zero_ticks);
+    RUN_TEST(test_bb_task_delay_ticks_for_ms_zero_tick_rate_returns_zero);
+    RUN_TEST(test_bb_task_delay_ticks_for_ms_truncation_clamped_to_minimum_one_tick);
+    RUN_TEST(test_bb_task_delay_ticks_for_ms_exact_conversion_no_truncation);
+    RUN_TEST(test_bb_task_delay_ticks_for_ms_truncates_toward_zero_above_one_tick);
+    RUN_TEST(test_bb_task_delay_ticks_for_ms_clamps_to_uint32_max_on_overflow);
+    RUN_TEST(test_bb_task_delay_ms_host_stub_does_not_crash);
+    RUN_TEST(test_bb_task_yield_host_stub_does_not_crash);
 
 
     // bb_http_client tests

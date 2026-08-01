@@ -10,6 +10,7 @@
 
 #include <pthread.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 // BB_TASK_BASE_MAX_CAP (Kconfig bridge for CONFIG_BB_TASK_BASE_MAX, C
@@ -422,6 +423,27 @@ int bb_task_base_sweep_apply(bb_task_base_entry_t *entries, int n, uint32_t now_
 bb_err_t bb_task_deregister(void *handle)
 {
     return bb_task_base_remove(handle);
+}
+
+// ---------------------------------------------------------------------------
+// bb_task_delay_ticks_for_ms — pure ms->ticks conversion. See bb_task.h for
+// the tick-truncation rationale (guarantees >=1 tick for any nonzero ms).
+// ---------------------------------------------------------------------------
+
+uint32_t bb_task_delay_ticks_for_ms(uint32_t ms, uint32_t tick_rate_hz)
+{
+    if (ms == 0 || tick_rate_hz == 0) {
+        return 0;
+    }
+
+    uint64_t ticks = ((uint64_t)ms * (uint64_t)tick_rate_hz) / 1000u;
+    if (ticks == 0) {
+        return 1;
+    }
+    if (ticks > (uint64_t)UINT32_MAX) {
+        return UINT32_MAX;
+    }
+    return (uint32_t)ticks;
 }
 
 #ifdef BB_TASK_TESTING

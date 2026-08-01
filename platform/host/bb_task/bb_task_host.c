@@ -1,9 +1,10 @@
-// bb_task — host stub for bb_task_create(). No real FreeRTOS task exists on
-// host; this fabricates a distinct non-NULL handle per call (no real
+// bb_task — host stub for bb_task_create()/bb_task_delay_ms()/
+// bb_task_yield(). No real FreeRTOS task or scheduler exists on host;
+// bb_task_create() fabricates a distinct non-NULL handle per call (no real
 // thread) so the create() path still exercises bb_task_resolve() and
 // bb_task_base_upsert() in host tests, mirroring how bb_task_registry's
 // self-registration is host-testable via test_seed rather than a real
-// TaskHandle_t.
+// TaskHandle_t. bb_task_delay_ms()/bb_task_yield() are no-ops (see bb_task.h).
 #include "bb_task.h"
 
 #include <stddef.h>
@@ -45,4 +46,16 @@ bb_err_t bb_task_create(const bb_task_config_t *cfg, void **out_handle)
         *out_handle = handle;
     }
     return BB_OK;
+}
+
+// No real FreeRTOS scheduler on host -- no-ops that return immediately
+// rather than sleeping/yielding a real thread. See bb_task.h for the full
+// host-stub rationale (mirrors bb_task_create() above).
+void bb_task_delay_ms(uint32_t ms)
+{
+    (void)ms;
+}
+
+void bb_task_yield(void)
+{
 }
