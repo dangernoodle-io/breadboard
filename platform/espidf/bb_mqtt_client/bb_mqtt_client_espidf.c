@@ -729,8 +729,6 @@ bb_err_t bb_mqtt_client_stop(bb_mqtt_client_t *handle_p)
 // EARLY-tier self-registration (B1-289: register-on-enable at boot)
 // ---------------------------------------------------------------------------
 
-#if CONFIG_BB_MQTT_CLIENT_AUTOREGISTER
-
 // Module-level handle so the autoregistered client lives for the app lifetime.
 //
 // HANDLE STABILITY: s_auto_client is a bb_mqtt_client_t (void *) whose VALUE changes
@@ -1007,41 +1005,11 @@ bb_err_t bb_mqtt_client_resume_default(void)
     return BB_OK;
 }
 
-#endif /* CONFIG_BB_MQTT_CLIENT_AUTOREGISTER */
-
 // ---------------------------------------------------------------------------
 // Default handle accessor
 // ---------------------------------------------------------------------------
 
 bb_mqtt_client_t bb_mqtt_client_default(void)
 {
-#if CONFIG_BB_MQTT_CLIENT_AUTOREGISTER
     return s_auto_client;
-#else
-    return NULL;
-#endif
 }
-
-// ---------------------------------------------------------------------------
-// bb_mqtt_client_stop_default — stub when autoregister is disabled
-// ---------------------------------------------------------------------------
-
-#if !CONFIG_BB_MQTT_CLIENT_AUTOREGISTER
-bb_err_t bb_mqtt_client_stop_default(void)
-{
-    // Autoregister disabled; no managed client to stop.
-    return BB_OK;
-}
-
-bb_err_t bb_mqtt_client_suspend_default(void)
-{
-    // Autoregister disabled; no managed client to suspend.
-    return BB_OK;
-}
-
-bb_err_t bb_mqtt_client_resume_default(void)
-{
-    // Autoregister disabled; no managed client to resume.
-    return BB_OK;
-}
-#endif
