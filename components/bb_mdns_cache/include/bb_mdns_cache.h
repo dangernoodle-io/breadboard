@@ -173,9 +173,10 @@ bb_err_t bb_mdns_cache_start(const bb_mdns_cache_config_t *cfg);
 // policy instead of being force-evicted on stop.
 bb_err_t bb_mdns_cache_stop(void);
 
-// Optional self-start using CONFIG_BB_MDNS_CACHE_AUTO_SERVICE /
-// CONFIG_BB_MDNS_CACHE_AUTO_PROTO as the compiled-in service/proto. No-op
-// (returns BB_OK) unless CONFIG_BB_MDNS_CACHE_AUTOREGISTER is set.
+// Composition seam for codegen -- always a no-op (returns BB_OK). Self-start
+// is not a supported pattern; a consumer wires bb_mdns_cache in by calling
+// bb_mdns_cache_start() explicitly (handwire) with its own chosen
+// service/proto.
 // bbtool:init tier=pre_http fn=bb_mdns_cache_init
 bb_err_t bb_mdns_cache_init(void);
 
