@@ -179,24 +179,11 @@ bb_err_t bb_log_register_routes_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-// PRE_HTTP companion: declare route count before server starts (must match
-// the number of bb_http_register_* calls in bb_log_register_routes_init: 2).
-bb_err_t bb_log_register_routes_reserve(void)
-{
-    bb_http_reserve_routes(2);  // POST /api/log/level + GET /api/log/level
-    return BB_OK;
-}
-
 #else /* !CONFIG_BB_LOG_ROUTES */
 
 bb_err_t bb_log_register_routes_init(bb_http_handle_t server)
 {
     (void)server;
-    return BB_OK;
-}
-
-bb_err_t bb_log_register_routes_reserve(void)
-{
     return BB_OK;
 }
 

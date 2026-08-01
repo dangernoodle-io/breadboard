@@ -40,8 +40,7 @@ bb_err_t bb_http_register_described_route(bb_http_handle_t server,
 // Register a table of described routes in one call. Calls
 // bb_http_register_described_route for each entry. Stops at the first
 // failure and returns its error. Convenience wrapper for consumers that
-// keep their imperative route descriptors in a static array (and pair
-// with bb_http_reserve_routes(n) before server start to size the cap).
+// keep their imperative route descriptors in a static array.
 bb_err_t bb_http_register_route_table(bb_http_handle_t server,
                                       const bb_route_t * const *table,
                                       size_t n);
@@ -402,13 +401,6 @@ bb_err_t bb_http_server_ensure_started(void);
 // and the configured maximum (cap). Returns 0 on non-ESP-IDF platforms.
 size_t bb_http_route_handler_count(void);
 size_t bb_http_route_handler_cap(void);
-
-// Reserve N additional handler slots beyond the auto-sized sum from the
-// registry. Used by imperative-route consumers (e.g. bb_prov) that register
-// routes outside the BB_INIT_REGISTER_N path. Cumulative across calls.
-// MUST be called before bb_http_server_ensure_started — once httpd_start
-// has run, the cap is fixed.
-void bb_http_reserve_routes(int n);
 
 // Return true if `uri` matches any route in the registry (exact or wildcard-
 // suffix match, same semantics as httpd_uri_match_wildcard). The catch-all

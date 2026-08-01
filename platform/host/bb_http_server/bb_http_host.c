@@ -646,14 +646,6 @@ bb_err_t bb_http_server_ensure_started(void) { return BB_OK; }
 size_t bb_http_route_handler_count(void) { return 0; }
 size_t bb_http_route_handler_cap(void)   { return 0; }
 
-/* bb_http_reserve_routes is vestigial since /api dispatch (route count no longer
- * drives max_uri_handlers on espidf). On host, we still track the counter so
- * existing test assertions on bb_http_host_reserved_routes() continue to pass. */
-static int s_host_reserved_routes = 0;
-void bb_http_reserve_routes(int n) { if (n > 0) s_host_reserved_routes += n; }
-int  bb_http_host_reserved_routes(void) { return s_host_reserved_routes; }
-void bb_http_host_reset_reserved(void)  { s_host_reserved_routes = 0; }
-
 // ============================================================================
 // Public capture API
 // ============================================================================

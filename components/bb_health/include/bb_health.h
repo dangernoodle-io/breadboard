@@ -25,10 +25,6 @@ bool bb_health_compute_ok(void);
 // Registry hooks
 // ---------------------------------------------------------------------------
 
-// Reserve route-table slots for bb_health before the HTTP server starts.
-// bbtool:init tier=pre_http fn=bb_health_reserve_routes
-bb_err_t bb_health_reserve_routes(void);
-
 // Registry hook — registers GET /api/health and starts the stack
 // high-water monitor.
 bb_err_t bb_health_init(bb_http_handle_t server);

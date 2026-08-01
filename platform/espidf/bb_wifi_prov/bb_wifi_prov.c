@@ -303,18 +303,6 @@ bb_err_t bb_wifi_prov_start(const bb_http_asset_t *assets, size_t n,
         if (s_prov_event_group == NULL) return BB_ERR_INVALID_STATE;
     }
 
-    // Reserve handler slots for routes registered imperatively below
-    // (must happen before ensure_started — once httpd_start runs, the cap
-    // is fixed). 1 = POST /save. The captive-portal redirect no longer gets
-    // its own GET /* registration — it is folded into the asset wildcard as
-    // its no-match fallback (bb_http_register_assets_with_fallback), which
-    // is a single "/*" registration already accounted for separately (see
-    // ensure_started()'s own comment). The per-asset count (n) is likewise
-    // not added: all assets are served via that same single wildcard.
-    // 8 = slack for extra() callback routes; consumers needing more must
-    // reserve themselves via bb_http_reserve_routes().
-    bb_http_reserve_routes(1 + (extra ? 8 : 0));
-
     // Ensure the shared HTTP server is started (internal helper)
     bb_err_t err = bb_http_server_ensure_started();
     if (err != BB_OK) return err;

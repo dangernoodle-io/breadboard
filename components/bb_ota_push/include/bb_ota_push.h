@@ -29,10 +29,6 @@ uint32_t bb_ota_push_deadline_ms_for_test(int content_len, int min_bytes_per_sec
 #ifdef ESP_PLATFORM
 #include "bb_http.h"
 
-/* Reserve route-table slots for bb_ota_push before the HTTP server starts. */
-// bbtool:init tier=pre_http fn=bb_ota_push_reserve_routes
-bb_err_t bb_ota_push_reserve_routes(void);
-
 /**
  * Register OTA push HTTP handler with an existing httpd instance.
  */

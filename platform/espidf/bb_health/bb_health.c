@@ -110,10 +110,3 @@ bb_err_t bb_health_init(bb_http_handle_t server)
     bb_log_i(TAG, "health route registered");
     return BB_OK;
 }
-
-// PRE_HTTP companion: declare route count before server starts.
-bb_err_t bb_health_reserve_routes(void)
-{
-    bb_http_reserve_routes(1);  // GET /api/health
-    return BB_OK;
-}

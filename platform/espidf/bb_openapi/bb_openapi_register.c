@@ -68,9 +68,3 @@ bb_err_t bb_openapi_init(bb_http_handle_t server)
     bb_log_i(TAG, "registered GET /api/openapi.json");
     return BB_OK;
 }
-
-bb_err_t bb_openapi_reserve_routes(void)
-{
-    bb_http_reserve_routes(1);  // GET /api/openapi.json
-    return BB_OK;
-}

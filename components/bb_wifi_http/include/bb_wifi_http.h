@@ -43,10 +43,6 @@ void bb_wifi_http_format_bssid(char out[18], const uint8_t bssid[6]);
 // instead, a bb_serialize_desc_t, not a bb_json_t emitter. This header no
 // longer includes bb_json.h.
 
-/// Reserve route-table slots for bb_wifi_http before the HTTP server starts.
-// bbtool:init tier=pre_http fn=bb_wifi_routes_reserve
-bb_err_t bb_wifi_routes_reserve(void);
-
 /// Registry hook — registers GET /api/wifi, POST /api/wifi/scan, GET
 /// /api/diag/wifi, and (when CONFIG_BB_WIFI_RECONFIGURE=y) PATCH /api/wifi.
 bb_err_t bb_wifi_routes_init(bb_http_handle_t server);
