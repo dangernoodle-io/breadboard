@@ -1,9 +1,29 @@
 // Host stub for bb_ws_server.  Provides a capture harness for unit tests.
 // Mirrors bb_http_host.c in structure: fake request cookie, frame capture,
 // force-fail test hooks, and async capture tables.
+//
+// Representability limitation (B1-1348 follow-up): bb_ws_server_host_
+// inject_frame() below checks the provisioning gate against
+// s_registered_path, populated once at bb_ws_server_register_endpoint()
+// and always correct by construction. This mirror CANNOT reproduce the
+// real ESP-IDF backend's specific defect class that shipped here (gating on
+// req->uri, which the vendored ESP-IDF source proves is reliably "" for
+// every real WS data frame -- see ws_pre_handshake_gate_cb's block comment
+// in platform/espidf/bb_ws_server/bb_ws_server.c) because bb_http_request_t
+// is fully opaque on host: there is no uri field, no httpd_req_t-shaped
+// struct at all, only a stable fake-cookie pointer (s_capture_cookie
+// below). Faithfully modeling ESP-IDF's is_websocket fast-path bypassing
+// its own request parser would mean reimplementing a slice of ESP-IDF's
+// internal httpd_req_t/sock_db plumbing on host -- a maintenance
+// commitment out of proportion to this one defect class. The regression
+// this mirror cannot catch is instead pinned by a source-scan test against
+// the real ESP-IDF file directly: see test_bb_ws_server_prov_gate_never_
+// keys_on_req_uri and test_bb_ws_server_prov_gate_both_insertion_points_
+// key_on_ctx_path in test/test_host/test_bb_ws_server.c.
 
 #include "bb_ws_server.h"
 #include "bb_http_server.h"
+#include "bb_http_prov_gate.h"
 #include "bb_ws_server_host.h"
 #include "bb_str.h"
 
@@ -65,6 +85,14 @@ static bool s_force_async_alloc_fail = false;
 
 // Inject fd — set before inject_frame to simulate a per-client fd
 static int s_inject_fd = -1;
+
+// Set by bb_ws_server_host_handshake() when the gate denies -- mirrors
+// ws_pre_handshake_gate_cb sending httpd_resp_send_err(req,
+// HTTPD_404_NOT_FOUND, NULL) before returning non-OK (see that function's
+// own comment for why). Distinct from a frame denial (bb_ws_server_host_
+// inject_frame), which intentionally captures no response -- see
+// ws_shim_handler's comment for why the two insertion points differ.
+static bool s_handshake_404_sent;
 
 // ---------------------------------------------------------------------------
 // Force-fail hooks
@@ -321,10 +349,46 @@ void bb_ws_server_host_capture_begin(bb_http_request_t **out_req)
     }
 }
 
+bb_err_t bb_ws_server_host_handshake(void)
+{
+    // Mirrors ws_pre_handshake_gate_cb (platform/espidf/bb_ws_server/
+    // bb_ws_server.c), registered as httpd_uri_t.ws_pre_handshake_cb on the
+    // real backend so it runs BEFORE the WS handshake response is ever
+    // sent. On host there is no real socket to write a response onto, so
+    // this records whether the real backend would have called
+    // httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, NULL) instead of just
+    // reporting the pass/fail outcome -- see
+    // bb_ws_server_host_handshake_404_sent().
+    if (!bb_http_prov_gate_check(BB_HTTP_GET, s_registered_path)) {
+        s_handshake_404_sent = true;
+        return BB_ERR_INVALID_STATE;
+    }
+    s_handshake_404_sent = false;
+    return BB_OK;
+}
+
+bool bb_ws_server_host_handshake_404_sent(void)
+{
+    return s_handshake_404_sent;
+}
+
 bb_err_t bb_ws_server_host_inject_frame(bb_http_request_t *req,
                                         const bb_ws_server_frame_t *in_frame)
 {
     if (!req || !in_frame || !s_handler) {
+        return BB_ERR_INVALID_STATE;
+    }
+
+    // Provisioning gate — mirrors ws_shim_handler's per-frame check
+    // (platform/espidf/bb_ws_server/bb_ws_server.c). A WS session can
+    // complete its handshake while provisioning is inactive and then have
+    // provisioning become active while the session is still open;
+    // ws_shim_handler re-checks the gate on every subsequent frame for that
+    // reason, so this host mirror does too rather than only gating
+    // bb_ws_server_host_handshake() above. Denying here mirrors returning
+    // ESP_FAIL from ws_shim_handler (socket torn down) — s_handler is never
+    // invoked and no reply is captured.
+    if (!bb_http_prov_gate_check(BB_HTTP_GET, s_registered_path)) {
         return BB_ERR_INVALID_STATE;
     }
 
@@ -402,6 +466,8 @@ void bb_ws_server_host_reset_captures(void)
     s_force_async_alloc_fail = false;
 
     s_inject_fd = -1;
+
+    s_handshake_404_sent = false;
 }
 
 // ---------------------------------------------------------------------------

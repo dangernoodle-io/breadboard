@@ -5383,6 +5383,17 @@ void test_bb_ws_server_close_client_returns_ok(void);
 void test_bb_ws_server_connect_cb_invoked_with_server_fd_ctx(void);
 void test_bb_ws_server_connect_cb_null_is_noop(void);
 void test_bb_ws_server_connect_cb_cleared_by_reset_captures(void);
+void test_bb_ws_server_prov_gate_handshake_active_non_allowlisted_denies(void);
+void test_bb_ws_server_prov_gate_handshake_active_allowlisted_allows(void);
+void test_bb_ws_server_prov_gate_handshake_inactive_allows(void);
+void test_bb_ws_server_prov_gate_frame_active_non_allowlisted_denies(void);
+void test_bb_ws_server_prov_gate_frame_active_allowlisted_invokes_handler(void);
+void test_bb_ws_server_prov_gate_frame_inactive_invokes_handler(void);
+void test_bb_ws_server_prov_gate_session_open_before_active_denies_frame_once_active(void);
+void test_bb_ws_server_prov_gate_no_active_fn_registered_unaffected(void);
+void test_bb_ws_server_prov_gate_refusal_shape_handshake_404_frame_silent(void);
+void test_bb_ws_server_prov_gate_never_keys_on_req_uri(void);
+void test_bb_ws_server_prov_gate_both_insertion_points_key_on_ctx_path(void);
 
 // Forward declarations from test_bb_tls_creds.c
 void test_bb_tls_creds_override_ca_beats_nvs(void);
@@ -10280,6 +10291,17 @@ int main(void) {
     RUN_TEST(test_bb_ws_server_connect_cb_invoked_with_server_fd_ctx);
     RUN_TEST(test_bb_ws_server_connect_cb_null_is_noop);
     RUN_TEST(test_bb_ws_server_connect_cb_cleared_by_reset_captures);
+    RUN_TEST(test_bb_ws_server_prov_gate_handshake_active_non_allowlisted_denies);
+    RUN_TEST(test_bb_ws_server_prov_gate_handshake_active_allowlisted_allows);
+    RUN_TEST(test_bb_ws_server_prov_gate_handshake_inactive_allows);
+    RUN_TEST(test_bb_ws_server_prov_gate_frame_active_non_allowlisted_denies);
+    RUN_TEST(test_bb_ws_server_prov_gate_frame_active_allowlisted_invokes_handler);
+    RUN_TEST(test_bb_ws_server_prov_gate_frame_inactive_invokes_handler);
+    RUN_TEST(test_bb_ws_server_prov_gate_session_open_before_active_denies_frame_once_active);
+    RUN_TEST(test_bb_ws_server_prov_gate_no_active_fn_registered_unaffected);
+    RUN_TEST(test_bb_ws_server_prov_gate_refusal_shape_handshake_404_frame_silent);
+    RUN_TEST(test_bb_ws_server_prov_gate_never_keys_on_req_uri);
+    RUN_TEST(test_bb_ws_server_prov_gate_both_insertion_points_key_on_ctx_path);
 
     // bb_registry
     RUN_TEST(test_bb_registry_register_null_name_returns_invalid_arg);

@@ -43,6 +43,30 @@ typedef struct {
 // bb_ws_server_register_endpoint on host is a no-op for the httpd side;
 // it stores the handler internally so inject_frame can call it.
 
+// ----- Provisioning gate ---------------------------------------------------
+
+// Mirrors ws_pre_handshake_gate_cb (platform/espidf/bb_ws_server/
+// bb_ws_server.c) -- the handshake-time provisioning gate check ESP-IDF
+// runs via httpd_uri_t.ws_pre_handshake_cb before it ever sends the WS
+// handshake response, for the endpoint most recently registered via
+// bb_ws_server_register_endpoint(). Returns BB_OK when the handshake may
+// proceed, BB_ERR_INVALID_STATE when the gate denies it -- call this
+// BEFORE bb_ws_server_host_inject_frame() to simulate a would-be client
+// attempting to connect. When denied, also records that the real backend
+// would have sent an explicit 404 (see bb_ws_server_host_handshake_404_
+// sent() below) -- a denied handshake must not be silently distinguishable
+// from a genuine miss (B1-1348).
+bb_err_t bb_ws_server_host_handshake(void);
+
+// Whether the most recent bb_ws_server_host_handshake() call denied the
+// handshake (and therefore would have sent httpd_resp_send_err(req,
+// HTTPD_404_NOT_FOUND, NULL) on the real backend, per ws_pre_handshake_
+// gate_cb's own comment). false after an allowed handshake, or before the
+// first call. Contrast bb_ws_server_host_inject_frame()'s denial, which
+// intentionally captures no such response -- see ws_shim_handler's comment
+// for why the two insertion points differ.
+bool bb_ws_server_host_handshake_404_sent(void);
+
 // ----- Request cookie -----------------------------------------------------
 
 // Arm a new fake request slot.  Writes a non-NULL stable pointer to *out_req.
@@ -53,7 +77,10 @@ void bb_ws_server_host_capture_begin(bb_http_request_t **out_req);
 
 // Deliver in_frame to the registered handler and capture any reply written
 // via bb_ws_server_send_frame.  req must be the pointer from capture_begin.
-// Returns the handler's return value.
+// Mirrors ws_shim_handler's per-frame provisioning gate check (see
+// bb_ws_server_host_handshake() above) before invoking the handler --
+// returns BB_ERR_INVALID_STATE without invoking the handler when the gate
+// denies it, otherwise returns the handler's return value.
 bb_err_t bb_ws_server_host_inject_frame(bb_http_request_t *req,
                                         const bb_ws_server_frame_t *in_frame);
 

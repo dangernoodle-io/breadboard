@@ -13,6 +13,7 @@
 
 #include "bb_ws_server.h"
 #include "bb_http_server.h"
+#include "bb_http_prov_gate.h"
 #include "bb_log.h"
 #include "bb_mem.h"
 
@@ -26,6 +27,30 @@
 #include <stdatomic.h>
 
 static const char *TAG = "bb_ws";
+
+// B1-1348: bb_ws_server registers its httpd_uri_t directly (below) rather
+// than going through bb_http.c's bb_shim_handler/api_dispatch_handler, so it
+// does not automatically inherit their bb_http_prov_gate_check() insertion
+// points -- see ws_pre_handshake_gate_cb and ws_shim_handler's own gate
+// check below for where this component wires the gate in instead.
+//
+// The handshake-time gate (ws_pre_handshake_gate_cb) requires
+// ws_pre_handshake_cb, which only exists on httpd_uri_t when ESP-IDF's own
+// CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT is enabled (it depends on
+// CONFIG_HTTPD_WS_SUPPORT, which this whole file is already gated on). If a
+// consumer enables WS support without also enabling the pre-handshake-cb
+// support, this component would silently ship the unauthenticated-handshake
+// hole B1-1348 exists to close, with nothing else catching it -- fail the
+// build loudly instead, same posture as the ESP_IDF_VERSION assert below.
+// CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT itself does not exist before
+// ESP-IDF v5.5.2 (added there; absent in 5.5.0/5.5.1) -- the pinned
+// framework is 5.5.4 (see version.txt), so the #if below simply can't see
+// the symbol and fails closed the same way on an older pin; noted here so
+// a future pin rollback below 5.5.2 doesn't produce a confusing "#error
+// fired for no visible reason" report.
+#if !defined(CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT) || !CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT
+#error "bb_ws_server requires CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT=y (depends on CONFIG_HTTPD_WS_SUPPORT; ESP-IDF >=5.5.2) to gate the WS handshake against provisioning state -- enable it in sdkconfig alongside CONFIG_HTTPD_WS_SUPPORT."
+#endif
 
 // The open-connection counter (below) depends on httpd invoking this uri
 // handler once with req->method == HTTP_GET immediately after completing the
@@ -100,15 +125,167 @@ size_t bb_ws_server_open_count(void)
 // Internal shim — bridges httpd_uri_t handler to bb_ws_server_handler_fn
 // ---------------------------------------------------------------------------
 
-// Per-endpoint user_ctx stored on the httpd_uri_t.
+// Per-endpoint user_ctx stored on the httpd_uri_t. `path` is the same
+// pointer bb_ws_server_register_endpoint() was called with (not copied --
+// same "must have static/persistent storage duration" contract as
+// bb_http_prov_gate_allow()'s own path parameter). This is the gate check's
+// SOLE source of the endpoint's path -- see the comment on req->uri below
+// for why req->uri itself cannot be used for that.
 typedef struct {
     bb_ws_server_handler_fn handler;
+    const char              *path;
 } ws_endpoint_ctx_t;
+
+// req->uri is NOT a reliable source for the endpoint path in either gate
+// check below, despite being correctly populated for the very first
+// (handshake) call -- verified against the vendored ESP-IDF 5.5.4 source
+// (components/esp_http_server/src/httpd_parse.c):
+//   - httpd_req_new() calls init_req() UNCONDITIONALLY on every single call
+//     for a session (init_req() memsets r->uri to '\0' at the top, plus
+//     zeroes r->user_ctx -- see below for why user_ctx survives anyway).
+//   - For an established WS session (sd->ws_handshake_done &&
+//     sd->ws_handler != NULL), httpd_req_new() then calls sd->ws_handler(r)
+//     DIRECTLY (the is_websocket fast path) and returns -- it never calls
+//     httpd_parse_req()/httpd_uri(), which is the ONLY code path that ever
+//     populates req->uri. So req->uri is reliably "" on every real data
+//     frame, and only ever correct on the handshake-completion call
+//     (dispatched through httpd_uri(), which parses the request first).
+//     ESP-IDF's own httpd_parse.c treats this as expected behavior: two of
+//     its own functions guard `if (r->uri[0] == '\0')` for exactly this
+//     mid-session case.
+//   - req->user_ctx, by contrast, IS reliably repopulated on every call:
+//     httpd_req_new() sets `r->user_ctx = sd->ws_user_ctx;` unconditionally,
+//     immediately after init_req() and BEFORE the fast-path branch above,
+//     for every single invocation (handshake call AND every data frame).
+//     sd->ws_user_ctx is set once, at handshake time, from the registered
+//     httpd_uri_t.user_ctx (see httpd_uri.c) -- i.e. from `ctx` below.
+// A per-frame provisioning check keyed on req->uri would therefore
+// evaluate against "" for every real data frame, which bb_route_uri_match
+// can never match against any allowlist entry -- silently tearing down an
+// ALLOWLISTED session's first real frame while provisioning is active,
+// defeating the allowlist case the gate exists to support. Both gate
+// checks below use ctx->path instead, which is available and correct via
+// req->user_ctx on every call, including the fast path.
+
+// Provisioning gate — handshake insertion point. Registered as
+// httpd_uri_t.ws_pre_handshake_cb (see bb_ws_server_register_endpoint
+// below), so ESP-IDF's httpd_uri() calls this BEFORE
+// httpd_ws_respond_server_handshake() ever runs (see httpd_uri.c) — a
+// denied request never receives the WS upgrade response at all, and the
+// connection is torn down exactly like any other rejected handshake. This
+// is the only insertion point that can prevent the handshake itself; by the
+// time ws_shim_handler (below) first runs, the upgrade has already
+// completed at the protocol level.
+//
+// Response shape: at this point httpd_uri() has NOT yet called
+// httpd_ws_respond_server_handshake() (see httpd_uri.c's call order --
+// ws_pre_handshake_cb runs first, and only proceeds to the WS handshake
+// response if it returns ESP_OK), so req is still an ordinary,
+// not-yet-upgraded HTTP request. httpd_resp_send_err()/httpd_resp_send()
+// have no dependency on WS handshake state (httpd_valid_req() is a
+// pointer-sanity debug check, gated off by default, unrelated) -- sending a
+// normal HTTP response from here is exactly as valid as from any other
+// handler. Without an explicit response, returning ESP_FAIL alone writes
+// ZERO bytes before httpd tears the socket down, which is trivially
+// distinguishable on the wire from a genuinely-unregistered WS path (which
+// gets httpd's own formatted 404 via httpd_req_handle_err) -- an
+// unauthenticated SoftAP client could fingerprint "a WS endpoint exists
+// here" from a bare rejected handshake alone, exactly the leak
+// bb_http.c's sibling insertion points were built to prevent (see e.g.
+// api_dispatch_handler's own comment). usr_msg is deliberately NULL, not a
+// custom string: NULL makes httpd_resp_send_err() emit its own default
+// "Nothing matches the given URI" body (see httpd_txrx.c), which is
+// BYTE-IDENTICAL to what httpd_uri()'s own uri==NULL branch sends for a
+// genuinely-unregistered path (also NULL usr_msg, via
+// httpd_req_handle_err's no-custom-handler default) -- the correct "genuine
+// miss" comparator for a WS endpoint, which is registered directly with
+// httpd rather than through bb_http.c's own route registry/dispatch table.
+static esp_err_t ws_pre_handshake_gate_cb(httpd_req_t *req)
+{
+    // req->user_ctx is set (from httpd_uri_t.user_ctx) before this callback
+    // runs -- see httpd_uri.c's call order (req->user_ctx assignment
+    // precedes the WS-handshake block that invokes ws_pre_handshake_cb) --
+    // so ctx is always non-NULL in practice for a route this component
+    // registered itself. Fail closed (deny) rather than fall back to
+    // req->uri if that invariant is ever violated: this is a security gate,
+    // and a silent fallback here is exactly the kind of "looks fine, quietly
+    // wrong" path this fix exists to eliminate (see the block comment above
+    // for why req->uri is not a trustworthy source in general).
+    ws_endpoint_ctx_t *ctx = (ws_endpoint_ctx_t *)req->user_ctx;
+    if (!ctx) {
+        bb_log_e(TAG, "ws pre-handshake gate: NULL user_ctx (unreachable in practice)");
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, NULL);
+        return ESP_FAIL;
+    }
+    if (!bb_http_prov_gate_check(BB_HTTP_GET, ctx->path)) {
+        bb_log_w(TAG, "ws handshake denied during provisioning: %s", ctx->path);
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, NULL);
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
 
 static esp_err_t ws_shim_handler(httpd_req_t *req)
 {
     ws_endpoint_ctx_t *ctx = (ws_endpoint_ctx_t *)req->user_ctx;
     if (!ctx || !ctx->handler) {
+        return ESP_FAIL;
+    }
+
+    // Provisioning gate — established-connection insertion point. A WS
+    // session is long-lived: it can complete its handshake (and pass
+    // ws_pre_handshake_gate_cb above) while provisioning is inactive, then
+    // provisioning can become active later while the session is still open.
+    // ws_shim_handler runs on every subsequent call for that session (the
+    // handshake-completion call below AND every real data frame after it),
+    // so re-checking here closes that window instead of only gating the
+    // handshake once. Returning ESP_FAIL closes the underlying socket,
+    // tearing down a session that was allowed in before provisioning
+    // started gating it.
+    //
+    // Response shape, deliberately NOT matching ws_pre_handshake_gate_cb's
+    // explicit-404 fix above: every call into this handler happens AFTER
+    // httpd_ws_respond_server_handshake() has already sent the 101 upgrade
+    // response (see httpd_uri.c's call order -- ws_pre_handshake_gate_cb
+    // runs and must return ESP_OK BEFORE httpd ever calls this handler at
+    // all, for both the handshake-completion call and every later frame).
+    // The client already considers the connection a live WebSocket by the
+    // time this code runs, so there is no "genuine miss" 404 to imitate --
+    // writing an httpd_resp_send_err()-shaped plain-HTTP response onto an
+    // already-upgraded socket would not produce a clean deny, it would
+    // inject malformed bytes into the WS frame stream the client is now
+    // parsing (worse than no response, and protocol-incoherent). Nor does
+    // this leak the "endpoint exists" information ws_pre_handshake_gate_cb
+    // protects against: reaching this handler at all requires having
+    // already completed a real WS handshake for this exact path, so the
+    // client calling in here already has definitive, first-party knowledge
+    // the endpoint exists -- closing the socket bare (no body) is the only
+    // protocol-coherent deny available here, and it discloses nothing this
+    // client doesn't already know. See test_bb_ws_server_prov_gate_* in
+    // test/test_host/test_bb_ws_server.c, which pins exactly this: a denied
+    // frame closes with no captured response, while a denied handshake
+    // captures the 404.
+    //
+    // WS endpoints are always registered on HTTP_GET (see
+    // bb_ws_server_register_endpoint below) regardless of what req->method
+    // carries during this call — it is HTTP_GET only for the
+    // handshake-completion call; real data frames arrive via the
+    // is_websocket fast-path with method 0 / HTTP_DELETE, never HTTP_GET
+    // (see the comment further down) — so the check always evaluates
+    // BB_HTTP_GET rather than trying to map req->method.
+    //
+    // ctx->path, NOT req->uri: req->uri is only ever populated for the
+    // handshake-completion call (dispatched through httpd_uri(), which
+    // parses the request) -- every real data frame takes the is_websocket
+    // fast path in httpd_req_new(), which never calls the parser, leaving
+    // req->uri reliably "" (see the block comment above ws_pre_handshake_
+    // gate_cb for the full vendored-source trace). Checking against ""
+    // would silently deny every frame of an ALLOWLISTED session once it's
+    // past the handshake -- ctx->path is populated once at registration and
+    // is reliably reachable via req->user_ctx on every call, including the
+    // fast path.
+    if (!bb_http_prov_gate_check(BB_HTTP_GET, ctx->path)) {
+        bb_log_w(TAG, "ws frame denied during provisioning: %s", ctx->path);
         return ESP_FAIL;
     }
 
@@ -209,6 +386,7 @@ bb_err_t bb_ws_server_register_endpoint(bb_http_handle_t server,
         return BB_ERR_NO_SPACE;
     }
     ctx->handler = handler;
+    ctx->path    = path;
 
     httpd_uri_t uri = {
         .uri               = path,
@@ -218,6 +396,7 @@ bb_err_t bb_ws_server_register_endpoint(bb_http_handle_t server,
         .is_websocket      = true,
         .handle_ws_control_frames = false,
         .supported_subprotocol = NULL,
+        .ws_pre_handshake_cb = ws_pre_handshake_gate_cb,
     };
 
     esp_err_t err = httpd_register_uri_handler(h, &uri);

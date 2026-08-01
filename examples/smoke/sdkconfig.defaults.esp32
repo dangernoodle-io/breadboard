@@ -27,6 +27,11 @@ CONFIG_LWIP_SO_LINGER=y
 # (non-stub) implementation instead of the BB_ERR_UNSUPPORTED stubs used
 # when this is unset.
 CONFIG_HTTPD_WS_SUPPORT=y
+# Required alongside CONFIG_HTTPD_WS_SUPPORT: bb_ws_server's
+# ws_pre_handshake_cb gates the WS handshake against provisioning state
+# (B1-1348); bb_ws_server.c #errors at build time if this is off while WS
+# support is on.
+CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT=y
 # Enable uxTaskGetSystemState (used by bb_task_registry's periodic base-scan
 # and GET /api/diag/tasks) so per-task stack high-water-mark reporting is
 # non-stub in smoke builds. See bb_task_registry Kconfig and
