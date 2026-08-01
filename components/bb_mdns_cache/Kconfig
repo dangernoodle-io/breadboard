@@ -71,31 +71,4 @@ config BB_MDNS_CACHE_ENTRY_MAX
         sizeof(bb_mdns_cache_entry_t) when 0) exceeding this cap -- fails
         loud rather than risking a silent stack overflow.
 
-config BB_MDNS_CACHE_AUTOREGISTER
-    bool "Auto-start bb_mdns_cache on init (PRE_HTTP tier)"
-    default n
-    help
-        When enabled, bb_mdns_cache_init() self-starts at its PRE_HTTP
-        init tier (wired in by codegen or handwire) using
-        BB_MDNS_CACHE_AUTO_SERVICE / BB_MDNS_CACHE_AUTO_PROTO as the
-        compiled-in default service/proto. Disable (default) to call
-        bb_mdns_cache_start() manually with a consumer-chosen
-        service/proto.
-
-config BB_MDNS_CACHE_AUTO_SERVICE
-    string "Auto-registered mDNS service (e.g. _miner)"
-    default "_miner"
-    depends on BB_MDNS_CACHE_AUTOREGISTER
-    help
-        Service label passed to bb_mdns_cache_start() when
-        BB_MDNS_CACHE_AUTOREGISTER is enabled.
-
-config BB_MDNS_CACHE_AUTO_PROTO
-    string "Auto-registered mDNS proto (e.g. _tcp)"
-    default "_tcp"
-    depends on BB_MDNS_CACHE_AUTOREGISTER
-    help
-        Proto label passed to bb_mdns_cache_start() when
-        BB_MDNS_CACHE_AUTOREGISTER is enabled.
-
 endmenu

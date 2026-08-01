@@ -355,27 +355,16 @@ bb_err_t bb_mdns_cache_stop(void)
 }
 
 // ---------------------------------------------------------------------------
-// Optional self-start (opt-in, CONFIG_BB_MDNS_CACHE_AUTOREGISTER).
+// Composition seam for codegen (see the bbtool:init marker on the
+// declaration in bb_mdns_cache.h): always a no-op. Self-start is not a
+// supported pattern here -- a consumer wires bb_mdns_cache in by calling
+// bb_mdns_cache_start() explicitly (handwire) with its own chosen
+// service/proto, e.g. taipan-brood's app/main/main.c.
 // ---------------------------------------------------------------------------
-
-#if defined(CONFIG_BB_MDNS_CACHE_AUTOREGISTER) && CONFIG_BB_MDNS_CACHE_AUTOREGISTER
-
-bb_err_t bb_mdns_cache_init(void)
-{
-    bb_mdns_cache_config_t cfg = {
-        .service = CONFIG_BB_MDNS_CACHE_AUTO_SERVICE,
-        .proto   = CONFIG_BB_MDNS_CACHE_AUTO_PROTO,
-    };
-    return bb_mdns_cache_start(&cfg);
-}
-
-#else /* !CONFIG_BB_MDNS_CACHE_AUTOREGISTER: opt-in behavior off, no-op */
 
 bb_err_t bb_mdns_cache_init(void)
 {
     return BB_OK;
 }
-
-#endif /* CONFIG_BB_MDNS_CACHE_AUTOREGISTER */
 
 #endif /* ESP_PLATFORM */

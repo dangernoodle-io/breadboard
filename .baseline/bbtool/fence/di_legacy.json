@@ -1,11 +1,6 @@
 {
   "entries": [
     {
-      "id": "BB_MDNS_CACHE_AUTOREGISTER",
-      "path": "components/bb_mdns_cache/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_MQTT_CLIENT_AUTOREGISTER",
       "path": "components/bb_mqtt_client/Kconfig",
       "type": "autoregister_kconfig"
@@ -48,11 +43,6 @@
     {
       "id": "BB_DISPLAY_ST7789_AUTOREGISTER",
       "path": "platform/espidf/bb_display_st77xx/bb_display_st7789.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_MDNS_CACHE_AUTOREGISTER",
-      "path": "platform/espidf/bb_mdns_cache/bb_mdns_cache.c",
       "type": "autoregister_usage"
     },
     {
