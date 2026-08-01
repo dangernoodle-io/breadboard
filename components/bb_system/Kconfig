@@ -37,14 +37,4 @@ config BB_SYSTEM_BOOT_FAIL_THRESHOLD
         reboot call site by this component — a consumer (e.g. the WiFi FSM's
         anti-brick fallback) decides what to do once the threshold is hit.
 
-config BB_SYSTEM_ROUTES_AUTOREGISTER
-    bool "Build bb_system HTTP routes (/api/version, /api/reboot, /api/ping)"
-    default y
-    help
-        When enabled, bb_system compiles its routes module that exposes
-        GET /api/version, POST /api/reboot, and GET /api/ping. Adds bb_http,
-        bb_data, and esp_timer to bb_system's PRIV_REQUIRES.
-        Disable for headless system-helper-only consumers that don't want to
-        drag the HTTP stack.
-
 endmenu

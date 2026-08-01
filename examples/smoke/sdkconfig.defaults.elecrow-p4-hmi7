@@ -43,7 +43,6 @@ CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
 CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
 CONFIG_BB_LOG_ROUTES=y
 CONFIG_BB_OTA_PULL_AUTOREGISTER=y
-CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER=y
 # Enable RST-based SSE abort teardown (B1-517): bb_http_req_async_abort's
 # SO_LINGER{on,0} setsockopt is inert without this — see bb_http.h.
 CONFIG_LWIP_SO_LINGER=y
