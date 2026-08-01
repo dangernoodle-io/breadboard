@@ -517,12 +517,6 @@ void app_main(void)
     if (err != BB_OK) {
         bb_log_w(TAG, "mqtt_client_health_autoregister_init failed (%d)", (int)err);
     }
-    // bb_health_reserve_routes() (PRE_HTTP tier) is intentionally not called
-    // here -- it is vestigial (platform/espidf/bb_http_server/bb_http.c: max_
-    // uri_handlers is a single constant knob now, route count no longer
-    // drives it), matching floor's existing selectivity (it calls no other
-    // component's *_reserve_routes() either).
-
     // B1-1045 PR-4: bind the "log" dissolved-bb_event producer key. Its
     // underlying stash is populated by bb_log_event's own forwarder task
     // (started below, once the http server is up) -- this proves the

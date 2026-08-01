@@ -369,10 +369,4 @@ bb_err_t bb_ota_push_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-bb_err_t bb_ota_push_reserve_routes(void)
-{
-    bb_http_reserve_routes(1);  // POST /api/update/push
-    return BB_OK;
-}
-
 #endif // ESP_PLATFORM

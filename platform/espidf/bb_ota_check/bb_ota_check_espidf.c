@@ -341,9 +341,3 @@ void bb_ota_check_ota_claim_reset(void)
     bb_claim_reset(&s_ota_claim);
 }
 #endif
-
-bb_err_t bb_ota_check_reserve_routes(void)
-{
-    bb_http_reserve_routes(3);  // GET /api/update/status + GET /api/update/config + POST /api/update/config
-    return BB_OK;
-}

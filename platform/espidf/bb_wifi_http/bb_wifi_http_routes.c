@@ -467,13 +467,3 @@ bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
 
     return BB_OK;
 }
-
-bb_err_t bb_wifi_routes_reserve(void)
-{
-#if CONFIG_BB_WIFI_RECONFIGURE
-    bb_http_reserve_routes(3);  // GET /api/wifi + POST /api/wifi/scan + PATCH /api/wifi
-#else
-    bb_http_reserve_routes(2);  // GET /api/wifi + POST /api/wifi/scan
-#endif
-    return BB_OK;
-}

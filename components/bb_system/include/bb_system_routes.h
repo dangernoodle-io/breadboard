@@ -32,10 +32,6 @@ extern "C" {
 // proof against bb_system_reboot_meta.
 extern const char *const bb_system_reboot_request_schema;
 
-/// Reserve route-table slots for bb_system before the HTTP server starts.
-// bbtool:init tier=pre_http fn=bb_system_routes_reserve
-bb_err_t bb_system_routes_reserve(void);
-
 /// Registry hook — registers POST /api/reboot.
 bb_err_t bb_system_routes_init(bb_http_handle_t server);
 

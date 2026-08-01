@@ -323,7 +323,6 @@ static void boot_progress_server_start(void)
     // Ensure the HTTP server is up. bb_http_server_ensure_started() is the
     // low-level form used here because we're outside the normal registry
     // lifecycle (boot-mode runs before registry init).
-    bb_http_reserve_routes(1);  // GET /api/update/progress
     bb_err_t rc = bb_http_server_ensure_started();
     if (rc != BB_OK) {
         bb_log_e(TAG, "boot-progress: http server start failed (%d)", rc);
@@ -595,11 +594,5 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
 }
 
 #endif // defined(CONFIG_BB_OTA_STRATEGY_BOOT) && CONFIG_BB_OTA_STRATEGY_BOOT
-
-bb_err_t bb_ota_boot_reserve_routes(void)
-{
-    bb_http_reserve_routes(1);  // POST /api/update/apply
-    return BB_OK;
-}
 
 #endif // ESP_PLATFORM

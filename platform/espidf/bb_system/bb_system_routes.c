@@ -611,12 +611,6 @@ bb_err_t bb_system_routes_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-bb_err_t bb_system_routes_reserve(void)
-{
-    bb_http_reserve_routes(1);  // POST /api/reboot
-    return BB_OK;
-}
-
 // ---------------------------------------------------------------------------
 // Testing exposure (host unit tests)
 // ---------------------------------------------------------------------------

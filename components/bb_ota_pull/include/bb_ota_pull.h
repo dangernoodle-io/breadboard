@@ -83,10 +83,6 @@ void bb_ota_pull_set_task_priority(int priority);
  */
 bb_err_t bb_ota_pull_run_sync(const char *asset_url);
 
-/* Reserve route-table slots for bb_ota_pull before the HTTP server starts. */
-// bbtool:init tier=pre_http fn=bb_ota_pull_reserve_routes
-bb_err_t bb_ota_pull_reserve_routes(void);
-
 // POST /api/update/apply (plus /api/update/check + /api/update/progress) has
 // a single registrant, chosen by the BB_OTA_STRATEGY Kconfig choice
 // (components/bb_core/Kconfig) -- bb_ota_pull and bb_ota_boot must never

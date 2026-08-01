@@ -66,10 +66,6 @@ bool bb_ota_boot_pending(void);
 #ifdef ESP_PLATFORM
 #include "bb_http_server.h"
 
-/* Reserve route-table slots for bb_ota_boot before the HTTP server starts. */
-// bbtool:init tier=pre_http fn=bb_ota_boot_reserve_routes
-bb_err_t bb_ota_boot_reserve_routes(void);
-
 // POST /api/update/apply has a single registrant, chosen by the
 // BB_OTA_STRATEGY Kconfig choice (components/bb_core/Kconfig) --
 // bb_ota_pull and bb_ota_boot must never both register the route.

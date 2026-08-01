@@ -1303,12 +1303,6 @@ bb_err_t bb_ota_pull_init(bb_http_handle_t server)
 
 #endif // defined(CONFIG_BB_OTA_STRATEGY_PULL) && CONFIG_BB_OTA_STRATEGY_PULL
 
-bb_err_t bb_ota_pull_reserve_routes(void)
-{
-    bb_http_reserve_routes(3);  // POST /api/update/check + POST /api/update/apply + GET /api/update/progress
-    return BB_OK;
-}
-
 /**
  * Trigger an immediate OTA check (non-blocking).
  * Delegates to bb_ota_check_now() — the single source of truth for

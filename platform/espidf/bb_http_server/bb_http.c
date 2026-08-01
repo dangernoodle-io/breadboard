@@ -39,13 +39,6 @@ static void bb_http_noop_event_handler(void *arg, esp_event_base_t base,
     (void)arg; (void)base; (void)id; (void)data;
 }
 
-/* Vestigial since /api dispatch; kept for ABI — PRE_HTTP companions still call
- * it but route count no longer drives max_uri_handlers. */
-void bb_http_reserve_routes(int n)
-{
-    (void)n;
-}
-
 static const char *s_cors_methods = "GET, POST, OPTIONS";
 static const char *s_cors_headers = "Content-Type";
 
@@ -174,8 +167,8 @@ bb_err_t bb_http_server_ensure_started(void)
     // dispatched via the bb_dispatch_api table instead. The 12-slot default
     // covers: GET/POST/PUT/PATCH/DELETE /api/* (5) + OPTIONS /* (1) + GET /* (1)
     // + headroom for non-/api routes (/save, captive /*) registered by consumers.
-    // bb_http_reserve_routes() is now vestigial; route count no longer drives
-    // this value.
+    // (B1-1321: the vestigial bb_http_reserve_routes() mechanism that used to
+    // track a route-count total here has been removed entirely.)
 #ifdef CONFIG_BB_HTTP_MAX_URI_HANDLERS
     int cap = CONFIG_BB_HTTP_MAX_URI_HANDLERS;
 #else

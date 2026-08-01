@@ -194,10 +194,6 @@ void bb_openapi_set_topic_source_fn(bb_openapi_topic_source_fn_t fn);
 // Registry hooks
 // ---------------------------------------------------------------------------
 
-// Reserve route-table slots for bb_openapi before the HTTP server starts.
-// bbtool:init tier=pre_http fn=bb_openapi_reserve_routes
-bb_err_t bb_openapi_reserve_routes(void);
-
 // Registry hook — registers GET /api/openapi.json.
 bb_err_t bb_openapi_init(bb_http_handle_t server);
 
