@@ -61,11 +61,6 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_OTA_PULL_AUTOREGISTER",
-      "path": "platform/espidf/bb_ota_pull/bb_ota_pull.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "linker:ek79007",
       "path": "components/display/bb_display_ek79007/CMakeLists.txt",
       "type": "display_force_keep"
