@@ -62,7 +62,7 @@ coverage-update-baseline: test ## Shrink-only: prune coverage baseline entries n
 	./scripts/coverage_toolchain.sh python3 scripts/coverage_gate.py --root . --update-baseline
 
 # r4_wifis3 / uno_cc3000 excluded from aggregate + CI pending arm64 toolchain fix (see backlog); use their individual targets locally
-smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32-cache-sweep smoke-esp32c3 smoke-tdongle
+smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32-cache-sweep smoke-esp32-diag-headless smoke-esp32c3 smoke-tdongle
 
 # Per-board codegen prerequisites for every smoke-<board> target -- regenerate
 # smoke's REQUIRES fragment (board-parameterized, B1-747) + composition root
@@ -110,6 +110,9 @@ smoke-esp32: smoke-gen-esp32 ## Build smoke example for classic ESP32-D0 / WROOM
 
 smoke-esp32-cache-sweep: smoke-gen-esp32 ## Build smoke with CONFIG_BB_CACHE_SWEEP_ENABLE=y (bb_cache age-out sweep compile gate)
 	$(PIO) run -d examples/smoke -e esp32-cache-sweep
+
+smoke-esp32-diag-headless: smoke-gen-esp32 ## Build smoke with CONFIG_BB_DIAG_ROUTES=n + CONFIG_BB_DIAG_SECTIONS=n (bb_diag_http headless compile gate, B1-1336)
+	$(PIO) run -d examples/smoke -e esp32-diag-headless
 
 smoke-esp32-boot-progress: smoke-gen-esp32 ## Build smoke with BB_OTA_BOOT_PROGRESS_HTTP=y (gated path compile gate)
 	$(PIO) run -d examples/smoke -e esp32-boot-progress
