@@ -38,6 +38,8 @@ _HINT_RE = re.compile(r'#\s*bbtool-scaffold-hint:\s*(\w+)\s*=\s*(.+?)\s*$')
 
 _IF_OPEN_RE = re.compile(r'\bif\s*\(')
 _IF_CLOSE_RE = re.compile(r'\bendif\s*\(')
+_ELSEIF_RE = re.compile(r'\belseif\s*\(')
+_ELSE_RE = re.compile(r'\belse\s*\(')
 
 
 class ConditionalSetError(Exception):
@@ -698,6 +700,200 @@ def parse_embed_assets(cmake_text: str) -> Dict[str, List[str]]:
                     assets.append(e.split(":", 1)[0])
         if out_var is not None:
             result.setdefault(out_var, []).extend(assets)
+    return result
+
+
+def _paren_close(text: str, open_idx: int) -> int:
+    """Return the index of the `)` matching the `(` at `text[open_idx]`, via
+    simple depth counting -- or -1 if unmatched. Local, minimal counterpart
+    to `commands.lint._walk_balanced` (that one lives in the `commands`
+    package and handles both `(`/`)` and `{`/`}`; this module has no
+    existing cross-package dependency on it and doesn't need the `{`/`}`
+    case, so a four-line local helper beats adding one).
+
+    KNOWN LIMITATION (not fixed here, same class as `_iter_call_blocks`'s
+    documented string-literal gap): this is a bare depth counter, not
+    quote- or generator-expression-aware -- a `(`/`)` inside a quoted
+    CMake string (e.g. `if(X STREQUAL "(")`) is counted as a real paren
+    and can return the wrong close index. Only consumed by
+    `_condition_at` for a human-readable diagnostic string (see its own
+    docstring) -- never affects which `list(APPEND ...)` matches
+    `find_conditional_srcs` fires on."""
+    assert text[open_idx] == '('
+    depth = 0
+    for i in range(open_idx, len(text)):
+        c = text[i]
+        if c == '(':
+            depth += 1
+        elif c == ')':
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def _condition_at(span_text: str, paren_idx: int) -> str:
+    """Return the whitespace-collapsed text between the `(` at
+    `span_text[paren_idx]` and its BALANCED matching `)` (via
+    `_paren_close`, not a non-greedy regex stopping at the first `)` --
+    B1-1337 review MEDIUM: a condition containing its own parentheses,
+    e.g. `if(NOT CONFIG_A AND (CONFIG_B OR CONFIG_C))`, was previously
+    truncated to the first `)`, yielding an unbalanced, garbled diagnostic
+    string). Returns `"<unparsed condition>"` if unmatched (should not
+    happen for well-formed CMake, but this function never raises).
+
+    KNOWN LIMITATION (inherited from `_paren_close`, not fixed here): not
+    quote- or generator-expression-aware -- a condition containing a
+    literal `(`/`)` inside a quoted string (e.g. `if(X STREQUAL "(")`)
+    can still produce a garbled result. This is message-only: the
+    returned string is used SOLELY as the diagnostic `condition_text`
+    value in `find_conditional_srcs`'s result dict -- which
+    `list(APPEND ...)` tokens are gated at all (the firing decision) is
+    decided entirely by `_LIST_APPEND_RE` matching inside the span, never
+    by this function's output."""
+    close_idx = _paren_close(span_text, paren_idx)
+    if close_idx < 0:
+        return "<unparsed condition>"
+    return " ".join(span_text[paren_idx + 1:close_idx].split())
+
+
+def _if_group_arms(span_text: str) -> List[Tuple[int, str]]:
+    """Return `[(arm_start_offset, condition_text), ...]`, in source order,
+    for every ARM of the outer `if()/elseif()*/else()?/endif()` group that
+    `span_text` opens with (`span_text` is one `_conditional_set_spans`
+    span: it starts exactly at that group's own `if(` and ends just before
+    its matching `endif(`). Restricted to `elseif()`/`else()` markers
+    belonging to THIS group -- found at nesting depth 1 relative to this
+    group's own `if(` (depth 0 before it, 1 immediately after) -- an
+    `elseif()`/`else()` inside a FURTHER-nested `if()...endif()` belongs to
+    that nested group, not this one, and is correctly excluded (it's seen
+    at depth 2+).
+
+    Arm 0 is always the group's own `if(...)`, condition = its own
+    (whitespace-collapsed) text. Each `elseif(...)` arm's condition is its
+    own text (a caller wanting full boolean precision would AND it with
+    the negation of every earlier arm in the group; this function reports
+    just its own text -- sufficient for a human-readable "here's why this
+    is conditional" message, and correctly SIGNED, unlike blindly reusing
+    the outer `if(...)`'s condition for every arm). An `else()` arm's
+    condition is the negated CONJUNCTION of every earlier arm's condition
+    in this group (`NOT (X) AND NOT (Y) ...`) -- the fix for B1-1337
+    review MEDIUM: the prior version of `find_conditional_srcs` attributed
+    every `list(APPEND ...)` in a group to the outer `if(...)`'s condition
+    regardless of which arm it was textually inside, so an append inside
+    an `else()` arm was reported with the CONDITION INVERTED (claiming the
+    file compiles when the outer condition is SET, when the truth is the
+    opposite).
+
+    Condition text is extracted via `_condition_at` (BALANCED paren
+    matching, not a non-greedy regex) -- B1-1337 review MEDIUM round 2: a
+    condition containing its own parentheses (`if(NOT CONFIG_A AND
+    (CONFIG_B OR CONFIG_C))`) would otherwise truncate at the first `)`,
+    producing an unbalanced, garbled diagnostic string."""
+    events = []
+    for m in _IF_OPEN_RE.finditer(span_text):
+        events.append((m.start(), "open", m.end() - 1))
+    for m in _IF_CLOSE_RE.finditer(span_text):
+        events.append((m.start(), "close", None))
+    for m in _ELSEIF_RE.finditer(span_text):
+        events.append((m.start(), "elseif", m.end() - 1))
+    for m in _ELSE_RE.finditer(span_text):
+        events.append((m.start(), "else", None))
+    events.sort(key=lambda e: e[0])
+
+    depth = 0
+    arms: List[Tuple[int, str]] = []
+    own_conditions: List[str] = []
+    for pos, kind, paren_idx in events:
+        if kind == "open":
+            depth += 1
+            if depth == 1:
+                cond = _condition_at(span_text, paren_idx)
+                arms.append((pos, cond))
+                own_conditions.append(cond)
+            continue
+        if kind == "close":
+            depth -= 1
+            continue
+        if depth != 1:
+            continue
+        if kind == "elseif":
+            cond = _condition_at(span_text, paren_idx)
+            arms.append((pos, cond))
+            own_conditions.append(cond)
+        else:  # "else"
+            negated = " AND ".join(f"NOT ({c})" for c in own_conditions)
+            arms.append((pos, negated))
+    return arms
+
+
+def find_conditional_srcs(cmake_text: str) -> Dict[str, str]:
+    """Return `{raw_srcs_token: condition_text}` for every SRCS path token
+    added via `list(APPEND <var> ...)` STRICTLY INSIDE an `if()/.../endif()`
+    block, where `<var>` is the variable name referenced by this file's
+    `idf_component_register(SRCS ...)` call (resolved the same way
+    `parse_paths`/`_expand_path_token` do -- an exact `${VAR}` token).
+
+    This is the DELIBERATE INVERSE of `_resolve_vars`'s/`parse_paths`'s
+    "list(APPEND ...) is unconditional" over-approximation (see
+    `_resolve_vars`'s docstring): that approximation is safe for scaffold's
+    "does this path resolve on disk" existence check (it only ever WIDENS
+    coverage), but a caller that needs to know which SRCS entries are
+    actually GATED -- i.e. the file is entirely absent from the component's
+    compiled sources when the guarding Kconfig symbol is unset, not merely
+    "this text scanner can't prove which branch is live" -- needs the
+    opposite fact. Added for B1-1337 (a `// bbtool:init fn=` marker naming a
+    function whose only definition lives in such a conditionally-compiled
+    file is a hard link/compile error once the gate flips off); does NOT
+    alter `_resolve_vars`, `_resolve_vars_branches`, or `parse_paths`'s
+    existing behavior in any way -- purely additive.
+
+    `condition_text` is ARM-AWARE (`_if_group_arms`, B1-1337 review
+    MEDIUM fix): a `list(APPEND ...)` inside an `elseif()`/`else()` arm is
+    attributed to THAT arm's own (correctly signed) condition, not the
+    outer `if(...)`'s. Nested `if()`s inside one arm are still not
+    separately attributed beyond that arm's own condition -- their
+    `list(APPEND ...)` calls are still detected and reported against the
+    enclosing ARM's condition, a conservative-but-honest simplification:
+    precise nested-condition attribution (ANDing every enclosing level) is
+    not needed for this function's only consumer, which just needs a
+    human-readable, correctly-SIGNED "here's why this file is
+    conditional" string.
+
+    Returns `{}` if the file has no `idf_component_register(...)` call, or
+    that call's `SRCS` argument isn't an exact `${VAR}` reference (e.g. a
+    file with no indirection -- SRCS spelled out as literal tokens directly
+    in the call has nothing to conditionally APPEND to in the first place)."""
+    stripped = strip_cmake_comments(cmake_text)
+    block = _register_call_block(stripped)
+    if block is None:
+        return {}
+
+    srcs_var_names: Set[str] = set()
+    for current, tok in _iter_arg_tokens(block):
+        if current != "SRCS":
+            continue
+        m = _VAR_TOKEN_RE.match(tok)
+        if m:
+            srcs_var_names.add(m.group(1))
+    if not srcs_var_names:
+        return {}
+
+    result: Dict[str, str] = {}
+    for start, end in _conditional_set_spans(stripped):
+        span = stripped[start:end]
+        arms = _if_group_arms(span)
+        for m in _LIST_APPEND_RE.finditer(span):
+            if m.group(1) not in srcs_var_names:
+                continue
+            condition = arms[0][1] if arms else "<unparsed condition>"
+            for arm_start, arm_cond in arms:
+                if arm_start <= m.start():
+                    condition = arm_cond
+                else:
+                    break
+            for raw_tok in m.group(2).split():
+                result[raw_tok.strip('"')] = condition
     return result
 
 

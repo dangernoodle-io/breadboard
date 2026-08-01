@@ -32,6 +32,7 @@ from commands.lint import (
     _check_raw_timestamp_divide,
     _check_emit_seam_unwired_subscriber,
     _check_prov_default_form_internal_ref,
+    _check_init_marker_gated_srcs,
     _strip_noise,
     _parse_kconfig_int_defaults,
 )
@@ -2338,6 +2339,198 @@ class TestProvDefaultFormInternalRef(unittest.TestCase):
                 violations,
                 "a same-basename file outside the form's own directory"
                 " must still fire -- basename-only exemption is a bypass")
+
+
+class TestInitMarkerGatedSrcs(unittest.TestCase):
+    """B1-1337: a `// bbtool:init fn=` marker naming a function whose ONLY
+    definition lives in a `.c` file conditionally added to a component's
+    SRCS behind a Kconfig gate (`if(CONFIG_X) list(APPEND SRCS ...)
+    endif()`) must hard-error -- disabling that symbol would emit a call
+    to an uncompiled symbol."""
+
+    def _write(self, tmpdir: str, relpath: str, content: str) -> None:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    def _make_gated_component(self, tmpdir: str, header_body: str) -> None:
+        """components/bb_fake/ with an always-built bb_fake_always.c and a
+        bb_fake_gated.c added to SRCS only inside if(CONFIG_BB_FAKE_ROUTES),
+        both discovered via a var-indirected idf_component_register(SRCS
+        ${_srcs} ...) call -- the exact shape B1-1337 targets."""
+        self._write(
+            tmpdir, "components/bb_fake/CMakeLists.txt",
+            'set(_srcs "${CMAKE_CURRENT_LIST_DIR}/bb_fake_always.c")\n'
+            "if(CONFIG_BB_FAKE_ROUTES)\n"
+            '    list(APPEND _srcs "${CMAKE_CURRENT_LIST_DIR}/bb_fake_gated.c")\n'
+            "endif()\n"
+            "idf_component_register(\n"
+            "    SRCS ${_srcs}\n"
+            '    INCLUDE_DIRS "include"\n'
+            ")\n")
+        self._write(
+            tmpdir, "components/bb_fake/bb_fake_always.c",
+            'bb_err_t bb_fake_always_init(void) { return BB_OK; }\n')
+        self._write(
+            tmpdir, "components/bb_fake/bb_fake_gated.c",
+            'bb_err_t bb_fake_gated_init(void) { return BB_OK; }\n')
+        self._write(
+            tmpdir, "components/bb_fake/include/bb_fake.h",
+            "#pragma once\n" + header_body)
+
+    def test_fires_on_gated_only_definition(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_gated_component(
+                td,
+                "// bbtool:init tier=early fn=bb_fake_gated_init\n"
+                "bb_err_t bb_fake_gated_init(void);\n")
+            violations = _check_init_marker_gated_srcs(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "marker fn defined only in a Kconfig-gated SRCS entry must fire")
+            self.assertIn("bb_fake_gated_init", violations[0]["detail"])
+            self.assertIn("CONFIG_BB_FAKE_ROUTES", violations[0]["detail"])
+
+    def test_no_fire_with_header_else_stub(self):
+        """The B1-1336 fix shape: the real declaration is #if-gated, but
+        the #else branch supplies a static inline stub -- always reachable
+        regardless of the SRCS gate, so this must NOT fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_gated_component(
+                td,
+                "// bbtool:init tier=early fn=bb_fake_gated_init\n"
+                "#if CONFIG_BB_FAKE_ROUTES\n"
+                "bb_err_t bb_fake_gated_init(void);\n"
+                "#else\n"
+                "static inline bb_err_t bb_fake_gated_init(void)"
+                " { return BB_OK; }\n"
+                "#endif\n")
+            violations = _check_init_marker_gated_srcs(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "a header #else static-inline stub must exempt the marker")
+
+    def test_fires_when_header_stub_is_primary_arm_only(self):
+        """B1-1337 review HIGH: a `static inline` stub textually present
+        but ONLY inside the PRIMARY #if arm (no #else/#elif) is NOT a real
+        fallback -- when the gate is off, NEITHER the .c definition NOR
+        this stub exists. The prior (preprocessor-blind) version of the
+        header-stub exclusion treated ANY textual `fn(...) { ... }`
+        occurrence as a trusted fallback and missed this exact shape."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_gated_component(
+                td,
+                "// bbtool:init tier=early fn=bb_fake_gated_init\n"
+                "#if CONFIG_BB_FAKE_ROUTES\n"
+                "static inline bb_err_t bb_fake_gated_init(void)"
+                " { return BB_OK; }\n"
+                "#endif\n")
+            violations = _check_init_marker_gated_srcs(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "a stub confined to the #if primary arm (no #else/#elif)"
+                " must NOT exempt the marker -- it's unreachable when the"
+                " gate is off, same as having no stub at all")
+
+    def test_fires_when_header_stub_is_elif_arm_only(self):
+        """B1-1337 review HIGH round 2: an #elif arm is NOT a terminal
+        catch-all -- its own condition can also be false. A stub confined
+        to an #elif arm with no trailing #else is unreachable for the
+        (valid, uncoupled) combination where every arm's condition is
+        off -- codegen still emits the call unconditionally, and neither
+        the .c definition (gated on CONFIG_BB_FAKE_ROUTES) nor this stub
+        exists for that combination. Must fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_gated_component(
+                td,
+                "// bbtool:init tier=early fn=bb_fake_gated_init\n"
+                "#if CONFIG_BB_FAKE_OTHER\n"
+                "bb_err_t bb_fake_gated_init(void);\n"
+                "#elif CONFIG_BB_FAKE_ROUTES\n"
+                "static inline bb_err_t bb_fake_gated_init(void)"
+                " { return BB_OK; }\n"
+                "#endif\n")
+            violations = _check_init_marker_gated_srcs(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "a stub confined to an #elif arm (no trailing #else) must"
+                " NOT exempt the marker -- #elif is not a terminal"
+                " catch-all, same reasoning as the primary-#if-only case")
+
+    def test_no_fire_with_header_if_elif_else_stub(self):
+        """The shape that actually matters: an #elif chain that ENDS in a
+        genuine terminal #else stub is trusted -- reachable regardless of
+        which of the two prior conditions is false."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_gated_component(
+                td,
+                "// bbtool:init tier=early fn=bb_fake_gated_init\n"
+                "#if CONFIG_BB_FAKE_OTHER\n"
+                "bb_err_t bb_fake_gated_init(void);\n"
+                "#elif CONFIG_BB_FAKE_ROUTES\n"
+                "bb_err_t bb_fake_gated_init(void);\n"
+                "#else\n"
+                "static inline bb_err_t bb_fake_gated_init(void)"
+                " { return BB_OK; }\n"
+                "#endif\n")
+            violations = _check_init_marker_gated_srcs(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "a terminal #else stub after an #elif chain must exempt"
+                " the marker -- it's reachable regardless of which"
+                " earlier arm's condition is false")
+
+    def test_no_fire_on_ungated_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._write(
+                td, "components/bb_fake/CMakeLists.txt",
+                "idf_component_register(\n"
+                '    SRCS "${CMAKE_CURRENT_LIST_DIR}/bb_fake_ungated.c"\n'
+                '    INCLUDE_DIRS "include"\n'
+                ")\n")
+            self._write(
+                td, "components/bb_fake/bb_fake_ungated.c",
+                'bb_err_t bb_fake_ungated_init(void) { return BB_OK; }\n')
+            self._write(
+                td, "components/bb_fake/include/bb_fake.h",
+                "#pragma once\n"
+                "// bbtool:init tier=early fn=bb_fake_ungated_init\n"
+                "bb_err_t bb_fake_ungated_init(void);\n")
+            violations = _check_init_marker_gated_srcs(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "an unconditionally-compiled defining file must not fire")
+
+    def test_no_fire_on_multi_platform_definition(self):
+        """A SECOND definition of the same fn exists in a file that is
+        NEVER referenced as a SRCS token by any component's CMakeLists.txt
+        at all (e.g. a host-backend file reached via
+        boards.derive_component's directory convention rather than a
+        literal idf_component_register(SRCS ...) token) -- can't prove
+        it's gated, so this must NOT fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_gated_component(
+                td,
+                "// bbtool:init tier=early fn=bb_fake_gated_init\n"
+                "bb_err_t bb_fake_gated_init(void);\n")
+            self._write(
+                td, "platform/host/bb_fake/bb_fake_gated.c",
+                'bb_err_t bb_fake_gated_init(void) { return BB_OK; }\n')
+            violations = _check_init_marker_gated_srcs(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "a second, unreferenced-by-any-SRCS definition must exempt"
+                " the marker (multi-platform false-positive guard)")
+
+    def test_no_markers_no_violations(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._write(
+                td, "components/bb_fake/CMakeLists.txt",
+                "idf_component_register(\n"
+                '    SRCS "${CMAKE_CURRENT_LIST_DIR}/bb_fake.c"\n'
+                ")\n")
+            self._write(td, "components/bb_fake/bb_fake.c", "void noop(void) {}\n")
+            self.assertEqual(_check_init_marker_gated_srcs(make_ctx(td)), [])
 
 
 if __name__ == "__main__":

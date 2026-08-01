@@ -18,11 +18,13 @@ from cmake_parse import (
     parse_include_calls,
     single_opaque_property_vars,
     strip_cmake_comments,
+    find_conditional_srcs,
     ConditionalSetError,
 )
 from boards import discover_components, ManifestError
 from composition import resolve_composition
 from discovery import build_index, normalize_roots
+from wire_parse import parse_markers, ParseError as WireParseError
 
 NAME = "lint"
 HELP = "Run source lint checks"
@@ -2208,6 +2210,376 @@ def _check_prov_default_form_internal_ref(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Rule: init-marker-gated-srcs (B1-1337)
+# ---------------------------------------------------------------------------
+
+_PREPROC_IF_OPEN_RE = re.compile(r'^\s*#\s*(?:if|ifdef|ifndef)\b')
+_PREPROC_ELIF_RE = re.compile(r'^\s*#\s*elif\b')
+_PREPROC_ELSE_RE = re.compile(r'^\s*#\s*else\b')
+_PREPROC_ENDIF_RE = re.compile(r'^\s*#\s*endif\b')
+
+
+def _preproc_trusted_line_mask(stripped: str) -> List[bool]:
+    """Return `[bool, ...]`, one entry per line of `stripped`, `True` iff
+    that line is either fully unguarded, or inside a TERMINAL `#else` arm
+    of every enclosing preprocessor conditional -- i.e. NOT inside the
+    `#if`/`#ifdef`/`#ifndef` PRIMARY arm, and NOT inside an `#elif` arm.
+
+    A stack of booleans tracks, per enclosing conditional, whether we're
+    still short of a terminal `#else` for it (`True`) or have crossed one
+    (`False`); a line is trusted iff every frame on the stack is `False`
+    (no enclosing conditional is still short of its terminal `#else`) --
+    an empty stack (no enclosing conditional at all) is trivially trusted.
+
+    `#elif` does NOT flip a frame to `False` (B1-1337 review HIGH,
+    round 2): only `#else` is a genuine, EXHAUSTIVE catch-all -- reached
+    whenever the primary condition (and every earlier `#elif`) is false,
+    with no further condition of its own that could ALSO be false. An
+    `#elif` arm is just as conditional as the primary `#if` arm (its own
+    condition can be false too), so treating it as "reached when the gate
+    is off" is the same false-negative the primary-arm-blind version of
+    this check had, one level removed: `#if A / #elif B / #endif` (no
+    `#else`) has NO body at all when both A and B are false, exactly like
+    a bare `#if A / #endif`. Proving an `#elif` chain exhaustive would
+    require showing the disjunction of every arm's condition covers every
+    case, which this text-only checker cannot do -- so no `#elif` arm is
+    ever trusted, only a REAL terminal `#else` (or being unguarded).
+
+    Deliberately line-based (not full-expression-aware): the `#if`/
+    `#elif`/`#else`/`#endif` KEYWORDS are unambiguous textually; this
+    function makes no attempt to evaluate which branch is actually
+    Kconfig-live (that's the same "no preprocessor" posture every other
+    lint rule and `wire_parse` already take).
+
+    KNOWN LIMITATION (documented, not fixed -- B1-1337 review HIGH round
+    2 flagged this as a related, deeper case): this mask only proves a
+    SINGLE textual position is reachable along its OWN nesting path (every
+    enclosing frame terminal-`#else`-or-unguarded); it does NOT prove that
+    path is the ONLY relevant one. A stub nested two levels deep --
+    `#if OUTER ... #else #if INNER decl-only #else stub #endif #endif` --
+    has its stub correctly marked trusted (both frames are past their
+    terminal `#else`), but a DIFFERENT combination (`OUTER` false, `INNER`
+    true) reaches the `decl-only` branch, which has no body at that leaf.
+    If the `.c` file's SRCS gate correlates only with `OUTER` (not
+    `INNER`), that combination still link-errors, and this mask cannot
+    detect it -- proving every LEAF of an arbitrarily nested conditional
+    tree has a body requires full recursive tree-exhaustiveness checking,
+    which this line-based mask does not attempt (the same class of
+    limitation `find_conditional_srcs`'s nested-`if()` attribution already
+    documents for the CMake side). No such shape exists in this codebase's
+    `// bbtool:init`-marked headers today."""
+    mask: List[bool] = []
+    stack: List[bool] = []
+    for line in stripped.splitlines():
+        if _PREPROC_IF_OPEN_RE.match(line):
+            stack.append(True)
+        elif _PREPROC_ELIF_RE.match(line):
+            pass  # not terminal -- leaves the frame's trust state unchanged
+        elif _PREPROC_ELSE_RE.match(line):
+            if stack:
+                stack[-1] = False
+        elif _PREPROC_ENDIF_RE.match(line):
+            if stack:
+                stack.pop()
+        mask.append(not any(stack))
+    return mask
+
+
+def _has_trusted_header_stub(stripped: str, fn: str) -> bool:
+    """True iff `fn` has a textual definition (`fn(...) { ... }`) in
+    `stripped` at a position the enclosing `#if`-nest (per
+    `_preproc_trusted_line_mask`) shows is reachable when every enclosing
+    conditional is either unguarded or has reached its TERMINAL `#else`
+    arm (never merely an `#elif` arm -- see that function's docstring).
+    Mirrors `_find_cb_body`'s definition-detection (word boundary, balanced
+    `(...)`, then a balanced `{...}` body) but walks EVERY textual
+    occurrence (not just the first) and only accepts one that is trusted
+    -- a `#if CONFIG_X ... #endif`-only stub, or one confined to an
+    `#elif` arm with no trailing `#else`, is a definition that textually
+    exists but is NEVER reachable for every combination of the gate(s)
+    being off, so it must not exempt the marker it's meant to be the
+    fallback for (B1-1337 review HIGH)."""
+    word_re = re.compile(r'\b' + re.escape(fn) + r'\b')
+    n = len(stripped)
+    mask = _preproc_trusted_line_mask(stripped)
+    for m in word_re.finditer(stripped):
+        pos = m.end()
+        while pos < n and stripped[pos] in ' \t\r\n':
+            pos += 1
+        if pos >= n or stripped[pos] != '(':
+            continue
+        close_paren = _walk_balanced(stripped, pos, '(', ')')
+        if close_paren < 0:
+            continue
+        pos = close_paren + 1
+        while pos < n and stripped[pos] in ' \t\r\n':
+            pos += 1
+        if pos >= n or stripped[pos] != '{':
+            continue
+        close_brace = _walk_balanced(stripped, pos, '{', '}')
+        if close_brace < 0:
+            continue
+        line_no = stripped[:m.start()].count('\n')
+        if line_no < len(mask) and mask[line_no]:
+            return True
+    return False
+
+
+def _collect_init_markers(ctx: Context) -> list:
+    """Grep every `// bbtool:init` marker out of every component header,
+    platform header, and example manifest header in the tree (the same
+    marker syntax `commands.wire`/`wire_parse` consume for real codegen --
+    this is a STATIC-TEXT check over the whole repo, not a per-board
+    composition walk, so it fires on a dangerous marker regardless of
+    whether the board currently being built actually composes it).
+
+    A malformed marker (`wire_parse.ParseError`) is silently skipped here --
+    `bbtool codegen`/`bbtool wire` are the tools that own reporting a
+    malformed marker as a hard error; duplicating that here would just be a
+    second, redundant failure mode for the same defect."""
+    entries = []
+    root = Path(ctx.root)
+    for path in ctx.files(
+        ["components/**/*.h", "platform/**/*.h", "examples/**/*.h"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        content = ctx.read(path)
+        if "// bbtool:init" not in content:
+            continue
+        try:
+            entries.extend(parse_markers(content, src_file=str(path.relative_to(root))))
+        except WireParseError:
+            continue
+    return entries
+
+
+def _srcs_gate_map(ctx: Context):
+    """Walk every component's own CMakeLists.txt and classify each resolved
+    `SRCS` path token as either unconditionally compiled or conditionally
+    compiled (via `cmake_parse.find_conditional_srcs` -- see B1-1337).
+    Returns `(unconditional, conditional)`:
+      - `unconditional`: a `set` of absolute on-disk paths that are
+        compiled UNCONDITIONALLY by at least one component (a path present
+        in BOTH sets, e.g. two components referencing the same file with
+        different conditionality, counts as unconditional -- if there's
+        ANY way for it to build, a marker calling into it can link).
+      - `conditional`: `{abs_path: (condition_text, cmake_file_relpath,
+        component_name)}` for a path that is ONLY ever seen as a
+        conditionally-appended SRCS token across every component that
+        references it.
+
+    A `${VAR}`-token that doesn't fully resolve (an unrecognized CMake
+    variable survives substitution) is skipped -- resolving that is
+    `component-path-unresolved`'s job, not this rule's; this rule only
+    needs the paths it CAN resolve. `root` is realpath-resolved (`.resolve()`)
+    -- `_component_cmake_files`/`discovery.build_index` canonicalize every
+    component dir via `os.path.realpath` (B1-1084), so `cmake_file` is
+    already in resolved form; comparing it against an UNRESOLVED `ctx.root`
+    would raise `ValueError` on any tree reached through a symlinked
+    ancestor (e.g. macOS's `/var` -> `/private/var`, hit by every
+    `tempfile.TemporaryDirectory()`-based test fixture)."""
+    root = Path(ctx.root).resolve()
+    unconditional: set = set()
+    conditional: dict = {}
+
+    for cmake_file in _component_cmake_files(ctx):
+        comp_dir = cmake_file.parent
+        comp_name = comp_dir.name
+        content = ctx.read(cmake_file)
+        try:
+            paths = parse_paths(content, component=comp_name)
+        except ConditionalSetError:
+            continue
+        gated_tokens = find_conditional_srcs(content)
+
+        for raw_tok in paths.get("SRCS", []):
+            substituted = raw_tok.replace("${CMAKE_CURRENT_LIST_DIR}", str(comp_dir))
+            if "${" in substituted:
+                continue
+            p = Path(substituted)
+            if not p.is_absolute():
+                p = comp_dir / substituted
+            if not p.is_file():
+                continue
+            abs_path = str(p.resolve())
+
+            if raw_tok in gated_tokens:
+                if abs_path not in unconditional and abs_path not in conditional:
+                    conditional[abs_path] = (
+                        gated_tokens[raw_tok],
+                        str(cmake_file.relative_to(root)),
+                        comp_name,
+                    )
+            else:
+                unconditional.add(abs_path)
+                conditional.pop(abs_path, None)
+
+    return unconditional, conditional
+
+
+def _check_init_marker_gated_srcs(ctx: Context) -> list:
+    """Rule: init-marker-gated-srcs (B1-1337) -- hard-errors when a
+    `// bbtool:init` marker's `fn=` names a function whose ONLY definition
+    lives in a `.c` file that is conditionally added to a component's
+    `SRCS` behind a Kconfig gate (`if(CONFIG_X) list(APPEND SRCS ...)
+    endif()`, see `cmake_parse.find_conditional_srcs`).
+
+    THE DEFECT CLASS: codegen (`scripts/bbtool/commands/wire.py`,
+    `wire_parse.py`, `wire_graph.py`, `composition.py`) is Kconfig-blind by
+    design -- it collects `// bbtool:init` markers from source TEXT and
+    emits unconditional calls, and it runs as a separate `make` step BEFORE
+    `pio run` (no resolved sdkconfig exists at emit time -- teaching it to
+    read one would be structurally unreliable, since the config that will
+    eventually apply isn't resolved yet). If a component's SRCS entry for a
+    marked function's defining `.c` file is Kconfig-gated, disabling that
+    symbol makes `bb_app_init.c` call a symbol that was never compiled --
+    surfacing as a link error, or (if the header's own declaration is
+    ALSO `#if`-gated with no `#else`) a compile error instead. Two
+    confirmed instances (BB_DIAG_ROUTES/BB_DIAG_SECTIONS in bb_diag_http)
+    motivated this rule; this check is scoped to the GENERAL pattern (ANY
+    Kconfig symbol gating a SRCS entry whose sole definition a marker
+    calls), not those two names specifically -- so it can't regress the
+    same way under a different symbol.
+
+    NOT redundant with the `di_legacy` fence family: that fence only
+    tracks the frozen legacy self-registration symbol families
+    (BB_INIT_REGISTER*/`*_AUTOREGISTER`/`*_AUTO_ATTACH`/force-register
+    keeps) -- BB_DIAG_ROUTES/BB_DIAG_SECTIONS are ordinary feature Kconfig
+    knobs, never in that frozen family, so the fence would never have
+    caught this.
+
+    FALSE-POSITIVE EXCLUSIONS (deliberately conservative -- a false
+    positive here blocks a legitimate build):
+      - `fn` defined in more than one file (e.g. per-platform variants): if
+        ANY defining file is unconditionally compiled by some component (or
+        isn't referenced as a SRCS token by any component's CMakeLists.txt
+        at all -- e.g. a host-backend file discovered via
+        `boards.derive_component`'s directory convention rather than a
+        literal `idf_component_register(SRCS ...)` token), the marker is
+        safe: something can always resolve the symbol.
+      - `fn` also has a TRUSTED definition reachable from a HEADER (a
+        `static inline` stub, typically in the `#else` branch of the same
+        Kconfig `#if` gating the real declaration -- exactly B1-1336's fix
+        shape, e.g. `bb_storage_http.h`'s
+        `bb_storage_http_factory_reset_routes_init` stub). "Trusted" is
+        preprocessor-aware, via `_preproc_trusted_line_mask`/
+        `_has_trusted_header_stub` (B1-1337 review HIGH, two rounds): a
+        textual stub found INSIDE the PRIMARY `#if`/`#ifdef`/`#ifndef` arm
+        of an enclosing conditional, OR inside an `#elif` arm, with no
+        TERMINAL `#else` making it reachable regardless of which arm's
+        condition is false, is NOT trusted and does NOT exempt the marker
+        -- it is exactly as dangerous as no stub at all (the same
+        symbol-off compile break the SRCS-gate case produces). `#elif` is
+        deliberately NOT treated as terminal (round 2 fix): it is just as
+        conditional as the primary arm, so a stub confined to it is still
+        unreachable for the (valid, uncoupled) combination where every
+        arm's condition is false. Only a stub that's unguarded, or that
+        sits in a genuine terminal `#else` arm, counts. This still does
+        NOT re-derive that the stub's specific gating symbol is the SAME
+        one gating the `.c` file's SRCS entry -- that remains out of scope
+        for a text-only checker -- it only requires that SOME textual path
+        to a definition survives regardless of which condition is false.
+        `_preproc_trusted_line_mask` also documents a known, un-closed
+        deeper limitation (a stub nested two conditional levels inside a
+        terminal `#else` isn't checked against every sibling leaf) -- see
+        that function's docstring.
+      - No definition of `fn` found anywhere: out of scope (a genuine
+        undefined marker is a link-time failure this rule doesn't attempt
+        to preempt); never guessed at, never flagged.
+
+    Scans component/platform/example HEADER TEXT only (`_collect_init_markers`)
+    and component CMakeLists.txt TEXT only (`_srcs_gate_map`) -- no resolved
+    sdkconfig, no build. Runs under `make check` (lint.py already carries
+    Kconfig-text-parsing logic for `kconfig-default-mismatch`/
+    `kconfig-bridge-shadow` -- this is the same class of purely-static
+    check, unlike codegen which deliberately carries none)."""
+    violations = []
+    root = Path(ctx.root)
+    root_resolved = root.resolve()
+
+    entries = _collect_init_markers(ctx)
+    if not entries:
+        return violations
+
+    unconditional_paths, conditional_paths = _srcs_gate_map(ctx)
+
+    c_files = list(ctx.files(
+        ["components/**/*.c", "platform/**/*.c"],
+        exclude_dirs=[".pio", ".claude"],
+    ))
+    h_files = list(ctx.files(
+        ["components/**/*.h", "platform/**/*.h"],
+        exclude_dirs=[".pio", ".claude"],
+    ))
+
+    fns = sorted({e.fn for e in entries})
+
+    h_stripped = {p: _strip_noise(ctx.read(p)) for p in h_files}
+    c_stripped = {p: _strip_noise(ctx.read(p)) for p in c_files}
+
+    header_stub_fns: set = set()
+    definitions: dict = {}  # fn -> [abs_path, ...]
+    for fn in fns:
+        for stripped in h_stripped.values():
+            if _has_trusted_header_stub(stripped, fn):
+                header_stub_fns.add(fn)
+                break
+        if fn in header_stub_fns:
+            continue
+        defs = []
+        for p, stripped in c_stripped.items():
+            if _find_cb_body(stripped, fn) is not None:
+                defs.append(str(p.resolve()))
+        definitions[fn] = defs
+
+    for entry in entries:
+        fn = entry.fn
+        if fn in header_stub_fns:
+            continue
+        defs = definitions.get(fn) or []
+        if not defs:
+            continue
+
+        dangerous = None
+        for abs_def in defs:
+            if abs_def in unconditional_paths:
+                dangerous = None
+                break
+            gate = conditional_paths.get(abs_def)
+            if gate is None:
+                # Not referenced as a SRCS token by any component's
+                # CMakeLists.txt at all -- can't prove it's gated (e.g. a
+                # host-backend file reached via directory convention);
+                # fails safe.
+                dangerous = None
+                break
+            if dangerous is None:
+                dangerous = (abs_def, gate)
+        if dangerous is None:
+            continue
+
+        abs_def, (condition, cmake_rel, comp_name) = dangerous
+        abs_def_path = Path(abs_def)
+        rel_def = (
+            str(abs_def_path.relative_to(root_resolved))
+            if abs_def_path.is_relative_to(root_resolved) else abs_def
+        )
+        violations.append(ctx.violation(
+            root / entry.src_file, entry.src_line,
+            f"fn={fn}: only definition is {rel_def}, which is conditionally"
+            f" compiled via list(APPEND ...) inside if({condition}) in"
+            f" {cmake_rel} (component '{comp_name}') -- disabling {condition}"
+            f" would emit a call to an uncompiled symbol (B1-1337); add an"
+            f" unconditional fallback (e.g. a static inline stub in the"
+            f" public header's #else branch, mirroring"
+            f" bb_storage_http.h's bb_storage_http_factory_reset_routes_init)"
+            f" or drop the marker so it isn't emitted when {condition} is off",
+        ))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Rule registry
 # ---------------------------------------------------------------------------
 
@@ -2399,6 +2771,18 @@ def _register_lint_rules() -> None:
                  " reference hard-links the ~1117-byte gz blob into every"
                  " consumer image, including consumers that supply their"
                  " own form (B1-1255)",
+        ),
+        Rule(
+            id="init-marker-gated-srcs",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_init_marker_gated_srcs,
+            hint="a `// bbtool:init fn=` marker's fn is defined only in a"
+                 " .c file that's conditionally added to SRCS behind a"
+                 " Kconfig gate -- disabling that symbol emits a call to an"
+                 " uncompiled/undeclared symbol (B1-1337); add an"
+                 " unconditional fallback definition (e.g. a static inline"
+                 " #else stub in the public header) or drop the marker",
         ),
     ]
     for rule in rules:

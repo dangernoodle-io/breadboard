@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from cmake_parse import (
     ConditionalSetError,
+    find_conditional_srcs,
     parse_embed_assets,
     parse_hints,
     parse_include_calls,
@@ -645,6 +646,189 @@ class TestParseHints(unittest.TestCase):
         cmake = "# bbtool-scaffold-hint: include=components/bb_foo\n"
         self.assertEqual(strip_cmake_comments(cmake).strip(), "")
         self.assertEqual(parse_hints(cmake), {"include": ["components/bb_foo"]})
+
+
+class TestFindConditionalSrcs(unittest.TestCase):
+    """B1-1337: the deliberate INVERSE of parse_paths()'s "list(APPEND) is
+    unconditional" over-approximation -- which SRCS tokens are ONLY added
+    inside an if()/endif() block."""
+
+    def test_gated_srcs_reports_condition(self):
+        cmake = (
+            "set(_srcs \"${CMAKE_CURRENT_LIST_DIR}/a.c\")\n"
+            "if(CONFIG_BB_FOO_ROUTES)\n"
+            "    list(APPEND _srcs \"${CMAKE_CURRENT_LIST_DIR}/b.c\")\n"
+            "endif()\n"
+            "idf_component_register(SRCS ${_srcs})\n"
+        )
+        result = find_conditional_srcs(cmake)
+        self.assertEqual(
+            result, {"${CMAKE_CURRENT_LIST_DIR}/b.c": "CONFIG_BB_FOO_ROUTES"})
+
+    def test_unconditional_append_not_reported(self):
+        cmake = (
+            "set(_srcs \"${CMAKE_CURRENT_LIST_DIR}/a.c\")\n"
+            "list(APPEND _srcs \"${CMAKE_CURRENT_LIST_DIR}/b.c\")\n"
+            "idf_component_register(SRCS ${_srcs})\n"
+        )
+        self.assertEqual(find_conditional_srcs(cmake), {})
+
+    def test_append_to_unrelated_var_inside_if_not_reported(self):
+        cmake = (
+            "set(_srcs \"${CMAKE_CURRENT_LIST_DIR}/a.c\")\n"
+            "if(CONFIG_BB_FOO_ROUTES)\n"
+            "    list(APPEND _other_var \"${CMAKE_CURRENT_LIST_DIR}/b.c\")\n"
+            "endif()\n"
+            "idf_component_register(SRCS ${_srcs})\n"
+        )
+        self.assertEqual(find_conditional_srcs(cmake), {})
+
+    def test_no_register_call_returns_empty(self):
+        self.assertEqual(find_conditional_srcs("# nothing here\n"), {})
+
+    def test_srcs_not_a_var_reference_returns_empty(self):
+        # SRCS spelled out literally has no var to conditionally APPEND to.
+        cmake = (
+            "if(CONFIG_BB_FOO_ROUTES)\n"
+            "    list(APPEND _srcs \"${CMAKE_CURRENT_LIST_DIR}/b.c\")\n"
+            "endif()\n"
+            "idf_component_register(SRCS \"${CMAKE_CURRENT_LIST_DIR}/a.c\")\n"
+        )
+        self.assertEqual(find_conditional_srcs(cmake), {})
+
+    def test_multiple_gated_tokens_same_condition(self):
+        cmake = (
+            "set(_srcs \"${CMAKE_CURRENT_LIST_DIR}/a.c\")\n"
+            "if(CONFIG_BB_FOO_ROUTES)\n"
+            "    list(APPEND _srcs \"${CMAKE_CURRENT_LIST_DIR}/b.c\""
+            " \"${CMAKE_CURRENT_LIST_DIR}/c.c\")\n"
+            "endif()\n"
+            "idf_component_register(SRCS ${_srcs})\n"
+        )
+        result = find_conditional_srcs(cmake)
+        self.assertEqual(
+            result,
+            {
+                "${CMAKE_CURRENT_LIST_DIR}/b.c": "CONFIG_BB_FOO_ROUTES",
+                "${CMAKE_CURRENT_LIST_DIR}/c.c": "CONFIG_BB_FOO_ROUTES",
+            },
+        )
+
+    def test_else_arm_condition_is_negated_not_the_outer_condition(self):
+        """B1-1337 review MEDIUM: an append inside an else() arm must be
+        reported with the NEGATED outer condition, not the outer
+        if(...)'s condition verbatim -- the prior implementation claimed
+        b.c compiles when CONFIG_X is SET; the truth is the inverse."""
+        cmake = (
+            "set(_srcs \"${CMAKE_CURRENT_LIST_DIR}/a.c\")\n"
+            "if(CONFIG_X)\n"
+            "else()\n"
+            "    list(APPEND _srcs \"${CMAKE_CURRENT_LIST_DIR}/b.c\")\n"
+            "endif()\n"
+            "idf_component_register(SRCS ${_srcs})\n"
+        )
+        result = find_conditional_srcs(cmake)
+        self.assertEqual(
+            result, {"${CMAKE_CURRENT_LIST_DIR}/b.c": "NOT (CONFIG_X)"})
+
+    def test_elseif_arm_condition_is_its_own_not_outer(self):
+        cmake = (
+            "set(_srcs \"${CMAKE_CURRENT_LIST_DIR}/a.c\")\n"
+            "if(CONFIG_X)\n"
+            "elseif(CONFIG_Y)\n"
+            "    list(APPEND _srcs \"${CMAKE_CURRENT_LIST_DIR}/b.c\")\n"
+            "endif()\n"
+            "idf_component_register(SRCS ${_srcs})\n"
+        )
+        result = find_conditional_srcs(cmake)
+        self.assertEqual(
+            result, {"${CMAKE_CURRENT_LIST_DIR}/b.c": "CONFIG_Y"})
+
+    def test_primary_if_arm_append_still_attributed_to_if_condition(self):
+        cmake = (
+            "set(_srcs \"${CMAKE_CURRENT_LIST_DIR}/a.c\")\n"
+            "if(CONFIG_X)\n"
+            "    list(APPEND _srcs \"${CMAKE_CURRENT_LIST_DIR}/b.c\")\n"
+            "else()\n"
+            "    list(APPEND _srcs \"${CMAKE_CURRENT_LIST_DIR}/c.c\")\n"
+            "endif()\n"
+            "idf_component_register(SRCS ${_srcs})\n"
+        )
+        result = find_conditional_srcs(cmake)
+        self.assertEqual(
+            result,
+            {
+                "${CMAKE_CURRENT_LIST_DIR}/b.c": "CONFIG_X",
+                "${CMAKE_CURRENT_LIST_DIR}/c.c": "NOT (CONFIG_X)",
+            },
+        )
+
+    def test_nested_if_elseif_else_not_confused_with_outer_arms(self):
+        """An elseif()/else() belonging to a NESTED if()...endif() must
+        not be mistaken for an arm of the OUTER group."""
+        cmake = (
+            "set(_srcs \"${CMAKE_CURRENT_LIST_DIR}/a.c\")\n"
+            "if(CONFIG_X)\n"
+            "    if(CONFIG_Y)\n"
+            "        list(APPEND _srcs \"${CMAKE_CURRENT_LIST_DIR}/b.c\")\n"
+            "    else()\n"
+            "        list(APPEND _srcs \"${CMAKE_CURRENT_LIST_DIR}/c.c\")\n"
+            "    endif()\n"
+            "endif()\n"
+            "idf_component_register(SRCS ${_srcs})\n"
+        )
+        result = find_conditional_srcs(cmake)
+        # Both nested-block appends are still attributed to the OUTER
+        # group's own if(CONFIG_X) arm (the nested if(CONFIG_Y)/else()
+        # is not separately attributed -- documented conservative
+        # simplification), but crucially NEITHER is misread as an
+        # else()-arm of the outer group (which would invert the sign).
+        self.assertEqual(
+            result,
+            {
+                "${CMAKE_CURRENT_LIST_DIR}/b.c": "CONFIG_X",
+                "${CMAKE_CURRENT_LIST_DIR}/c.c": "CONFIG_X",
+            },
+        )
+
+    def test_condition_with_nested_parens_not_truncated(self):
+        """B1-1337 review MEDIUM round 2: a condition containing its own
+        parentheses must not be truncated at the first ')' -- the prior
+        non-greedy-regex extraction yielded an unbalanced, garbled string
+        for exactly this ordinary shape."""
+        cmake = (
+            "set(_srcs \"${CMAKE_CURRENT_LIST_DIR}/a.c\")\n"
+            "if(NOT CONFIG_A AND (CONFIG_B OR CONFIG_C))\n"
+            "    list(APPEND _srcs \"${CMAKE_CURRENT_LIST_DIR}/b.c\")\n"
+            "endif()\n"
+            "idf_component_register(SRCS ${_srcs})\n"
+        )
+        result = find_conditional_srcs(cmake)
+        self.assertEqual(
+            result,
+            {
+                "${CMAKE_CURRENT_LIST_DIR}/b.c":
+                    "NOT CONFIG_A AND (CONFIG_B OR CONFIG_C)",
+            },
+        )
+
+    def test_else_arm_negates_condition_with_nested_parens(self):
+        cmake = (
+            "set(_srcs \"${CMAKE_CURRENT_LIST_DIR}/a.c\")\n"
+            "if(NOT CONFIG_A AND (CONFIG_B OR CONFIG_C))\n"
+            "else()\n"
+            "    list(APPEND _srcs \"${CMAKE_CURRENT_LIST_DIR}/b.c\")\n"
+            "endif()\n"
+            "idf_component_register(SRCS ${_srcs})\n"
+        )
+        result = find_conditional_srcs(cmake)
+        self.assertEqual(
+            result,
+            {
+                "${CMAKE_CURRENT_LIST_DIR}/b.c":
+                    "NOT (NOT CONFIG_A AND (CONFIG_B OR CONFIG_C))",
+            },
+        )
 
 
 if __name__ == "__main__":
