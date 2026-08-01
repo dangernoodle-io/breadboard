@@ -173,13 +173,6 @@ bb_err_t bb_mdns_cache_start(const bb_mdns_cache_config_t *cfg);
 // policy instead of being force-evicted on stop.
 bb_err_t bb_mdns_cache_stop(void);
 
-// Composition seam for codegen -- always a no-op (returns BB_OK). Self-start
-// is not a supported pattern; a consumer wires bb_mdns_cache in by calling
-// bb_mdns_cache_start() explicitly (handwire) with its own chosen
-// service/proto.
-// bbtool:init tier=pre_http fn=bb_mdns_cache_init
-bb_err_t bb_mdns_cache_init(void);
-
 #endif /* ESP_PLATFORM */
 
 // ---------------------------------------------------------------------------
