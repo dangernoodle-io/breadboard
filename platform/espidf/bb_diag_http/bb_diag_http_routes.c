@@ -56,6 +56,16 @@
 #include "lwip/ip_addr.h"
 #include "lwip/priv/tcp_priv.h"
 
+// CONFIG_BB_DIAG_ROUTES (own Kconfig, default y) gates this whole file's
+// body (B1-1336) -- bb_diag_http.h's bb_diag_routes_init() declaration is
+// unconditional (codegen's `// bbtool:init` marker scan is grep-time, no
+// preprocessor awareness -- bb_app_init.c calls it regardless of Kconfig),
+// so this component's SRCS list also builds this file unconditionally (see
+// CMakeLists.txt); the #else stub below supplies a matching no-op
+// definition so that call always links, same posture bb_log_http.c already
+// used for CONFIG_BB_LOG_ROUTES.
+#if defined(CONFIG_BB_DIAG_ROUTES) && CONFIG_BB_DIAG_ROUTES
+
 static const char *TAG = "bb_diag_http_routes";
 
 // Reboot-reason SSOT (B1-527 PR-A) — latched once at boot by load_reboot_record().
@@ -1153,4 +1163,14 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     bb_log_i(TAG, "diag routes registered");
     return BB_OK;
 }
+
+#else /* !CONFIG_BB_DIAG_ROUTES */
+
+bb_err_t bb_diag_routes_init(bb_http_handle_t server)
+{
+    (void)server;
+    return BB_OK;
+}
+
+#endif /* CONFIG_BB_DIAG_ROUTES */
 

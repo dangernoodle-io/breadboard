@@ -67,20 +67,19 @@ set(_diag_http_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_tasks_get_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_storage_http_routes.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_log_http.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_diag_http_routes.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_diag_http_section_dispatch.c"
 )
 
-if(CONFIG_BB_DIAG_ROUTES)
-    list(APPEND _diag_http_srcs
-        "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_diag_http_routes.c")
-endif()
-
-# Independent Kconfig from BB_DIAG_ROUTES (see Kconfig) -- the portable
-# registry (bb_diag_section.c, stays in bb_diag) always builds; only this
-# ESP-IDF wildcard-route dispatcher is gated.
-if(CONFIG_BB_DIAG_SECTIONS)
-    list(APPEND _diag_http_srcs
-        "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_diag_http_section_dispatch.c")
-endif()
+# bb_diag_http_routes.c and bb_diag_http_section_dispatch.c now ALWAYS build
+# (B1-1336) -- both declarations in include/bb_diag_http.h are unconditional
+# (codegen's `// bbtool:init` marker scan is grep-time, no preprocessor
+# awareness -- bb_app_init.c calls both fns regardless of Kconfig), so
+# Kconfig-gating the SRCS list here (as before) produced an
+# implicit-declaration compile error whenever either symbol was set `n`.
+# Each file now internally gates its own body on its own Kconfig symbol and
+# no-ops when off, same posture bb_log_http.c already used for
+# CONFIG_BB_LOG_ROUTES above -- see each file's own #if.
 
 # bb_diag: PUBLIC -- bb_diag_http.h includes bb_diag.h (bb_err_t, and the
 # bb_diag_register_section() family every dispatched section resolves

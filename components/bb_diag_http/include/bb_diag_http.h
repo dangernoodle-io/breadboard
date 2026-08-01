@@ -65,29 +65,29 @@ extern "C" {
  */
 bb_err_t bb_diag_boot_render_envelope(bb_http_request_t *req);
 
-#if CONFIG_BB_DIAG_ROUTES
 #ifdef ESP_PLATFORM
 
 /**
  * Registry hook — registers GET/DELETE /api/diag/panic, GET /api/diag/boot,
- * plus heap-check/tasks/sockets diagnostics.
+ * plus heap-check/tasks/sockets diagnostics. Unconditionally declared
+ * (B1-1336) -- codegen's `// bbtool:init` marker scan has no preprocessor
+ * awareness (grep-time, see wire_parse.py), so bb_app_init.c unconditionally
+ * calls this fn regardless of CONFIG_BB_DIAG_ROUTES; the definition itself
+ * (platform/espidf/bb_diag_http/bb_diag_http_routes.c) internally gates its
+ * body on that Kconfig and no-ops when off, same posture as
+ * bb_log_register_routes_init()/CONFIG_BB_LOG_ROUTES above.
  */
 bb_err_t bb_diag_routes_init(bb_http_handle_t server);
-
-#endif /* ESP_PLATFORM */
-#endif /* CONFIG_BB_DIAG_ROUTES */
-
-#if CONFIG_BB_DIAG_SECTIONS
-#ifdef ESP_PLATFORM
 
 // Registers the GET /api/diag/<section> wildcard route on `server`, dispatching to
 // whichever section a request names (platform/espidf/bb_diag_http/
 // bb_diag_http_section_dispatch.c). ESP-IDF only -- there is no host server
-// to register against.
+// to register against. Unconditionally declared (B1-1336) -- same rationale
+// as bb_diag_routes_init() above: the definition internally gates its body
+// on CONFIG_BB_DIAG_SECTIONS and no-ops when off.
 bb_err_t bb_diag_sections_init(bb_http_handle_t server);
 
 #endif /* ESP_PLATFORM */
-#endif /* CONFIG_BB_DIAG_SECTIONS */
 
 #ifdef __cplusplus
 }
