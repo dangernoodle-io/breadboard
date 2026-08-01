@@ -114,6 +114,42 @@ class TestScanAutoregisterAndAutoAttach(unittest.TestCase):
                 found,
             )
 
+    def test_cmake_gated_usage_detected(self):
+        # A Kconfig-gated usage form in a build file (`if(CONFIG_X)` around
+        # an SRCS list) must be detected the same as a C-source usage — the
+        # exact form that let BB_SYSTEM_ROUTES_AUTOREGISTER's only usage
+        # site slip past the fence unbaselined (removed in #1174; B1-1341).
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write(root, "components/bb_fake/Kconfig", (
+                "config BB_FAKE_AUTOREGISTER\n"
+                "    bool \"enable\"\n"
+                "    default y\n"
+            ))
+            _write(root, "components/bb_fake/CMakeLists.txt", (
+                "if(CONFIG_BB_FAKE_AUTOREGISTER)\n"
+                "    list(APPEND srcs \"bb_fake_legacy.c\")\n"
+                "endif()\n"
+            ))
+            found = scan_all(str(root))
+            self.assertIn(
+                Marker(
+                    "autoregister_usage",
+                    "components/bb_fake/CMakeLists.txt",
+                    "BB_FAKE_AUTOREGISTER",
+                ),
+                found,
+            )
+
+    def test_cmake_comment_reference_not_counted(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write(root, "components/bb_fake/CMakeLists.txt", (
+                "# CONFIG_BB_FAKE_AUTOREGISTER was removed from this component\n"
+            ))
+            found = scan_all(str(root))
+            self.assertEqual(found, set())
+
     def test_auto_attach_kconfig_and_usage(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
