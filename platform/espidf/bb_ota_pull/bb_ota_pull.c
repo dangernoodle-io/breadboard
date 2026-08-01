@@ -270,12 +270,6 @@ typedef struct {
     char asset_url[256];
 } ota_worker_arg_t;
 
-#if CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_PULL_AUTOREGISTER
-static StaticTask_t  s_ota_pull_task_buf;
-static StackType_t   s_ota_pull_stack[OTA_TASK_STACK / sizeof(StackType_t)];
-static ota_worker_arg_t s_ota_worker_arg;
-#endif
-
 #endif // ESP_PLATFORM
 
 // Public API: Set releases URL
@@ -1091,9 +1085,6 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
     }
 
     // Build a task argument from the cached check status.
-#if CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_PULL_AUTOREGISTER
-    ota_worker_arg_t *task_arg = &s_ota_worker_arg;
-#else
     ota_worker_arg_t *task_arg = bb_malloc_prefer_spiram(sizeof(ota_worker_arg_t));
     if (!task_arg) {
         taskENTER_CRITICAL(&s_ota_status_mux);
@@ -1106,7 +1097,6 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
-#endif
 
     // Claim the OTA exclusive slot immediately before spawning the worker.
     // All early-return paths above (refresh, no-update-available, alloc) occur
@@ -1115,9 +1105,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);
-#if !(CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_PULL_AUTOREGISTER)
         bb_mem_free(task_arg);
-#endif
         bb_log_w(TAG, "apply: ota_pull claim conflict (upd_check in flight)");
         bb_http_resp_set_status(req, 409);
         bb_http_json_obj_stream_t obj;
@@ -1138,33 +1126,6 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
 
     // Unicore (core 1 absent) is clamped to no-affinity inside
     // bb_task_resolve() (mirrors the hand-rolled clamp this replaced).
-#if CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_PULL_AUTOREGISTER
-    TaskHandle_t task_handle = NULL;
-    bb_task_config_t ota_cfg = {
-        .entry       = ota_worker_task,
-        .name        = "ota_pull",
-        .arg         = task_arg,
-        .stack_bytes = OTA_TASK_STACK,
-        .priority    = s_ota_task_prio,
-        .core        = s_ota_task_core,
-        .backing     = BB_TASK_BACKING_STATIC,
-        .stack_buf   = s_ota_pull_stack,
-        .tcb_buf     = &s_ota_pull_task_buf,
-        .wdt_arm     = false,
-    };
-    if (bb_task_create(&ota_cfg, (void **)&task_handle) != BB_OK) {
-        bb_ota_check_ota_claim_release("ota_pull");
-        taskENTER_CRITICAL(&s_ota_status_mux);
-        s_ota_in_progress = false;
-        taskEXIT_CRITICAL(&s_ota_status_mux);
-        bb_http_resp_set_status(req, 500);
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "task_create_failed");
-        bb_http_resp_json_obj_end(&obj);
-        return BB_OK;
-    }
-#else
     TaskHandle_t task_handle = NULL;
     bb_task_config_t ota_cfg = {
         .entry       = ota_worker_task,
@@ -1189,7 +1150,6 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
-#endif
 
     bb_http_resp_set_status(req, 202);
     bb_http_json_obj_stream_t obj;
