@@ -118,6 +118,18 @@ def _config_usages(root: Path, suffix: str, marker_type: str) -> Set[Marker]:
                 continue
             for m in pattern.finditer(line):
                 found.add(Marker(marker_type, rel, m.group(1)))
+    # Kconfig-gated usage in build files (`if(CONFIG_X_AUTOREGISTER)` around
+    # an SRCS list) is otherwise invisible to this scanner — the exact form
+    # that let BB_SYSTEM_ROUTES_AUTOREGISTER's only usage site slip past the
+    # fence unbaselined (removed in #1174; see B1-1341).
+    for path in _base.iter_files(root, _SCAN_ROOTS, _CMAKE_GLOBS):
+        rel = _base.rel(root, path)
+        for line in _base.read(path).splitlines():
+            stripped = line.strip()
+            if _base.is_cmake_noise_line(stripped):
+                continue
+            for m in pattern.finditer(line):
+                found.add(Marker(marker_type, rel, m.group(1)))
     return found
 
 
