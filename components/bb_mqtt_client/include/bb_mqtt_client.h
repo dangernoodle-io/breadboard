@@ -230,12 +230,10 @@ bb_err_t bb_mqtt_client_destroy(bb_mqtt_client_t h);
  * slot is released the sink calls bb_mqtt_client_stop(&s_auto_client) to ensure
  * the client is fully shut down and the handle is cleared atomically.
  *
- * SYNC on ESP-IDF (httpd-safe, when CONFIG_BB_MQTT_CLIENT_AUTOREGISTER is enabled):
- * stop+destroy do NOT run TLS/mbedTLS and are safe to call inline on the
- * httpd thread (6144-byte stack).  The handle pointer is NULLed before
- * bb_mqtt_client_destroy is called so subsequent calls are idempotent.  When
- * autoregister is disabled (lock not created), the work also runs
- * synchronously — acceptable from the 8192-byte EARLY init path.
+ * SYNC on ESP-IDF (httpd-safe): stop+destroy do NOT run TLS/mbedTLS and are
+ * safe to call inline on the httpd thread (6144-byte stack).  The handle
+ * pointer is NULLed before bb_mqtt_client_destroy is called so subsequent
+ * calls are idempotent.
  *
  * @param handle_p  Pointer to the handle to stop.  Set to NULL on return.
  * @return BB_OK always (destroy errors are logged but not propagated).
@@ -244,8 +242,7 @@ bb_err_t bb_mqtt_client_stop(bb_mqtt_client_t *handle_p);
 
 /**
  * Return the auto-registered MQTT handle created by the EARLY-tier
- * self-registration (CONFIG_BB_MQTT_CLIENT_AUTOREGISTER=y), or NULL if:
- *   - the feature is compiled out,
+ * self-registration, or NULL if:
  *   - NVS enabled=0 (MQTT disabled by config), or
  *   - bb_mqtt_client_init_default has not yet run.
  *
@@ -256,7 +253,7 @@ bb_err_t bb_mqtt_client_stop(bb_mqtt_client_t *handle_p);
  */
 bb_mqtt_client_t bb_mqtt_client_default(void);
 
-#if defined(ESP_PLATFORM) && CONFIG_BB_MQTT_CLIENT_AUTOREGISTER
+#ifdef ESP_PLATFORM
 /**
  * Registry hook — reads NVS namespace "bb_mqtt" for uri/client_id/username/
  * password/enabled and, when enabled=1, creates and (deferred-)starts the
@@ -264,7 +261,7 @@ bb_mqtt_client_t bb_mqtt_client_default(void);
  */
 // bbtool:init tier=early fn=bb_mqtt_client_init_default
 bb_err_t bb_mqtt_client_init_default(void);
-#endif /* ESP_PLATFORM && CONFIG_BB_MQTT_CLIENT_AUTOREGISTER */
+#endif /* ESP_PLATFORM */
 
 /**
  * Stop and destroy the auto-registered (default) MQTT client.
@@ -273,8 +270,7 @@ bb_err_t bb_mqtt_client_init_default(void);
  * loser-teardown without reboot).  Cancels any pending
  * deferred start and calls bb_mqtt_client_stop on the internal auto-client pointer.
  *
- * Idempotent: safe to call when the client is already NULL or when
- * autoregister is compiled out.
+ * Idempotent: safe to call when the client is already NULL.
  *
  * @return BB_OK always.
  */
@@ -307,8 +303,7 @@ bb_err_t bb_mqtt_client_stop_default(void);
  * returns NULL, so bb_mqtt_client_publish() cleanly no-ops; after resume, a
  * fresh resolve automatically targets the new handle with no re-registration.
  *
- * Idempotent: no-op + BB_OK if already suspended, no auto-client exists,
- * or if autoregister is compiled out.
+ * Idempotent: no-op + BB_OK if already suspended or no auto-client exists.
  *
  * @return BB_OK on success or when already suspended; platform error on
  *         esp_mqtt_client_stop failure.
@@ -330,8 +325,8 @@ bb_err_t bb_mqtt_client_suspend_default(void);
  *     Calls esp_mqtt_client_start() on the resident handle.  No NVS read,
  *     no realloc.  esp-mqtt reconnects from the existing config.
  *
- * Idempotent: no-op + BB_OK if not currently suspended, or if no auto-client
- * exists, or if autoregister is compiled out.
+ * Idempotent: no-op + BB_OK if not currently suspended or no auto-client
+ * exists.
  *
  * @return BB_OK on success or when not suspended; platform error on
  *         esp_mqtt_client_start failure (suspended flag is preserved for retry).
