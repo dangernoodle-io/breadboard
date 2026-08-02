@@ -68,14 +68,21 @@
 extern "C" {
 #endif
 
-// Fixed binding-table capacity -- a handful of composed keys, not an
-// open-ended runtime set (mirrors bb_serialize_format's own small registry
-// sizing rationale). No Kconfig bridge -- this is a compile-time-only
-// constant, not a per-target tunable. The B1-1045 cutover briefly bumped
-// this 8->16 in anticipation of examples/floor binding 8 keys; floor's
-// scope narrowed to 3 (log, diag.meminfo, diag.system), so 8 is ample
-// headroom again.
-#define BB_DATA_MAX_BINDINGS 8
+// Fixed binding-table capacity -- sized to how many keys a real composition
+// actually binds, not to an abstract "handful" (this constant has already
+// been reactively tuned once before, 8->16->8, during B1-1045; it does not
+// hold a stable headroom margin on its own). No Kconfig bridge -- this is a
+// compile-time-only constant, not a per-target tunable. examples/smoke's
+// full composition binds 10 keys today (reboot, storage_delete,
+// factory_reset, diag.boot, wifi, fan, power, thermal, update.available,
+// ota_check_config) -- already over the prior cap of 8, silently dropping
+// the last TWO composed bindings via BB_ERR_NO_SPACE with no build-time
+// signal (and, for at least one of the two, no runtime signal either).
+// Raising the cap to 16 buys headroom again but does not fix that failure
+// mode -- a binding table that grows past the cap still fails silently, it
+// just fails later. Visibility into an at/near-capacity table is tracked
+// separately.
+#define BB_DATA_MAX_BINDINGS 16
 
 // Max length (including the terminating NUL) of a binding key -- a short
 // composed identifier, not user-controlled wire data. bb_data_bind()
