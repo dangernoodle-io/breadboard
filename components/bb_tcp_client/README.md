@@ -22,6 +22,7 @@ Public symbols use the `bb_` prefix.
 | `bb_log` | private | — | [bb_log](../README.md) |
 | `bb_serialize` | public | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. | [bb_serialize](../bb_serialize/README.md) |
 | `bb_str` | private | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. | [bb_str](../bb_str/README.md) |
+| `bb_tls_creds` | private | — | [bb_tls_creds](../README.md) |
 | `esp-tls` | private | — | esp-tls |
 | `lwip` | private | — | lwip |
 | `tcp_transport` | private | — | tcp_transport |

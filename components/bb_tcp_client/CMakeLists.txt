@@ -4,7 +4,15 @@
 #
 # B1-1039: health is now per-instance (see bb_tcp_client_priv.h) -- no
 # shared/authoritative transport-health slot or component in the loop.
-set(BB_TCP_CLIENT_PRIV_REQUIRES bb_config bb_log bb_str)
+#
+# bb_tls_creds (B1-1390): TLS credential resolution (bb_tcp_client_priv.h's
+# bb_tcp_client_priv_resolve_tls_creds(), called from
+# src/bb_tcp_client_common.c, unconditionally on both backends). PRIV, not
+# REQUIRES -- bb_tcp_client.h (the public header) never names bb_tls_creds_t;
+# only the private struct in each backend's .c file does. bb_tls_creds itself
+# REQUIRES bb_core / PRIV_REQUIRES bb_config bb_log -- no path back to
+# bb_tcp_client, so this adds no cycle.
+set(BB_TCP_CLIENT_PRIV_REQUIRES bb_config bb_log bb_str bb_tls_creds)
 
 if(IDF_TARGET)
     set(BB_TCP_CLIENT_BACKEND

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "bb_tcp_client.h"
+#include "bb_tls_creds.h"
 #include <stdint.h>
 #include <pthread.h>
 
@@ -59,6 +60,36 @@ void bb_tcp_client_priv_load_from_nvs(const char *ns, bb_tcp_client_cfg_t *out);
 
 /** Persist host/port/tls (only) to NVS namespace `ns` (borrowed). */
 void bb_tcp_client_priv_save_to_nvs(const char *ns, const bb_tcp_client_cfg_t *cfg);
+
+// ---------------------------------------------------------------------------
+// TLS credential resolution (B1-1390). Portable (host + ESP-IDF) so the
+// precedence logic below is host-testable; only the ESP-IDF backend actually
+// wires the resolved creds into a real TLS session (bb_tcp_client's host
+// backend has no real socket/TLS -- see platform/host/bb_tcp_client's
+// header comment).
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolves TLS credentials for `cfg` via bb_tls_creds_resolve(), honoring
+ * bb_tls_creds' own three-tier precedence: cfg's ca_cert_pem/client_cert_pem/
+ * client_key_pem fields are passed through as the top-tier programmatic
+ * override (non-NULL wins as-is); any left NULL fall through to an NVS
+ * lookup in namespace `ns` (keys "tls_ca"/"tls_cert"/"tls_key") and then to
+ * build-time embedded weak defaults. `ns` is borrowed, used only for the
+ * duration of this call -- see bb_tcp_client.h's cfg doc.
+ *
+ * A no-op when cfg->tls is false: *out is zeroed and BB_OK is returned
+ * without touching bb_tls_creds at all -- a plaintext instance must do no
+ * credential work.
+ *
+ * @return BB_OK on success (including when tls is false, or when tls is true
+ *         but nothing resolved anywhere -- an empty resolve is not an
+ *         error, see bb_tls_creds_resolve()); BB_ERR_INVALID_ARG if cfg or
+ *         out is NULL; BB_ERR_NO_SPACE on allocation failure inside
+ *         bb_tls_creds_resolve().
+ */
+bb_err_t bb_tcp_client_priv_resolve_tls_creds(const char *ns, const bb_tcp_client_cfg_t *cfg,
+                                               bb_tls_creds_t *out);
 
 // ---------------------------------------------------------------------------
 // Per-instance health (B1-1039). `bb_tcp_client_health_state_t` is embedded
