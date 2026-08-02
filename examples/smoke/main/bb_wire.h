@@ -71,8 +71,57 @@
 #include "bb_sensor_http.h"
 #include "bb_mdns.h"
 #include "bb_log_event.h"
+#include "smoke_core_claim.h"
 
 // bbtool:init tier=early fn=bb_lifecycle_register out=s_smoke_wifi_svc:bb_lifecycle_svc_t args=&(bb_lifecycle_config_t){.name="wifi"},&s_smoke_wifi_svc
+
+// B1-1364 PR5 validation: smoke_core_claim_start/_log_httpd_core
+// (examples/smoke/main/smoke_core_claim.c) are app-level code, not a
+// component intrinsic (mirrors the app-route markers below), so their
+// markers live here rather than in any component header. Both entries are
+// no-op BB_OK stubs unless CONFIG_BB_SMOKE_CORE_CLAIM is on (see
+// smoke_core_claim.c) -- every existing smoke env is unaffected.
+//
+// smoke_core_claim_start carries `order=0`: no OTHER pre_http-tier entry in
+// this tree sets an explicit `order=` (verified against every `// bbtool:
+// init tier=pre_http` marker in the repo), so `order=0` deterministically
+// sorts this entry FIRST among pre_http-tier entries with no requires/
+// provides edge -- specifically, before bb_http_autostart_init()
+// (components/bb_http_server/include/bb_http_server.h, provides=
+// http_server), which is the ordering the proof depends on: the core must
+// be claimed via bb_wdt_claim_core_exclusive() (inside bb_task_create())
+// BEFORE httpd_start() reads bb_wdt_claimed_core_mask() to steer its
+// worker's core_id (see bb_wdt.h's "Ordering requirement" note).
+//
+// smoke_core_claim_log_httpd_core carries `tier=regular` instead (NOT
+// `requires=http_server`) -- `requires=`/`provides=` is a topo_sort-only
+// ordering edge (wire_graph.topo_sort), which governs the entry list
+// `render_source` receives but is NOT what render_source itself consults
+// when placing the http_server-providing entry: render_source special-cases
+// that ONE entry out of the tier=pre_http loop entirely. It is excluded from
+// the `pre_http_no_server` list, and that list -- every OTHER pre_http entry
+// -- is rendered first, in full, still in its topo-sorted position; only
+// AFTER that loop finishes does render_source emit the captured
+// `__auto_type bb_app_http_handle = ...` line for the excluded entry, never
+// before. It then unconditionally renders the ENTIRE `regular` tier after
+// that capture line. A tier=pre_http entry -- even with
+// `requires=http_server` -- still lands in the pre_http_no_server loop,
+// which runs BEFORE the capture line, so the guard it depends on
+// (`bb_app_avail_http_server`) is still false when it is called and the
+// call is skipped at runtime (verified against the generated bb_app_init.c;
+// this was the actual defect, tracked separately). tier=regular is the only
+// marker shape that is reliably ordered after the capture line: the entire
+// regular block is always emitted after that line regardless of any
+// `order=` on a regular entry, since `order=` only reorders an entry
+// against other regular entries and can never move it ahead of the capture
+// -- a by-construction guarantee of render_source's fixed emission order,
+// not an incidental property of this composition. It needs no requires=
+// edge (or server=true, since this fn takes no handle argument) to get that
+// guarantee.
+
+// bbtool:init tier=pre_http order=0 fn=smoke_core_claim_start
+
+// bbtool:init tier=regular fn=smoke_core_claim_log_httpd_core
 
 // B1-1315: bb_system_routes_init/bb_health_init/bb_openapi_init are
 // route-registering registry hooks relocated out of their component headers

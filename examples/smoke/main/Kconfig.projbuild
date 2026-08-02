@@ -1,0 +1,34 @@
+menu "breadboard smoke: core-claim proof (B1-1364 PR5 validation)"
+
+config BB_SMOKE_CORE_CLAIM
+    bool "Enable synthetic core-claimer task"
+    default n
+    help
+        Compiles in and starts a synthetic CPU-bound task
+        (examples/smoke/main/smoke_core_claim.c) that EXCLUSIVELY claims a
+        core via bb_task_create()'s core_owning=true path
+        (components/bb_task/include/bb_task.h), ordered before
+        bb_http_server_ensure_started() runs. Nothing in the tree calls
+        bb_wdt_claim_core_exclusive() before httpd starts otherwise, so the
+        httpd-worker-core steering path (platform/espidf/bb_http_server/
+        bb_http.c, B1-1364 PR5) has never actually executed anywhere --
+        this knob lets it run end-to-end and be observed on serial instead
+        of remaining a dormant decision matrix exercised only by host
+        tests. Default off: every existing smoke env is unaffected.
+
+config BB_SMOKE_CORE_CLAIM_CORE
+    int "Core to claim exclusively (0 or 1)"
+    default 1
+    range 0 1
+    depends on BB_SMOKE_CORE_CLAIM
+    help
+        Which core the synthetic claimer task pins itself to and claims
+        exclusively. httpd's worker (no explicit
+        CONFIG_BB_HTTP_TASK_CORE_ID pin -- the default) should steer to
+        the OTHER core. On a unicore target (esp32c3/esp32s2),
+        bb_task_resolve()'s existing unicore clamp (already host-tested,
+        test_bb_task_resolve_core_owning_degrades_to_noop_on_unicore)
+        degrades this to BB_TASK_CORE_ANY -- no claim is taken, no crash,
+        the task simply runs unpinned. See smoke_core_claim.c.
+
+endmenu
