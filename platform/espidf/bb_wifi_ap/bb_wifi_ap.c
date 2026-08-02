@@ -247,7 +247,7 @@ void bb_wifi_ap_stop(void)
             if (s_dns_task_handle == NULL) {
                 break;
             }
-            vTaskDelay(pdMS_TO_TICKS(100));
+            bb_task_delay_ms(100);
         }
     }
 

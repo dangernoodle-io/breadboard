@@ -1,9 +1,8 @@
 #include "bb_ntp.h"
 #include "bb_log.h"
 #include "bb_settings.h"
+#include "bb_task.h"
 #include "esp_sntp.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
@@ -71,7 +70,7 @@ int64_t bb_ntp_last_sync_unix(void)
 
 bool bb_ntp_wait_synced(uint32_t timeout_ms)
 {
-    const TickType_t step = pdMS_TO_TICKS(250);
+    const uint32_t step_ms = 250;
     uint32_t waited = 0;
     for (;;) {
         if (s_synced && (long)time(NULL) > BB_NTP_SANE_EPOCH) {
@@ -80,8 +79,8 @@ bool bb_ntp_wait_synced(uint32_t timeout_ms)
         if (waited >= timeout_ms) {
             return false;
         }
-        vTaskDelay(step);
-        waited += 250;
+        bb_task_delay_ms(step_ms);
+        waited += step_ms;
     }
 }
 

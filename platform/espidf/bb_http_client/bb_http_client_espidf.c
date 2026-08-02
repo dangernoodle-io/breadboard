@@ -4,14 +4,13 @@
 #include "bb_http_client_health.h"  // PRIV_INCLUDE_DIRS "src" (B1-1041 per-session health)
 #include "bb_log.h"
 #include "bb_mem.h"
+#include "bb_task.h"
 
 #include <stdbool.h>
 #include <string.h>
 
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
 static const char *TAG = "bb_http_client";
 
@@ -45,7 +44,7 @@ static void apply_backoff(int attempt)
             break;
         }
     }
-    vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    bb_task_delay_ms((uint32_t)delay_ms);
 }
 
 bb_err_t bb_http_client_get(const char *url,

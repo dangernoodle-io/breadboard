@@ -616,7 +616,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
             }
             bb_log_w(TAG, "wifi has no IP — waiting (elapsed %u/%u ms)",
                      (unsigned)waited_ms, (unsigned)limit_ms);
-            vTaskDelay(pdMS_TO_TICKS(step_ms));
+            bb_task_delay_ms(step_ms);
             waited_ms += step_ms;
         }
         if (waited_ms > 0) {
@@ -723,7 +723,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
         if (dl > 0) {
             bb_log_i(TAG, "OTA download attempt %d/%d (backoff %u ms)",
                      dl + 1, max_dl_attempts, (unsigned)ota_dl_backoff_ms(dl - 1));
-            vTaskDelay(pdMS_TO_TICKS(ota_dl_backoff_ms(dl - 1)));
+            bb_task_delay_ms(ota_dl_backoff_ms(dl - 1));
         }
 
         // --- begin + get_img_desc (kept as inner retry for handshake flakes) ---
@@ -751,7 +751,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
                 ota_handle = NULL;
             }
             if (attempt + 1 < max_dl_attempts) {
-                vTaskDelay(pdMS_TO_TICKS(ota_dl_backoff_ms(attempt)));
+                bb_task_delay_ms(ota_dl_backoff_ms(attempt));
             }
         }
         if (err != ESP_OK) {
@@ -848,7 +848,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
             // One tick per ~4 KB chunk is negligible overhead (a few seconds
             // across a 1 MB image) and also lets the TCP window refill,
             // improving throughput.
-            vTaskDelay(1);
+            bb_task_delay_ms(1);
         }
 
         // --- Completeness check ---
@@ -940,7 +940,7 @@ static void ota_worker_task(void *arg)
     bb_err_t err = ota_download_and_flash(result.asset_url);
     if (err == BB_OK) {
         bb_log_i(TAG, "OTA complete, rebooting to %s", result.latest_tag);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        bb_task_delay_ms(500);
         bb_system_restart_reason(BB_RESET_SRC_OTA_PULL_APPLIED, NULL);
     }
 

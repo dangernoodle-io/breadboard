@@ -262,9 +262,18 @@ bb_err_t bb_task_create(const bb_task_config_t *cfg, void **out_handle);
 bb_err_t bb_task_deregister(void *handle);
 
 // ---------------------------------------------------------------------------
-// Delay / yield -- the portable replacement for hand-rolled
-// vTaskDelay(pdMS_TO_TICKS(N)) call sites (B1-1350). No in-tree caller yet;
-// this is the primitive, not a migration.
+// Delay / yield -- the canonical replacement for hand-rolled
+// vTaskDelay(pdMS_TO_TICKS(N)) call sites (B1-1350, migrated B1-1352). Every
+// platform/espidf/ call site that blocks for a millisecond duration goes
+// through bb_task_delay_ms()/bb_task_yield() now, EXCEPT: bb_task's own
+// espidf shell (bb_task_delay_ms() itself calls vTaskDelay()) and a single
+// vTaskDelay(portMAX_DELAY) infinite-block site (bb_ota_boot.c) -- not a
+// millisecond delay, so there is no bb_task_delay_ms() equivalent.
+//
+// components/bb_core/include/bb_once.h's two raw vTaskDelay(1) spins are
+// excluded too, structurally rather than by oversight: bb_task REQUIRES
+// bb_core (this header includes bb_core.h above), so bb_once routing its
+// wait loop through bb_task_delay_ms() would form a component cycle.
 // ---------------------------------------------------------------------------
 
 // Pure ms->ticks conversion, parameterized on tick_rate_hz (configTICK_RATE_HZ

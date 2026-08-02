@@ -1288,7 +1288,7 @@ bool bb_wifi_scan_wait_idle(uint32_t timeout_ms)
     const uint32_t poll_ms = 50;
     uint32_t waited_ms = 0;
     while (s_scan_in_progress && waited_ms < timeout_ms) {
-        vTaskDelay(pdMS_TO_TICKS(poll_ms));
+        bb_task_delay_ms(poll_ms);
         waited_ms += poll_ms;
     }
     return !s_scan_in_progress;
