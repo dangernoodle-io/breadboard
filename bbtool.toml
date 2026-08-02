@@ -95,6 +95,18 @@ severity = "warn"
 # conversions outside bb_clock.c/bb_clock.h and bb_timer/.
 allow = []
 
+[lint.rules.kconfig-inert-symbol]
+severity = "warn"
+# Allowlist: Kconfig symbol names for a deliberately inert knob (e.g. one
+# mid-deprecation, kept only to avoid build breakage on boards that still
+# reference it via sdkconfig -- see BB_LOG_SSE_KEEPALIVE_MS's own Kconfig
+# help text for the in-tree precedent of that pattern). Left empty on
+# purpose: B1-1377's own audit found genuinely inert symbols in-tree
+# today, and pre-populating them here would permanently normalize that
+# debt as sanctioned exceptions instead of surfacing it (severity=warn
+# does that surfacing without blocking `make check`).
+allow = []
+
 [lint.rules.emit-seam-unwired-subscriber]
 severity = "error"
 # Allowlist: two granularities --

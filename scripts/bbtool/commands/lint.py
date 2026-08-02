@@ -2218,6 +2218,78 @@ _PREPROC_ELIF_RE = re.compile(r'^\s*#\s*elif\b')
 _PREPROC_ELSE_RE = re.compile(r'^\s*#\s*else\b')
 _PREPROC_ENDIF_RE = re.compile(r'^\s*#\s*endif\b')
 
+_PREPROC_IFNDEF_RE = re.compile(r'^\s*#\s*ifndef\b')
+_PREPROC_NEGATED_CONFIG_RE = re.compile(
+    r'!\s*(?:defined\s*\(\s*)?CONFIG_[A-Za-z0-9_]+')
+
+
+def _join_preproc_continuations(stripped: str) -> List[str]:
+    """Split `stripped` into physical lines, then join any C preprocessor
+    backslash-newline continuation onto the line its chain STARTED on --
+    a `#if`/`#elif` condition split across physical lines via a trailing
+    `\\` (real in-tree shape: `bb_mem_arena_tls.c:17-18`) must be seen as
+    ONE logical line by `_preproc_arm_is_positive`/`_CONFIG_TOKEN_RE`, or
+    a `!CONFIG_X` negation or extra `CONFIG_` token sitting only on the
+    continuation is invisible to both.
+
+    Mirrors how this file already normalizes input before per-line
+    preprocessor scanning (`_strip_noise` blanks comments/strings first)
+    rather than inventing a new mechanism: this is the same
+    single-normalization-pass-before-scan shape, just joining physical
+    lines instead of blanking noise.
+
+    Preserves line COUNT (return value has exactly as many entries as
+    `stripped.splitlines()`) so any caller indexing the result by physical
+    line number stays aligned with the original source: the full joined
+    condition text lands on the FIRST physical line of its continuation
+    chain; every absorbed continuation line becomes `''` (matches no
+    `#if`/`#elif`/`#else`/`#endif` opener, so it is silently skipped by
+    every per-line scanner in this file, exactly as a blank line would
+    be)."""
+    lines = stripped.splitlines()
+    n = len(lines)
+    out: List[str] = [''] * n
+    i = 0
+    while i < n:
+        start = i
+        buf = lines[i].rstrip()
+        while buf.endswith('\\') and i + 1 < n:
+            i += 1
+            buf = buf[:-1] + ' ' + lines[i].strip()
+        out[start] = buf
+        i += 1
+    return out
+
+
+def _preproc_arm_is_positive(line: str) -> bool:
+    """True iff `line` (a `#if`/`#ifdef`/`#ifndef` opener, or a later
+    `#elif` continuation of the same chain) conditions its CONFIG_ tokens
+    POSITIVELY -- the arm is taken when the named symbol IS selected, not
+    when it's absent/false. `#ifndef CONFIG_X` and `#if !CONFIG_X` / `#if
+    !defined(CONFIG_X)` are negative: their `#else` fires when X IS
+    selected, so it does NOT consult X's choice siblings, unlike a
+    positive `#if CONFIG_X` / `#else` chain (see
+    `_collect_else_arm_choice_refs`).
+
+    A line naming a NEGATED CONFIG_ token anywhere -- including inside a
+    compound condition like `CONFIG_A && !CONFIG_B` -- is treated as
+    non-positive for the WHOLE line, not just the negated token: this
+    function only returns a single frame-wide bool, deliberately
+    conservative-for-reporting (under-rescuing produces a visible false
+    positive someone can act on; over-rescuing produces an invisible
+    false negative). A compound condition mixing positive and negated
+    CONFIG_ tokens is therefore never rescued at all, by design -- not
+    disambiguated per-token. This guarantee holds even when the compound
+    condition is split across physical lines via a C backslash-newline
+    continuation (e.g. `#if CONFIG_A && \\` / `!CONFIG_B`): callers pass
+    `line` from `_join_preproc_continuations`'s output, which joins a
+    continued condition onto one logical line BEFORE it ever reaches this
+    function, so a negation sitting only on the continuation is not
+    invisible to this check."""
+    if _PREPROC_IFNDEF_RE.match(line):
+        return False
+    return not _PREPROC_NEGATED_CONFIG_RE.search(line)
+
 
 def _iter_fn_def_line_nos(stripped: str, fn: str):
     """Yield the 0-based line number of EVERY textual DEFINITION occurrence
@@ -3224,6 +3296,398 @@ def _check_binds_data_mismatch(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Rule: kconfig-inert-symbol (B1-1377)
+# ---------------------------------------------------------------------------
+
+_KCONFIG_CONFIG_DECL_RE = re.compile(r'^[ \t]*config[ \t]+(\w+)[ \t]*$', re.MULTILINE)
+_KCONFIG_HELP_LINE_RE = re.compile(r'^([ \t]*)help[ \t]*$')
+_KCONFIG_DIRECTIVE_RE = re.compile(
+    r'^[ \t]*(?:depends[ \t]+on|select|default)[ \t]+(.+)$', re.MULTILINE
+)
+_KCONFIG_SYMBOL_TOKEN_RE = re.compile(r'\b[A-Z][A-Z0-9_]*\b')
+_CONFIG_TOKEN_RE = re.compile(r'\bCONFIG_([A-Za-z0-9_]+)\b')
+
+_KCONFIG_GLOBS = [
+    "components/**/Kconfig", "components/**/Kconfig.projbuild",
+    "platform/**/Kconfig", "platform/**/Kconfig.projbuild",
+    "examples/**/Kconfig", "examples/**/Kconfig.projbuild",
+]
+
+
+def _strip_kconfig_line_comments(text: str) -> str:
+    """Blank Kconfig `#`-to-end-of-line comments only (offsets/newlines
+    preserved, same contract as every other stripper in this file).
+    Kconfig has no block-comment or string-literal syntax to worry about,
+    so a single per-line '#' cut is the whole job."""
+    return '\n'.join(
+        line[:line.index('#')] if '#' in line else line
+        for line in text.split('\n')
+    )
+
+
+def _strip_kconfig_help_blocks(text: str) -> str:
+    """Blank the indented prose BODY of every Kconfig `help` block (offsets/
+    newlines preserved), leaving the `help` keyword line itself intact.
+    Real Kconfig folds a help block by relative indentation, not by any
+    keyword/blank-line terminator, so this mirrors that: every line more
+    indented than `help` itself (or blank) belongs to the block; the first
+    line at or below `help`'s own indentation ends it. Without this, a
+    prose sentence that merely NAMES another symbol in passing (e.g. "...
+    consumers enable it per-fleet") would be indistinguishable from this
+    rule's directive scan below from a real `depends on`/`select`/
+    `default` reference -- exactly the comment/prose false-positive class
+    this rule is built to reject (see also _strip_kconfig_line_comments,
+    the sibling stripper for '#' comments).
+
+    KNOWN LIMITATION (not fixed, not live): indentation is compared via
+    raw `len()`, so a tab counts as one column same as a space -- a
+    tab-indented Kconfig file could fold the block boundary wrong. Every
+    Kconfig file in this tree is space-indented today, so this is latent,
+    not a real false-positive/negative source right now."""
+    lines = text.split('\n')
+    out: List[str] = []
+    i, n = 0, len(lines)
+    while i < n:
+        line = lines[i]
+        out.append(line)
+        m = _KCONFIG_HELP_LINE_RE.match(line)
+        i += 1
+        if not m:
+            continue
+        help_indent = len(m.group(1))
+        while i < n:
+            body = lines[i]
+            if body.strip() == '':
+                out.append('')
+                i += 1
+                continue
+            indent = len(body) - len(body.lstrip())
+            if indent <= help_indent:
+                break
+            out.append('')
+            i += 1
+    return '\n'.join(out)
+
+
+def _strip_py_comments(text: str) -> str:
+    """Blank Python `#`-to-end-of-line comments (offsets/newlines
+    preserved). Text-only -- does not distinguish a `#` inside a string
+    literal from a real comment; no bbtool Python file spells a
+    CONFIG_<SYM> token inside a string containing '#' today, so this is a
+    known, harmless limitation shared with the rest of this file."""
+    return '\n'.join(
+        line[:line.index('#')] if '#' in line else line
+        for line in text.split('\n')
+    )
+
+
+def _collect_kconfig_declared_symbols(ctx: Context) -> dict:
+    """Returns {name: (path, line)} for every `config NAME` declaration
+    across every discovered Kconfig/Kconfig.projbuild file (first
+    occurrence wins across files, mirroring
+    `_collect_kconfig_int_defaults`). Glob scope covers components/,
+    platform/, and examples/ -- only components/ carries any Kconfig files
+    in this tree today (B1-1377 audit); platform/ and examples/ are
+    included for forward compatibility since the task scope names all
+    three explicitly. `choice NAME` block headers are deliberately NOT
+    treated as a declared symbol here (an unnamed `choice` never emits a
+    `CONFIG_<name>` of its own; a NAMED `choice X` does, but no in-tree
+    choice block is unnamed today and this rule's scope, like
+    `_parse_kconfig_int_defaults`, is `config` entries only) -- a `choice`
+    block's individual options are each their own `config NAME` entry and
+    are covered normally."""
+    declared: dict = {}
+    for path in ctx.files(_KCONFIG_GLOBS, exclude_dirs=[".pio", ".claude"]):
+        stripped = _strip_kconfig_line_comments(
+            _strip_kconfig_help_blocks(ctx.read(path)))
+        for m in _KCONFIG_CONFIG_DECL_RE.finditer(stripped):
+            name = m.group(1)
+            if name in declared:
+                continue
+            declared[name] = (path, _line_of(stripped, m.start()))
+    return declared
+
+
+def _collect_kconfig_cross_refs(ctx: Context) -> set:
+    """Every bare, ALL-CAPS-shaped symbol name referenced on the RHS of a
+    `depends on` / `select` / `default` directive anywhere across every
+    discovered Kconfig file (comments and help-block prose already
+    stripped). Kconfig's own dependency/select/default expressions name a
+    symbol BARE, never CONFIG_-prefixed (that prefix only exists in the
+    generated sdkconfig.h/sdkconfig view consumed by C/build tooling), so
+    this is intentionally a separate, unprefixed pass from
+    `_collect_c_config_refs`'s CONFIG_<SYM> scan.
+
+    A symbol found ONLY here -- e.g. BB_HTTP_TLS_ENABLE, named by
+    bb_tls_creds's `depends on BB_MQTT_TLS_ENABLE || BB_HTTP_TLS_ENABLE`,
+    with zero CONFIG_BB_HTTP_TLS_ENABLE references anywhere in C -- still
+    counts as a genuinely LIVE knob for this rule: it demonstrably changes
+    Kconfig's own resolved graph (another symbol's visibility/forced
+    value/default), which is real menuconfig-visible behavior, not
+    decoration. This is a deliberate scope decision (task-mandated), not
+    an oversight."""
+    refs: set = set()
+    for path in ctx.files(_KCONFIG_GLOBS, exclude_dirs=[".pio", ".claude"]):
+        stripped = _strip_kconfig_line_comments(
+            _strip_kconfig_help_blocks(ctx.read(path)))
+        for m in _KCONFIG_DIRECTIVE_RE.finditer(stripped):
+            refs.update(_KCONFIG_SYMBOL_TOKEN_RE.findall(m.group(1)))
+    return refs
+
+
+def _collect_c_config_refs(ctx: Context) -> set:
+    """Every bare NAME with a real (non-comment, non-string) `CONFIG_NAME`
+    reference anywhere in C/H sources, CMakeLists/*.cmake, or bbtool's own
+    Python tooling. A textual `CONFIG_NAME` occurrence covers every real
+    C-side usage shape uniformly -- `#ifdef CONFIG_X`, `#if CONFIG_X`,
+    `#if defined(CONFIG_X) && CONFIG_X`, `IS_ENABLED(CONFIG_X)`, and a
+    CMake `if(CONFIG_X)` all just spell the token `CONFIG_X` somewhere in
+    the (comment/string-stripped) text -- no per-form regex is needed.
+    Reuses `_strip_noise` (C/H -- blanks comments AND string content, safe
+    here since this scan only cares about identifier tokens, never string
+    payloads) and `cmake_parse.strip_cmake_comments` (CMakeLists.txt/
+    *.cmake) so a CONFIG_<SYM> token sitting only in a comment -- the
+    false-positive class this rule exists to reject, e.g.
+    bb_mdns.c's "// Kconfig BB_MDNS_EVT_POOL_SIZE now only governs ..." --
+    is never counted as usage. Test directories are DELIBERATELY INCLUDED
+    (unlike this file's other Kconfig-scanning rules, which skip `test/`
+    when looking for the C-side fallback-bridge PATTERN) -- this rule asks
+    a different question ("is the symbol consulted ANYWHERE"), and
+    excluding test/ would only ever produce a false positive (flagging a
+    symbol exercised solely by its own test), never a false negative."""
+    refs: set = set()
+    for path in ctx.files(
+        ["**/*.c", "**/*.h", "**/*.cpp"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        refs.update(_CONFIG_TOKEN_RE.findall(_strip_noise(ctx.read(path))))
+    for path in ctx.files(
+        ["**/CMakeLists.txt", "**/*.cmake"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        refs.update(_CONFIG_TOKEN_RE.findall(strip_cmake_comments(ctx.read(path))))
+    for path in ctx.files(
+        ["scripts/**/*.py"],
+        exclude_dirs=[".pio", ".claude", "tests"],
+    ):
+        refs.update(_CONFIG_TOKEN_RE.findall(_strip_py_comments(ctx.read(path))))
+    return refs
+
+
+def _collect_kconfig_choice_groups(ctx: Context) -> list:
+    """Returns one `frozenset` of member `config NAME`s per Kconfig
+    `choice ... endchoice` block discovered across `_KCONFIG_GLOBS`. Used
+    only by `_collect_else_arm_choice_refs` to resolve the "#else-arm
+    choice member" false-positive class (see `_check_kconfig_inert_symbol`
+    FALSE-POSITIVE CLASSES): a `choice`'s individual `config NAME` members
+    are mutually exclusive, so a C-side `#if CONFIG_A / #elif CONFIG_B /
+    #else / ... #endif` chain that names only SOME members explicitly
+    still genuinely, structurally consults whichever member(s) it never
+    names -- the `#else` arm IS that consultation (real in-tree case:
+    `BB_WIFI_POWER_SAVE`'s `BB_WIFI_PS_MIN_MODEM`, consulted only via the
+    `#else` of `platform/espidf/bb_wifi/bb_wifi.c`'s `#if
+    CONFIG_BB_WIFI_PS_NONE / #elif CONFIG_BB_WIFI_PS_MAX_MODEM / #else`
+    chain). Scoped to `choice` blocks only (never an arbitrary set of
+    related `config`s) because that mutual-exclusivity guarantee is
+    exactly what licenses inferring the unnamed members are "the other
+    branch" -- nothing else does."""
+    _choice_open_re = re.compile(r'^[ \t]*choice\b')
+    _endchoice_re = re.compile(r'^[ \t]*endchoice\b')
+    groups: list = []
+    for path in ctx.files(_KCONFIG_GLOBS, exclude_dirs=[".pio", ".claude"]):
+        stripped = _strip_kconfig_line_comments(
+            _strip_kconfig_help_blocks(ctx.read(path)))
+        current: Optional[set] = None
+        for line in stripped.splitlines():
+            if _choice_open_re.match(line):
+                current = set()
+                continue
+            if _endchoice_re.match(line):
+                if current:
+                    groups.append(frozenset(current))
+                current = None
+                continue
+            if current is not None:
+                m = _KCONFIG_CONFIG_DECL_RE.match(line)
+                if m:
+                    current.add(m.group(1))
+    return groups
+
+
+def _collect_else_arm_choice_refs(ctx: Context, choice_groups: list) -> set:
+    """Every choice member `CONFIG_<NAME>` that a C/H `#if`/`#elif` chain's
+    terminal `#else` arm implicitly consults, by naming only its OTHER,
+    mutually-exclusive choice siblings across that chain's own `#if`/
+    `#elif` arms and never itself. For every `#if`/`#elif` chain (tracked
+    on a simple open/close stack, `#elif` updating the same frame its
+    `#if` opened -- same shape as `_preproc_kconfig_gate_mask`), collects
+    the set of CONFIG_<SYM> tokens named across that chain's OWN arms; on
+    reaching that chain's `#else`, for every `choice` group
+    (`_collect_kconfig_choice_groups`) intersecting that set, the group's
+    REMAINING members are added to the live set -- the `#else` arm is
+    reached exactly when none of the named members holds, and choice
+    membership is mutually exclusive, so some other, unnamed member must
+    (this rule does not attempt to disambiguate WHICH remaining member
+    when a choice has 3+ options and only 1 is named before the `#else` --
+    all remaining members are conservatively marked live; see
+    `_check_kconfig_inert_symbol`'s FALSE-POSITIVE CLASSES for the
+    residual limitation this still doesn't cover).
+
+    Deliberately per-chain and NOT reachability-aware (unlike
+    `_preproc_kconfig_gate_mask`): this only needs to know which tokens
+    were named in a chain's own #if/#elif arms before its own #else, not
+    whether the chain itself is nested inside some other trusted/blocking
+    frame -- the mutual-exclusivity argument for an #else arm holds
+    regardless of outer nesting."""
+    if not choice_groups:
+        return set()
+    live: set = set()
+    for path in ctx.files(
+        ["**/*.c", "**/*.h", "**/*.cpp"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        stripped = _strip_noise(ctx.read(path))
+        # Each frame is [named CONFIG_ tokens, positively-conditioned?] --
+        # see `_preproc_arm_is_positive`. `#ifndef`/`#if !X` chains (and
+        # any `#elif` arm that goes negative) flip the frame's polarity
+        # to False for good; only a frame that stays positive across
+        # EVERY one of its own #if/#elif arms licenses the #else-arm
+        # choice-sibling rescue below. Backslash-continued #if/#elif
+        # conditions are joined onto their opening physical line first
+        # (`_join_preproc_continuations`) so a negation or extra CONFIG_
+        # token sitting only on a continuation line is not invisible to
+        # the per-line scan below.
+        stack: List[list] = []
+        for line in _join_preproc_continuations(stripped):
+            if _PREPROC_IF_OPEN_RE.match(line):
+                stack.append([
+                    set(_CONFIG_TOKEN_RE.findall(line)),
+                    _preproc_arm_is_positive(line),
+                ])
+            elif _PREPROC_ELIF_RE.match(line):
+                if stack:
+                    frame = stack[-1]
+                    frame[0].update(_CONFIG_TOKEN_RE.findall(line))
+                    if not _preproc_arm_is_positive(line):
+                        frame[1] = False
+            elif _PREPROC_ELSE_RE.match(line):
+                if stack:
+                    named, positive = stack[-1]
+                    if positive:
+                        for grp in choice_groups:
+                            if named & grp:
+                                live.update(grp - named)
+            elif _PREPROC_ENDIF_RE.match(line):
+                if stack:
+                    stack.pop()
+    return live
+
+
+def _check_kconfig_inert_symbol(ctx: Context) -> list:
+    """Rule: kconfig-inert-symbol (B1-1377) -- flags a Kconfig `config NAME`
+    declaration that is never actually consulted anywhere: no `CONFIG_NAME`
+    reference in any C/H source, CMakeLists/*.cmake, or Python tooling
+    (`_collect_c_config_refs`), AND no other Kconfig entry's `depends on` /
+    `select` / `default` names it bare (`_collect_kconfig_cross_refs`). A
+    symbol matching neither set is INERT: a user can set it in menuconfig
+    or sdkconfig.defaults and nothing observably changes -- a knob that
+    looks like it does something and does nothing, with no signal that it
+    doesn't.
+
+    SEVERITY -- shipped as `warn`, not `error`. B1-1377's initial audit
+    (before `_collect_else_arm_choice_refs` existed) found 12 genuinely
+    inert symbols, not the 5 an earlier pass claimed. Adding the
+    `#else`-arm choice-member detection (see FALSE-POSITIVE CLASSES
+    below) rescues one of those 12 -- `BB_OTA_STRATEGY_NONE`
+    (`components/bb_core/Kconfig:31`) -- leaving 11 as of this rule's
+    current implementation; see the rule's own wiki entry / PR notes for
+    the full audited set. An `error` severity would need either those 11
+    pre-populated into this rule's `allow` list (which would PERMANENTLY
+    normalize today's debt as sanctioned exceptions -- the outcome this
+    rule exists to prevent) or an immediate `make check` failure on land.
+    `warn` surfaces every inert symbol on every run, blocks nothing, and
+    leaves the `allow` escape hatch empty by default so a future genuinely
+    inert symbol (e.g. one mid-deprecation, matching the in-tree
+    'Vestigial' / 'not yet consumed' precedent already documented by hand
+    in a couple of these Kconfig help blocks) can be allowlisted
+    DELIBERATELY, with a reason, rather than silently. This is a
+    deliberate `warn`-forever choice, NOT a shrink-only ratchet like
+    `make fence`'s baselines or the coverage gate -- see
+    `scripts/bbtool/README.md` for why.
+
+    FALSE-POSITIVE CLASSES (see _collect_c_config_refs /
+    _collect_kconfig_cross_refs / _collect_else_arm_choice_refs
+    docstrings for the exact handling):
+      - a CONFIG_<SYM> token sitting only in a C/H comment does NOT count
+        (comments are stripped before the scan);
+      - a bare <SYM> named only in another Kconfig entry's `depends on` /
+        `select` / `default` DOES count as real usage (deliberate scope
+        decision, not an oversight -- it changes Kconfig's own resolved
+        graph);
+      - `#ifdef`/`#if`/`IS_ENABLED(...)`/CMake `if(CONFIG_X)` are all
+        real usages (a single textual CONFIG_<SYM> token match covers
+        all of them uniformly, no per-form regex needed);
+      - a `choice` member consulted ONLY via a C `#if`/`#elif`.../`#else`
+        chain's terminal `#else` arm (naming its OTHER, mutually-
+        exclusive choice siblings and never itself) DOES count as real
+        usage (`_collect_else_arm_choice_refs`; real in-tree case:
+        `BB_WIFI_PS_MIN_MODEM`, `components/bb_wifi/Kconfig:189`,
+        consulted only via the `#else` at
+        `platform/espidf/bb_wifi/bb_wifi.c:838-843` -- that member is
+        also separately rescued by its choice's own `default` naming it,
+        but the `#else`-arm detection covers it independent of that,
+        and would still cover it if the `default` were ever reordered or
+        removed); this rescue is POLARITY-GATED
+        (`_preproc_arm_is_positive`) -- it only fires for a chain whose
+        every `#if`/`#elif` arm is positively conditioned (`#if
+        CONFIG_X`, `#ifdef CONFIG_X`). A NEGATIVELY conditioned chain
+        (`#ifndef CONFIG_X`, `#if !CONFIG_X`, `#if !defined(CONFIG_X)`)
+        has inverted `#else` semantics -- its `#else` fires when X IS
+        selected, not when its siblings are -- so it is NEVER rescued,
+        and a compound arm mixing a negated CONFIG_ token with a
+        positive one (e.g. `#if CONFIG_A && !CONFIG_B`) is treated the
+        same way: not rescued at all, deliberately, rather than
+        disambiguated per-token (CONSERVATIVE FOR REPORTING -- an
+        under-rescue is a visible false positive someone can act on, an
+        over-rescue is an invisible false negative). This holds even when
+        the negation sits only on a backslash-newline continuation of the
+        condition (`_join_preproc_continuations` joins the physical lines
+        into one logical line before polarity classification runs, so the
+        negation is never invisible to it);
+      - a symbol consulted only by an out-of-tree/downstream consumer does
+        NOT count -- this rule only ever sees this repo's own tree."""
+    violations = []
+    rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get(
+        "kconfig-inert-symbol", {}
+    )
+    allowlist: set = set(rule_cfg.get("allow", []))
+
+    declared = _collect_kconfig_declared_symbols(ctx)
+    if not declared:
+        return violations
+
+    choice_groups = _collect_kconfig_choice_groups(ctx)
+    live = (
+        _collect_c_config_refs(ctx)
+        | _collect_kconfig_cross_refs(ctx)
+        | _collect_else_arm_choice_refs(ctx, choice_groups)
+    )
+
+    for name, (path, line) in sorted(declared.items(), key=lambda kv: (str(kv[1][0]), kv[1][1])):
+        if name in allowlist or name in live:
+            continue
+        violations.append(ctx.violation(
+            path, line,
+            f"config {name} is declared in Kconfig but never consulted --"
+            f" no CONFIG_{name} reference in any C/H source, CMakeLists,"
+            f" or Python tooling, and no other Kconfig entry's depends"
+            f" on/select/default names it bare -- this knob is inert (a"
+            f" user can set it and nothing observably changes)",
+        ))
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Rule registry
 # ---------------------------------------------------------------------------
 
@@ -3438,6 +3902,17 @@ def _register_lint_rules() -> None:
                  " bb_data_bind() call sites (B1-1376) -- a declared but"
                  " unbound key inflates check_binds_data_cap's count, a"
                  " bound but undeclared key undercounts it",
+        ),
+        Rule(
+            id="kconfig-inert-symbol",
+            default_severity="warn",
+            profiles={"all"},
+            check=_check_kconfig_inert_symbol,
+            hint="a Kconfig config NAME with no CONFIG_NAME reference"
+                 " anywhere in C/H/CMake/Python and no other Kconfig"
+                 " entry's depends on/select/default naming it is inert"
+                 " (B1-1377) -- wire it up, remove it, or allowlist it"
+                 " with a reason",
         ),
     ]
     for rule in rules:
