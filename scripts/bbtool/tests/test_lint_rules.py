@@ -35,6 +35,8 @@ from commands.lint import (
     _check_prov_default_form_internal_ref,
     _check_init_marker_gated_srcs,
     _check_binds_data_mismatch,
+    _check_kconfig_inert_symbol,
+    _join_preproc_continuations,
     _strip_noise,
     _parse_kconfig_int_defaults,
     run as lint_run,
@@ -2707,6 +2709,66 @@ class TestInitMarkerGatedSrcs(unittest.TestCase):
                 " must not be silently trusted")
 
 
+class TestJoinPreprocContinuations(unittest.TestCase):
+    """Direct unit coverage for `_join_preproc_continuations` -- previously
+    exercised only indirectly through init-marker-gated-srcs/kconfig-inert
+    rule-level tests. Every case asserts BOTH the joined content and
+    `len(out) == len(input.splitlines())`, since line-count preservation
+    is what keeps callers' physical-line indexing (and any chain-depth
+    bookkeeping built on top of it) aligned with the original source."""
+
+    def test_two_line_continuation(self):
+        src = "#if CONFIG_A && \\\nCONFIG_B\n"
+        out = _join_preproc_continuations(src)
+        self.assertEqual(len(out), len(src.splitlines()))
+        self.assertEqual(out, ["#if CONFIG_A &&  CONFIG_B", ""])
+
+    def test_three_line_chain(self):
+        src = ("#if CONFIG_A && \\\n"
+               "    CONFIG_B && \\\n"
+               "    CONFIG_C\n")
+        out = _join_preproc_continuations(src)
+        self.assertEqual(len(out), len(src.splitlines()))
+        self.assertEqual(
+            out,
+            ["#if CONFIG_A &&  CONFIG_B &&  CONFIG_C", "", ""])
+
+    def test_trailing_whitespace_after_backslash_still_joins(self):
+        """`.rstrip()` runs before the `endswith('\\\\')` check, so a
+        backslash followed by trailing whitespace must still be treated
+        as a continuation marker, not a literal end-of-line backslash."""
+        src = "#if CONFIG_A \\   \nCONFIG_B\n"
+        out = _join_preproc_continuations(src)
+        self.assertEqual(len(out), len(src.splitlines()))
+        self.assertEqual(out, ["#if CONFIG_A  CONFIG_B", ""])
+
+    def test_dangling_backslash_on_final_line_is_left_alone(self):
+        """A trailing backslash on the LAST physical line has no
+        successor to join onto -- must not crash, and the dangling text
+        (backslash included) is left untouched."""
+        src = "#define X \\\n"
+        out = _join_preproc_continuations(src)
+        self.assertEqual(len(out), len(src.splitlines()))
+        self.assertEqual(out, ["#define X \\"])
+
+    def test_continuation_followed_by_independent_if_not_swallowed(self):
+        """A continuation chain must not absorb the NEXT physical line's
+        `#if` -- once its own chain ends, a later `#if` stays its own
+        entry, indexed on its own physical line."""
+        src = "#if CONFIG_A \\\nCONFIG_B\n#if CONFIG_C\n"
+        out = _join_preproc_continuations(src)
+        self.assertEqual(len(out), len(src.splitlines()))
+        self.assertEqual(
+            out,
+            ["#if CONFIG_A  CONFIG_B", "", "#if CONFIG_C"])
+
+    def test_no_continuations_is_pure_passthrough(self):
+        src = "#if CONFIG_A\nfoo\nbar\n"
+        out = _join_preproc_continuations(src)
+        self.assertEqual(len(out), len(src.splitlines()))
+        self.assertEqual(out, ["#if CONFIG_A", "foo", "bar"])
+
+
 class TestBindsDataMismatch(unittest.TestCase):
     """B1-1376: a `// bbtool:init binds_data=` marker's declared key list
     must exactly match its owning component's real bb_data_bind() call
@@ -2982,6 +3044,460 @@ class TestBindsDataMismatch(unittest.TestCase):
                 rc, 1,
                 "bbtool lint's real run() entry point must surface a"
                 " binds-data-mismatch violation as a non-zero exit")
+
+
+class TestKconfigInertSymbol(unittest.TestCase):
+    def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return tmpdir
+
+    def _names(self, violations) -> set:
+        return {v["detail"].split()[1] for v in violations}
+
+    def test_fires_on_genuinely_inert_symbol(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_INERT\n'
+                '    bool "Inert fake symbol"\n'
+                '    default n\n'
+                '    help\n'
+                '        Nothing anywhere consults this knob.\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertIn("BB_FAKE_INERT", self._names(violations))
+
+    def test_comment_only_reference_still_fires(self):
+        """A CONFIG_<SYM> token sitting only inside a C comment must NOT
+        exempt the symbol -- comments are stripped before the scan, so a
+        stale/aspirational comment describing a consumer that was never
+        actually built (the real in-tree BB_STORAGE_ENTRY_LIST_CAP case)
+        still gets flagged."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_INERT\n'
+                '    int "Inert fake symbol"\n'
+                '    default 32\n')
+            self._make_file(td, "components/bb_fake/bb_fake.c",
+                '// downstream code reads CONFIG_BB_FAKE_INERT out of'
+                ' sdkconfig.h\n'
+                'int x;\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertIn("BB_FAKE_INERT", self._names(violations))
+
+    def test_no_fire_on_ifdef_usage(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_USED\n'
+                '    bool "Used fake symbol"\n'
+                '    default n\n')
+            self._make_file(td, "components/bb_fake/bb_fake.c",
+                '#ifdef CONFIG_BB_FAKE_USED\n'
+                'int x;\n'
+                '#endif\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertNotIn("BB_FAKE_USED", self._names(violations))
+
+    def test_no_fire_on_if_defined_usage(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_USED\n'
+                '    bool "Used fake symbol"\n'
+                '    default n\n')
+            self._make_file(td, "components/bb_fake/bb_fake.c",
+                '#if defined(CONFIG_BB_FAKE_USED) && CONFIG_BB_FAKE_USED\n'
+                'int x;\n'
+                '#endif\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertNotIn("BB_FAKE_USED", self._names(violations))
+
+    def test_no_fire_on_is_enabled_usage(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_USED\n'
+                '    bool "Used fake symbol"\n'
+                '    default n\n')
+            self._make_file(td, "components/bb_fake/bb_fake.c",
+                'void f(void) {\n'
+                '    if (IS_ENABLED(CONFIG_BB_FAKE_USED)) { return; }\n'
+                '}\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertNotIn("BB_FAKE_USED", self._names(violations))
+
+    def test_no_fire_on_cmake_if_usage(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_USED\n'
+                '    bool "Used fake symbol"\n'
+                '    default n\n')
+            self._make_file(td, "components/bb_fake/CMakeLists.txt",
+                'if(CONFIG_BB_FAKE_USED)\n'
+                '    list(APPEND SRCS "extra.c")\n'
+                'endif()\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertNotIn("BB_FAKE_USED", self._names(violations))
+
+    def test_no_fire_on_python_tooling_usage(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_USED\n'
+                '    int "Used fake symbol"\n'
+                '    default 4\n')
+            self._make_file(td, "scripts/bbtool/commands/fake_tool.py",
+                'def f():\n'
+                '    return CONFIG_BB_FAKE_USED\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertNotIn("BB_FAKE_USED", self._names(violations))
+
+    def test_python_comment_only_usage_still_fires(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_INERT\n'
+                '    int "Inert fake symbol"\n'
+                '    default 4\n')
+            self._make_file(td, "scripts/bbtool/commands/fake_tool.py",
+                '# reads CONFIG_BB_FAKE_INERT eventually\n'
+                'def f():\n'
+                '    return 1\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertIn("BB_FAKE_INERT", self._names(violations))
+
+    def test_no_fire_on_kconfig_depends_on_reference(self):
+        """A symbol named only in ANOTHER Kconfig entry's `depends on` is a
+        real usage -- it changes that entry's own visibility/gating, a
+        deliberate scope decision (mirrors the real
+        BB_HTTP_TLS_ENABLE/bb_tls_creds `depends on` case)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_GATE\n'
+                '    bool "Gate"\n'
+                '    default n\n'
+                '\n'
+                'config BB_FAKE_GATED\n'
+                '    bool "Gated"\n'
+                '    default n\n'
+                '    depends on BB_FAKE_GATE\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertNotIn("BB_FAKE_GATE", self._names(violations))
+
+    def test_no_fire_on_kconfig_select_reference(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_TARGET\n'
+                '    bool "Target"\n'
+                '    default n\n'
+                '\n'
+                'config BB_FAKE_SELECTOR\n'
+                '    bool "Selector"\n'
+                '    default y\n'
+                '    select BB_FAKE_TARGET\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertNotIn("BB_FAKE_TARGET", self._names(violations))
+
+    def test_no_fire_on_choice_default_reference(self):
+        """Mirrors the real BB_WIFI_PS_MIN_MODEM case: a choice's own
+        `default <member>` line naming one of its members bare is a real
+        `default` directive reference, not prose."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'choice BB_FAKE_MODE\n'
+                '    prompt "Mode"\n'
+                '    default BB_FAKE_MODE_A\n'
+                '    config BB_FAKE_MODE_A\n'
+                '        bool "A"\n'
+                '    config BB_FAKE_MODE_B\n'
+                '        bool "B"\n'
+                'endchoice\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertNotIn("BB_FAKE_MODE_A", self._names(violations))
+
+    def test_no_fire_on_else_arm_choice_member_usage(self):
+        """Reproduces the reviewer's minimal repro (mirrors the real
+        BB_WIFI_PS_MIN_MODEM/bb_wifi.c:838-843 case, which escapes only
+        because that choice happens to carry a `default` naming it): a
+        `choice` with members A/B and NO `default`, where a C `#if`/
+        `#else` chain names only member A explicitly and consults member
+        B purely via the `#else` fallback -- no literal
+        CONFIG_BB_FAKE_MODE_B token ever appears anywhere. The `#else`
+        arm IS a real consultation of B (choice members are mutually
+        exclusive, so `#else` here means "B is selected"); B must NOT be
+        flagged as inert."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'choice BB_FAKE_MODE\n'
+                '    prompt "Mode"\n'
+                '    config BB_FAKE_MODE_A\n'
+                '        bool "A"\n'
+                '    config BB_FAKE_MODE_B\n'
+                '        bool "B"\n'
+                'endchoice\n')
+            self._make_file(td, "components/bb_fake/bb_fake.c",
+                'void f(void) {\n'
+                '#if CONFIG_BB_FAKE_MODE_A\n'
+                '    mode_a();\n'
+                '#else\n'
+                '    mode_b();  // consults B via the sole remaining choice member\n'
+                '#endif\n'
+                '}\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertNotIn("BB_FAKE_MODE_B", self._names(violations))
+
+    def test_ifndef_else_arm_does_not_rescue_choice_member(self):
+        """Polarity inversion guard: `#ifndef CONFIG_BB_FAKE_MODE_A` /
+        `#else` fires when A IS selected, not when it isn't -- it never
+        consults B, unlike the positive `#if CONFIG_BB_FAKE_MODE_A` /
+        `#else` case in test_no_fire_on_else_arm_choice_member_usage. B
+        must still be reported inert."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'choice BB_FAKE_MODE\n'
+                '    prompt "Mode"\n'
+                '    config BB_FAKE_MODE_A\n'
+                '        bool "A"\n'
+                '    config BB_FAKE_MODE_B\n'
+                '        bool "B"\n'
+                'endchoice\n')
+            self._make_file(td, "components/bb_fake/bb_fake.c",
+                'void f(void) {\n'
+                '#ifndef CONFIG_BB_FAKE_MODE_A\n'
+                '    mode_a_absent();\n'
+                '#else\n'
+                '    mode_a_present();\n'
+                '#endif\n'
+                '}\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertIn("BB_FAKE_MODE_B", self._names(violations))
+
+    def test_negated_if_else_arm_does_not_rescue_choice_member(self):
+        """Same polarity guard, `#if !CONFIG_X` form -- `#else` fires when
+        A IS selected, so B is never actually consulted."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'choice BB_FAKE_MODE\n'
+                '    prompt "Mode"\n'
+                '    config BB_FAKE_MODE_A\n'
+                '        bool "A"\n'
+                '    config BB_FAKE_MODE_B\n'
+                '        bool "B"\n'
+                'endchoice\n')
+            self._make_file(td, "components/bb_fake/bb_fake.c",
+                'void f(void) {\n'
+                '#if !CONFIG_BB_FAKE_MODE_A\n'
+                '    mode_a_absent();\n'
+                '#else\n'
+                '    mode_a_present();\n'
+                '#endif\n'
+                '}\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertIn("BB_FAKE_MODE_B", self._names(violations))
+
+    def test_positive_if_else_arm_still_rescues_choice_member(self):
+        """Regression guard for the polarity fix: a genuinely positive
+        `#if CONFIG_X` / `#else` chain must keep rescuing its sibling
+        (duplicate of test_no_fire_on_else_arm_choice_member_usage, named
+        explicitly here alongside its ifndef/negated-if counterparts so
+        the three polarity cases read together)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'choice BB_FAKE_MODE\n'
+                '    prompt "Mode"\n'
+                '    config BB_FAKE_MODE_A\n'
+                '        bool "A"\n'
+                '    config BB_FAKE_MODE_B\n'
+                '        bool "B"\n'
+                'endchoice\n')
+            self._make_file(td, "components/bb_fake/bb_fake.c",
+                'void f(void) {\n'
+                '#if CONFIG_BB_FAKE_MODE_A\n'
+                '    mode_a();\n'
+                '#else\n'
+                '    mode_b();\n'
+                '#endif\n'
+                '}\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertNotIn("BB_FAKE_MODE_B", self._names(violations))
+
+    def test_backslash_continued_negation_defeats_rescue(self):
+        """A `#if`/`#elif` condition split across physical lines via a
+        trailing `\\` must be joined into ONE logical line before polarity
+        classification -- a `!CONFIG_X` negation sitting only on the
+        continuation line must NOT be invisible to `_preproc_arm_is_positive`.
+
+        3-member choice: MODE_A is named positively on the opener, MODE_B
+        is negated on the continuation, MODE_C is never named anywhere.
+        MODE_B itself is a real reference either way (its raw `CONFIG_`
+        token is textually present in the file, so `_collect_c_config_refs`
+        -- a separate, whole-text scan unaffected by this bug -- always
+        marks it live regardless of the frame's polarity); the bug's
+        actual observable effect on this rule's OUTPUT is entirely on
+        MODE_C, the sibling that is never named anywhere and can ONLY be
+        marked live via `_collect_else_arm_choice_refs`'s (possibly
+        mis-polarized) rescue. Before the continuation-join fix, only the
+        opener line `#if CONFIG_BB_FAKE_MODE_A && \\` was scanned; its lone
+        token (MODE_A) was positive, so the frame was wrongly treated as
+        all-positive and the `#else` arm rescued MODE_C even though the
+        joined condition `CONFIG_BB_FAKE_MODE_A && !CONFIG_BB_FAKE_MODE_B`
+        is actually negative (MODE_B's negation, invisible pre-fix). After
+        the fix, the rescue never fires and MODE_C must still be reported
+        inert."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'choice BB_FAKE_MODE\n'
+                '    prompt "Mode"\n'
+                '    config BB_FAKE_MODE_A\n'
+                '        bool "A"\n'
+                '    config BB_FAKE_MODE_B\n'
+                '        bool "B"\n'
+                '    config BB_FAKE_MODE_C\n'
+                '        bool "C"\n'
+                'endchoice\n')
+            self._make_file(td, "components/bb_fake/bb_fake.c",
+                'void f(void) {\n'
+                '#if CONFIG_BB_FAKE_MODE_A && \\\n'
+                '    !CONFIG_BB_FAKE_MODE_B\n'
+                '    do_a();\n'
+                '#else\n'
+                '    do_other();\n'
+                '#endif\n'
+                '}\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            names = self._names(violations)
+            self.assertIn(
+                "BB_FAKE_MODE_C", names,
+                "the never-named third choice member must still be"
+                " reported inert -- the #else rescue must not fire for a"
+                " frame whose polarity is negative only on its"
+                " backslash-continuation line")
+
+    def test_backslash_continued_positive_condition_still_rescues(self):
+        """Regression guard for the join itself: a POSITIVE condition split
+        across physical lines via `\\` must still rescue the remaining
+        choice member -- proves the continuation-join didn't break the
+        positive path it's meant to preserve."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'choice BB_FAKE_MODE\n'
+                '    prompt "Mode"\n'
+                '    config BB_FAKE_MODE_A\n'
+                '        bool "A"\n'
+                '    config BB_FAKE_MODE_B\n'
+                '        bool "B"\n'
+                '    config BB_FAKE_MODE_C\n'
+                '        bool "C"\n'
+                'endchoice\n')
+            self._make_file(td, "components/bb_fake/bb_fake.c",
+                'void f(void) {\n'
+                '#if CONFIG_BB_FAKE_MODE_A || \\\n'
+                '    CONFIG_BB_FAKE_MODE_B\n'
+                '    do_ab();\n'
+                '#else\n'
+                '    do_other();  // consults C via the sole remaining choice member\n'
+                '#endif\n'
+                '}\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertNotIn("BB_FAKE_MODE_C", self._names(violations))
+
+    def test_three_member_choice_else_arm_rescues_all_remaining(self):
+        """Locks down the deliberate over-broadening for a 3+-member
+        choice: naming only ONE member before a positive `#else` rescues
+        ALL remaining members (no attempt to disambiguate WHICH one) --
+        see `_collect_else_arm_choice_refs` docstring. Both C and D must
+        be rescued here, not just one."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'choice BB_FAKE_MODE\n'
+                '    prompt "Mode"\n'
+                '    config BB_FAKE_MODE_C\n'
+                '        bool "C"\n'
+                '    config BB_FAKE_MODE_D\n'
+                '        bool "D"\n'
+                '    config BB_FAKE_MODE_E\n'
+                '        bool "E"\n'
+                'endchoice\n')
+            self._make_file(td, "components/bb_fake/bb_fake.c",
+                'void f(void) {\n'
+                '#if CONFIG_BB_FAKE_MODE_C\n'
+                '    mode_c();\n'
+                '#else\n'
+                '    mode_other();\n'
+                '#endif\n'
+                '}\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            names = self._names(violations)
+            self.assertNotIn("BB_FAKE_MODE_D", names)
+            self.assertNotIn("BB_FAKE_MODE_E", names)
+
+    def test_help_prose_reference_does_not_count_as_real_usage(self):
+        """A bare symbol name mentioned only in ANOTHER entry's help-text
+        PROSE (not a real depends on/select/default directive) must NOT
+        exempt it -- the help-block stripper must blank that prose before
+        the depends-on/select/default scan runs over it."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_INERT\n'
+                '    bool "Inert fake symbol"\n'
+                '    default n\n'
+                '\n'
+                'config BB_FAKE_OTHER\n'
+                '    bool "Other"\n'
+                '    default n\n'
+                '    help\n'
+                '        Mentions BB_FAKE_INERT here by name, in prose only,\n'
+                '\n'
+                '        across a blank line, never as a real directive.\n')
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertIn("BB_FAKE_INERT", self._names(violations))
+
+    def test_allowlist_suppresses_violation(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_INERT\n'
+                '    bool "Inert fake symbol"\n'
+                '    default n\n')
+            ctx = Context(root=td, config={
+                "lint": {"rules": {"kconfig-inert-symbol": {
+                    "allow": ["BB_FAKE_INERT"],
+                }}},
+            })
+            violations = _check_kconfig_inert_symbol(ctx)
+            self.assertFalse(violations,
+                "allowlisted symbol must not fire despite being inert")
+
+    def test_no_kconfig_files_short_circuits(self):
+        with tempfile.TemporaryDirectory() as td:
+            violations = _check_kconfig_inert_symbol(make_ctx(td))
+            self.assertFalse(violations)
+
+    def test_wired_into_lint_run_entry_point(self):
+        """Proof this rule actually runs through the real `bbtool lint`
+        entry point (`run()`), not merely reachable if called directly.
+        Severity is overridden to 'error' for this test only -- the rule's
+        real shipped default is 'warn' (never fails `make check` on its
+        own), so proving the wiring needs a config override to observe a
+        non-zero exit."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_INERT\n'
+                '    bool "Inert fake symbol"\n'
+                '    default n\n')
+            args = argparse.Namespace(
+                root=td,
+                profile=None,
+                rules=["kconfig-inert-symbol"],
+                list=False,
+                _config_dict={
+                    "lint": {"rules": {"kconfig-inert-symbol": {
+                        "severity": "error",
+                    }}},
+                },
+                _root_abs=td,
+            )
+            rc = lint_run(args)
+            self.assertEqual(
+                rc, 1,
+                "bbtool lint's real run() entry point must surface a"
+                " kconfig-inert-symbol violation as a non-zero exit"
+                " when the rule's severity is escalated to error")
 
 
 if __name__ == "__main__":

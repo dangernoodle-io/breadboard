@@ -47,6 +47,7 @@ python3 scripts/bbtool.py lint [--root DIR] [--profile consumer|library] [--rule
 | `orphan-component-dir` | library | Flags a `components/` directory with real header content (`.h`/`.hpp` directly inside it, or an `include/` subdir containing one) but no `CMakeLists.txt` anywhere in its own subtree — invisible to `discovery.build_index()`'s `CMakeLists.txt`-keyed leaf rule. This lint rule is the only discovery-keyed consumer that catches it; `gen_components_readme.py` and both `fence` baselines remain blind to this shape (see the `orphan-component-dir` section below). Distinguishes this from a legitimate grouping directory (e.g. `components/display/`, which has no `CMakeLists.txt` of its own but DOES have real leaf-component descendants) — see `discovery.find_orphan_component_dirs` (B1-1227) |
 | `kconfig-bridge-shadow` | all | Flags a bare `#ifndef BB_X`/`#define BB_X <literal>` C fallback for a name X that also has a `config BB_X` int declared in Kconfig, when the same file has no `CONFIG_BB_X` bridge tying the C macro to the Kconfig symbol — the knob is silently inert (shipped 3×, see CLAUDE.md "Avoiding audit-class regressions") |
 | `raw-timestamp-divide` | all | Flags raw millisecond conversions (`esp_timer_get_time()/1000` or `bb_timer_now_us()/1000`, any C integer suffix) that bypass the canonical `bb_clock` helper, outside the real `bb_clock.c`/`bb_clock.h` files and any `bb_timer/` component directory — use `bb_clock_now_ms64()`/`bb_clock_now_ms()` instead. Default severity `warn`; allowlist via `[lint.rules.raw-timestamp-divide] allow=[...]` |
+| `kconfig-inert-symbol` | all | Flags a Kconfig `config NAME` declaration that is never actually consulted: no `CONFIG_NAME` reference anywhere in C/H sources, CMakeLists/`*.cmake`, or bbtool's own Python tooling, AND no other Kconfig entry's `depends on`/`select`/`default` names it bare — a knob a user can set with no observable effect (B1-1377). A bare cross-reference from another Kconfig entry's `depends on`/`select`/`default` counts as real usage (it changes Kconfig's own resolved graph); a `choice` member consulted only via a C `#if`/`#elif`.../`#else` chain's terminal `#else` arm (naming its other, mutually-exclusive choice siblings and never itself) also counts as real usage — but only for a POSITIVELY conditioned chain (`#if CONFIG_X`, `#ifdef CONFIG_X`); a negatively conditioned chain (`#ifndef CONFIG_X`, `#if !CONFIG_X`, `#if !defined(CONFIG_X)`) has inverted `#else` semantics (its `#else` fires when X IS selected, not when its siblings are) and is never rescued, nor is a compound arm mixing a negated and a positive `CONFIG_` token (e.g. `#if CONFIG_A && !CONFIG_B`) — deliberately conservative-for-reporting rather than disambiguated per-token; a mention inside `help` prose or a C/CMake/Python comment does not count as usage. Default severity `warn` (this repo carries genuinely inert symbols today — 12 at the initial audit, 11 after the `#else`-arm choice-member fix rescued `BB_OTA_STRATEGY_NONE`; see `[lint.rules.kconfig-inert-symbol]` below); allowlist via `allow=[...]`. Shipped as a permanent `warn`, deliberately NOT a shrink-only ratchet like `make fence`'s baselines or the coverage gate — pre-populating today's 11 into `allow` would permanently sanction them as exceptions instead of surfacing them every run; a ratchet was considered and rejected for that reason, not overlooked |
 
 ## `fence` command
 
@@ -392,6 +393,10 @@ severity = "error"
 severity = "warn"
 allow = []                    # list of path strings or "path:line" keys to suppress
 
+[lint.rules.kconfig-inert-symbol]
+severity = "warn"             # this repo carries genuinely inert symbols today; empty allow= by design (see README)
+allow = []                    # list of Kconfig symbol names deliberately exempted, with a reason in a comment
+
 [plugins]
 paths = []                    # list of .py plugin files (abs or relative to config)
 ```
@@ -417,6 +422,12 @@ paths = []                    # list of .py plugin files (abs or relative to con
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
 | `allow` | list of strings | `[]` | Symbol names (function or macro) that are intentional non-`bb_`/`BB_`-prefixed public symbols (e.g. chip-register macros that must match upstream naming). |
+
+**`kconfig-inert-symbol`**
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `allow` | list of strings | `[]` | Kconfig symbol names deliberately exempted from the inert-symbol check (e.g. a knob mid-deprecation, kept only to avoid build breakage on boards that still reference it via sdkconfig). Left empty by default — pre-populating today's audited inert set here would permanently normalize it as sanctioned instead of surfacing it every run (the reason this rule ships `warn`, not `error`). |
 
 ## Plugin-authoring contract
 
