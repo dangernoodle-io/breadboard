@@ -4489,6 +4489,7 @@ void test_bb_temp_health_fill_present_with_value(void);
 void test_bb_temp_health_fill_rounds_to_one_decimal(void);
 void test_bb_temp_register_info_registers_into_new_table(void);
 void test_bb_temp_register_info_schema_props_present(void);
+void test_bb_temp_register_info_propagates_frozen_registry_error(void);
 void test_bb_temp_health_desc_wire_shape_absent_omits_soc_c(void);
 void test_bb_temp_health_desc_wire_shape_present_includes_soc_c(void);
 
@@ -5108,7 +5109,9 @@ void test_bb_mqtt_health_section_fill_set_disconnected(void);
 void test_bb_mqtt_health_section_fill_reconnect_reflects_connected_true(void);
 void test_bb_mqtt_health_register_registers_into_new_table(void);
 void test_bb_mqtt_health_register_schema_props_present(void);
+void test_bb_mqtt_health_register_propagates_frozen_registry_error(void);
 void test_bb_mqtt_health_autoregister_init_registers_into_new_table(void);
+void test_bb_mqtt_health_autoregister_init_propagates_frozen_registry_error(void);
 void test_bb_mqtt_health_section_desc_wire_shape_disabled(void);
 void test_bb_mqtt_health_section_desc_wire_shape_enabled_connected(void);
 
@@ -8856,6 +8859,7 @@ int main(void) {
     RUN_TEST(test_bb_temp_health_fill_rounds_to_one_decimal);
     RUN_TEST(test_bb_temp_register_info_registers_into_new_table);
     RUN_TEST(test_bb_temp_register_info_schema_props_present);
+    RUN_TEST(test_bb_temp_register_info_propagates_frozen_registry_error);
     RUN_TEST(test_bb_temp_health_desc_wire_shape_absent_omits_soc_c);
     RUN_TEST(test_bb_temp_health_desc_wire_shape_present_includes_soc_c);
 
@@ -10088,7 +10092,9 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_health_section_fill_reconnect_reflects_connected_true);
     RUN_TEST(test_bb_mqtt_health_register_registers_into_new_table);
     RUN_TEST(test_bb_mqtt_health_register_schema_props_present);
+    RUN_TEST(test_bb_mqtt_health_register_propagates_frozen_registry_error);
     RUN_TEST(test_bb_mqtt_health_autoregister_init_registers_into_new_table);
+    RUN_TEST(test_bb_mqtt_health_autoregister_init_propagates_frozen_registry_error);
     RUN_TEST(test_bb_mqtt_health_section_desc_wire_shape_disabled);
     RUN_TEST(test_bb_mqtt_health_section_desc_wire_shape_enabled_connected);
 

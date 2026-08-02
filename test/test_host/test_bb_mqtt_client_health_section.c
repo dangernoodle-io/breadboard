@@ -124,6 +124,25 @@ void test_bb_mqtt_health_register_schema_props_present(void)
     bb_health_section_test_reset();
 }
 
+// B1-1370: bb_mqtt_client_health_register() must propagate
+// bb_health_section_register()'s failure instead of discarding it (the
+// bug: it used to be `void`, so a frozen-registry rejection -- the exact
+// "registry is frozen" failure observed on the bench -- vanished with no
+// trace). Freezing the registry before registering reproduces that
+// rejection deterministically.
+void test_bb_mqtt_health_register_propagates_frozen_registry_error(void)
+{
+    bb_health_section_test_reset();
+    bb_health_section_freeze();
+
+    bb_err_t rc = bb_mqtt_client_health_register();
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, rc);
+    TEST_ASSERT_NULL(bb_health_section_test_find("mqtt"));
+
+    bb_health_section_test_reset();
+}
+
 /* ---- bb_mqtt_client_health_autoregister_init (registry hook) ---- */
 
 void test_bb_mqtt_health_autoregister_init_registers_into_new_table(void)
@@ -134,6 +153,23 @@ void test_bb_mqtt_health_autoregister_init_registers_into_new_table(void)
 
     const bb_health_section_t *stored = bb_health_section_test_find("mqtt");
     TEST_ASSERT_NOT_NULL(stored);
+
+    bb_health_section_test_reset();
+}
+
+// B1-1370: the *_autoregister_init() wrapper used to hardcode `return
+// BB_OK` regardless of the inner bb_mqtt_client_health_register() outcome,
+// which made every caller's return-value check (e.g. floor_app.c's) dead
+// code. Prove the wrapper now surfaces a real failure.
+void test_bb_mqtt_health_autoregister_init_propagates_frozen_registry_error(void)
+{
+    bb_health_section_test_reset();
+    bb_health_section_freeze();
+
+    bb_err_t rc = bb_mqtt_client_health_autoregister_init();
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, rc);
+    TEST_ASSERT_NULL(bb_health_section_test_find("mqtt"));
 
     bb_health_section_test_reset();
 }

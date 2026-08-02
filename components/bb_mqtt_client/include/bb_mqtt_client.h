@@ -426,8 +426,12 @@ bb_err_t bb_mqtt_client_health_section_fill(void *dst, const bb_health_fill_args
  * via bb_health_section_register() (bb_health_section.h). Also contributes
  * a hand-authored JSON-Schema fragment for this section's object.
  * Call before the section table is frozen.
+ *
+ * @return BB_OK on success; propagates bb_health_section_register()'s
+ *         error (e.g. BB_ERR_INVALID_STATE if the registry is already
+ *         frozen or "mqtt" is already registered) on failure.
  */
-void bb_mqtt_client_health_register(void);
+bb_err_t bb_mqtt_client_health_register(void);
 
 /**
  * Registry hook — calls bb_mqtt_client_health_register(). Takes no

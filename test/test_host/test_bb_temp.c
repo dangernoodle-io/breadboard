@@ -127,6 +127,25 @@ void test_bb_temp_register_info_schema_props_present(void)
     bb_health_section_test_reset();
 }
 
+// B1-1370: bb_temp_register_info() must propagate
+// bb_health_section_register()'s failure instead of discarding it (the
+// bug: it used to be `void`, so a frozen-registry rejection -- the exact
+// "registry is frozen" failure observed on the bench -- vanished with no
+// trace). Freezing the registry before registering reproduces that
+// rejection deterministically.
+void test_bb_temp_register_info_propagates_frozen_registry_error(void)
+{
+    bb_health_section_test_reset();
+    bb_health_section_freeze();
+
+    bb_err_t rc = bb_temp_register_info();
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, rc);
+    TEST_ASSERT_NULL(bb_health_section_test_find("temp"));
+
+    bb_health_section_test_reset();
+}
+
 /* ---- structure/presence byte-fidelity vs today's shape ----
  * Asserts field STRUCTURE/presence only (key names + soc_c omitted when
  * absent) -- NOT the exact float digit formatting, which is a render-level

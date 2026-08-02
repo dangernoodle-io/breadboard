@@ -98,7 +98,7 @@ bb_err_t bb_mqtt_client_health_section_fill(void *dst, const bb_health_fill_args
     return BB_OK;
 }
 
-void bb_mqtt_client_health_register(void)
+bb_err_t bb_mqtt_client_health_register(void)
 {
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     // Documentation-only: a compose failure here must not take the mqtt
@@ -122,11 +122,14 @@ void bb_mqtt_client_health_register(void)
         .ctx          = NULL,
         .schema_props = schema_props,
     };
-    bb_health_section_register(&section);
+    bb_err_t rc = bb_health_section_register(&section);
+    if (rc != BB_OK) {
+        bb_log_e(TAG, "failed to register mqtt health section: %d", (int)rc);
+    }
+    return rc;
 }
 
 bb_err_t bb_mqtt_client_health_autoregister_init(void)
 {
-    bb_mqtt_client_health_register();
-    return BB_OK;
+    return bb_mqtt_client_health_register();
 }
