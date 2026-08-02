@@ -509,14 +509,12 @@ void app_main(void)
     // // bbtool:init marker fn, called directly here per floor's handwire
     // convention); "mqtt" reads bb_mqtt_client_default() at request time,
     // so it's safe to register before bb_mqtt_client_init_default() runs.
-    err = bb_temp_autoregister_init();
-    if (err != BB_OK) {
-        bb_log_w(TAG, "temp_autoregister_init failed (%d)", (int)err);
-    }
-    err = bb_mqtt_client_health_autoregister_init();
-    if (err != BB_OK) {
-        bb_log_w(TAG, "mqtt_client_health_autoregister_init failed (%d)", (int)err);
-    }
+    // Failure is logged by the callee (bb_temp_register_info /
+    // bb_mqtt_client_health_register name the specific section that
+    // failed); a caller-side log here would only repeat it, so the
+    // return is intentionally discarded.
+    (void)bb_temp_autoregister_init();
+    (void)bb_mqtt_client_health_autoregister_init();
     // B1-1045 PR-4: bind the "log" dissolved-bb_event producer key. Its
     // underlying stash is populated by bb_log_event's own forwarder task
     // (started below, once the http server is up) -- this proves the

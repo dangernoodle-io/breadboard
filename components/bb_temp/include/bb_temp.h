@@ -99,8 +99,12 @@ bb_err_t bb_temp_health_fill(void *dst, const bb_health_fill_args_t *args);
  * via bb_health_section_register() (bb_health_section.h). Also contributes
  * a hand-authored JSON-Schema fragment for this section's object.
  * Call before the section table is frozen.
+ *
+ * @return BB_OK on success; propagates bb_health_section_register()'s
+ *         error (e.g. BB_ERR_INVALID_STATE if the registry is already
+ *         frozen or "temp" is already registered) on failure.
  */
-void bb_temp_register_info(void);
+bb_err_t bb_temp_register_info(void);
 
 /**
  * Registry hook — calls bb_temp_register_info(). Takes no http_server

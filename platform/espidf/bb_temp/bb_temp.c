@@ -111,7 +111,7 @@ bb_err_t bb_temp_health_fill(void *dst, const bb_health_fill_args_t *args)
     return BB_OK;
 }
 
-void bb_temp_register_info(void)
+bb_err_t bb_temp_register_info(void)
 {
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
     // Documentation-only: a compose failure here must not take the temp
@@ -135,11 +135,14 @@ void bb_temp_register_info(void)
         .ctx          = NULL,
         .schema_props = schema_props,
     };
-    bb_health_section_register(&section);
+    bb_err_t rc = bb_health_section_register(&section);
+    if (rc != BB_OK) {
+        bb_log_e(TAG, "failed to register temp health section: %d", (int)rc);
+    }
+    return rc;
 }
 
 bb_err_t bb_temp_autoregister_init(void)
 {
-    bb_temp_register_info();
-    return BB_OK;
+    return bb_temp_register_info();
 }
