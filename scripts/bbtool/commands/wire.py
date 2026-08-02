@@ -134,6 +134,26 @@ DEFAULT_OUT_REL = os.path.join("main", "generated", "bb_app_init.c")
 
 HTTP_SERVER_PROVIDES_KEY = "http_server"
 
+# B1-1396: capabilities whose single providing entry `render_source` HOISTS
+# out of its own tier's normal per-entry emission loop, rendering it at a
+# fixed structural position instead of at wire_graph.topo_sort's actual
+# topo-sorted position. Today this is exactly one key -- http_server: its
+# `__auto_type` handle-capture line is always rendered AFTER every OTHER
+# pre_http entry has already been emitted (see the `pre_http_no_server`
+# filter in `render_source`), never at the position topo_sort placed it in
+# relative to a same-tier dependent. A same-tier entry's `requires=` on a
+# hoisted key therefore LOOKS satisfiable to topo_sort (same-tier
+# provider-before-dependent edge, so no CycleError/MissingProviderError),
+# but is structurally unsatisfiable in the generated code: the dependent's
+# `bb_app_avail_<key>` guard is always false when it actually runs, so the
+# call is silently skipped at runtime (`bb_log_w(... "skipping <fn>:
+# required provider unavailable")`) -- exactly the B1-1396 defect. Declared
+# as DATA, not a one-off `if key == "http_server":` special-case, so a
+# FUTURE second hoisted-provider key is covered by the same
+# `_check_unsatisfiable_hoisted_requires` check below rather than a second
+# hand-rolled clone of it.
+HOISTED_TIER_PROVIDES_KEYS = frozenset({HTTP_SERVER_PROVIDES_KEY})
+
 # B1-1280: the reserved `provides=http_wildcard_last` key marks the ONE entry
 # that registers a catch-all/wildcard HTTP route (e.g. bb_wifi_prov's captive
 # `GET /*`). Any `server=true` OR `registers_routes=true` entry -- codegen's
@@ -549,6 +569,52 @@ def _wildcard_last_providers(entries: List[InitEntry]) -> List[InitEntry]:
     return [e for e in entries if WILDCARD_LAST_PROVIDES_KEY in e.provides]
 
 
+def _check_unsatisfiable_hoisted_requires(
+    ordered: List[InitEntry], hoisted_providers: Dict[str, InitEntry]
+) -> None:
+    """B1-1396: `render_source` hoists each key in `hoisted_providers` (see
+    HOISTED_TIER_PROVIDES_KEYS's module comment) out of its own tier's
+    normal per-entry emission loop, rendering it at a fixed structural
+    position instead of at `wire_graph.topo_sort`'s actual topo-sorted
+    position. A SAME-TIER `requires=` on a hoisted key is therefore
+    structurally unsatisfiable: topo_sort accepts it (a same-tier
+    provider-before-dependent edge, so no CycleError/MissingProviderError),
+    but the dependent's `bb_app_avail_<key>` guard is always false when it
+    actually runs, so the call is silently skipped at runtime -- an
+    authoring bug codegen can detect and must reject, rather than emit a
+    call it already knows can never fire.
+
+    A requires= on an EARLIER tier than the provider's is not reached here
+    at all -- `wire_graph.topo_sort` already rejects that combination with
+    its own MissingProviderError, since tier ordering only ever lets a
+    `requires=` be satisfied by the SAME tier or an earlier one. A
+    requires= on a LATER tier than the provider's (the documented
+    tier=regular remedy) is genuinely satisfiable -- render_source always
+    renders every later tier after the hoisted capture line -- and is
+    correctly not flagged here."""
+    for key, provider_entry in hoisted_providers.items():
+        if provider_entry is None:
+            continue
+        for e in ordered:
+            if e is provider_entry:
+                continue
+            if e.tier != provider_entry.tier:
+                continue
+            if key in e.requires:
+                raise WireError(
+                    f"{e.src_file}:{e.src_line}: fn={e.fn}: requires='{key}' at "
+                    f"tier={e.tier} can never be satisfied -- '{key}' is provided "
+                    f"by {provider_entry.fn} ({provider_entry.src_file}:"
+                    f"{provider_entry.src_line}), whose capture line "
+                    f"render_source always renders AFTER every other "
+                    f"tier={provider_entry.tier} entry, never at its "
+                    f"topo-sorted position; this call would always be skipped "
+                    f"at runtime ('required provider unavailable') -- change "
+                    f"this marker to tier=regular, which always renders after "
+                    f"{provider_entry.fn}'s capture line"
+                )
+
+
 def _requires_guard_cond(entry: InitEntry) -> str:
     return " && ".join(f"bb_app_avail_{tok}" for tok in entry.requires)
 
@@ -727,6 +793,15 @@ def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry
         conditionally skipped while still producing the typed handle every
         `server=true` entry downstream depends on, so gating it is not a
         supported combination — see the check below); or
+      - a SAME-tier entry declares `requires=` on a key rendered by a
+        HOISTED provider (B1-1396 -- today just http_server): topo_sort
+        accepts the same-tier requires/provides edge, but render_source
+        always renders the hoisted provider's capture line AFTER every
+        other same-tier entry rather than at its topo-sorted position, so
+        the call would always be skipped at runtime -- an authoring bug
+        (fix: change the dependent's marker to tier=regular, which always
+        renders after the capture line) rather than a silently-dead call;
+        see `_check_unsatisfiable_hoisted_requires`; or
       - two entries in the resolved set declare `out=` with the SAME
         varname (would otherwise silently emit a duplicate-definition
         `static` declaration in generated code); or
@@ -782,6 +857,18 @@ def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry
             f"producing the typed handle every server=true entry depends on "
             f"(B1-853); remove requires= from this marker"
         )
+
+    # B1-1396: a same-tier `requires=` on a HOISTED provider key (see
+    # HOISTED_TIER_PROVIDES_KEYS above -- today just http_server) is
+    # structurally unsatisfiable: wire_graph.topo_sort accepts it (same-tier
+    # provider-before-dependent edge), but render_source's own hoist always
+    # renders the provider's capture line AFTER every other same-tier entry,
+    # never at the topo-sorted position that ordering promised. Reject it
+    # here instead of emitting a call codegen already knows can never run.
+    _hoisted_providers: Dict[str, InitEntry] = {}
+    if has_server:
+        _hoisted_providers[HTTP_SERVER_PROVIDES_KEY] = server_entry
+    _check_unsatisfiable_hoisted_requires(ordered, _hoisted_providers)
 
     # B1-1280: http_wildcard_last singleton + ordering guard. Checked against
     # the FINAL, already tier-major-topo-sorted `ordered` list (never a

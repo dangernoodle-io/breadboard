@@ -980,6 +980,45 @@ codegen (e.g. `examples/floor`, per decision #724) is invisible to both
 checks entirely, even though its handwired `bb_data_bind()` calls consume
 the same finite, shared `BB_DATA_MAX_BINDINGS` table.
 
+### Unsatisfiable `requires=` on a hoisted provider key (B1-1396)
+
+`render_source` renders most tiers straight through in `wire_graph.topo_sort`
+order, but it HOISTS the single `provides=http_server` entry's `__auto_type`
+handle-capture line out of its own tier's normal per-entry loop: that line is
+always emitted AFTER every *other* `tier=pre_http` entry, never at the
+position `topo_sort` actually placed it in relative to a same-tier
+dependent. A `// bbtool:init` marker declaring `requires=http_server` at
+`tier=pre_http` therefore *looks* satisfiable to `topo_sort` (same-tier
+provider-before-dependent edge, so no `MissingProviderError`), but is
+structurally unsatisfiable in the generated code: the dependent's
+`bb_app_avail_http_server` guard is always `false` when it actually runs, so
+the call is silently skipped at runtime (`bb_log_w(... "skipping <fn>:
+required provider unavailable")`) — a real defect (B1-1396) that passed lint,
+`make check`, and every host/smoke build, because nothing asserted on the
+generated init sequencing.
+
+`bbtool codegen` now rejects this at codegen time instead of emitting a call
+it already knows can never fire: any `tier=pre_http` entry (other than the
+`http_server` provider itself) declaring `requires=http_server` is a hard
+`WireError` naming the offending marker's `fn`, `src_file:src_line`, the
+unsatisfiable capability, and the fix — change the marker to `tier=regular`,
+which `render_source` always renders after the `http_server` capture line
+(the entire `regular` tier is unconditionally emitted after that line,
+guarded normally by the same `requires=` availability check every other
+gated entry gets).
+
+This check is data-driven, not a one-off `if key == "http_server":`
+special-case (`wire.py`'s `HOISTED_TIER_PROVIDES_KEYS` +
+`_check_unsatisfiable_hoisted_requires`) — `http_server` is the only
+`provides=` key `render_source` hoists this way today (verified: it is the
+only entry pulled out of its tier's emission loop by identity, via the
+`pre_http_no_server` filter; `provides=http_wildcard_last`, by contrast, is
+checked for ORDERING only, against entries still in their normal topo-sorted
+loop position — it is never hoisted, so a same-tier `requires=
+http_wildcard_last` is genuinely satisfiable and is not affected by this
+check), so a future second hoisted provider key is covered by the same
+mechanism rather than a second hand-rolled clone of it.
+
 ## `codegen` command — multi-root discovery (B1-1084)
 
 `bbtool codegen` resolves the composition over a discovery `roots` list, not just a
