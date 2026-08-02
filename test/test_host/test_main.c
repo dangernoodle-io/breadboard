@@ -5922,6 +5922,13 @@ void test_bb_tcp_client_get_host_port_null_out_host_returns_port_only(void);
 void test_bb_tcp_client_get_host_port_null_out_port_returns_host_only(void);
 void test_bb_tcp_client_get_host_port_both_out_null_returns_invalid_arg(void);
 void test_bb_tcp_client_get_host_port_nonnull_host_zero_cap_returns_invalid_arg(void);
+void test_bb_tcp_client_forced_io_ok_does_not_report_health(void);
+void test_bb_tcp_client_test_last_write_invalid_handle_returns_negative(void);
+void test_bb_tcp_client_test_last_write_null_out_returns_negative(void);
+void test_bb_tcp_client_test_write_count_invalid_handle_returns_zero(void);
+void test_bb_tcp_client_test_force_connect_result_invalid_handle_is_noop(void);
+void test_bb_tcp_client_test_force_io_result_invalid_handle_is_noop(void);
+void test_bb_tcp_client_test_force_tls_error_code_invalid_handle_is_noop(void);
 
 // Forward declarations from test_bb_bqueue.c
 void test_bb_bqueue_create_null_cfg_returns_invalid_arg(void);
@@ -10680,6 +10687,13 @@ int main(void) {
     RUN_TEST(test_bb_tcp_client_get_host_port_null_out_port_returns_host_only);
     RUN_TEST(test_bb_tcp_client_get_host_port_both_out_null_returns_invalid_arg);
     RUN_TEST(test_bb_tcp_client_get_host_port_nonnull_host_zero_cap_returns_invalid_arg);
+    RUN_TEST(test_bb_tcp_client_forced_io_ok_does_not_report_health);
+    RUN_TEST(test_bb_tcp_client_test_last_write_invalid_handle_returns_negative);
+    RUN_TEST(test_bb_tcp_client_test_last_write_null_out_returns_negative);
+    RUN_TEST(test_bb_tcp_client_test_write_count_invalid_handle_returns_zero);
+    RUN_TEST(test_bb_tcp_client_test_force_connect_result_invalid_handle_is_noop);
+    RUN_TEST(test_bb_tcp_client_test_force_io_result_invalid_handle_is_noop);
+    RUN_TEST(test_bb_tcp_client_test_force_tls_error_code_invalid_handle_is_noop);
 
     // bb_bqueue
     RUN_TEST(test_bb_bqueue_create_null_cfg_returns_invalid_arg);
