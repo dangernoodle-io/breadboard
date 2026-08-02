@@ -6,7 +6,6 @@ idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log_event/bb_log_event.c"
          "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_event_wire.c"
          "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_event_line_wire.c"
-         "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_log_event/bb_log_event_parse.c"
     INCLUDE_DIRS "include" "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log_event"
     # bb_serialize: PUBLIC -- include/bb_log_event_wire.h (the "log" wire
     # descriptor, B1-1045 PR-2) includes bb_serialize.h and is codegen-visible.
