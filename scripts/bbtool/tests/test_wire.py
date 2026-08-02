@@ -1552,14 +1552,44 @@ def _write_bb_data_header(root: Path, max_bindings) -> None:
 
 def _fixture_root_with_binds_data(tmp: str, count: int) -> Path:
     """A synthetic component whose header carries `count` `// bbtool:init`
-    markers, each opted into `binds_data=true` -- none of which is a real
-    bb_data self-bind (this PR is tooling-only, no C changes), purely to
-    exercise `check_binds_data_cap`'s counting/error-naming."""
+    markers, each opted into `binds_data=<one distinct key>` -- none of which
+    is a real bb_data self-bind (this PR is tooling-only, no C changes),
+    purely to exercise `check_binds_data_cap`'s counting/error-naming. One
+    key per entry keeps `count entries == count keys`, matching this
+    fixture's pre-B1-1355 (entry-counting) callers unchanged; see
+    `_fixture_root_with_binds_data_keys` below for the multi-key-per-entry
+    shape the B1-1355 regression itself needs."""
     root = Path(tmp)
     body = "#pragma once\n"
     for i in range(count):
         body += (
-            f"// bbtool:init tier=regular fn=bb_binder_{i}_init binds_data=true\n"
+            f"// bbtool:init tier=regular fn=bb_binder_{i}_init "
+            f"binds_data=key_{i}\n"
+            f"bb_err_t bb_binder_{i}_init(void);\n"
+        )
+    _make_component(root, "bb_binders", body)
+    return root
+
+
+def _fixture_root_with_binds_data_keys(tmp: str, keys_per_entry) -> Path:
+    """Like `_fixture_root_with_binds_data`, but each entry's `binds_data=`
+    list can carry MORE THAN ONE key -- `keys_per_entry` is a list of ints,
+    one per generated entry, giving that entry's key count (e.g. `[3, 3, 4]`
+    -> 3 entries binding 3, 3, and 4 keys respectively, 10 keys total). This
+    is the exact shape `bb_sensor_http_init` has in real code (one fn, three
+    `bb_data_bind()` calls) and is what the B1-1355 regression test needs: a
+    composition whose ENTRY count sits under the cap but whose DISTINCT key
+    total does not. Each generated key is namespaced `e{i}_k{j}` -- globally
+    unique across every entry by construction, so this fixture never
+    exercises the cross-entry-shared-key (dedup) path; see the dedicated
+    `test_shared_key_distinct_count_*` fixtures below for that."""
+    root = Path(tmp)
+    body = "#pragma once\n"
+    for i, n_keys in enumerate(keys_per_entry):
+        keys = ",".join(f"e{i}_k{j}" for j in range(n_keys))
+        body += (
+            f"// bbtool:init tier=regular fn=bb_binder_{i}_init "
+            f"binds_data={keys}\n"
             f"bb_err_t bb_binder_{i}_init(void);\n"
         )
     _make_component(root, "bb_binders", body)
@@ -1567,7 +1597,7 @@ def _fixture_root_with_binds_data(tmp: str, count: int) -> Path:
 
 
 class TestBindsDataCap(unittest.TestCase):
-    """binds_data=true marker + codegen-time cap check (tooling-only PR --
+    """binds_data=<keys> marker + codegen-time cap check (tooling-only PR --
     no real component carries this marker yet; see module docstring)."""
 
     def test_count_under_cap_passes(self):
@@ -1594,8 +1624,137 @@ class TestBindsDataCap(unittest.TestCase):
             # / assertIn("1", ...) alone would still pass with count and cap
             # swapped, since the message also contains fn=bb_binder_1_init
             # and a bb_binders.h:<line> reference.
-            self.assertIn("2 entries carry 'binds_data=true'", message)
+            self.assertIn("2 distinct bb_data key(s) are bound across 2 'binds_data=' entries", message)
             self.assertIn("BB_DATA_MAX_BINDINGS is 1", message)
+
+    def test_multi_key_entry_under_cap_passes(self):
+        """A single entry carrying MULTIPLE distinct keys must count all of
+        them, not just one -- `len({k for e in binders for k in
+        e.binds_data})`, not `len(binders)`."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_binds_data_keys(tmp, keys_per_entry=[3])
+            _write_bb_data_header(root, max_bindings=3)
+            entries = collect_entries(str(root), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            check_binds_data_cap(ordered, [str(root)])  # must not raise (3 keys == cap)
+
+    def test_multi_key_entry_over_cap_errors_naming_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_binds_data_keys(tmp, keys_per_entry=[4])
+            _write_bb_data_header(root, max_bindings=3)
+            entries = collect_entries(str(root), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                check_binds_data_cap(ordered, [str(root)])
+            message = str(ctx.exception)
+            self.assertIn("4 distinct bb_data key(s) are bound across 1 'binds_data=' entries", message)
+            self.assertIn("BB_DATA_MAX_BINDINGS is 3", message)
+            self.assertIn("keys=e0_k0,e0_k1,e0_k2,e0_k3", message)
+            self.assertIn("distinct keys=e0_k0,e0_k1,e0_k2,e0_k3", message)
+
+    def test_regression_entry_count_under_cap_but_key_union_over_cap_errors(self):
+        """THE regression this PR fixes (B1-1355): 7 entries (under a cap of
+        8, so the OLD boolean/entry-counting check would have passed this
+        composition silently) whose per-entry key counts sum to 10 -- OVER
+        the cap of 8. This mirrors the real pre-unwire examples/smoke shape
+        (7 marker entries covering 10 real bb_data_bind() calls against
+        BB_DATA_MAX_BINDINGS=8) that motivated this whole PR. All 10 keys
+        here are DISTINCT (the `e{i}_k{j}` fixture naming makes every key
+        globally unique across entries, by construction -- no cross-entry
+        collision), so the union count equals the raw sum here (10 == 10);
+        this is the case that must still error post-dedup-fix, distinguishing
+        it from the false-positive case (shared keys) covered by
+        `test_shared_key_distinct_count_under_cap_passes` /
+        `test_shared_key_distinct_count_still_over_cap_errors` below."""
+        with tempfile.TemporaryDirectory() as tmp:
+            # 7 entries, key counts [3, 1, 1, 1, 1, 1, 2] -> 10 distinct keys
+            # (e0_k0..e0_k2, e1_k0, e2_k0, e3_k0, e4_k0, e5_k0, e6_k0, e6_k1),
+            # len 7 entries.
+            root = _fixture_root_with_binds_data_keys(
+                tmp, keys_per_entry=[3, 1, 1, 1, 1, 1, 2]
+            )
+            _write_bb_data_header(root, max_bindings=8)
+            entries = collect_entries(str(root), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            self.assertEqual(len(ordered), 7)
+            all_keys = [k for e in ordered for k in e.binds_data]
+            self.assertEqual(len(all_keys), 10)
+            self.assertEqual(len(set(all_keys)), 10)  # all 10 keys distinct -- no collision
+            with self.assertRaises(WireError) as ctx:
+                check_binds_data_cap(ordered, [str(root)])
+            message = str(ctx.exception)
+            self.assertIn("10 distinct bb_data key(s) are bound across 7 'binds_data=' entries", message)
+            self.assertIn("BB_DATA_MAX_BINDINGS is 8", message)
+
+    def test_duplicate_key_across_entries_is_not_flagged(self):
+        """A key repeated across two DIFFERENT entries is a legitimate
+        bb_data_bind() rebind/override (see bb_data.h + wire_parse's
+        binds_data= module docstring paragraph) -- NOT a collision this
+        check raises on."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            body = (
+                "#pragma once\n"
+                "// bbtool:init tier=regular fn=bb_binder_0_init binds_data=fan\n"
+                "bb_err_t bb_binder_0_init(void);\n"
+                "// bbtool:init tier=regular fn=bb_binder_1_init binds_data=fan\n"
+                "bb_err_t bb_binder_1_init(void);\n"
+            )
+            _make_component(root, "bb_binders", body)
+            _write_bb_data_header(root, max_bindings=2)
+            entries = collect_entries(str(root), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            check_binds_data_cap(ordered, [str(root)])  # must not raise
+
+    def test_shared_key_distinct_count_under_cap_passes(self):
+        """THE false-positive regression: two entries both bind 'fan' (a
+        legitimate rebind/override, see test_duplicate_key_across_entries_
+        is_not_flagged above) against a cap of exactly 1 -- 1 DISTINCT key
+        (bb_data_bind()'s table has one slot per distinct key, and rebinding
+        overwrites that same slot in place, see bb_data.c). A sum-of-raw-
+        occurrences count would see 2 (one per entry) and wrongly hard-fail
+        a composition that actually fits in a 1-slot cap; the union count
+        must NOT raise here."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            body = (
+                "#pragma once\n"
+                "// bbtool:init tier=regular fn=bb_binder_0_init binds_data=fan\n"
+                "bb_err_t bb_binder_0_init(void);\n"
+                "// bbtool:init tier=regular fn=bb_binder_1_init binds_data=fan\n"
+                "bb_err_t bb_binder_1_init(void);\n"
+            )
+            _make_component(root, "bb_binders", body)
+            _write_bb_data_header(root, max_bindings=1)
+            entries = collect_entries(str(root), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            check_binds_data_cap(ordered, [str(root)])  # must not raise (1 distinct key == cap)
+
+    def test_shared_key_distinct_count_still_over_cap_errors(self):
+        """Two entries SHARE one key ('fan') but each also names a distinct
+        key of its own ('power' / 'thermal') -- distinct union is
+        {fan, power, thermal} = 3, over a cap of 2, so this must still
+        error even though it shares a key (dedup reduces the count, it
+        doesn't disable the check)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            body = (
+                "#pragma once\n"
+                "// bbtool:init tier=regular fn=bb_binder_0_init binds_data=fan,power\n"
+                "bb_err_t bb_binder_0_init(void);\n"
+                "// bbtool:init tier=regular fn=bb_binder_1_init binds_data=fan,thermal\n"
+                "bb_err_t bb_binder_1_init(void);\n"
+            )
+            _make_component(root, "bb_binders", body)
+            _write_bb_data_header(root, max_bindings=2)
+            entries = collect_entries(str(root), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                check_binds_data_cap(ordered, [str(root)])
+            message = str(ctx.exception)
+            self.assertIn("3 distinct bb_data key(s) are bound across 2 'binds_data=' entries", message)
+            self.assertIn("BB_DATA_MAX_BINDINGS is 2", message)
+            self.assertIn("distinct keys=fan,power,thermal", message)
 
     def test_cap_not_found_fails_loudly(self):
         """No components/bb_data/include/bb_data.h anywhere under roots --

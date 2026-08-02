@@ -6,7 +6,14 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from wire_parse import InitEntry, ParseError, ProvidesEntry, parse_markers, parse_provides_markers
+from wire_parse import (
+    InitEntry,
+    ParseError,
+    ProvidesEntry,
+    _split_binds_data_keys,
+    parse_markers,
+    parse_provides_markers,
+)
 
 
 class TestSingleMarker(unittest.TestCase):
@@ -246,43 +253,94 @@ class TestRegistersRoutes(unittest.TestCase):
 
 
 class TestBindsDataField(unittest.TestCase):
-    """'binds_data=true' -- an opt-in marker-visible fact (mirrors
-    registers_routes=true's parsing posture exactly) letting a self-bind
-    call inside a component's .c body be counted by codegen's bb_data
-    binding-cap check, since codegen only greps public headers. This PR is
-    tooling-only: no real marker carries this flag yet (see wire.py's
-    check_binds_data_cap docstring)."""
+    """'binds_data=<key1,key2,...>' -- an opt-in marker-visible key LIST
+    (mirrors registers_routes=true's "adds no emission" posture, but
+    provides='s CSV shape) letting a self-bind call inside a component's .c
+    body be counted -- by KEY, not by entry -- by codegen's bb_data
+    binding-cap check, since codegen only greps public headers. B1-1355: a
+    prior boolean 'binds_data=true' form could only ever count marker
+    entries, undercounting any entry whose fn binds more than one key; this
+    key-list form is the fix. This PR is tooling-only: no real marker
+    carries this key yet (see wire.py's check_binds_data_cap docstring)."""
 
-    def test_binds_data_true_parses_onto_init_entry(self):
-        text = "// bbtool:init tier=regular fn=bb_x_init binds_data=true\n"
+    def test_single_key_parses_onto_init_entry(self):
+        text = "// bbtool:init tier=regular fn=bb_x_init binds_data=fan\n"
         e = parse_markers(text)[0]
-        self.assertTrue(e.binds_data)
+        self.assertEqual(e.binds_data, ("fan",))
 
-    def test_binds_data_absent_defaults_to_false(self):
+    def test_multiple_keys_parse_in_order(self):
+        text = "// bbtool:init tier=regular fn=bb_x_init binds_data=fan,power,thermal\n"
+        e = parse_markers(text)[0]
+        self.assertEqual(e.binds_data, ("fan", "power", "thermal"))
+
+    def test_dotted_and_underscored_keys_are_valid(self):
+        """Real bound keys in the tree use '.' and '_' (diag.boot,
+        storage_delete, update.available, health.display) -- both must be
+        accepted."""
+        text = (
+            "// bbtool:init tier=regular fn=bb_x_init "
+            "binds_data=diag.boot,storage_delete,update.available,health.display\n"
+        )
+        e = parse_markers(text)[0]
+        self.assertEqual(
+            e.binds_data,
+            ("diag.boot", "storage_delete", "update.available", "health.display"),
+        )
+
+    def test_whitespace_around_keys_is_tolerated(self):
+        """Each comma-separated entry is stripped, same as provides=/
+        requires='s `_split_csv`. Exercised directly against
+        `_split_binds_data_keys` (rather than through `parse_markers`)
+        because the marker LINE itself is whitespace-tokenized -- a real
+        embedded space inside a `binds_data=` value would already split into
+        an unrelated (likely "malformed token") token before reaching the
+        CSV splitter, so this level is the only one an embedded-whitespace
+        case can actually reach."""
+        self.assertEqual(
+            _split_binds_data_keys("\tfan\t,power", "bb_x.h", 1),
+            ("fan", "power"),
+        )
+
+    def test_binds_data_absent_defaults_to_empty_tuple(self):
         """The absent-marker regression case -- confirms binds_data behaves
         exactly as today (i.e. did not exist) when omitted."""
         text = "// bbtool:init tier=early fn=bb_x_init\n"
         e = parse_markers(text)[0]
-        self.assertFalse(e.binds_data)
+        self.assertEqual(e.binds_data, ())
 
     def test_binds_data_combines_with_other_fields(self):
         text = (
             "// bbtool:init tier=regular fn=bb_x_init server=true "
-            "binds_data=true\n"
+            "binds_data=fan\n"
         )
         e = parse_markers(text)[0]
-        self.assertTrue(e.binds_data)
+        self.assertEqual(e.binds_data, ("fan",))
         self.assertTrue(e.server)
-
-    def test_binds_data_not_true_is_error(self):
-        with self.assertRaises(ParseError):
-            parse_markers(
-                "// bbtool:init tier=regular fn=bb_x_init binds_data=false\n"
-            )
 
     def test_empty_binds_data_is_error(self):
         with self.assertRaises(ParseError):
             parse_markers("// bbtool:init tier=early fn=bb_x_init binds_data=\n")
+
+    def test_empty_key_in_list_is_error(self):
+        """A stray comma (empty entry) is a hard error, never silently
+        dropped -- unlike provides=/requires=, a dropped entry here would
+        silently undercount the real bb_data_bind() call total."""
+        with self.assertRaises(ParseError):
+            parse_markers(
+                "// bbtool:init tier=regular fn=bb_x_init binds_data=fan,,power\n"
+            )
+
+    def test_invalid_character_in_key_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers(
+                "// bbtool:init tier=regular fn=bb_x_init binds_data=fan#power\n"
+            )
+
+    def test_duplicate_key_within_one_marker_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers(
+                "// bbtool:init tier=regular fn=bb_x_init binds_data=fan,fan\n"
+            )
 
 
 class TestComponentField(unittest.TestCase):
