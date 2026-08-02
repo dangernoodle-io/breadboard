@@ -45,6 +45,7 @@ from composition import (
 from commands.wire import (
     DEFAULT_OUT_REL as WIRE_DEFAULT_OUT_REL,
     WireError,
+    check_binds_data_cap,
     collect_entries,
     collect_manifest_entries,
     collect_provides_entries,
@@ -372,6 +373,7 @@ def run(args: argparse.Namespace) -> int:
         provides_entries = list(provides_entries) + manifest_provides
 
         ordered = topo_sort(entries)
+        check_binds_data_cap(ordered, roots)
         source = render_source(ordered, provides_entries)
     except (ManifestError, ConditionalSetError, ParseError, CycleError, MissingProviderError,
             WireError, CollisionError) as e:
@@ -444,6 +446,7 @@ def pio_main(env, root: str, board: str, config: dict) -> None:
         entries = collect_entries(roots, components, DEFAULT_PLATFORM)
         provides_entries = collect_provides_entries(roots, components, DEFAULT_PLATFORM)
         ordered = topo_sort(entries)
+        check_binds_data_cap(ordered, roots)
         source = render_source(ordered, provides_entries)
     except (ManifestError, ConditionalSetError, ParseError, CycleError, MissingProviderError,
             WireError, CollisionError) as e:

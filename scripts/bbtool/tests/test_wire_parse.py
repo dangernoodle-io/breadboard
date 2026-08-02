@@ -245,6 +245,46 @@ class TestRegistersRoutes(unittest.TestCase):
             parse_markers("// bbtool:init tier=early fn=bb_x_init registers_routes=\n")
 
 
+class TestBindsDataField(unittest.TestCase):
+    """'binds_data=true' -- an opt-in marker-visible fact (mirrors
+    registers_routes=true's parsing posture exactly) letting a self-bind
+    call inside a component's .c body be counted by codegen's bb_data
+    binding-cap check, since codegen only greps public headers. This PR is
+    tooling-only: no real marker carries this flag yet (see wire.py's
+    check_binds_data_cap docstring)."""
+
+    def test_binds_data_true_parses_onto_init_entry(self):
+        text = "// bbtool:init tier=regular fn=bb_x_init binds_data=true\n"
+        e = parse_markers(text)[0]
+        self.assertTrue(e.binds_data)
+
+    def test_binds_data_absent_defaults_to_false(self):
+        """The absent-marker regression case -- confirms binds_data behaves
+        exactly as today (i.e. did not exist) when omitted."""
+        text = "// bbtool:init tier=early fn=bb_x_init\n"
+        e = parse_markers(text)[0]
+        self.assertFalse(e.binds_data)
+
+    def test_binds_data_combines_with_other_fields(self):
+        text = (
+            "// bbtool:init tier=regular fn=bb_x_init server=true "
+            "binds_data=true\n"
+        )
+        e = parse_markers(text)[0]
+        self.assertTrue(e.binds_data)
+        self.assertTrue(e.server)
+
+    def test_binds_data_not_true_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers(
+                "// bbtool:init tier=regular fn=bb_x_init binds_data=false\n"
+            )
+
+    def test_empty_binds_data_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers("// bbtool:init tier=early fn=bb_x_init binds_data=\n")
+
+
 class TestComponentField(unittest.TestCase):
     """B1-1275: 'component=<name>' parses onto InitEntry -- this module is
     context-agnostic (manifest vs. component-header rejection is decided one
