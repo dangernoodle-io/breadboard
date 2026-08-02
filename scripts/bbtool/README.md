@@ -900,6 +900,75 @@ Omitting `out=` (the default) leaves output byte-identical to before this
 field existed — the declarations block is entirely **absent**, never
 empty-but-present.
 
+### `binds_data=<key1,key2,...>` on any marker (B1-1355/B1-1376)
+
+`binds_data=<key1,key2,...>` is a marker-visible FACT, orthogonal to how the
+call is emitted — it adds no call, no argument injection, no emitted output
+of its own. Unlike `component=`/`out=`, it is **not** manifest-only: it is
+accepted on any `// bbtool:init` marker, component-header or manifest alike.
+It exists so codegen-time tooling can count how many distinct `bb_data` keys
+a composition binds, since most real `bb_data_bind()` call sites are
+self-binds inside a component's own `.c` body, invisible to a header-marker
+grep — a component author opts a self-bind entry into the count by listing
+the key(s) it binds on its (otherwise ordinary) marker.
+
+**Grammar.** `binds_data=key1,key2` is a CSV list, the same shape as
+`provides=`/`requires=`. Each key must match `[A-Za-z0-9_.]+` (letters,
+digits, `.`, `_`); any other character is a hard `ParseError`. Unlike
+`provides=`, an empty entry (a stray comma, e.g. `binds_data=fan,,power`, or
+a bare `binds_data=`) is a hard `ParseError` rather than silently dropped — a
+key list exists only to be counted, so a silently-dropped empty slot would
+just as silently undercount the real distinct-key total. A key repeated
+**within** the same marker (e.g. `binds_data=fan,fan`) is also a hard
+`ParseError`. A key repeated **across** two different entries is allowed —
+`bb_data_bind()` documents rebinding an already-bound key as a supported
+override, so two entries naming the same key is a legitimate composition.
+
+**Component-scoped, not per-marker-fn-scoped.** The `binds-data-mismatch`
+lint rule diffs a marker's declared key list against **every**
+`bb_data_bind()` call site in the marker's owning component's whole tree —
+not just the one `fn=` the marker names. This means sibling markers on the
+same component must **each** declare the full component-wide union of keys.
+Worked example — `bb_diag_http`'s two smoke markers:
+
+```
+// bbtool:init tier=regular fn=bb_storage_http_routes_init server=true component=bb_diag_http binds_data=factory_reset,storage_delete
+// bbtool:init tier=regular fn=bb_storage_http_factory_reset_routes_init server=true component=bb_diag_http binds_data=factory_reset,storage_delete
+```
+
+Both markers declare `factory_reset,storage_delete`, even though each
+underlying `fn=` only actually binds one of the two keys — the lint rule
+would otherwise flag the other key as "bound but not declared" on whichever
+marker omitted it. This duplication is harmless for capacity: the cap check
+(below) unions and dedupes keys across every declaring entry, so declaring
+the same key on two sibling markers never double-counts it.
+
+**The cap.** `commands.wire.check_binds_data_cap` hard-errors at codegen
+time if the number of **distinct** `bb_data` keys named across every
+resolved entry's `binds_data=` list exceeds `bb_data`'s
+`BB_DATA_MAX_BINDINGS` cap (read live from
+`components/bb_data/include/bb_data.h`, currently `8`) — counting the union
+of keys, never the number of declaring entries and never the raw sum of key
+occurrences across entries, since `bb_data_bind()`'s runtime table has
+exactly one slot per distinct key.
+
+**Zero-call-site case.** A component whose only `bb_data_bind()` call
+happens at a **consuming app's composition root**, rather than anywhere in
+the component's own `components/`/`platform/` tree, must **not** declare
+`binds_data=` on its own marker — the `binds-data-mismatch` lint rule
+cannot follow a bind into an arbitrary consuming app and emits an
+actionable message telling you to drop it. `bb_log_event` is the worked
+example: its only `bb_data_bind()` call lives in
+`examples/floor/main/floor_app.c` (a manifest/composition root, not
+`bb_log_event`'s own tree), so `bb_log_event`'s marker carries no
+`binds_data=` field.
+
+**Scope limit.** Both `check_binds_data_cap` and `binds-data-mismatch` only
+see `bbtool codegen` output — a board composed via **handwire** instead of
+codegen (e.g. `examples/floor`, per decision #724) is invisible to both
+checks entirely, even though its handwired `bb_data_bind()` calls consume
+the same finite, shared `BB_DATA_MAX_BINDINGS` table.
+
 ## `codegen` command — multi-root discovery (B1-1084)
 
 `bbtool codegen` resolves the composition over a discovery `roots` list, not just a
