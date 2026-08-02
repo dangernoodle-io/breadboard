@@ -9,6 +9,7 @@
 #include "bb_log.h"
 #include "bb_clock.h"
 #include "bb_str.h"
+#include "bb_tls_creds.h"
 
 #include <inttypes.h>
 #include <string.h>
@@ -27,6 +28,11 @@ typedef struct {
     bb_tcp_client_state_t         state;
     esp_transport_handle_t        transport;
     bb_tcp_client_health_state_t  health;
+    // TLS credentials resolved once at init() (B1-1390) via
+    // bb_tcp_client_priv_resolve_tls_creds() and cached for the instance's
+    // lifetime -- zeroed for a plaintext (cfg.tls=false) instance. Freed by
+    // bb_tcp_client_destroy(); read (never re-resolved) by connect().
+    bb_tls_creds_t                creds;
 } bb_tcp_client_inst_t;
 
 // Records inst's health.tls_error_code from `t`'s esp-tls last-error struct
@@ -83,6 +89,18 @@ bb_err_t bb_tcp_client_init(const char *ns, const bb_tcp_client_cfg_t *cfg_or_nu
         bb_tcp_client_priv_load_from_nvs(ns, &inst->cfg);
     }
 
+    // TLS credential resolution (B1-1390): a no-op when inst->cfg.tls is
+    // false. Resolved once here (not per-connect()) and cached in
+    // inst->creds -- see the struct comment above and
+    // bb_tcp_client_priv_resolve_tls_creds()'s contract.
+    bb_err_t creds_rc = bb_tcp_client_priv_resolve_tls_creds(ns, &inst->cfg, &inst->creds);
+    if (creds_rc != BB_OK) {
+        bb_log_e(TAG, "tls creds resolve failed: %d", creds_rc);
+        pthread_mutex_destroy(&inst->health.lock);
+        memset(inst, 0, sizeof(*inst));
+        return creds_rc;
+    }
+
     inst->in_use = true;
     inst->state = BB_TCP_CLIENT_DISCONNECTED;
     *out = (bb_tcp_client_t)inst;
@@ -111,14 +129,29 @@ bb_err_t bb_tcp_client_connect(bb_tcp_client_t h)
     }
 
     if (inst->cfg.tls) {
-        if (inst->cfg.ca_cert_pem) {
-            esp_transport_ssl_set_cert_data(t, inst->cfg.ca_cert_pem, (int)strlen(inst->cfg.ca_cert_pem));
+        // inst->creds was resolved once at init() (B1-1390) via
+        // bb_tcp_client_priv_resolve_tls_creds() -- an explicit cfg PEM
+        // pointer was passed through as bb_tls_creds' programmatic override,
+        // so inst->creds.ca/cert/key already reflect the full precedence
+        // (explicit cfg > NVS(ns) > embedded weak default). An empty resolve
+        // (inst->creds.ca == NULL) is not an error -- fall through to the
+        // ESP cert bundle exactly as before B1-1390.
+        // bb_tls_creds' *_len fields are NUL-inclusive (see bb_tls_creds.c's
+        // resolve_one()), but esp_transport_ssl_set_*_data() take the PEM
+        // CONTENT length and add their own +1 for the NUL internally (see
+        // esp-idf's tcp_transport/transport_ssl.c set_cert_data() family).
+        // Passing the NUL-inclusive length here would tell esp-idf the
+        // buffer is one byte longer than it actually is, an out-of-bounds
+        // read that trips mbedtls' PEM-vs-DER autodetect. Subtract 1 to hand
+        // over content length; the branches above guarantee *_len >= 1 here.
+        if (inst->creds.ca) {
+            esp_transport_ssl_set_cert_data(t, inst->creds.ca, (int)(inst->creds.ca_len - 1));
         } else {
             esp_transport_ssl_crt_bundle_attach(t, esp_crt_bundle_attach);
         }
-        if (inst->cfg.client_cert_pem && inst->cfg.client_key_pem) {
-            esp_transport_ssl_set_client_cert_data(t, inst->cfg.client_cert_pem, (int)strlen(inst->cfg.client_cert_pem));
-            esp_transport_ssl_set_client_key_data(t, inst->cfg.client_key_pem, (int)strlen(inst->cfg.client_key_pem));
+        if (inst->creds.cert && inst->creds.key) {
+            esp_transport_ssl_set_client_cert_data(t, inst->creds.cert, (int)(inst->creds.cert_len - 1));
+            esp_transport_ssl_set_client_key_data(t, inst->creds.key, (int)(inst->creds.key_len - 1));
         }
     }
 
@@ -239,6 +272,7 @@ bb_err_t bb_tcp_client_destroy(bb_tcp_client_t h)
     if (!inst) return BB_OK;  // NULL-safe / already-released, no-op
 
     teardown_transport(inst);
+    bb_tls_creds_free(&inst->creds);  // safe on a zeroed (plaintext-instance) struct
     pthread_mutex_destroy(&inst->health.lock);
     memset(inst, 0, sizeof(*inst));
     return BB_OK;

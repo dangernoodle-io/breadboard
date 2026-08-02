@@ -21,6 +21,7 @@
 #include "bb_tcp_client_priv.h"
 #include "bb_config.h"
 #include "bb_clock.h"
+#include "bb_tls_creds.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -94,6 +95,28 @@ void bb_tcp_client_priv_save_to_nvs(const char *ns, const bb_tcp_client_cfg_t *c
     bb_config_set_str(&host_field, cfg->host);
     bb_config_set_u16(&port_field, cfg->port);
     bb_config_set_u8(&tls_field, cfg->tls ? 1 : 0);
+}
+
+// ---------------------------------------------------------------------------
+// TLS credential resolution (B1-1390). Portable so the precedence-wiring
+// logic (which cfg fields become bb_tls_creds' programmatic override) is
+// host-testable even though only the ESP-IDF backend consumes the result --
+// see bb_tcp_client_priv.h.
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_tcp_client_priv_resolve_tls_creds(const char *ns, const bb_tcp_client_cfg_t *cfg,
+                                               bb_tls_creds_t *out)
+{
+    if (!cfg || !out) return BB_ERR_INVALID_ARG;
+    memset(out, 0, sizeof(*out));
+    if (!cfg->tls) return BB_OK;  // plaintext instance: no credential work
+
+    const bb_tls_creds_cfg_t over = {
+        .ca_pem          = cfg->ca_cert_pem,
+        .client_cert_pem = cfg->client_cert_pem,
+        .client_key_pem  = cfg->client_key_pem,
+    };
+    return bb_tls_creds_resolve(ns, &over, out);
 }
 
 // ---------------------------------------------------------------------------

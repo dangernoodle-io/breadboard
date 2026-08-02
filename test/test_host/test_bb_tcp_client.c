@@ -21,6 +21,9 @@
 // component in the loop.
 #include "unity.h"
 #include "bb_tcp_client.h"
+#include "bb_tcp_client_priv.h"
+#include "bb_tls_creds.h"
+#include "bb_nv_keys.h"
 #include "bb_config.h"
 #include "bb_storage.h"
 #include "bb_nv_namespaces.h"
@@ -366,6 +369,139 @@ void test_bb_tcp_client_init_tls_cfg_captured(void)
     bb_tcp_client_t h = make_instance(&cfg);
     TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_connect(h));
     TEST_ASSERT_EQUAL(BB_TCP_CLIENT_CONNECTED, bb_tcp_client_get_state(h));
+}
+
+// ---------------------------------------------------------------------------
+// TLS credential resolution (B1-1390): bb_tcp_client_priv_resolve_tls_creds()
+// is the portable (host + ESP-IDF) precedence-wiring helper behind
+// bb_tcp_client_init()'s cert resolution -- see bb_tcp_client_priv.h. Only
+// the ESP-IDF backend wires the resolved creds into a real TLS session (the
+// host backend has no real socket/creds field to inspect), so these tests
+// exercise the helper directly rather than through init()/connect().
+// ---------------------------------------------------------------------------
+
+static void seed_tcp_test_tls_ca(const char *ns, const char *value)
+{
+    const bb_config_field_t f = {
+        .id      = "test.tcp.tls_ca", .type = BB_CONFIG_STR,
+        .addr    = { .backend = "nvs", .ns_or_dir = ns, .key = BB_NV_KEY_TLS_CA },
+        .max_len = 128,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_set_str(&f, value));
+}
+
+void test_bb_tcp_client_resolve_tls_creds_plaintext_is_noop(void)
+{
+    reset_world();
+    // Seed NVS anyway -- a plaintext cfg must not even look at it.
+    seed_tcp_test_tls_ca("plain_ns", "should_be_ignored");
+
+    bb_tcp_client_cfg_t cfg = { .tls = false };
+    bb_tls_creds_t creds;
+    memset(&creds, 0xAA, sizeof(creds));  // poison -- prove the helper memsets *out
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_priv_resolve_tls_creds("plain_ns", &cfg, &creds));
+    TEST_ASSERT_NULL(creds.ca);
+    TEST_ASSERT_NULL(creds.cert);
+    TEST_ASSERT_NULL(creds.key);
+}
+
+void test_bb_tcp_client_resolve_tls_creds_nvs_used_when_cfg_pem_null(void)
+{
+    reset_world();
+    seed_tcp_test_tls_ca("creds_ns", "ca_from_nvs");
+
+    bb_tcp_client_cfg_t cfg = { .tls = true };  // ca_cert_pem/etc left NULL
+    bb_tls_creds_t creds = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_priv_resolve_tls_creds("creds_ns", &cfg, &creds));
+    TEST_ASSERT_NOT_NULL(creds.ca);
+    TEST_ASSERT_EQUAL_STRING("ca_from_nvs", creds.ca);
+    bb_tls_creds_free(&creds);
+}
+
+void test_bb_tcp_client_resolve_tls_creds_cfg_pem_beats_nvs(void)
+{
+    reset_world();
+    seed_tcp_test_tls_ca("override_ns", "ca_from_nvs");
+
+    bb_tcp_client_cfg_t cfg = { .tls = true, .ca_cert_pem = "ca_from_cfg" };
+    bb_tls_creds_t creds = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_priv_resolve_tls_creds("override_ns", &cfg, &creds));
+    TEST_ASSERT_NOT_NULL(creds.ca);
+    TEST_ASSERT_EQUAL_STRING("ca_from_cfg", creds.ca);
+    bb_tls_creds_free(&creds);
+}
+
+void test_bb_tcp_client_resolve_tls_creds_mutual_cfg_pem_beats_nvs(void)
+{
+    reset_world();
+
+    bb_tcp_client_cfg_t cfg = {
+        .tls             = true,
+        .ca_cert_pem     = "ca_from_cfg",
+        .client_cert_pem = "cert_from_cfg",
+        .client_key_pem  = "key_from_cfg",
+    };
+    bb_tls_creds_t creds = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_priv_resolve_tls_creds("mutual_ns", &cfg, &creds));
+    TEST_ASSERT_EQUAL_STRING("ca_from_cfg",   creds.ca);
+    TEST_ASSERT_EQUAL_STRING("cert_from_cfg", creds.cert);
+    TEST_ASSERT_EQUAL_STRING("key_from_cfg",  creds.key);
+    bb_tls_creds_free(&creds);
+}
+
+// Pins the length-arithmetic contract bb_tcp_client_connect()'s
+// esp_transport_ssl_set_*_data() call sites depend on: bb_tls_creds' *_len
+// fields are NUL-inclusive (strlen(pem) + 1), NOT the raw content length.
+// connect() subtracts 1 to recover content length before handing it to
+// esp-idf's setters, which add their own +1 internally -- see
+// bb_tcp_client.c's connect(). If bb_tls_creds' NUL-inclusive contract ever
+// changes, this test breaks instead of that call site silently reading one
+// byte past the resolved buffer.
+void test_bb_tcp_client_resolve_tls_creds_len_is_content_len_plus_nul(void)
+{
+    reset_world();
+
+    bb_tcp_client_cfg_t cfg = {
+        .tls             = true,
+        .ca_cert_pem     = "ca_from_cfg",
+        .client_cert_pem = "cert_from_cfg",
+        .client_key_pem  = "key_from_cfg",
+    };
+    bb_tls_creds_t creds = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_priv_resolve_tls_creds("len_ns", &cfg, &creds));
+    TEST_ASSERT_EQUAL_UINT(strlen("ca_from_cfg")   + 1, creds.ca_len);
+    TEST_ASSERT_EQUAL_UINT(strlen("cert_from_cfg") + 1, creds.cert_len);
+    TEST_ASSERT_EQUAL_UINT(strlen("key_from_cfg")  + 1, creds.key_len);
+    bb_tls_creds_free(&creds);
+}
+
+// Nothing anywhere (no override, no NVS, no embedded default) -- an empty
+// resolve is NOT an error; the ESP-IDF backend's connect() falls through to
+// esp_crt_bundle_attach() in this case (see bb_tcp_client.c).
+void test_bb_tcp_client_resolve_tls_creds_empty_resolve_is_ok(void)
+{
+    reset_world();
+
+    bb_tcp_client_cfg_t cfg = { .tls = true };
+    bb_tls_creds_t creds = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_priv_resolve_tls_creds("empty_ns", &cfg, &creds));
+    TEST_ASSERT_NULL(creds.ca);
+    TEST_ASSERT_NULL(creds.cert);
+    TEST_ASSERT_NULL(creds.key);
+}
+
+void test_bb_tcp_client_resolve_tls_creds_null_cfg_returns_invalid_arg(void)
+{
+    reset_world();
+    bb_tls_creds_t creds = {0};
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_tcp_client_priv_resolve_tls_creds("ns", NULL, &creds));
+}
+
+void test_bb_tcp_client_resolve_tls_creds_null_out_returns_invalid_arg(void)
+{
+    reset_world();
+    bb_tcp_client_cfg_t cfg = { .tls = true };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_tcp_client_priv_resolve_tls_creds("ns", &cfg, NULL));
 }
 
 // ---------------------------------------------------------------------------

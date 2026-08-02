@@ -79,15 +79,39 @@ typedef enum {
  * io_timeout_ms        — 0 -> Kconfig default (BB_TCP_IO_TIMEOUT_MS); bounds
  *                         both read() and the short-write retry loop in
  *                         write().
- * ca_cert_pem          — server/CA cert PEM override; NULL => ESP cert
- *                         bundle (tls=true only).
- * client_cert_pem      — client cert PEM for mutual TLS (optional).
+ * ca_cert_pem          — server/CA cert PEM override; NULL => resolved via
+ *                         bb_tls_creds (see below), which itself falls back
+ *                         to the ESP cert bundle when nothing resolves
+ *                         (tls=true only).
+ * client_cert_pem      — client cert PEM for mutual TLS (optional; same
+ *                         resolution as ca_cert_pem when NULL).
  * client_key_pem       — client private key PEM for mutual TLS (optional;
- *                         required together with client_cert_pem).
+ *                         required together with client_cert_pem; same
+ *                         resolution as ca_cert_pem when NULL).
  *
  * Cert PEM pointers are NEVER persisted to NVS — bb_tcp_client_init(NULL, ..)
- * (the NVS-load path) never has certs; a TLS caller must always pass a
- * non-NULL cfg with the desired cert fields set.
+ * (the NVS-load path) never has certs; a TLS caller relying on stored
+ * credentials passes cfg with the cert fields left NULL (see below) rather
+ * than the NVS-load path.
+ *
+ * TLS credential resolution (ESP-IDF backend only; B1-1390): when tls=true,
+ * bb_tcp_client_init() resolves ca_cert_pem/client_cert_pem/client_key_pem
+ * through bb_tls_creds_resolve() using bb_tls_creds' own three-tier
+ * precedence -- ANY field left NULL here is looked up in NVS namespace `ns`
+ * (the SAME namespace this instance was initialised with, keys
+ * "tls_ca"/"tls_cert"/"tls_key"), falling back to build-time embedded weak
+ * defaults; a non-NULL field here is the top-tier programmatic override and
+ * is used as-is. `ns` is simply whichever namespace this instance's caller
+ * passed to bb_tcp_client_init() -- credential resolution has no namespace
+ * of its own. The resolved credentials are cached for
+ * the instance's lifetime (heap-owned, freed by bb_tcp_client_destroy()); a
+ * resolve that finds nothing anywhere is not an error -- bb_tcp_client_connect()
+ * falls through to esp_crt_bundle_attach() exactly as when ca_cert_pem is
+ * supplied NULL today. A caller running several instances that share one
+ * cert set should resolve once itself (bb_tls_creds_resolve()) and pass the
+ * PEMs to each instance's cfg fields as the explicit-override tier, rather
+ * than duplicating certs into N NVS namespaces. A plaintext instance
+ * (tls=false) does no credential work at all.
  */
 typedef struct {
     char        host[BB_TCP_CLIENT_HOST_MAX];
