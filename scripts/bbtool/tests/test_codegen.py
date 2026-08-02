@@ -1163,10 +1163,14 @@ class TestBindsDataCapIntegration(unittest.TestCase):
     failures); this class stays as the regression pin for that wiring."""
 
     def _binders_header(self, count: int) -> str:
+        """One `binds_data=` key per entry -- `count` entries == `count`
+        keys, so this fixture's cap math is unchanged post-B1-1355 (sum of
+        1-key entries equals the old entry count)."""
         body = "#pragma once\n"
         for i in range(count):
             body += (
-                f"// bbtool:init tier=regular fn=bb_binder_{i}_init binds_data=true\n"
+                f"// bbtool:init tier=regular fn=bb_binder_{i}_init "
+                f"binds_data=key_{i}\n"
                 f"bb_err_t bb_binder_{i}_init(void);\n"
             )
         return body
@@ -1190,7 +1194,7 @@ class TestBindsDataCapIntegration(unittest.TestCase):
             with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
                 rc = run(args)
             self.assertEqual(rc, 1)
-            self.assertIn("binds_data=true", err_buf.getvalue())
+            self.assertIn("bb_data key(s) are bound across", err_buf.getvalue())
             self.assertIn("BB_DATA_MAX_BINDINGS", err_buf.getvalue())
 
     def test_pio_main_propagates_over_cap_wire_error_as_exit_1(self):

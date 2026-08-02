@@ -4,7 +4,7 @@
 Grammar (one marker per comment line, order of key=value tokens is free):
 
     // bbtool:init tier=early|pre_http|regular [order=N] fn=<sym>
-                    [server=true] [registers_routes=true] [binds_data=true]
+                    [server=true] [registers_routes=true] [binds_data=k,..]
                     [provides=k,..]
                     [requires=k,..] [consumes=k] [ctx=<expr>]
                     [args=<raw C argument text, whitespace-free>]
@@ -107,18 +107,60 @@ manifest are NOT implicitly ordered relative to each other -- they interleave
 by parse order unless linked via `requires=`/`provides=` or given an explicit
 `order=`.
 
-`binds_data=true` is a marker-visible FACT, orthogonal to how the call is
-emitted -- mirrors `registers_routes=true`'s posture exactly (see above): it
+`binds_data=<key1,key2,...>` is a marker-visible FACT, orthogonal to how the
+call is emitted -- mirrors `registers_routes=true`'s posture (see above): it
 adds no call, no argument injection, no emitted output of its own, and never
 changes generated output for a composition that never sets it. It exists so
 codegen-time tooling (see `commands.wire.check_binds_data_cap`) can COUNT how
-many resolved entries call `bb_data_bind()` -- 8 of the 10 real call sites
-today are SELF-BINDS inside a component's own `.c` body, invisible to a
+many DISTINCT bb_data keys a composition binds -- most real call sites today
+are SELF-BINDS inside a component's own `.c` body, invisible to a
 header-marker grep, so a component author opts a self-bind entry into the
-count by carrying this flag on its (otherwise ordinary) `// bbtool:init`
-marker. `binds_data=true` has no mutual-exclusion with any other key --
-unlike `server=`/`args=`/`consumes=`, it says nothing about call SHAPE, only
-that this entry's `fn` (however it is called) also binds a `bb_data` key.
+count by listing the key(s) it binds on its (otherwise ordinary) `//
+bbtool:init` marker. `binds_data=` is a CSV list, the same shape as
+`provides=`/`requires=` (comma-separated, whitespace around each entry
+stripped) -- one entry's `fn` may call `bb_data_bind()` more than once (e.g.
+`bb_sensor_http_init` binds `fan`, `power`, and `thermal`), so the count this
+enables is a count of KEYS, not of marker entries: `check_binds_data_cap`
+counts `len({k for e in binders for k in e.binds_data})` (the UNION of every
+carrying entry's key list), never `len(entries)` -- counting entries instead
+of keys was the exact defect this grammar replaces (a function binding
+several keys used to count as one). The count is also a count of DISTINCT
+keys, not raw key occurrences summed across entries: `bb_data_bind()`'s
+runtime table has exactly one slot PER DISTINCT KEY (see below), so two
+entries sharing a key must count as ONE unit of capacity demand, not two --
+summing occurrences instead of deduplicating would hard-fail a composition
+that actually fits (the mirror-image false positive of the entry-counting
+undercount above).
+
+Unlike `provides=`/`requires=`, an empty entry (a stray comma, e.g.
+`binds_data=fan,,power`, or a bare `binds_data=`) is a hard ParseError rather
+than silently dropped -- a key list exists ONLY to be counted, so a
+silently-dropped empty slot would just as silently undercount the real
+distinct-key total this whole check exists to get right. Each key must match
+`[A-Za-z0-9_.]+` (letters, digits, `.`, `_` -- the character set real bound
+keys already use, e.g. `diag.boot`, `storage_delete`, `update.available`,
+`health.display`); any other character is a hard ParseError. A key repeated
+within the SAME marker (e.g. `binds_data=fan,fan`) is also a hard ParseError
+-- almost certainly a typo, since one `fn` calling `bb_data_bind()` twice for
+the identical key would just rebind the same slot pointlessly.
+
+A key repeated ACROSS two DIFFERENT entries is deliberately NOT rejected
+anywhere in this grammar: `bb_data_bind()` itself documents rebinding an
+already-bound key as a supported override (see
+`components/bb_data/include/bb_data.h`'s module docstring and
+`bb_data_bind()`'s implementation, plus the "re-binding an already-bound key
+overrides it in place" comments at its call sites), so two entries naming the
+same key is a legitimate composition, not a defect this grammar can
+distinguish from an intentional override -- and only `bb_data_bind()`'s call
+ORDER (which this grep-time tool has no visibility into) decides which
+descriptor wins. This is also WHY `check_binds_data_cap` must dedupe rather
+than sum: a shared key is real capacity-SHARING (one slot, looked up then
+overwritten), not two independent units of demand, so treating it as two
+would be counting a slot that is only ever allocated once.
+
+`binds_data=` has no mutual-exclusion with any other key -- unlike
+`server=`/`args=`/`consumes=`, it says nothing about call SHAPE, only which
+`bb_data` key(s) this entry's `fn` (however it is called) also binds.
 
 No preprocessor is involved — bbtool greps the raw header text. `tier` and
 `fn` are required; everything else is optional. Any malformed marker (missing
@@ -148,6 +190,7 @@ are hand-authored, not adversarial input); a real tokenizer would be overkill
 for a grep-marker DSL.
 """
 from __future__ import annotations
+import re
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
@@ -156,6 +199,14 @@ TIER_RANK = {name: i for i, name in enumerate(TIERS)}
 
 _MARKER_PREFIX = "// bbtool:init"
 _PROVIDES_PREFIX = "// bbtool:provides"
+
+# binds_data= key charset -- matches every real bb_data_bind() key in the
+# tree today (diag.boot, storage_delete, update.available, health.display,
+# fan, power, thermal, log, diag.meminfo, diag.system): letters, digits,
+# '.', '_'. Anything else is almost certainly a typo (stray whitespace,
+# punctuation) rather than an intentional key -- a hard ParseError, never a
+# silent pass-through.
+_BINDS_DATA_KEY_RE = re.compile(r"^[A-Za-z0-9_.]+$")
 
 _KNOWN_KEYS = {
     "tier", "order", "fn", "server", "registers_routes", "binds_data", "provides",
@@ -176,7 +227,7 @@ class InitEntry:
     order: "int | None" = None
     server: bool = False
     registers_routes: bool = False
-    binds_data: bool = False
+    binds_data: Tuple[str, ...] = field(default_factory=tuple)
     provides: Tuple[str, ...] = field(default_factory=tuple)
     requires: Tuple[str, ...] = field(default_factory=tuple)
     consumes: "str | None" = None
@@ -205,6 +256,40 @@ class ProvidesEntry:
 
 def _split_csv(value: str) -> Tuple[str, ...]:
     return tuple(v.strip() for v in value.split(",") if v.strip())
+
+
+def _split_binds_data_keys(value: str, src_file: str, lineno: int) -> Tuple[str, ...]:
+    """CSV-split `binds_data=` into key names -- same comma-separated shape
+    as `_split_csv`, but deliberately NOT `_split_csv` itself: an empty
+    entry is a hard ParseError here (not silently dropped), every key is
+    charset-validated, and a key repeated within this one marker is a hard
+    ParseError too. See the module docstring's `binds_data=` paragraph for
+    the full rationale (including why a duplicate ACROSS two entries is
+    intentionally left unchecked, here and in `commands.wire.
+    check_binds_data_cap`)."""
+    keys = []
+    seen = set()
+    for raw in value.split(","):
+        key = raw.strip()
+        if not key:
+            raise ParseError(
+                f"{src_file}:{lineno}: 'binds_data=' contains an empty key "
+                f"(got '{value}') -- every comma-separated entry must name a "
+                f"real bb_data key"
+            )
+        if not _BINDS_DATA_KEY_RE.match(key):
+            raise ParseError(
+                f"{src_file}:{lineno}: 'binds_data=' key '{key}' has invalid "
+                f"characters (allowed: letters, digits, '.', '_')"
+            )
+        if key in seen:
+            raise ParseError(
+                f"{src_file}:{lineno}: 'binds_data=' declares key '{key}' "
+                f"more than once on the same marker (got '{value}')"
+            )
+        seen.add(key)
+        keys.append(key)
+    return tuple(keys)
 
 
 def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
@@ -279,15 +364,9 @@ def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
             f"is redundant)"
         )
 
-    binds_data = False
+    binds_data = ()
     if "binds_data" in fields:
-        raw_binds_data = fields["binds_data"]
-        if raw_binds_data != "true":
-            raise ParseError(
-                f"{src_file}:{lineno}: 'binds_data=' must be 'true', "
-                f"got '{raw_binds_data}'"
-            )
-        binds_data = True
+        binds_data = _split_binds_data_keys(fields["binds_data"], src_file, lineno)
 
     provides = _split_csv(fields["provides"]) if "provides" in fields else ()
     requires = _split_csv(fields["requires"]) if "requires" in fields else ()

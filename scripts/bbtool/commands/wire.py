@@ -170,12 +170,27 @@ class WireError(Exception):
 
 
 # B1-828-adjacent: bb_data_bind()'s runtime table is fixed-size
-# (BB_DATA_MAX_BINDINGS, defined in components/bb_data/include/bb_data.h).
-# A bind past that cap fails at RUNTIME -- silently, for at least one known
-# failure mode (see the "binds_data=true" grammar docstring in wire_parse.py)
-# -- so `check_binds_data_cap` below makes an over-cap composition a
-# codegen-time hard error instead, the moment enough resolved entries opt
-# into `binds_data=true` to name it.
+# (BB_DATA_MAX_BINDINGS, defined in components/bb_data/include/bb_data.h) --
+# ONE SLOT PER DISTINCT KEY: bb_data_bind() looks the key up first and
+# overwrites the existing slot in place on a hit, only claiming a NEW slot on
+# a miss (see components/bb_data/src/bb_data.c), so capacity is consumed by
+# distinct keys, never by call count. A bind past that cap fails at RUNTIME
+# -- silently, for at least one known failure mode (see the "binds_data="
+# grammar docstring in wire_parse.py) -- so `check_binds_data_cap` below
+# makes an over-cap composition a codegen-time hard error instead, the
+# moment the UNION of every resolved entry's `binds_data=` keys exceeds the
+# cap. This counts the size of the union of keys -- `len({k for e in binders
+# for k in e.binds_data})` -- never `len(binders)` (entries) and never
+# `sum(len(e.binds_data) for e in binders)` (raw key occurrences, which
+# double-counts a key two entries legitimately share via rebind/override).
+# Counting entries UNDERcounts a composition whose entries each bind several
+# keys (B1-1355's original defect: one entry's `fn` may call
+# `bb_data_bind()` more than once, e.g. `bb_sensor_http_init` binds `fan`,
+# `power`, `thermal` -- three real calls behind one marker). Summing raw key
+# occurrences instead OVERcounts a composition where two entries legitimately
+# rebind the SAME key (a false positive that would hard-fail a build that
+# actually fits) -- see check_binds_data_cap's docstring below for why that
+# is a real, intentional case, not a defect.
 _BB_DATA_HEADER_REL = os.path.join("components", "bb_data", "include", "bb_data.h")
 _BB_DATA_MAX_BINDINGS_DEFINE = "BB_DATA_MAX_BINDINGS"
 
@@ -265,31 +280,66 @@ def _find_bb_data_max_bindings(roots) -> int:
 
 
 def check_binds_data_cap(ordered: List[InitEntry], roots) -> None:
-    """Hard-errors if more entries in the resolved, topo-sorted set carry
-    `binds_data=true` than bb_data's BB_DATA_MAX_BINDINGS cap allows.
+    """Hard-errors if the number of DISTINCT bb_data keys named across every
+    resolved, topo-sorted entry's `binds_data=` list exceeds bb_data's
+    BB_DATA_MAX_BINDINGS cap.
+
+    Counts the size of the UNION of every carrying entry's key list --
+    `len({k for e in binders for k in e.binds_data})` -- never `len(binders)`
+    (entries: undercounts, since one entry's `fn` can call `bb_data_bind()`
+    more than once, e.g. `bb_sensor_http_init` names
+    `binds_data=fan,power,thermal`, three real calls behind one marker --
+    B1-1355's original defect) and never `sum(len(e.binds_data) for e in
+    binders)` (raw key occurrences: OVERcounts, since `bb_data_bind()`'s
+    table has exactly one slot PER DISTINCT KEY -- see the module-level
+    comment above `_BB_DATA_HEADER_REL` -- so two entries naming the SAME
+    key consume ONE slot between them, not two; summing occurrences instead
+    of deduplicating would hard-fail a composition that actually fits, the
+    mirror-image false positive of the entry-counting undercount this check
+    was rewritten to fix).
 
     Deliberately INERT until at least one entry actually declares
-    `binds_data=true`: with zero such entries this returns immediately and
-    never even attempts the `bb_data.h` lookup, so a tree with no bb_data
-    component (or one whose header can't be found under the given roots)
-    costs a composition nothing unless it actually opts in.
+    `binds_data=`: with zero such entries this returns immediately and never
+    even attempts the `bb_data.h` lookup, so a tree with no bb_data component
+    (or one whose header can't be found under the given roots) costs a
+    composition nothing unless it actually opts in.
 
-    Raises WireError naming every offending entry's file:line, plus the
-    resolved count and the cap, when the count exceeds the cap. Also raises
-    WireError (via `_find_bb_data_max_bindings`) if the cap itself cannot be
+    Two different entries naming the SAME key are NOT flagged as a
+    collision here -- `bb_data_bind()` documents rebinding an existing key as
+    a supported override (see `components/bb_data/include/bb_data.h`'s
+    module docstring and its callers' "re-binding an already-bound key
+    overrides it in place" comments), so it is a legitimate composition this
+    grep-time tool cannot distinguish from a mistake; only a key repeated
+    WITHIN one marker is rejected, at parse time (`wire_parse.
+    _split_binds_data_keys`). This is also exactly WHY the cap check must
+    dedupe: a shared key is real capacity-sharing, not two units of demand.
+
+    Raises WireError naming every offending entry's file:line (plus the keys
+    it names), the full sorted distinct-key list, and the distinct-key
+    count vs. the cap, when the count exceeds the cap -- a reader can verify
+    the count by hand against the listed keys, unlike a raw total that no
+    longer matches anything countable in the message. Also raises WireError
+    (via `_find_bb_data_max_bindings`) if the cap itself cannot be
     determined -- never a silent skip."""
     binders = [e for e in ordered if e.binds_data]
     if not binders:
         return
+    distinct_keys = {k for e in binders for k in e.binds_data}
+    total = len(distinct_keys)
     cap = _find_bb_data_max_bindings(roots)
-    if len(binders) > cap:
-        offenders = ", ".join(f"fn={e.fn} ({e.src_file}:{e.src_line})" for e in binders)
+    if total > cap:
+        offenders = ", ".join(
+            f"fn={e.fn} ({e.src_file}:{e.src_line}, keys={','.join(e.binds_data)})"
+            for e in binders
+        )
         raise WireError(
-            f"{len(binders)} entries carry 'binds_data=true' but "
-            f"{_BB_DATA_MAX_BINDINGS_DEFINE} is {cap} -- bb_data_bind()'s "
-            f"table is fixed-size and a bind past the cap fails at runtime; "
-            f"reduce the bind count or raise {_BB_DATA_MAX_BINDINGS_DEFINE} "
-            f"in {_BB_DATA_HEADER_REL} ({offenders})"
+            f"{total} distinct bb_data key(s) are bound across {len(binders)} "
+            f"'binds_data=' entries but {_BB_DATA_MAX_BINDINGS_DEFINE} is "
+            f"{cap} -- bb_data_bind()'s table has one slot per distinct key "
+            f"and a bind past the cap fails at runtime; reduce the distinct "
+            f"key count or raise {_BB_DATA_MAX_BINDINGS_DEFINE} in "
+            f"{_BB_DATA_HEADER_REL}; distinct keys="
+            f"{','.join(sorted(distinct_keys))} ({offenders})"
         )
 
 
