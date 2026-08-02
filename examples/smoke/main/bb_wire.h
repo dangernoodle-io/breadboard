@@ -82,7 +82,7 @@
 // REQUIRES/PRIV_REQUIRES closure so the manifest entry composes correctly.
 // See bb_wifi_prov_autoinit below for the precedent this mirrors.
 
-// bbtool:init tier=regular fn=bb_system_routes_init server=true component=bb_system
+// bbtool:init tier=regular fn=bb_system_routes_init server=true component=bb_system binds_data=reboot
 
 // bbtool:init tier=regular fn=bb_health_init server=true component=bb_health
 
@@ -102,9 +102,9 @@
 // each component's own REQUIRES/PRIV_REQUIRES closure so the manifest entry
 // composes correctly.
 
-// bbtool:init tier=regular fn=bb_storage_http_routes_init server=true component=bb_diag_http
+// bbtool:init tier=regular fn=bb_storage_http_routes_init server=true component=bb_diag_http binds_data=factory_reset,storage_delete
 
-// bbtool:init tier=regular fn=bb_storage_http_factory_reset_routes_init server=true component=bb_diag_http
+// bbtool:init tier=regular fn=bb_storage_http_factory_reset_routes_init server=true component=bb_diag_http binds_data=factory_reset,storage_delete
 
 // bbtool:init tier=regular fn=bb_log_register_routes_init server=true component=bb_diag_http
 
@@ -112,9 +112,9 @@
 
 // bbtool:init tier=regular fn=bb_diag_sections_init server=true component=bb_diag_http
 
-// bbtool:init tier=regular fn=bb_wifi_routes_init server=true component=bb_wifi_http
+// bbtool:init tier=regular fn=bb_wifi_routes_init server=true component=bb_wifi_http binds_data=wifi
 
-// bbtool:init tier=regular fn=bb_sensor_http_init server=true component=bb_sensor_http
+// bbtool:init tier=regular fn=bb_sensor_http_init server=true component=bb_sensor_http binds_data=fan,power,thermal
 
 // B1-1357: the OTA family (bb_ota_boot/bb_ota_hooks/bb_ota_validator/
 // bb_ota_check/bb_ota_pull/bb_ota_push) needs a northstar refactor before
