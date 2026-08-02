@@ -660,6 +660,79 @@ void test_bb_tcp_client_forced_io_timeout_does_not_report_health(void)
     TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
 }
 
+// forced io result of BB_OK short-circuits `rc != BB_OK && rc != BB_ERR_TIMEOUT`
+// on its FIRST operand (never evaluates the second) in both read() and
+// write() -- a distinct branch outcome from the BB_ERR_INVALID_STATE
+// (both operands true) and BB_ERR_TIMEOUT (first true, second false) cases
+// covered above.
+void test_bb_tcp_client_forced_io_ok_does_not_report_health(void)
+{
+    reset_world();
+    bb_tcp_client_t h = make_instance(NULL);
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_connect(h));  // seeds health ok=true
+
+    bb_tcp_client_test_force_io_result(h, BB_OK);
+    uint8_t buf[8];
+    size_t n = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_read(h, buf, sizeof(buf), &n));
+
+    bb_tcp_client_health_snap_t snap;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
+
+    bb_tcp_client_test_force_io_result(h, BB_OK);
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_write(h, buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_health_fill(h, &snap));
+    TEST_ASSERT_EQUAL_UINT64(0, snap.fail_count);
+}
+
+// ---------------------------------------------------------------------------
+// test hooks: invalid/NULL handle -- every bb_tcp_client_test_*() helper's
+// inst_from_handle()-guarded NULL-handle branch, exercised for coverage
+// completeness (BB_TCP_CLIENT_TESTING-only code, but still gated to 100%
+// like the rest of this file).
+// ---------------------------------------------------------------------------
+
+void test_bb_tcp_client_test_last_write_invalid_handle_returns_negative(void)
+{
+    reset_world();
+    uint8_t out[16];
+    TEST_ASSERT_EQUAL_INT(-1, bb_tcp_client_test_last_write(NULL, out, sizeof(out)));
+}
+
+void test_bb_tcp_client_test_last_write_null_out_returns_negative(void)
+{
+    reset_world();
+    bb_tcp_client_t h = make_instance(NULL);
+    TEST_ASSERT_EQUAL_INT(-1, bb_tcp_client_test_last_write(h, NULL, 16));
+}
+
+void test_bb_tcp_client_test_write_count_invalid_handle_returns_zero(void)
+{
+    reset_world();
+    TEST_ASSERT_EQUAL_INT(0, bb_tcp_client_test_write_count(NULL));
+}
+
+void test_bb_tcp_client_test_force_connect_result_invalid_handle_is_noop(void)
+{
+    reset_world();
+    // No crash / no observable effect -- nothing to assert beyond survival,
+    // matching this test-hook's documented NULL-safe contract.
+    bb_tcp_client_test_force_connect_result(NULL, BB_OK);
+}
+
+void test_bb_tcp_client_test_force_io_result_invalid_handle_is_noop(void)
+{
+    reset_world();
+    bb_tcp_client_test_force_io_result(NULL, BB_OK);
+}
+
+void test_bb_tcp_client_test_force_tls_error_code_invalid_handle_is_noop(void)
+{
+    reset_world();
+    bb_tcp_client_test_force_tls_error_code(NULL, -1);
+}
+
 // ---------------------------------------------------------------------------
 // poll_readable
 // ---------------------------------------------------------------------------
