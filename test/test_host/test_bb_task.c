@@ -10,6 +10,8 @@
 
 #include "unity.h"
 #include "bb_task.h"
+#include "bb_wdt.h"
+#include "bb_wdt_test.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -26,27 +28,27 @@ static void noop_entry(void *arg)
 void test_bb_task_resolve_null_cfg_returns_invalid_arg(void)
 {
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(NULL, 2, &out));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(NULL, 2, 0, &out));
 }
 
 void test_bb_task_resolve_null_out_returns_invalid_arg(void)
 {
     bb_task_config_t cfg = { .entry = noop_entry, .name = "t", .stack_bytes = 2048 };
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(&cfg, 2, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(&cfg, 2, 0, NULL));
 }
 
 void test_bb_task_resolve_null_entry_returns_invalid_arg(void)
 {
     bb_task_config_t cfg = { .entry = NULL, .name = "t", .stack_bytes = 2048 };
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(&cfg, 2, &out));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(&cfg, 2, 0, &out));
 }
 
 void test_bb_task_resolve_zero_stack_bytes_returns_invalid_arg(void)
 {
     bb_task_config_t cfg = { .entry = noop_entry, .name = "t", .stack_bytes = 0 };
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(&cfg, 2, &out));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(&cfg, 2, 0, &out));
 }
 
 void test_bb_task_resolve_static_missing_stack_buf_returns_invalid_arg(void)
@@ -58,7 +60,7 @@ void test_bb_task_resolve_static_missing_stack_buf_returns_invalid_arg(void)
         .stack_buf = NULL, .tcb_buf = tcb,
     };
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(&cfg, 2, &out));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(&cfg, 2, 0, &out));
 }
 
 void test_bb_task_resolve_static_missing_tcb_buf_returns_invalid_arg(void)
@@ -70,7 +72,7 @@ void test_bb_task_resolve_static_missing_tcb_buf_returns_invalid_arg(void)
         .stack_buf = stack, .tcb_buf = NULL,
     };
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(&cfg, 2, &out));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(&cfg, 2, 0, &out));
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +86,7 @@ void test_bb_task_resolve_dynamic_core_any(void)
         .core = BB_TASK_CORE_ANY, .backing = BB_TASK_BACKING_DYNAMIC,
     };
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, &out));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, 0, &out));
     TEST_ASSERT_EQUAL_INT(BB_TASK_CORE_ANY, out.core);
     TEST_ASSERT_EQUAL_UINT32(4096, out.stack_bytes);
     TEST_ASSERT_EQUAL(BB_TASK_BACKING_DYNAMIC, out.backing);
@@ -97,7 +99,7 @@ void test_bb_task_resolve_dynamic_core_0(void)
         .core = 0, .backing = BB_TASK_BACKING_DYNAMIC,
     };
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, &out));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, 0, &out));
     TEST_ASSERT_EQUAL_INT(0, out.core);
     TEST_ASSERT_EQUAL(BB_TASK_BACKING_DYNAMIC, out.backing);
 }
@@ -109,7 +111,7 @@ void test_bb_task_resolve_dynamic_core_1(void)
         .core = 1, .backing = BB_TASK_BACKING_DYNAMIC,
     };
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, &out));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, 0, &out));
     TEST_ASSERT_EQUAL_INT(1, out.core);
     TEST_ASSERT_EQUAL(BB_TASK_BACKING_DYNAMIC, out.backing);
 }
@@ -124,7 +126,7 @@ void test_bb_task_resolve_static_core_any(void)
         .stack_buf = stack, .tcb_buf = tcb,
     };
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, &out));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, 0, &out));
     TEST_ASSERT_EQUAL_INT(BB_TASK_CORE_ANY, out.core);
     TEST_ASSERT_EQUAL(BB_TASK_BACKING_STATIC, out.backing);
 }
@@ -139,7 +141,7 @@ void test_bb_task_resolve_static_core_0(void)
         .stack_buf = stack, .tcb_buf = tcb,
     };
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, &out));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, 0, &out));
     TEST_ASSERT_EQUAL_INT(0, out.core);
     TEST_ASSERT_EQUAL(BB_TASK_BACKING_STATIC, out.backing);
 }
@@ -154,7 +156,7 @@ void test_bb_task_resolve_static_core_1(void)
         .stack_buf = stack, .tcb_buf = tcb,
     };
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, &out));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, 0, &out));
     TEST_ASSERT_EQUAL_INT(1, out.core);
     TEST_ASSERT_EQUAL(BB_TASK_BACKING_STATIC, out.backing);
 }
@@ -171,7 +173,7 @@ void test_bb_task_resolve_clamps_core_on_unicore_target(void)
     };
     bb_task_resolved_t out;
     // num_cores=1 -- requested core 1 is out of range, clamps to ANY.
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 1, &out));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 1, 0, &out));
     TEST_ASSERT_EQUAL_INT(BB_TASK_CORE_ANY, out.core);
 }
 
@@ -182,7 +184,7 @@ void test_bb_task_resolve_core_any_never_clamped(void)
         .core = BB_TASK_CORE_ANY, .backing = BB_TASK_BACKING_DYNAMIC,
     };
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 1, &out));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 1, 0, &out));
     TEST_ASSERT_EQUAL_INT(BB_TASK_CORE_ANY, out.core);
 }
 
@@ -193,7 +195,7 @@ void test_bb_task_resolve_core_in_range_not_clamped(void)
         .core = 1, .backing = BB_TASK_BACKING_DYNAMIC,
     };
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, &out));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, 0, &out));
     TEST_ASSERT_EQUAL_INT(1, out.core);
 }
 
@@ -208,8 +210,166 @@ void test_bb_task_resolve_stack_bytes_passthrough_unchanged(void)
         .core = BB_TASK_CORE_ANY, .backing = BB_TASK_BACKING_DYNAMIC,
     };
     bb_task_resolved_t out;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 1, &out));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 1, 0, &out));
     TEST_ASSERT_EQUAL_UINT32(8192, out.stack_bytes);
+}
+
+// ---------------------------------------------------------------------------
+// bb_task_resolve — core-claim validation + steering (B1-1364 PR2). Asserted
+// THROUGH bb_task_resolve() (not by calling bb_wdt_steer_core() directly) --
+// proves the wiring, not just the pure evaluators it's built from.
+//
+// Purity restored (B1-1356): bb_task_resolve() no longer reads bb_wdt's
+// live claimed-core state itself -- the mask is passed in directly as
+// `claimed_core_mask`, so these tests construct the mask literal rather
+// than calling bb_wdt_claim_core()/bb_wdt_test_reset() to mutate bb_wdt's
+// global state first. This makes the tests order-independent (no shared
+// global to reset between them) and proves bb_task_resolve()'s steering
+// decision as a pure function of its arguments.
+// ---------------------------------------------------------------------------
+
+void test_bb_task_resolve_core_owning_with_core_any_returns_invalid_arg(void)
+{
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "t", .stack_bytes = 2048,
+        .core = BB_TASK_CORE_ANY, .core_owning = true,
+        .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    bb_task_resolved_t out;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(&cfg, 2, 0, &out));
+}
+
+// Two-owner rejection (B1-1364 PR3): bb_wdt's claim bitmask has no
+// per-owner refcount, so a second core_owning=true request targeting an
+// already-claimed core must be rejected HERE, at resolve time -- not
+// silently accepted and left to eventually un-claim the first owner's
+// idle-check excuse when either task deregisters (see bb_wdt.h's
+// core-claim mechanism doc).
+void test_bb_task_resolve_core_owning_already_claimed_core_returns_invalid_arg(void)
+{
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "t", .stack_bytes = 2048,
+        .core = 1, .core_owning = true, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    bb_task_resolved_t out;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_resolve(&cfg, 2, (1U << 1), &out));
+}
+
+// A non-owning request targeting the same core is unaffected -- rejection
+// applies only to a conflicting OWNING claim, not to an explicit
+// (non-owning) pin sharing a core with an owner.
+void test_bb_task_resolve_non_owning_pin_on_claimed_core_still_resolves(void)
+{
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "t", .stack_bytes = 2048,
+        .core = 1, .core_owning = false, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    bb_task_resolved_t out;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, (1U << 1), &out));
+    TEST_ASSERT_EQUAL_INT(1, out.core);
+}
+
+// A second owning claim on the OTHER (unclaimed) core is unaffected.
+void test_bb_task_resolve_core_owning_different_core_still_resolves(void)
+{
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "t", .stack_bytes = 2048,
+        .core = 0, .core_owning = true, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    bb_task_resolved_t out;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, (1U << 1), &out));
+    TEST_ASSERT_EQUAL_INT(0, out.core);
+}
+
+void test_bb_task_resolve_steers_around_claimed_core0(void)
+{
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "t", .stack_bytes = 2048,
+        .core = BB_TASK_CORE_ANY, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    bb_task_resolved_t out;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, (1U << 0), &out));
+    TEST_ASSERT_EQUAL_INT(1, out.core);
+}
+
+void test_bb_task_resolve_steers_around_claimed_core1(void)
+{
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "t", .stack_bytes = 2048,
+        .core = BB_TASK_CORE_ANY, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    bb_task_resolved_t out;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, (1U << 1), &out));
+    TEST_ASSERT_EQUAL_INT(0, out.core);
+}
+
+void test_bb_task_resolve_explicit_pin_not_steered_even_if_claimed(void)
+{
+    // An explicit pin always wins over steering, even onto a core another
+    // task already claims.
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "t", .stack_bytes = 2048,
+        .core = 0, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    bb_task_resolved_t out;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, (1U << 0), &out));
+    TEST_ASSERT_EQUAL_INT(0, out.core);
+}
+
+// The next two tests assert the net OUTPUT only (out.core stays
+// BB_TASK_CORE_ANY) -- that result is identical whether bb_wdt_steer_core()
+// was called and returned its input unchanged, or was never called at all.
+// They do NOT prove bb_task_resolve() reached the steering call for these
+// mask values; that reachability is proven by the two positive-steering
+// tests above (test_bb_task_resolve_steers_around_claimed_core0/1), where
+// an unsteered result would fail the assertion.
+void test_bb_task_resolve_both_cores_claimed_does_not_steer(void)
+{
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "t", .stack_bytes = 2048,
+        .core = BB_TASK_CORE_ANY, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    bb_task_resolved_t out;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, (1U << 0) | (1U << 1), &out));
+    TEST_ASSERT_EQUAL_INT(BB_TASK_CORE_ANY, out.core);
+}
+
+void test_bb_task_resolve_no_claims_does_not_steer(void)
+{
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "t", .stack_bytes = 2048,
+        .core = BB_TASK_CORE_ANY, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    bb_task_resolved_t out;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, 0, &out));
+    TEST_ASSERT_EQUAL_INT(BB_TASK_CORE_ANY, out.core);
+}
+
+void test_bb_task_resolve_core_owning_degrades_to_noop_on_unicore(void)
+{
+    // core_owning + an explicit core outside num_cores is degraded to
+    // BB_TASK_CORE_ANY by the existing unicore clamp, same as a plain
+    // (non-owning) out-of-range pin -- no new failure mode.
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "t", .stack_bytes = 2048,
+        .core = 1, .core_owning = true, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    bb_task_resolved_t out;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 1, 0, &out));
+    TEST_ASSERT_EQUAL_INT(BB_TASK_CORE_ANY, out.core);
+}
+
+void test_bb_task_resolve_core_owning_in_range_core_unaffected_by_unicore_clamp(void)
+{
+    // On a unicore target, core_owning targeting the one core that DOES
+    // exist (core 0) is a real (not degraded) claim.
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "t", .stack_bytes = 2048,
+        .core = 0, .core_owning = true, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    bb_task_resolved_t out;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 1, 0, &out));
+    TEST_ASSERT_EQUAL_INT(0, out.core);
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +471,59 @@ void test_bb_task_base_set_free_bytes_unregistered_returns_not_found(void)
     bb_task_base_test_reset();
     int fake;
     TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_task_base_set_free_bytes(&fake, 100));
+}
+
+typedef struct {
+    void     *target;
+    int       core;
+    bool      core_owning;
+    uint32_t  seen_tick;
+    bool      found;
+} core_owning_find_ctx_t;
+
+static void core_owning_find_by_handle_cb(void *handle, const bb_task_base_entry_t *entry, void *ctx)
+{
+    core_owning_find_ctx_t *scan = (core_owning_find_ctx_t *)ctx;
+    if (handle == scan->target) {
+        scan->found       = true;
+        scan->core        = entry->core;
+        scan->core_owning = entry->core_owning;
+        scan->seen_tick   = entry->seen_tick;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// bb_task_base_set_core_owning (B1-1364 PR2)
+// ---------------------------------------------------------------------------
+
+void test_bb_task_base_set_core_owning_null_handle_returns_invalid_arg(void)
+{
+    bb_task_base_test_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_base_set_core_owning(NULL, 0, true));
+}
+
+void test_bb_task_base_set_core_owning_unregistered_returns_not_found(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_task_base_set_core_owning(&fake, 0, true));
+}
+
+void test_bb_task_base_set_core_owning_updates_fields_not_others(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&fake, "worker", 512, true));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_touch(&fake, 7));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_set_core_owning(&fake, 1, true));
+
+    core_owning_find_ctx_t scan = { .target = &fake };
+    bb_task_base_foreach(core_owning_find_by_handle_cb, &scan);
+    TEST_ASSERT_TRUE(scan.found);
+    TEST_ASSERT_EQUAL_INT(1, scan.core);
+    TEST_ASSERT_TRUE(scan.core_owning);
+    // seen_tick (set by the touch() call above) must be untouched.
+    TEST_ASSERT_EQUAL_UINT32(7, scan.seen_tick);
 }
 
 typedef struct {
@@ -813,6 +1026,145 @@ void test_bb_task_deregister_null_returns_invalid_arg(void)
 {
     bb_task_base_test_reset();
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_deregister(NULL));
+}
+
+// ---------------------------------------------------------------------------
+// bb_task_create / bb_task_deregister — core-claim wiring (B1-1364 PR2).
+// The host stub resolves against num_cores == 1 (see bb_task_host.c), so
+// core 0 is a real (claimable) core and core 1 is not.
+// ---------------------------------------------------------------------------
+
+void test_bb_task_create_core_owning_claims_and_deregister_releases(void)
+{
+    bb_task_base_test_reset();
+    bb_wdt_test_reset();
+
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "owner", .stack_bytes = 2048,
+        .core = 0, .core_owning = true, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    void *handle = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_create(&cfg, &handle));
+    TEST_ASSERT_NOT_NULL(handle);
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_claimed_core_mask());
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_deregister(handle));
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_claimed_core_mask());
+
+    bb_wdt_test_reset();
+}
+
+// Two-owner rejection through the full bb_task_create() path (B1-1364 PR3,
+// Finding 2): a second core_owning=true request targeting a core another
+// live task already owns is rejected -- proving the guard fires from the
+// real create() entry point, not only through bb_task_resolve() directly.
+// The first owner's claim (and base registry entry) is left completely
+// untouched by the rejected second attempt.
+void test_bb_task_create_second_owning_claim_on_same_core_rejected(void)
+{
+    bb_task_base_test_reset();
+    bb_wdt_test_reset();
+
+    bb_task_config_t cfg1 = {
+        .entry = noop_entry, .name = "owner1", .stack_bytes = 2048,
+        .core = 0, .core_owning = true, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    void *handle1 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_create(&cfg1, &handle1));
+    TEST_ASSERT_NOT_NULL(handle1);
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_claimed_core_mask());
+
+    bb_task_config_t cfg2 = {
+        .entry = noop_entry, .name = "owner2", .stack_bytes = 2048,
+        .core = 0, .core_owning = true, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    void *handle2 = NULL;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_create(&cfg2, &handle2));
+    TEST_ASSERT_NULL(handle2);
+    // First owner's claim is completely unaffected by the rejected second
+    // attempt -- still exactly one bit set.
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_claimed_core_mask());
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_deregister(handle1));
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_claimed_core_mask());
+
+    bb_wdt_test_reset();
+}
+
+void test_bb_task_create_core_owning_degrades_to_noop_claim_on_unicore(void)
+{
+    bb_task_base_test_reset();
+    bb_wdt_test_reset();
+
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "owner2", .stack_bytes = 2048,
+        .core = 1, .core_owning = true, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    void *handle = NULL;
+    // core 1 does not exist on the host's simulated 1-core target --
+    // bb_task_resolve()'s unicore clamp degrades this to BB_TASK_CORE_ANY,
+    // so bb_task_create() must never call bb_wdt_claim_core() here.
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_create(&cfg, &handle));
+    TEST_ASSERT_NOT_NULL(handle);
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_claimed_core_mask());
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_deregister(handle));
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_claimed_core_mask());
+
+    bb_wdt_test_reset();
+}
+
+void test_bb_task_deregister_non_owning_task_does_not_touch_wdt(void)
+{
+    bb_task_base_test_reset();
+    bb_wdt_test_reset();
+
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "plain", .stack_bytes = 2048,
+        .core = BB_TASK_CORE_ANY, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    void *handle = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_create(&cfg, &handle));
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_claimed_core_mask());
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_deregister(handle));
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_claimed_core_mask());
+}
+
+// Finding 2 (B1-1364 PR3 third-round review): a base-registry-full
+// bb_task_base_upsert() failure must not leak the bb_wdt claim already
+// taken above it -- bb_task_deregister() can never find an unregistered
+// handle to release later (it looks the handle up in the same registry
+// bb_task_base_upsert() failed to insert into). Task creation itself still
+// succeeds (BB_OK, non-NULL handle) -- only the diagnostics registry entry
+// and the WDT claim are affected.
+void test_bb_task_create_core_owning_releases_claim_when_base_registry_full(void)
+{
+    bb_task_base_test_reset();
+    bb_wdt_test_reset();
+
+    // CONFIG_BB_TASK_BASE_MAX pinned to 8 for host tests (platformio.ini) --
+    // fill every slot with unrelated (non-owning) entries first.
+    int fillers[8];
+    for (int i = 0; i < 8; i++) {
+        TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&fillers[i], "filler", 1, false));
+    }
+
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "owner", .stack_bytes = 2048,
+        .core = 0, .core_owning = true, .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    void *handle = NULL;
+    // bb_task_create() still succeeds -- the host fake-handle path already
+    // ran before the base-registry upsert is attempted -- but the registry
+    // is full, so bb_task_base_upsert() returns BB_ERR_NO_SPACE and the
+    // claim taken above must be released rather than leaked.
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_create(&cfg, &handle));
+    TEST_ASSERT_NOT_NULL(handle);
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_claimed_core_mask());
+
+    bb_task_base_test_reset();
+    bb_wdt_test_reset();
 }
 
 // ---------------------------------------------------------------------------

@@ -126,13 +126,38 @@ bool bb_wdt_park_wait(bool (*try_wait)(void *ctx, uint32_t ms),
  *
  * Claims ACCUMULATE into an internal bitmask -- idle-check suppression is
  * not an exclusive resource, so claiming an already-claimed core (by the
- * same or a different caller) is an idempotent success, never a conflict.
+ * same or a different caller) is an idempotent success at THIS layer, never
+ * a conflict: bb_wdt_claim_core()/bb_wdt_release_core() have no per-owner
+ * refcount, only a single shared bit per core, so a second claim on a core
+ * is indistinguishable from a re-claim by the same owner, and a release
+ * unconditionally clears the bit regardless of how many owners claimed it.
  * Every reconfigure (bb_wdt_set_timeout(), bb_wdt_claim_core(),
  * bb_wdt_release_core()) computes `kconfig_default_mask | claimed_mask` --
  * the claim only ever ADDS an excused core, never removes a check the board
  * owner asked for via Kconfig on an unclaimed core. claim/release each
  * trigger their own reconfigure, so there is no observable
  * "declared but not applied" window.
+ *
+ * Exclusivity of OWNERSHIP (as opposed to idle-check suppression) is
+ * enforced ATOMICALLY by bb_wdt_claim_core_exclusive() below (B1-1364
+ * PR3-fix): it checks-and-sets the claimed-core bit under bb_wdt's own
+ * lock, so two concurrent core_owning==true bb_task_create() calls
+ * targeting the same core can never both succeed -- exactly one gets
+ * BB_OK, the other BB_ERR_INVALID_STATE. bb_task_resolve() (B1-1364 PR3)
+ * ALSO rejects a cfg->core_owning == true request targeting a core already
+ * present in the `claimed_core_mask` snapshot passed to it, with
+ * BB_ERR_INVALID_ARG -- but that snapshot is read by the caller (the
+ * platform creation shell) before bb_task_resolve() runs and can go stale
+ * before the shell reaches the real claim call, so this is a FAST PATH /
+ * early error only (avoids the cost of resolving + attempting creation for
+ * the common, non-racing case), never the enforcement mechanism itself.
+ * The platform creation shells call bb_wdt_claim_core_exclusive() (never
+ * plain bb_wdt_claim_core()) for a core_owning==true request precisely so
+ * the real exclusivity guarantee holds even when two creations race.
+ * bb_wdt_claim_core() itself stays permissive (accumulate, not reject) for
+ * non-exclusive callers -- it has no notion of "owner" at all, only
+ * "claimed" -- callers that bypass bb_task_create() and call
+ * bb_wdt_claim_core() directly are NOT protected by either check.
  *
  * Ordering requirement: a core-owning (pinned) task must be CREATED --
  * i.e. bb_wdt_claim_core() must have already been called -- BEFORE any
@@ -169,6 +194,23 @@ bool bb_wdt_park_wait(bool (*try_wait)(void *ctx, uint32_t ms),
  * Returns BB_OK, or BB_ERR_INVALID_ARG if core is not 0 or 1.
  */
 bb_err_t bb_wdt_claim_core(int core);
+
+/*
+ * Atomically claim `core` (0 or 1) EXCLUSIVELY: under bb_wdt's own lock,
+ * checks whether `core` is already claimed and, only if not, sets the bit
+ * and returns BB_OK -- all as a single critical section, so two concurrent
+ * callers targeting the same core can never both succeed. Returns
+ * BB_ERR_INVALID_STATE if `core` is already claimed (by this or any other
+ * caller), or BB_ERR_INVALID_ARG if core is not 0 or 1. Triggers an
+ * immediate reconfigure with the updated mask on success only.
+ *
+ * This is the primitive an exclusive OWNER (as opposed to a plain
+ * idle-check-suppression claim via bb_wdt_claim_core()) must call --
+ * bb_task_create()'s creation shells use this for cfg->core_owning == true
+ * requests. See the "Exclusivity of OWNERSHIP" note above for why the
+ * resolve-time bb_task_resolve() check alone is not sufficient.
+ */
+bb_err_t bb_wdt_claim_core_exclusive(int core);
 
 /*
  * Release a previous claim on `core` (0 or 1). Tolerant: returns BB_OK if

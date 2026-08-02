@@ -52,6 +52,40 @@ bb_err_t bb_wdt_claim_core(int core)
     return BB_OK;
 }
 
+bb_err_t bb_wdt_claim_core_exclusive(int core)
+{
+    if (core != 0 && core != 1) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    bb_err_t lock_rc = ensure_lock();
+    // LCOV_EXCL_START -- see bb_wdt_claim_core()'s identical rationale.
+    if (lock_rc != BB_OK) {
+        return lock_rc;
+    }
+    // LCOV_EXCL_STOP
+    bb_lock_lock(&s_lock);
+    uint32_t bit = (1U << (uint32_t)core);
+    // Check-and-set under the SAME critical section -- this is what makes
+    // the claim exclusive: bb_wdt_claim_core()'s accumulate semantics OR
+    // the bit in unconditionally, so a check performed by a caller BEFORE
+    // taking this lock (e.g. bb_task_resolve()'s claimed_core_mask
+    // snapshot) can never be trusted alone -- two callers could both pass
+    // that check and both reach here. Only one of them observes the bit
+    // still clear inside this lock.
+    if ((s_claimed_mask & bit) != 0U) {
+        bb_lock_unlock(&s_lock);
+        return BB_ERR_INVALID_STATE;
+    }
+    s_claimed_mask |= bit;
+    bb_lock_unlock(&s_lock);
+
+    // Reapply runs OUTSIDE the critical section -- same convergence (not
+    // atomicity) rationale as bb_wdt_claim_core() above.
+    bb_wdt_priv_reapply();
+    return BB_OK;
+}
+
 bb_err_t bb_wdt_release_core(int core)
 {
     if (core != 0 && core != 1) {

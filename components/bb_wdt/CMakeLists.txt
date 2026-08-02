@@ -6,5 +6,5 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}"
     REQUIRES bb_core
-    PRIV_REQUIRES bb_log esp_system freertos
+    PRIV_REQUIRES esp_system freertos
 )

@@ -277,6 +277,77 @@ void test_bb_wdt_release_core_invalid_arg(void)
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_wdt_release_core(3));
 }
 
+/* -------------------------------------------------------------------------
+ * bb_wdt_claim_core_exclusive: atomic check-and-set (B1-1364 PR3-fix,
+ * TOCTOU-race Finding 1). Real interleaved concurrency is NOT
+ * host-reproducible (host tests are single-threaded) -- these tests drive
+ * the atomic primitive's own reject path directly (a pre-set mask standing
+ * in for "a competing claim already landed") rather than exercising a true
+ * concurrent race; see bb_wdt.h for the full rationale.
+ * ---------------------------------------------------------------------- */
+
+void test_bb_wdt_claim_core_exclusive_sets_bit_on_first_claim(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core_exclusive(0));
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_claimed_core_mask());
+}
+
+void test_bb_wdt_claim_core_exclusive_1_sets_bit_on_first_claim(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core_exclusive(1));
+    TEST_ASSERT_EQUAL_UINT32(1U << 1, bb_wdt_claimed_core_mask());
+}
+
+// Delete-the-call proof target: this is the reject path that a non-atomic
+// (or always-succeeding) implementation would fail to produce.
+void test_bb_wdt_claim_core_exclusive_rejects_already_claimed(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core_exclusive(0));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, bb_wdt_claim_core_exclusive(0));
+    /* the losing call must not have altered the mask. */
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_claimed_core_mask());
+}
+
+void test_bb_wdt_claim_core_exclusive_rejects_claimed_via_plain_claim(void)
+{
+    /* a core claimed through the plain (non-exclusive)
+     * bb_wdt_claim_core() -- e.g. by a caller that bypasses
+     * bb_task_create() -- is still seen by the exclusive path: both share
+     * the same underlying bitmask. */
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(1));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, bb_wdt_claim_core_exclusive(1));
+    TEST_ASSERT_EQUAL_UINT32(1U << 1, bb_wdt_claimed_core_mask());
+}
+
+void test_bb_wdt_claim_core_exclusive_other_core_still_succeeds(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core_exclusive(0));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core_exclusive(1));
+    TEST_ASSERT_EQUAL_UINT32((1U << 0) | (1U << 1), bb_wdt_claimed_core_mask());
+}
+
+void test_bb_wdt_claim_core_exclusive_invalid_arg(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_wdt_claim_core_exclusive(2));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_wdt_claim_core_exclusive(-2));
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_claimed_core_mask());
+}
+
+void test_bb_wdt_claim_core_exclusive_after_release_succeeds_again(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core_exclusive(0));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_release_core(0));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core_exclusive(0));
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_claimed_core_mask());
+}
+
 void test_bb_wdt_test_reset_clears_claims(void)
 {
     bb_wdt_test_reset();
