@@ -1132,5 +1132,91 @@ class TestPioMain(unittest.TestCase):
             self.assertEqual(env.exited_with, 1)
 
 
+def _real_bb_data_max_bindings() -> int:
+    """Reads the REAL, committed `BB_DATA_MAX_BINDINGS` value from this
+    checkout's own `components/bb_data/include/bb_data.h` -- the same file
+    `pio_main`'s own `bb_root` derivation (`_THIS_DIR/../../../`) resolves
+    to, since this test file and `commands/codegen.py` are siblings under
+    `scripts/bbtool/`. Read dynamically rather than hardcoded so this test
+    never silently stops testing the over-cap path if the real constant is
+    ever raised/lowered."""
+    bb_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    header = os.path.join(bb_root, "components", "bb_data", "include", "bb_data.h")
+    with open(header, "r", encoding="utf-8") as f:
+        for line in f:
+            stripped = line.strip()
+            if stripped.startswith("#define"):
+                parts = stripped.split()
+                if len(parts) >= 3 and parts[1] == "BB_DATA_MAX_BINDINGS":
+                    return int(parts[2])
+    raise AssertionError(f"{header}: no BB_DATA_MAX_BINDINGS #define found")
+
+
+class TestBindsDataCapIntegration(unittest.TestCase):
+    """MEDIUM 2: proves `check_binds_data_cap` is actually WIRED into both
+    CLI entry points (`run()`/`pio_main()`), not merely unit-testable in
+    isolation against a hand-built `ordered`/`roots` -- the exact defect
+    class this whole epic exists to fix (an unwired guard that every
+    direct-call test still passes). Each test below was manually verified
+    to FAIL when its corresponding call-site line is removed from
+    `commands/codegen.py` (see the session report for the verbatim
+    failures); this class stays as the regression pin for that wiring."""
+
+    def _binders_header(self, count: int) -> str:
+        body = "#pragma once\n"
+        for i in range(count):
+            body += (
+                f"// bbtool:init tier=regular fn=bb_binder_{i}_init binds_data=true\n"
+                f"bb_err_t bb_binder_{i}_init(void);\n"
+            )
+        return body
+
+    def test_run_propagates_over_cap_wire_error_as_exit_1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cap = 2
+            _make_component(root, "bb_binders", self._binders_header(cap + 1))
+            _write(
+                root / "components" / "bb_data" / "include" / "bb_data.h",
+                f"#pragma once\n#define BB_DATA_MAX_BINDINGS {cap}\n",
+            )
+            components_out = str(root / "out" / "bb_autowire_components.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components="bb_binders",
+                platform="espidf", components_out=components_out, wire_out=wire_out,
+            )
+            out_buf, err_buf = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+                rc = run(args)
+            self.assertEqual(rc, 1)
+            self.assertIn("binds_data=true", err_buf.getvalue())
+            self.assertIn("BB_DATA_MAX_BINDINGS", err_buf.getvalue())
+
+    def test_pio_main_propagates_over_cap_wire_error_as_exit_1(self):
+        """Relies on THIS checkout's real `components/bb_data/include/
+        bb_data.h` (`pio_main`'s own `bb_root` always resolves there --
+        see `_real_bb_data_max_bindings`'s docstring), so no fixture
+        bb_data.h is written here -- proves the wiring against the real
+        header path, not a synthetic stand-in."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "consumer"
+            extra = Path(tmp) / "extra"
+            _write(root / ".keep", "")
+            cap = _real_bb_data_max_bindings()
+            _make_component(extra, "bb_pio_binders", self._binders_header(cap + 1))
+            rel = os.path.relpath(str(extra), str(root))
+            config = {
+                "discovery": {"extra_roots": [rel]},
+                "capability": {},
+                "board": {"native": {"platform": "host", "add_components": ["bb_pio_binders"]}},
+            }
+            env = _FakeEnv()
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                pio_main(env, str(root), "native", config)
+            self.assertEqual(env.exited_with, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

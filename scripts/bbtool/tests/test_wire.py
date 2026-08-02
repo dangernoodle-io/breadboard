@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 from commands.wire import (
     WireError,
     _component_headers,
+    check_binds_data_cap,
     collect_entries,
     collect_manifest_entries,
     collect_provides_entries,
@@ -1535,6 +1536,197 @@ class TestWildcardLastByteStability(unittest.TestCase):
             entries = collect_entries(str(root), ["bb_provider", "bb_wifi_prov"], "espidf")
             source = render_source(topo_sort(entries))
             self.assertNotIn("wildcard", source)
+
+
+def _write_bb_data_header(root: Path, max_bindings) -> None:
+    """Writes a fixture `components/bb_data/include/bb_data.h` -- the real
+    header `check_binds_data_cap` locates by convention (mirrors the real
+    `components/bb_data/include/bb_data.h`'s `#define
+    BB_DATA_MAX_BINDINGS N` shape). `max_bindings=None` writes a header
+    with NO such #define at all (parse-failure fixture)."""
+    body = "#pragma once\n"
+    if max_bindings is not None:
+        body += f"#define BB_DATA_MAX_BINDINGS {max_bindings}\n"
+    _write(root / "components" / "bb_data" / "include" / "bb_data.h", body)
+
+
+def _fixture_root_with_binds_data(tmp: str, count: int) -> Path:
+    """A synthetic component whose header carries `count` `// bbtool:init`
+    markers, each opted into `binds_data=true` -- none of which is a real
+    bb_data self-bind (this PR is tooling-only, no C changes), purely to
+    exercise `check_binds_data_cap`'s counting/error-naming."""
+    root = Path(tmp)
+    body = "#pragma once\n"
+    for i in range(count):
+        body += (
+            f"// bbtool:init tier=regular fn=bb_binder_{i}_init binds_data=true\n"
+            f"bb_err_t bb_binder_{i}_init(void);\n"
+        )
+    _make_component(root, "bb_binders", body)
+    return root
+
+
+class TestBindsDataCap(unittest.TestCase):
+    """binds_data=true marker + codegen-time cap check (tooling-only PR --
+    no real component carries this marker yet; see module docstring)."""
+
+    def test_count_under_cap_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_binds_data(tmp, count=1)
+            _write_bb_data_header(root, max_bindings=2)
+            entries = collect_entries(str(root), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            check_binds_data_cap(ordered, [str(root)])  # must not raise
+
+    def test_count_over_cap_hard_errors_naming_both_file_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_binds_data(tmp, count=2)
+            _write_bb_data_header(root, max_bindings=1)
+            entries = collect_entries(str(root), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                check_binds_data_cap(ordered, [str(root)])
+            message = str(ctx.exception)
+            self.assertIn("fn=bb_binder_0_init", message)
+            self.assertIn("fn=bb_binder_1_init", message)
+            self.assertIn("bb_binders.h:", message)
+            # Exact, transposition-proof phrasing (LOW 4) -- assertIn("2", ...)
+            # / assertIn("1", ...) alone would still pass with count and cap
+            # swapped, since the message also contains fn=bb_binder_1_init
+            # and a bb_binders.h:<line> reference.
+            self.assertIn("2 entries carry 'binds_data=true'", message)
+            self.assertIn("BB_DATA_MAX_BINDINGS is 1", message)
+
+    def test_cap_not_found_fails_loudly(self):
+        """No components/bb_data/include/bb_data.h anywhere under roots --
+        the check must hard-error, never silently skip."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_binds_data(tmp, count=1)
+            entries = collect_entries(str(root), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                check_binds_data_cap(ordered, [str(root)])
+            message = str(ctx.exception)
+            self.assertIn("BB_DATA_MAX_BINDINGS", message)
+            self.assertIn("could not find", message)
+
+    def test_cap_present_but_unparseable_fails_loudly(self):
+        """bb_data.h exists but has no #define BB_DATA_MAX_BINDINGS line at
+        all -- also a hard error, never a silent skip."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_binds_data(tmp, count=1)
+            _write_bb_data_header(root, max_bindings=None)
+            entries = collect_entries(str(root), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                check_binds_data_cap(ordered, [str(root)])
+            message = str(ctx.exception)
+            self.assertIn("BB_DATA_MAX_BINDINGS", message)
+            self.assertIn("none contained a parseable", message)
+
+    def test_binds_data_absent_is_a_noop_even_with_no_bb_data_header(self):
+        """No entry carries binds_data=true -- the check must never even
+        attempt the header lookup, so a tree with no bb_data component at
+        all (or no components/bb_data/include/bb_data.h) is unaffected --
+        this PR is deliberately inert everywhere until a real marker opts
+        in."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            entries = collect_entries(str(root), ["bb_log", "bb_meminfo"], "espidf")
+            ordered = topo_sort(entries)
+            check_binds_data_cap(ordered, [str(root)])  # must not raise
+
+    def test_multi_root_falls_back_past_unparseable_header(self):
+        """MEDIUM 1: a FIRST root whose bb_data.h exists but lacks the
+        #define must NOT abort the search -- a later root with a real,
+        parseable header must still be consulted and used."""
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            root1 = Path(tmp1)
+            _write_bb_data_header(root1, max_bindings=None)  # stripped/WIP copy
+            root2 = _fixture_root_with_binds_data(tmp2, count=1)
+            _write_bb_data_header(root2, max_bindings=2)  # the real one
+            entries = collect_entries(str(root2), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            check_binds_data_cap(ordered, [str(root1), str(root2)])  # must not raise
+
+    def test_multi_root_all_unparseable_names_every_path_tried(self):
+        """Every root has a bb_data.h, none has a parseable #define -- the
+        error must name every path tried (not just the first), and must be
+        the distinct "found but unparseable" message, not the "not found at
+        all" one."""
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            root1 = Path(tmp1)
+            root2 = _fixture_root_with_binds_data(tmp2, count=1)
+            _write_bb_data_header(root1, max_bindings=None)
+            _write_bb_data_header(root2, max_bindings=None)
+            entries = collect_entries(str(root2), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                check_binds_data_cap(ordered, [str(root1), str(root2)])
+            message = str(ctx.exception)
+            self.assertIn("none contained a parseable", message)
+            self.assertIn(str(root1), message)
+            self.assertIn(str(root2), message)
+            self.assertNotIn("could not find", message)
+
+    def test_non_integer_define_value_single_root_fails_loudly(self):
+        """A #define BB_DATA_MAX_BINDINGS present but with a non-integer
+        value (e.g. a typo/placeholder) must fail loudly, naming the path
+        and indicating the value could not be parsed -- never miscounted,
+        never silently skipped."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_binds_data(tmp, count=1)
+            _write_bb_data_header(root, max_bindings="NOTANUMBER")
+            entries = collect_entries(str(root), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                check_binds_data_cap(ordered, [str(root)])
+            message = str(ctx.exception)
+            self.assertIn(str(root), message)
+            self.assertIn("NOTANUMBER", message)
+            self.assertIn("not an integer", message)
+
+    def test_non_integer_define_value_multi_root_falls_back_to_valid(self):
+        """Reproduces the residual finding: root1's #define value fails to
+        parse as an integer -- this must NOT abort the search. root2's
+        valid #define must still be consulted and used."""
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            root1 = Path(tmp1)
+            _write_bb_data_header(root1, max_bindings="NOTANUMBER")
+            root2 = _fixture_root_with_binds_data(tmp2, count=1)
+            _write_bb_data_header(root2, max_bindings=2)
+            entries = collect_entries(str(root2), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            check_binds_data_cap(ordered, [str(root1), str(root2)])  # must not raise
+
+    def test_hex_define_value_multi_root_falls_back_to_valid(self):
+        """Hex-valued #define (e.g. 0x8) fails int() the same way a
+        non-numeric value does (int("0x8") raises ValueError) -- so it
+        must be treated identically: continue-then-aggregate, never an
+        abort that masks a valid define at a later root, and never a
+        silent miscount."""
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            root1 = Path(tmp1)
+            _write_bb_data_header(root1, max_bindings="0x8")
+            root2 = _fixture_root_with_binds_data(tmp2, count=1)
+            _write_bb_data_header(root2, max_bindings=2)
+            entries = collect_entries(str(root2), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            check_binds_data_cap(ordered, [str(root1), str(root2)])  # must not raise
+
+    def test_hex_define_value_single_root_fails_loudly(self):
+        """A hex-only bb_data.h (no other root) must still fail loudly,
+        never silently miscounted as 0 or skipped."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_binds_data(tmp, count=1)
+            _write_bb_data_header(root, max_bindings="0x8")
+            entries = collect_entries(str(root), ["bb_binders"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                check_binds_data_cap(ordered, [str(root)])
+            message = str(ctx.exception)
+            self.assertIn("0x8", message)
+            self.assertIn("not an integer", message)
 
 
 if __name__ == "__main__":

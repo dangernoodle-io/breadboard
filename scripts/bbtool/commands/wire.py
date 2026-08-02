@@ -169,6 +169,130 @@ class WireError(Exception):
     mis-tiered http_server provider)."""
 
 
+# B1-828-adjacent: bb_data_bind()'s runtime table is fixed-size
+# (BB_DATA_MAX_BINDINGS, defined in components/bb_data/include/bb_data.h).
+# A bind past that cap fails at RUNTIME -- silently, for at least one known
+# failure mode (see the "binds_data=true" grammar docstring in wire_parse.py)
+# -- so `check_binds_data_cap` below makes an over-cap composition a
+# codegen-time hard error instead, the moment enough resolved entries opt
+# into `binds_data=true` to name it.
+_BB_DATA_HEADER_REL = os.path.join("components", "bb_data", "include", "bb_data.h")
+_BB_DATA_MAX_BINDINGS_DEFINE = "BB_DATA_MAX_BINDINGS"
+
+
+def _find_bb_data_max_bindings(roots) -> int:
+    """Locates `components/bb_data/include/bb_data.h` under `roots` and
+    parses its `#define BB_DATA_MAX_BINDINGS <N>` line. Checks EVERY root
+    that has the header before giving up -- a root whose copy exists but
+    lacks (no matching #define at all) OR can't parse (a #define present
+    with a non-integer value, e.g. a typo, a placeholder, or a hex literal
+    like `0x8` -- `int()` rejects a `0x` prefix without an explicit base,
+    same as any other non-decimal text) does NOT abort the search; the next
+    root is still consulted (a multi-root consumer with `[discovery]
+    extra_roots` may legitimately have a stripped/WIP copy shadowing the
+    real one at another root). FAILS LOUDLY (WireError) only once every
+    root has been tried and none yielded a value -- a guard that silently
+    disables itself when it cannot find its own threshold is exactly the
+    defect class this check exists to prevent (never a fail-soft/"skip the
+    check" path, and never a miscount from treating an unparseable value as
+    0 or ignoring it). The two top-level failure modes are kept
+    distinguishable in the message -- "no root had the header at all" vs.
+    "header(s) found but none contained a parseable #define", each naming
+    the paths tried -- since they point at different fixes (root config vs.
+    header content); within the second mode, each path's own failure
+    reason (missing #define vs. present-but-unparseable, with the offending
+    value) is also named, since those are different mistakes too.
+
+    **Known limitation (no preprocessor, by design):** this is a raw-text
+    grep, same posture as `wire_parse.py`'s marker scan ("No preprocessor
+    is involved"). A `#define BB_DATA_MAX_BINDINGS N` sitting inside a
+    `/* ... */` block comment or a disabled `#if 0 ... #endif` region is
+    matched as if live -- there is no comment/conditional-compilation
+    awareness here, intentionally, mirroring the rest of this grep-time
+    tool."""
+    roots_list = normalize_roots(roots)
+    header_paths_found = []
+    failure_details = []
+    for root in roots_list:
+        header_path = os.path.join(root, _BB_DATA_HEADER_REL)
+        if not os.path.isfile(header_path):
+            continue
+        header_paths_found.append(header_path)
+        found_define = False
+        with open(header_path, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped.startswith("#define"):
+                    continue
+                parts = stripped.split()
+                if len(parts) >= 3 and parts[1] == _BB_DATA_MAX_BINDINGS_DEFINE:
+                    found_define = True
+                    try:
+                        return int(parts[2])
+                    except ValueError:
+                        failure_details.append(
+                            f"{header_path}: '#define {_BB_DATA_MAX_BINDINGS_DEFINE}' "
+                            f"value '{parts[2]}' is not an integer"
+                        )
+                    break
+        if not found_define:
+            # This root's header exists but had no matching #define at all
+            # -- keep searching the remaining roots rather than aborting
+            # here; recorded below so the aggregate error still names why
+            # THIS particular root failed.
+            failure_details.append(
+                f"{header_path}: no '#define {_BB_DATA_MAX_BINDINGS_DEFINE} <N>' line found"
+            )
+        # A present-but-unparseable #define also falls through to here --
+        # keep searching the remaining roots rather than aborting on the
+        # first bad value (same posture as the missing-#define case above).
+
+    if header_paths_found:
+        raise WireError(
+            f"found {_BB_DATA_HEADER_REL} at "
+            f"({', '.join(header_paths_found)}) but none contained a "
+            f"parseable '#define {_BB_DATA_MAX_BINDINGS_DEFINE} <N>' line "
+            f"-- cannot enforce the bb_data binding cap without a real "
+            f"threshold (refusing to silently skip the check); per-path "
+            f"detail: {'; '.join(failure_details)}"
+        )
+    raise WireError(
+        f"could not find {_BB_DATA_HEADER_REL} under any discovery root "
+        f"({', '.join(roots_list)}) -- cannot determine "
+        f"{_BB_DATA_MAX_BINDINGS_DEFINE} to enforce the bb_data binding "
+        f"cap (refusing to silently skip the check)"
+    )
+
+
+def check_binds_data_cap(ordered: List[InitEntry], roots) -> None:
+    """Hard-errors if more entries in the resolved, topo-sorted set carry
+    `binds_data=true` than bb_data's BB_DATA_MAX_BINDINGS cap allows.
+
+    Deliberately INERT until at least one entry actually declares
+    `binds_data=true`: with zero such entries this returns immediately and
+    never even attempts the `bb_data.h` lookup, so a tree with no bb_data
+    component (or one whose header can't be found under the given roots)
+    costs a composition nothing unless it actually opts in.
+
+    Raises WireError naming every offending entry's file:line, plus the
+    resolved count and the cap, when the count exceeds the cap. Also raises
+    WireError (via `_find_bb_data_max_bindings`) if the cap itself cannot be
+    determined -- never a silent skip."""
+    binders = [e for e in ordered if e.binds_data]
+    if not binders:
+        return
+    cap = _find_bb_data_max_bindings(roots)
+    if len(binders) > cap:
+        offenders = ", ".join(f"fn={e.fn} ({e.src_file}:{e.src_line})" for e in binders)
+        raise WireError(
+            f"{len(binders)} entries carry 'binds_data=true' but "
+            f"{_BB_DATA_MAX_BINDINGS_DEFINE} is {cap} -- bb_data_bind()'s "
+            f"table is fixed-size and a bind past the cap fails at runtime; "
+            f"reduce the bind count or raise {_BB_DATA_MAX_BINDINGS_DEFINE} "
+            f"in {_BB_DATA_HEADER_REL} ({offenders})"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Marker collection
 # ---------------------------------------------------------------------------

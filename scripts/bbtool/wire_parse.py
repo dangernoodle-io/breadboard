@@ -4,7 +4,8 @@
 Grammar (one marker per comment line, order of key=value tokens is free):
 
     // bbtool:init tier=early|pre_http|regular [order=N] fn=<sym>
-                    [server=true] [registers_routes=true] [provides=k,..]
+                    [server=true] [registers_routes=true] [binds_data=true]
+                    [provides=k,..]
                     [requires=k,..] [consumes=k] [ctx=<expr>]
                     [args=<raw C argument text, whitespace-free>]
                     [component=<name>] [out=<varname>:<c-type>]
@@ -106,6 +107,19 @@ manifest are NOT implicitly ordered relative to each other -- they interleave
 by parse order unless linked via `requires=`/`provides=` or given an explicit
 `order=`.
 
+`binds_data=true` is a marker-visible FACT, orthogonal to how the call is
+emitted -- mirrors `registers_routes=true`'s posture exactly (see above): it
+adds no call, no argument injection, no emitted output of its own, and never
+changes generated output for a composition that never sets it. It exists so
+codegen-time tooling (see `commands.wire.check_binds_data_cap`) can COUNT how
+many resolved entries call `bb_data_bind()` -- 8 of the 10 real call sites
+today are SELF-BINDS inside a component's own `.c` body, invisible to a
+header-marker grep, so a component author opts a self-bind entry into the
+count by carrying this flag on its (otherwise ordinary) `// bbtool:init`
+marker. `binds_data=true` has no mutual-exclusion with any other key --
+unlike `server=`/`args=`/`consumes=`, it says nothing about call SHAPE, only
+that this entry's `fn` (however it is called) also binds a `bb_data` key.
+
 No preprocessor is involved — bbtool greps the raw header text. `tier` and
 `fn` are required; everything else is optional. Any malformed marker (missing
 tier/fn, unknown tier, unknown key, non-integer order, junk after `=`) is a
@@ -144,8 +158,8 @@ _MARKER_PREFIX = "// bbtool:init"
 _PROVIDES_PREFIX = "// bbtool:provides"
 
 _KNOWN_KEYS = {
-    "tier", "order", "fn", "server", "registers_routes", "provides", "requires", "consumes",
-    "ctx", "args", "component", "out",
+    "tier", "order", "fn", "server", "registers_routes", "binds_data", "provides",
+    "requires", "consumes", "ctx", "args", "component", "out",
 }
 _PROVIDES_KNOWN_KEYS = {"key", "symbol"}
 
@@ -162,6 +176,7 @@ class InitEntry:
     order: "int | None" = None
     server: bool = False
     registers_routes: bool = False
+    binds_data: bool = False
     provides: Tuple[str, ...] = field(default_factory=tuple)
     requires: Tuple[str, ...] = field(default_factory=tuple)
     consumes: "str | None" = None
@@ -264,6 +279,16 @@ def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
             f"is redundant)"
         )
 
+    binds_data = False
+    if "binds_data" in fields:
+        raw_binds_data = fields["binds_data"]
+        if raw_binds_data != "true":
+            raise ParseError(
+                f"{src_file}:{lineno}: 'binds_data=' must be 'true', "
+                f"got '{raw_binds_data}'"
+            )
+        binds_data = True
+
     provides = _split_csv(fields["provides"]) if "provides" in fields else ()
     requires = _split_csv(fields["requires"]) if "requires" in fields else ()
 
@@ -346,6 +371,7 @@ def _parse_marker_line(line: str, lineno: int, src_file: str) -> InitEntry:
         order=order,
         server=server,
         registers_routes=registers_routes,
+        binds_data=binds_data,
         provides=provides,
         requires=requires,
         consumes=consumes,
