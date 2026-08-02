@@ -258,22 +258,37 @@ bb_err_t bb_ota_check_register_init(bb_http_handle_t server)
     if (!server) return BB_ERR_INVALID_ARG;
 
     bb_err_t err = bb_ota_check_init(NULL);
-    if (err != BB_OK) return err;
+    if (err != BB_OK) {
+        bb_log_e(TAG, "bb_ota_check_init failed: %d", (int)err);
+        return err;
+    }
 
     // B1-859: bind the "ota_check_config" bb_data key backing POST
     // /api/update/config's bb_data_apply() ingress before the route below
     // is ever reachable.
     err = bb_ota_check_config_bind();
-    if (err != BB_OK) return err;
+    if (err != BB_OK) {
+        bb_log_e(TAG, "failed to bind ota_check_config bb_data binding: %d", (int)err);
+        return err;
+    }
 
     err = bb_http_register_described_route(server, &s_status_route);
-    if (err != BB_OK) return err;
+    if (err != BB_OK) {
+        bb_log_e(TAG, "failed to register /api/update/status route: %d", (int)err);
+        return err;
+    }
 
     err = bb_http_register_described_route(server, bb_ota_check_config_get_route());
-    if (err != BB_OK) return err;
+    if (err != BB_OK) {
+        bb_log_e(TAG, "failed to register update config GET route: %d", (int)err);
+        return err;
+    }
 
     err = bb_http_register_described_route(server, bb_ota_check_config_post_route());
-    if (err != BB_OK) return err;
+    if (err != BB_OK) {
+        bb_log_e(TAG, "failed to register update config POST route: %d", (int)err);
+        return err;
+    }
 
     // Create a one-shot timer; timer_work_fn reschedules it with ±10 min
     // jitter each tick so a fleet that rebooted together drifts apart over
@@ -281,7 +296,10 @@ bb_err_t bb_ota_check_register_init(bb_http_handle_t server)
     // is spawned dynamically by try_spawn() on each timer fire or kick.
     err = bb_timer_deferred_oneshot_create(timer_work_fn, NULL, "upd_check",
                                            &s_timer);
-    if (err != BB_OK) return err;
+    if (err != BB_OK) {
+        bb_log_e(TAG, "failed to create update-check timer: %d", (int)err);
+        return err;
+    }
     bb_timer_oneshot_start(s_timer, next_interval_us());
 
     // Publish the initial snapshot so a bb_data consumer reading before the
