@@ -69,12 +69,6 @@
 #include "bb_diag_http.h"
 #include "bb_wifi_http.h"
 #include "bb_sensor_http.h"
-#include "bb_ota_boot.h"
-#include "bb_ota_hooks.h"
-#include "bb_ota_validator.h"
-#include "bb_ota_check.h"
-#include "bb_ota_pull.h"
-#include "bb_ota_push.h"
 #include "bb_mdns.h"
 #include "bb_log_event.h"
 
@@ -122,28 +116,20 @@
 
 // bbtool:init tier=regular fn=bb_sensor_http_init server=true component=bb_sensor_http
 
-// B1-1317: bb_ota_boot_init/bb_ota_hooks_init/bb_ota_validator_init/
-// bb_ota_check_register_init/bb_ota_pull_init/bb_ota_push_init are the
-// third batch of route-registering registry hooks relocated out of their
-// component headers (B1-1279/B1-1314) -- the OTA family accepts firmware
-// images, so a board that composes an adjacent component must not end up
-// serving OTA endpoints it never asked for. `component=` (B1-1275) pulls
-// each component's own REQUIRES/PRIV_REQUIRES closure so the manifest
-// entry composes correctly. bb_ota_boot_init/bb_ota_pull_init keep their
-// existing Kconfig-bridge stub shape in-header (BB_OTA_STRATEGY_BOOT/PULL,
-// see bb_ota_boot.h/bb_ota_pull.h) -- only the marker line moved.
-
-// bbtool:init tier=regular fn=bb_ota_boot_init server=true component=bb_ota_boot
-
-// bbtool:init tier=regular fn=bb_ota_hooks_init server=true component=bb_ota_hooks
-
-// bbtool:init tier=regular fn=bb_ota_validator_init server=true component=bb_ota_validator
-
-// bbtool:init tier=regular fn=bb_ota_check_register_init server=true component=bb_ota_check
-
-// bbtool:init tier=regular fn=bb_ota_pull_init server=true component=bb_ota_pull
-
-// bbtool:init tier=regular fn=bb_ota_push_init server=true component=bb_ota_push
+// B1-1357: the OTA family (bb_ota_boot/bb_ota_hooks/bb_ota_validator/
+// bb_ota_check/bb_ota_pull/bb_ota_push) needs a northstar refactor before
+// it is composed here again -- all six `// bbtool:init` markers are
+// removed from this file, and examples/smoke/main/smoke_app.c carries no
+// handwired call into any of them either. Boards in this interim get
+// updated by serial flash, an accepted consequence rather than an
+// oversight. The components themselves stay in the tree untouched.
+//
+// bb_ota_validator is the one exception to "nothing OTA links": it is
+// still pulled in transitively via bb_diag_http's PRIV_REQUIRES
+// (components/bb_diag_http/CMakeLists.txt) for its on_validated hook
+// (platform/espidf/bb_diag_http/bb_diag_http_routes.c), just with its own
+// routes no longer registered here. Tracked separately as B1-1367, not
+// fixed by this file.
 
 // B1-1318 (epic B1-1314), fourth batch: bb_mdns_registry_init and
 // bb_log_event_init are route-registering registry hooks relocated out of
