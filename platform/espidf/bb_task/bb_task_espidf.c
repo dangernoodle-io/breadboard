@@ -5,6 +5,7 @@
 // tick-conversion + base ops it calls are the coverage-gated pure code in
 // components/bb_task/src/bb_task_common.c).
 #include "bb_task.h"
+#include "bb_num.h"
 #include "bb_wdt.h"
 
 #include "freertos/FreeRTOS.h"
@@ -144,4 +145,21 @@ void bb_task_delay_ms(uint32_t ms)
 void bb_task_yield(void)
 {
     taskYIELD();
+}
+
+// bb_task_stack_hwm_bytes -- LIVE PULL, no Kconfig guard needed. See
+// bb_task.h's doc: uxTaskGetStackHighWaterMark() depends only on
+// INCLUDE_uxTaskGetStackHighWaterMark, which this repo's FreeRTOSConfig.h
+// hardcodes to 1 unconditionally -- unlike CONFIG_FREERTOS_USE_TRACE_
+// FACILITY, which gates the DIFFERENT uxTaskGetSystemState() API the base
+// registry's periodic scan (bb_task_registry_base_scan.c) uses.
+uint32_t bb_task_stack_hwm_bytes(void *handle_or_null)
+{
+    UBaseType_t words = uxTaskGetStackHighWaterMark((TaskHandle_t)handle_or_null);
+    // uxTaskGetStackHighWaterMark() returns WORDS, not bytes -- convert via
+    // the shared SSOT (B1-1256), same helper/word-size argument
+    // bb_task_registry_base_scan.c's periodic scan already uses for this
+    // identical conversion. Do not hand-roll a second
+    // `* sizeof(StackType_t)` multiply.
+    return (uint32_t)bb_num_words_to_bytes((uint32_t)words, sizeof(StackType_t));
 }

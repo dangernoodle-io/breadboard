@@ -4974,6 +4974,10 @@ void test_bb_task_delay_ticks_for_ms_truncates_toward_zero_above_one_tick(void);
 void test_bb_task_delay_ticks_for_ms_clamps_to_uint32_max_on_overflow(void);
 void test_bb_task_delay_ms_host_stub_does_not_crash(void);
 void test_bb_task_yield_host_stub_does_not_crash(void);
+void test_bb_task_stack_hwm_bytes_defaults_to_zero(void);
+void test_bb_task_stack_hwm_bytes_returns_injected_value(void);
+void test_bb_task_stack_hwm_bytes_forwards_null_handle_unchanged(void);
+void test_bb_task_stack_hwm_bytes_forwards_non_null_handle_unchanged(void);
 
 
 
@@ -9241,6 +9245,10 @@ int main(void) {
     RUN_TEST(test_bb_task_delay_ticks_for_ms_clamps_to_uint32_max_on_overflow);
     RUN_TEST(test_bb_task_delay_ms_host_stub_does_not_crash);
     RUN_TEST(test_bb_task_yield_host_stub_does_not_crash);
+    RUN_TEST(test_bb_task_stack_hwm_bytes_defaults_to_zero);
+    RUN_TEST(test_bb_task_stack_hwm_bytes_returns_injected_value);
+    RUN_TEST(test_bb_task_stack_hwm_bytes_forwards_null_handle_unchanged);
+    RUN_TEST(test_bb_task_stack_hwm_bytes_forwards_non_null_handle_unchanged);
 
 
     // bb_http_client tests

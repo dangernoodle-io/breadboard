@@ -405,9 +405,71 @@ void bb_task_delay_ms(uint32_t ms);
 // bb_task_delay_ms() above.
 void bb_task_yield(void);
 
+// ---------------------------------------------------------------------------
+// Stack high-water-mark accessor -- a LIVE PULL (queries the scheduler
+// directly, on demand, every call). Distinct in KIND from the base
+// registry's `free_bytes` field above, which is a periodic-scan CACHED
+// PUSH (bb_task_base_set_free_bytes() persists whatever the last periodic
+// scan happened to observe) -- do not conflate the two, and do not route
+// this accessor through the base registry cache.
+// ---------------------------------------------------------------------------
+
+// Returns `handle_or_null`'s minimum-ever free stack, in BYTES, since the
+// task was created (FreeRTOS's own high-water-mark semantics -- a
+// non-increasing value over the task's life). NULL means "the calling
+// task" -- matches FreeRTOS's own uxTaskGetStackHighWaterMark(NULL)
+// semantics and this repo's existing bb_wdt_task_subscribe_handle(NULL)
+// idiom (components/bb_wdt/include/bb_wdt.h). handle_or_null must be NULL
+// or a still-live task handle; passing a handle for an already-deleted task
+// is undefined behaviour, because FreeRTOS does not validate the handle.
+//
+// UNIT NOTE: FreeRTOS's uxTaskGetStackHighWaterMark() returns WORDS ("on a
+// 32 bit machine a value of 1 means 4 bytes" -- FreeRTOS's own doc), not
+// bytes. The espidf shell converts via the shared bb_num_words_to_bytes()
+// SSOT (components/bb_num/include/bb_num.h, B1-1256) -- the exact helper
+// platform/espidf/bb_task_registry/bb_task_registry_base_scan.c's periodic
+// scan already uses for this identical conversion -- rather than
+// hand-rolling a second `* sizeof(StackType_t)` multiply.
+//
+// No Kconfig guard: uxTaskGetStackHighWaterMark() depends only on
+// INCLUDE_uxTaskGetStackHighWaterMark, which ESP-IDF's FreeRTOSConfig.h
+// (components/freertos/config/include/freertos/FreeRTOSConfig.h) hardcodes
+// to 1 unconditionally on every target this repo builds for -- NOT on
+// CONFIG_FREERTOS_USE_TRACE_FACILITY. That Kconfig gates a DIFFERENT API,
+// uxTaskGetSystemState() (what the base registry's periodic scan above
+// uses, and why THAT scan is guarded -- see
+// platform/espidf/bb_task_registry/bb_task_registry_base_scan.c's own
+// `#if defined(CONFIG_FREERTOS_USE_TRACE_FACILITY)` guard). Verified
+// against the FreeRTOS-Kernel source both ESP-IDF kernel variants ship:
+// tasks.c compiles the stack-check helper whenever EITHER
+// `configUSE_TRACE_FACILITY == 1` OR `INCLUDE_uxTaskGetStackHighWaterMark ==
+// 1` (an OR, not an AND), and the latter is unconditionally 1 in this
+// repo's FreeRTOSConfig.h regardless of the trace-facility setting.
+//
+// Host stub: no real FreeRTOS stack exists on host, so the host build does
+// NOT fabricate a plausible-looking number -- it returns a test-injectable
+// value only (see bb_task_test_set_stack_hwm_bytes() below, BB_TASK_TESTING
+// build), defaulting to 0. Treat a bare host-side reading as "unset, not a
+// real measurement" -- never host-test a call site's behavior against this
+// value as though it reflected genuine stack headroom.
+uint32_t bb_task_stack_hwm_bytes(void *handle_or_null);
+
 #ifdef BB_TASK_TESTING
 // Reset the base registry to its initial (empty) state. Test teardown only.
 void bb_task_base_test_reset(void);
+
+// Test-only: sets the value the host stub's bb_task_stack_hwm_bytes()
+// returns (see its doc above -- host has no real stack to measure).
+// Independent of bb_task_base_test_reset() (separate state, not part of the
+// base registry) -- defaults to 0 at process start and persists across
+// calls until reassigned.
+void bb_task_test_set_stack_hwm_bytes(uint32_t bytes);
+
+// Test-only: returns the `handle_or_null` argument passed to the most
+// recent bb_task_stack_hwm_bytes() call on the host stub, so a test can
+// assert NULL was forwarded through unchanged (the "calling task" case)
+// rather than substituted for something else.
+void *bb_task_test_last_stack_hwm_handle(void);
 
 // Test-only race injection: arms a one-shot hook that fires INSIDE
 // bb_task_base_touch_or_insert()'s critical section, immediately after it
