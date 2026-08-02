@@ -4,7 +4,7 @@
 #
 # B1-1039: health is now per-instance (see bb_tcp_client_priv.h) -- no
 # shared/authoritative transport-health slot or component in the loop.
-set(BB_TCP_CLIENT_PRIV_REQUIRES bb_config bb_log)
+set(BB_TCP_CLIENT_PRIV_REQUIRES bb_config bb_log bb_str)
 
 if(IDF_TARGET)
     set(BB_TCP_CLIENT_BACKEND

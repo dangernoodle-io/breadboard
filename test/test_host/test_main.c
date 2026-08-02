@@ -5911,6 +5911,17 @@ void test_bb_tcp_client_health_fill_fresh_instance_is_zeroed(void);
 void test_bb_tcp_client_health_fill_reports_forced_tls_error_code(void);
 void test_bb_tcp_client_health_desc_walks_all_four_keys(void);
 void test_bb_tcp_client_health_fill_concurrent_coherent(void);
+void test_bb_tcp_client_get_host_port_reads_configured_host_and_port(void);
+void test_bb_tcp_client_get_host_port_null_handle_returns_invalid_arg(void);
+void test_bb_tcp_client_get_host_port_invalid_handle_returns_invalid_arg(void);
+void test_bb_tcp_client_get_host_port_exact_fit_buffer_succeeds(void);
+void test_bb_tcp_client_get_host_port_undersized_buffer_truncates_and_reports_no_space(void);
+void test_bb_tcp_client_get_host_port_undersized_buffer_still_populates_port(void);
+void test_bb_tcp_client_get_host_port_cap_one_returns_no_space_and_empty_string(void);
+void test_bb_tcp_client_get_host_port_null_out_host_returns_port_only(void);
+void test_bb_tcp_client_get_host_port_null_out_port_returns_host_only(void);
+void test_bb_tcp_client_get_host_port_both_out_null_returns_invalid_arg(void);
+void test_bb_tcp_client_get_host_port_nonnull_host_zero_cap_returns_invalid_arg(void);
 
 // Forward declarations from test_bb_bqueue.c
 void test_bb_bqueue_create_null_cfg_returns_invalid_arg(void);
@@ -10658,6 +10669,17 @@ int main(void) {
     RUN_TEST(test_bb_tcp_client_health_fill_reports_forced_tls_error_code);
     RUN_TEST(test_bb_tcp_client_health_desc_walks_all_four_keys);
     RUN_TEST(test_bb_tcp_client_health_fill_concurrent_coherent);
+    RUN_TEST(test_bb_tcp_client_get_host_port_reads_configured_host_and_port);
+    RUN_TEST(test_bb_tcp_client_get_host_port_null_handle_returns_invalid_arg);
+    RUN_TEST(test_bb_tcp_client_get_host_port_invalid_handle_returns_invalid_arg);
+    RUN_TEST(test_bb_tcp_client_get_host_port_exact_fit_buffer_succeeds);
+    RUN_TEST(test_bb_tcp_client_get_host_port_undersized_buffer_truncates_and_reports_no_space);
+    RUN_TEST(test_bb_tcp_client_get_host_port_undersized_buffer_still_populates_port);
+    RUN_TEST(test_bb_tcp_client_get_host_port_cap_one_returns_no_space_and_empty_string);
+    RUN_TEST(test_bb_tcp_client_get_host_port_null_out_host_returns_port_only);
+    RUN_TEST(test_bb_tcp_client_get_host_port_null_out_port_returns_host_only);
+    RUN_TEST(test_bb_tcp_client_get_host_port_both_out_null_returns_invalid_arg);
+    RUN_TEST(test_bb_tcp_client_get_host_port_nonnull_host_zero_cap_returns_invalid_arg);
 
     // bb_bqueue
     RUN_TEST(test_bb_bqueue_create_null_cfg_returns_invalid_arg);
