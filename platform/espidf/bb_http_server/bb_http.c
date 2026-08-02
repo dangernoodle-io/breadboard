@@ -3,10 +3,13 @@
 #include "bb_http_status.h"
 #include "bb_http_query.h"
 #include "bb_http_prov_gate.h"
+#include "bb_http_core_steer.h"
 #include "bb_mem.h"
+#include "bb_wdt.h"
 #include "esp_http_server.h"
 #include "esp_event.h"
 #include "bb_log.h"
+#include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdio.h>
 #include <string.h>
@@ -19,6 +22,19 @@
 
 #if !CONFIG_LWIP_SO_LINGER
 #warning "bb_http_req_async_abort's SO_LINGER setsockopt is inert without CONFIG_LWIP_SO_LINGER=y — SSE peer-abort teardown falls back to graceful FIN close instead of an immediate RST. Set CONFIG_LWIP_SO_LINGER=y to get RST-based abort teardown."
+#endif
+
+// Config bridge (B1-1364 PR5, see CLAUDE.md "Config bridge"): CONFIG_BB_HTTP_
+// TASK_CORE_ID -> BB_HTTP_TASK_CORE_ID with a C default of -1 (== bb_wdt's
+// BB_WDT_CORE_ANY sentinel -- "no explicit pin"), matching the Kconfig
+// default. sdkconfig.h always defines the CONFIG_ symbol on a real ESP-IDF
+// build (Kconfig default -1), so the #ifdef branch below never actually
+// falls through to the literal default in practice -- kept anyway per the
+// bridge convention, and so this .c file compiles standalone.
+#ifdef CONFIG_BB_HTTP_TASK_CORE_ID
+#define BB_HTTP_TASK_CORE_ID CONFIG_BB_HTTP_TASK_CORE_ID
+#else
+#define BB_HTTP_TASK_CORE_ID (-1)
 #endif
 
 static const char *TAG = "http";
@@ -156,11 +172,19 @@ bb_err_t bb_http_server_ensure_started(void)
         10;
 #endif
     config.uri_match_fn = httpd_uri_match_wildcard;
-#ifdef CONFIG_BB_HTTP_TASK_CORE_ID
-    if (CONFIG_BB_HTTP_TASK_CORE_ID >= 0) {
-        config.core_id = CONFIG_BB_HTTP_TASK_CORE_ID;
-    }
-#endif
+
+    // B1-1364 PR5: steer the httpd worker off any core another component has
+    // EXCLUSIVELY claimed (bb_wdt_claim_core_exclusive(), see bb_wdt.h) --
+    // the second failure mode in KB 350 (httpd worker starvation; the first,
+    // idle-check polarity, is handled by the core-claim/reconfigure work
+    // already landed in #1192/#1197). An explicit CONFIG_BB_HTTP_TASK_CORE_ID
+    // pin always wins over steering (bb_wdt_steer_core()'s own contract).
+    // With nothing claimed and no explicit pin (the default), this resolves
+    // to tskNO_AFFINITY unchanged -- identical to the pre-PR5 behavior of
+    // leaving HTTPD_DEFAULT_CONFIG()'s core_id untouched.
+    config.core_id = (BaseType_t)bb_http_core_steer_resolve(
+        BB_HTTP_TASK_CORE_ID, bb_wdt_claimed_core_mask(),
+        configNUMBER_OF_CORES, (int32_t)tskNO_AFFINITY);
 
     // max_uri_handlers is now a single constant knob (BB_HTTP_MAX_URI_HANDLERS,
     // default 12). /api/* routes do NOT consume httpd handler slots — they are
