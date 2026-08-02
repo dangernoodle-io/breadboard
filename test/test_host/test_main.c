@@ -1241,6 +1241,17 @@ void test_bb_log_flush_remaining_ms_zero_elapsed(void);
 void test_bb_log_flush_remaining_ms_exact_boundary_is_zero(void);
 void test_bb_log_flush_remaining_ms_overrun_clamps_to_zero(void);
 
+// Forward declarations from test_bb_log_telem_route.c
+void test_bb_log_telem_route_wide_events_disabled_telem_tag_stays_console_only(void);
+void test_bb_log_telem_route_wide_events_enabled_routes_wide_regardless_of_tag(void);
+void test_bb_log_telem_route_wide_non_telem_tag_routes_wide_events_disabled(void);
+void test_bb_log_telem_route_wide_non_telem_tag_routes_wide_events_enabled(void);
+void test_bb_log_telem_route_wide_null_tag_routes_wide(void);
+void test_bb_log_telem_route_wide_empty_tag_routes_wide(void);
+void test_bb_log_telem_route_wide_superstring_tag_routes_wide(void);
+void test_bb_log_telem_route_wide_prefix_tag_routes_wide(void);
+void test_bb_log_telem_route_wide_case_sensitive_mismatch_routes_wide(void);
+
 // Forward declarations from test_log_stream.c
 void test_log_stream_format_basic(void);
 void test_log_stream_format_truncation(void);
@@ -6317,6 +6328,17 @@ int main(void) {
     RUN_TEST(test_bb_log_flush_remaining_ms_zero_elapsed);
     RUN_TEST(test_bb_log_flush_remaining_ms_exact_boundary_is_zero);
     RUN_TEST(test_bb_log_flush_remaining_ms_overrun_clamps_to_zero);
+
+    // bb_log_telem_route tests
+    RUN_TEST(test_bb_log_telem_route_wide_events_disabled_telem_tag_stays_console_only);
+    RUN_TEST(test_bb_log_telem_route_wide_events_enabled_routes_wide_regardless_of_tag);
+    RUN_TEST(test_bb_log_telem_route_wide_non_telem_tag_routes_wide_events_disabled);
+    RUN_TEST(test_bb_log_telem_route_wide_non_telem_tag_routes_wide_events_enabled);
+    RUN_TEST(test_bb_log_telem_route_wide_null_tag_routes_wide);
+    RUN_TEST(test_bb_log_telem_route_wide_empty_tag_routes_wide);
+    RUN_TEST(test_bb_log_telem_route_wide_superstring_tag_routes_wide);
+    RUN_TEST(test_bb_log_telem_route_wide_prefix_tag_routes_wide);
+    RUN_TEST(test_bb_log_telem_route_wide_case_sensitive_mismatch_routes_wide);
 
     // Log stream tests
     RUN_TEST(test_log_stream_format_basic);

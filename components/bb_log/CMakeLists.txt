@@ -33,6 +33,15 @@ if(CONFIG_BB_LOG_UDP_SINK)
     list(APPEND _log_priv_reqs lwip)
 endif()
 
+if(CONFIG_BB_LOG_TELEM_ROUTING)
+    # bb_log_telem_route_wide() (B1-831 PR-2) -- genuinely compiled out when
+    # this knob is off, not just documented as such. No call site references
+    # it yet (that lands in PR-3, gated by the same #if CONFIG_BB_LOG_TELEM_
+    # ROUTING at the s_log_vprintf call site) -- host tests reach it directly
+    # via bb_log_internal.h, unaffected by this ESP-IDF-only Kconfig gate.
+    list(APPEND _log_srcs "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_telem_route.c")
+endif()
+
 idf_component_register(
     SRCS ${_log_srcs}
     INCLUDE_DIRS "include"
