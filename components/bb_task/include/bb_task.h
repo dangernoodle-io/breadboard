@@ -261,6 +261,64 @@ bb_err_t bb_task_create(const bb_task_config_t *cfg, void **out_handle);
 // was never registered.
 bb_err_t bb_task_deregister(void *handle);
 
+// ---------------------------------------------------------------------------
+// Delay / yield -- the portable replacement for hand-rolled
+// vTaskDelay(pdMS_TO_TICKS(N)) call sites (B1-1350). No in-tree caller yet;
+// this is the primitive, not a migration.
+// ---------------------------------------------------------------------------
+
+// Pure ms->ticks conversion, parameterized on tick_rate_hz (configTICK_RATE_HZ
+// on the espidf shell; any value on host tests) so the tick-granularity
+// decision below is host-testable without a FreeRTOS dependency -- mirrors
+// bb_task_resolve()'s num_cores parameterization above.
+//
+// pdMS_TO_TICKS() truncates: at a 100 Hz tick rate (10 ms/tick, the espidf
+// default), a caller asking to delay for e.g. 5 ms would silently truncate
+// to 0 ticks and not delay at all. This helper guarantees a MINIMUM of 1
+// tick for any nonzero `ms`, so "delay some positive amount" never silently
+// becomes "don't delay" -- the caller may block slightly longer than
+// requested (up to one tick period), never zero. `ms == 0` is a deliberate
+// exception: it returns 0 ticks (== vTaskDelay(0), a same-tick yield
+// opportunity), matching the caller's explicit "no wait" request rather than
+// rounding it up to a real delay. `tick_rate_hz == 0` also returns 0 (no
+// valid conversion is possible); the espidf shell never passes 0
+// (configTICK_RATE_HZ is a positive build-time constant), this branch exists
+// for host-test coverage of the defensive check. The tick_ratehz*ms product
+// is computed in 64-bit and clamped to UINT32_MAX before narrowing, so an
+// extreme (ms, tick_rate_hz) pair cannot silently wrap to a small tick count.
+uint32_t bb_task_delay_ticks_for_ms(uint32_t ms, uint32_t tick_rate_hz);
+
+// Block the calling task for at least `ms` milliseconds. Thin platform
+// dispatch over vTaskDelay(bb_task_delay_ticks_for_ms(ms, configTICK_RATE_HZ))
+// -- see bb_task_delay_ticks_for_ms() above for the tick-truncation
+// guarantee. `ms == 0` yields the current tick slice without blocking
+// (vTaskDelay(0) semantics) rather than being rejected as invalid -- this is
+// a valid "let other ready tasks run" call, not an error.
+//
+// Host stub: no real FreeRTOS scheduler exists on host, so this is a no-op
+// that returns immediately without sleeping (mirrors bb_task_create()'s host
+// stub, which fabricates a handle rather than spinning up a real thread) --
+// it proves call sites compile and link, not real timing behaviour.
+void bb_task_delay_ms(uint32_t ms);
+
+// Yield the remainder of the current task's time slice to other ready tasks
+// of the same priority, without blocking for any minimum duration. Thin
+// platform dispatch over taskYIELD(). Kept as a separate primitive from
+// bb_task_delay_ms(0) rather than folding into it: FreeRTOS's own
+// vTaskDelay() special-cases xTicksToDelay==0 as "force a reschedule" and
+// yields via portYIELD_WITHIN_API() rather than blocking, so the two calls
+// are not mechanically distinct in general -- on the espidf xtensa port
+// portYIELD_WITHIN_API() (esp_crosscore_int_send_yield()) and portYIELD()
+// (vPortYield(), what taskYIELD() uses) DO differ, but that's a port-level
+// detail, not something this API should lean on. The real reason to keep
+// bb_task_yield() separate is call-site readability: a spin-wait that means
+// "let other ready tasks run" should read as bb_task_yield(), not as a
+// delay call that happens to pass 0.
+//
+// Host stub: no-op (no real scheduler to yield to), same rationale as
+// bb_task_delay_ms() above.
+void bb_task_yield(void);
+
 #ifdef BB_TASK_TESTING
 // Reset the base registry to its initial (empty) state. Test teardown only.
 void bb_task_base_test_reset(void);

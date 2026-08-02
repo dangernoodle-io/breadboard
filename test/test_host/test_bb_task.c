@@ -814,3 +814,72 @@ void test_bb_task_deregister_null_returns_invalid_arg(void)
     bb_task_base_test_reset();
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_deregister(NULL));
 }
+
+// ---------------------------------------------------------------------------
+// bb_task_delay_ticks_for_ms -- pure ms->ticks conversion (B1-1350). This is
+// the portable, coverage-gated logic every branch of the tick-truncation
+// decision lives in; bb_task_delay_ms()'s espidf shell is a thin
+// vTaskDelay(bb_task_delay_ticks_for_ms(ms, configTICK_RATE_HZ)) wrapper
+// that can only be exercised by compiling for espidf (no FreeRTOS scheduler
+// on host) -- see the bb_task_delay_ms/_yield host-stub tests below for what
+// IS host-testable about that wrapper (linkage + no-crash only).
+// ---------------------------------------------------------------------------
+
+void test_bb_task_delay_ticks_for_ms_zero_ms_returns_zero_ticks(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0, bb_task_delay_ticks_for_ms(0, 100));
+}
+
+void test_bb_task_delay_ticks_for_ms_zero_tick_rate_returns_zero(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0, bb_task_delay_ticks_for_ms(50, 0));
+}
+
+// The tick-truncation guarantee: at a 100 Hz tick rate (10 ms/tick), 5 ms
+// truncates to 0 ticks via plain integer division (5*100/1000 == 0) -- the
+// helper must round this UP to the guaranteed minimum of 1 tick rather than
+// silently returning "don't delay at all" for a caller that asked for a
+// positive delay.
+void test_bb_task_delay_ticks_for_ms_truncation_clamped_to_minimum_one_tick(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(1, bb_task_delay_ticks_for_ms(5, 100));
+}
+
+void test_bb_task_delay_ticks_for_ms_exact_conversion_no_truncation(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(100, bb_task_delay_ticks_for_ms(1000, 100));
+}
+
+// Ordinary (non-zero-truncating) integer division still applies once the
+// result is >= 1 tick -- distinguishes plain truncation from the
+// minimum-one-tick clamp exercised above.
+void test_bb_task_delay_ticks_for_ms_truncates_toward_zero_above_one_tick(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(2, bb_task_delay_ticks_for_ms(25, 100));
+}
+
+// An extreme (ms, tick_rate_hz) pair whose product overflows uint32_t must
+// clamp to UINT32_MAX rather than silently wrapping to a small tick count.
+void test_bb_task_delay_ticks_for_ms_clamps_to_uint32_max_on_overflow(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(UINT32_MAX, bb_task_delay_ticks_for_ms(UINT32_MAX, 2000));
+}
+
+// ---------------------------------------------------------------------------
+// bb_task_delay_ms / bb_task_yield -- host stub (B1-1350). No real FreeRTOS
+// scheduler exists on host, so these are no-ops: this proves call sites
+// compile/link against the host stub and don't crash, NOT real blocking or
+// yield timing behaviour (that only exists in the espidf shell, verified by
+// compiling for espidf -- see platform/espidf/bb_task/bb_task_espidf.c).
+// ---------------------------------------------------------------------------
+
+void test_bb_task_delay_ms_host_stub_does_not_crash(void)
+{
+    bb_task_delay_ms(0);
+    bb_task_delay_ms(50);  // must not crash or block
+}
+
+void test_bb_task_yield_host_stub_does_not_crash(void)
+{
+    bb_task_yield();  // must not crash
+}
