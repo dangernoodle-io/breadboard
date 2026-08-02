@@ -4887,6 +4887,8 @@ void test_bb_task_resolve_steers_around_claimed_core1(void);
 void test_bb_task_resolve_explicit_pin_not_steered_even_if_claimed(void);
 void test_bb_task_resolve_both_cores_claimed_does_not_steer(void);
 void test_bb_task_resolve_no_claims_does_not_steer(void);
+void test_bb_task_resolve_sw_wdt_monitor_config_steers_around_claimed_core0(void);
+void test_bb_task_resolve_sw_wdt_monitor_config_no_claims_unaffected(void);
 void test_bb_task_resolve_core_owning_degrades_to_noop_on_unicore(void);
 void test_bb_task_resolve_core_owning_in_range_core_unaffected_by_unicore_clamp(void);
 void test_bb_task_base_upsert_null_handle_returns_invalid_arg(void);
@@ -9161,6 +9163,8 @@ int main(void) {
     RUN_TEST(test_bb_task_resolve_explicit_pin_not_steered_even_if_claimed);
     RUN_TEST(test_bb_task_resolve_both_cores_claimed_does_not_steer);
     RUN_TEST(test_bb_task_resolve_no_claims_does_not_steer);
+    RUN_TEST(test_bb_task_resolve_sw_wdt_monitor_config_steers_around_claimed_core0);
+    RUN_TEST(test_bb_task_resolve_sw_wdt_monitor_config_no_claims_unaffected);
     RUN_TEST(test_bb_task_resolve_core_owning_degrades_to_noop_on_unicore);
     RUN_TEST(test_bb_task_resolve_core_owning_in_range_core_unaffected_by_unicore_clamp);
     RUN_TEST(test_bb_task_base_upsert_null_handle_returns_invalid_arg);

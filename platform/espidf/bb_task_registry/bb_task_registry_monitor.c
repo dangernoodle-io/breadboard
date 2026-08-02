@@ -92,32 +92,38 @@ static void sw_wdt_monitor_task(void *arg)
 
 bb_err_t bb_task_registry_sw_wdt_start(void)
 {
-    // NOT migrated to bb_task_create() (Option C, B1-690): this task
-    // self-registers via bb_task_registry_register() with a non-default
-    // bb_task_registry_opts_t (hw_wdt_subscribe) that bb_task_config_t has
-    // no field for. Stays on raw xTaskCreate[PinnedToCore] pending an opts
-    // pass-through into bb_task; no functional change here.
+    // Migrated to bb_task_create() (B1-1364 PR3): routes affinity resolution
+    // through bb_task_resolve(), so this monitor is now steerable away from
+    // a core another task claims via bb_wdt's core-claim mechanism (B1-1364
+    // PR2). core_owning is deliberately false -- the monitor does not own a
+    // core, it is a task that should be steered away from one.
     //
-    // On single-core (unicore) targets, core 1 does not exist and
-    // xTaskCreatePinnedToCore asserts; fall back to no affinity. Mirrors
-    // bb_ota_boot's status_task_core guard.
-    int core = BB_TASK_REGISTRY_SW_WDT_CORE;
-    if (core >= configNUMBER_OF_CORES) {
-        core = tskNO_AFFINITY;
-    }
+    // Behaviour is unchanged when no core is claimed: same name/stack/
+    // priority, and bb_task_resolve()'s unicore clamp (core >= num_cores ->
+    // BB_TASK_CORE_ANY) reproduces the former manual
+    // `core >= configNUMBER_OF_CORES -> tskNO_AFFINITY` guard exactly (both
+    // leave a negative/BB_TASK_CORE_ANY core untouched). BB_TASK_CORE_ANY
+    // (-1) and tskNO_AFFINITY are the same steering target either way.
+    //
+    // The self-registration into bb_task_registry below (sw_wdt_monitor_task)
+    // is a separate, deliberately NOT-migrated bootstrap exception (B1-1375)
+    // -- see this file's header comment.
+    bb_task_config_t task_cfg = {
+        .entry       = sw_wdt_monitor_task,
+        .name        = "bb_sw_wdt",
+        .arg         = NULL,
+        .stack_bytes = BB_TASK_REGISTRY_SW_WDT_STACK,
+        .priority    = BB_TASK_REGISTRY_SW_WDT_PRIORITY,
+        .core        = BB_TASK_REGISTRY_SW_WDT_CORE,
+        .core_owning = false,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+    };
 
-    TaskHandle_t task = NULL;
-    BaseType_t ok;
-    if (core < 0) {
-        ok = xTaskCreate(sw_wdt_monitor_task, "bb_sw_wdt", BB_TASK_REGISTRY_SW_WDT_STACK, NULL,
-                          BB_TASK_REGISTRY_SW_WDT_PRIORITY, &task);
-    } else {
-        ok = xTaskCreatePinnedToCore(sw_wdt_monitor_task, "bb_sw_wdt", BB_TASK_REGISTRY_SW_WDT_STACK,
-                                      NULL, BB_TASK_REGISTRY_SW_WDT_PRIORITY, &task, core);
-    }
-    if (ok != pdPASS) {
-        bb_log_e(TAG, "monitor task create failed");
-        return BB_ERR_NO_MEM;
+    void *handle = NULL;
+    bb_err_t err = bb_task_create(&task_cfg, &handle);
+    if (err != BB_OK) {
+        bb_log_e(TAG, "monitor task create failed: %d", (int)err);
+        return err;
     }
     return BB_OK;
 }

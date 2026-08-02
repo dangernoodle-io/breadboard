@@ -345,6 +345,55 @@ void test_bb_task_resolve_no_claims_does_not_steer(void)
     TEST_ASSERT_EQUAL_INT(BB_TASK_CORE_ANY, out.core);
 }
 
+// SEAM TEST, not a call-site test -- bb_task_registry_sw_wdt_start()'s
+// monitor task (B1-1364 PR3,
+// platform/espidf/bb_task_registry/bb_task_registry_monitor.c) is an
+// espidf-only TU -- [board.native]'s platform is "host" (bbtool.toml), so
+// bb_task_registry_monitor.c is never compiled into this host test binary
+// and its bb_task_registry_sw_wdt_start() function itself cannot be
+// exercised here. What IS host-testable, and is exercised below, is the
+// SEAM the migration wires the monitor through: bb_task_resolve(), called
+// with the monitor's config values (name/stack/priority/core) HAND-COPIED
+// from the monitor's private Kconfig-bridged #defines
+// (BB_TASK_REGISTRY_SW_WDT_STACK=3072, BB_TASK_REGISTRY_SW_WDT_PRIORITY=2,
+// BB_TASK_REGISTRY_SW_WDT_CORE=-1 mirrored verbatim below, by hand -- these
+// tests cannot #include the monitor's macros, so nothing here re-checks
+// that the copy still matches). This proves bb_task_resolve() steers this
+// config away from a claimed core -- the exact behavior the migration makes
+// reachable that raw xTaskCreate() could never provide. It does NOT prove
+// bb_task_registry_sw_wdt_start() itself calls bb_task_create() with these
+// values, and it CANNOT catch drift between this hand-copied literal and
+// the monitor's real #defines (e.g. a stack-size bump here that never lands
+// there, or vice versa) -- only the espidf compile-gated smoke-esp32-sw-wdt
+// build (CONFIG_BB_TASK_REGISTRY_SW_WDT=y, see Makefile/platformio.ini)
+// exercises the real call site and would catch that class of regression.
+void test_bb_task_resolve_sw_wdt_monitor_config_steers_around_claimed_core0(void)
+{
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "bb_sw_wdt", .stack_bytes = 3072,
+        .priority = 2, .core = BB_TASK_CORE_ANY, .core_owning = false,
+        .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    bb_task_resolved_t out;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, (1U << 0), &out));
+    TEST_ASSERT_EQUAL_INT(1, out.core);
+}
+
+// Absent any claimed core, the monitor's resolved core is unchanged --
+// BB_TASK_CORE_ANY, same as raw xTaskCreate()'s tskNO_AFFINITY. Proves the
+// migration is a no-op on any board without a core-owning task.
+void test_bb_task_resolve_sw_wdt_monitor_config_no_claims_unaffected(void)
+{
+    bb_task_config_t cfg = {
+        .entry = noop_entry, .name = "bb_sw_wdt", .stack_bytes = 3072,
+        .priority = 2, .core = BB_TASK_CORE_ANY, .core_owning = false,
+        .backing = BB_TASK_BACKING_DYNAMIC,
+    };
+    bb_task_resolved_t out;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_resolve(&cfg, 2, 0, &out));
+    TEST_ASSERT_EQUAL_INT(BB_TASK_CORE_ANY, out.core);
+}
+
 void test_bb_task_resolve_core_owning_degrades_to_noop_on_unicore(void)
 {
     // core_owning + an explicit core outside num_cores is degraded to
