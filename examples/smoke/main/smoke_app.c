@@ -11,7 +11,6 @@
 #include "bb_http_server.h"
 #include "bb_wifi.h"
 #ifdef ESP_PLATFORM
-#include "bb_ota_check.h"
 #include "bb_ws_server.h"
 #include "bb_serialize_console.h"
 #include "bb_timer.h"
@@ -186,12 +185,9 @@ void smoke_app_setup(void) {
     // smoke_app_setup() is called -- do not call bb_temp_register_info()
     // again here.
 
-    // bb_ota_check: link-load only. No URL set, so polling stays idle and
-    // bb_ota_check_now() returns BB_ERR_INVALID_STATE cleanly. Consumers
-    // (TaipanMiner, snugfeather) call bb_ota_check_set_releases_url(...).
-    if (bb_ota_check_init(NULL) != BB_OK) {
-        bb_log_w(TAG, "bb_ota_check: init failed");
-    }
+    // bb_ota_check: NOT composed here (B1-1357) -- unwired along with the
+    // rest of the bb_ota_* family (examples/smoke/main/bb_wire.h). No
+    // handwired init remains; this app never calls into bb_ota_check.
 
     // bb_ws_server: /ws echo + /api/wsbcast broadcast demo -- registration
     // is codegen-composed (examples/smoke/main/bb_wire.h), see the comment
