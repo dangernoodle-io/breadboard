@@ -9,4 +9,4 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES bb_core bb_serialize
-    PRIV_REQUIRES bb_log esp_http_client esp-tls bb_str)
+    PRIV_REQUIRES bb_log esp_http_client esp-tls bb_str bb_task)

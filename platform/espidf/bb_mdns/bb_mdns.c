@@ -830,7 +830,7 @@ static void mdns_free_impl(void)
 static void mdns_send_bye_impl(void)
 {
     /* Give the mdns task time to emit bye packets before proceeding. */
-    vTaskDelay(pdMS_TO_TICKS(100));
+    bb_task_delay_ms(100);
 }
 
 static const bb_mdns_lifecycle_adapter_t s_lc_adapter = {

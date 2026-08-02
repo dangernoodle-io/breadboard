@@ -20,6 +20,7 @@
 
 #include "bb_log.h"
 #include "bb_clock.h"
+#include "bb_task.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -85,7 +86,7 @@ static void sw_wdt_monitor_task(void *arg)
     for (;;) {
         bb_task_registry_sw_wdt_check(bb_clock_now_ms());
         bb_task_registry_feed(token);
-        vTaskDelay(pdMS_TO_TICKS(BB_TASK_REGISTRY_SW_WDT_CHECK_MS));
+        bb_task_delay_ms(BB_TASK_REGISTRY_SW_WDT_CHECK_MS);
     }
 }
 

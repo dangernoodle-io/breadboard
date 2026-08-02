@@ -11,13 +11,11 @@
 #include "bb_mem.h"
 #include "bb_wdt.h"
 #include "bb_system.h"
+#include "bb_task.h"
 #include "esp_ota_ops.h"
 #include "esp_image_format.h"
 #include "esp_app_desc.h"
 #include "esp_system.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/portmacro.h"
 
 // WDT window must outlast the max push duration so the clean abort+resume path
 // fires before the WDT expires.  This invariant is documented in the Kconfig
@@ -255,7 +253,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         // that, it does not prevent it. One tick per ~4 KB chunk is negligible
         // overhead (a few seconds across a 1 MB image) and also lets the TCP
         // window refill, improving throughput.
-        vTaskDelay(1);
+        bb_task_delay_ms(1);
     }
 
     bb_log_i(TAG, "OTA receive complete (%d bytes), validating", received);
@@ -290,7 +288,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     // the worker spin up for ~500ms only to be killed mid-work, wasting
     // CPU/heat and competing with the reboot path for resources. The
     // failure path (resume_and_exit below) still resumes correctly.
-    vTaskDelay(pdMS_TO_TICKS(500));
+    bb_task_delay_ms(500);
     bb_system_restart_reason(BB_RESET_SRC_OTA_PUSH_APPLIED, NULL);
     return BB_OK;  // unreachable
 

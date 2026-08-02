@@ -414,7 +414,7 @@ bb_err_t bb_timer_periodic_delete(bb_periodic_timer_t t)
     if (t->mode == BB_TIMER_MODE_WORKER && t->worker_sem) {
         t->worker_running = false;
         xSemaphoreGive(t->worker_sem);
-        vTaskDelay(pdMS_TO_TICKS(10));
+        bb_task_delay_ms(10);
         vSemaphoreDelete(t->worker_sem);
     }
     bb_mem_free(t);
@@ -619,7 +619,7 @@ bb_err_t bb_timer_worker_periodic_create(void (*work_fn)(void *arg), void *arg,
     if (err != BB_OK) {
         t->worker_running = false;
         xSemaphoreGive(t->worker_sem);
-        vTaskDelay(pdMS_TO_TICKS(10));
+        bb_task_delay_ms(10);
         vSemaphoreDelete(t->worker_sem);
         bb_mem_free(t);
         return err;

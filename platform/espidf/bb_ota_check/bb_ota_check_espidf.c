@@ -192,7 +192,7 @@ bb_err_t bb_ota_check_run_blocking(uint32_t timeout_ms)
 
     uint32_t elapsed_ms = 0;
     while (elapsed_ms < timeout_ms) {
-        vTaskDelay(pdMS_TO_TICKS(BB_OTA_CHECK_BLOCKING_POLL_MS));
+        bb_task_delay_ms(BB_OTA_CHECK_BLOCKING_POLL_MS);
         elapsed_ms += BB_OTA_CHECK_BLOCKING_POLL_MS;
 
         bb_ota_check_status_t after;

@@ -31,9 +31,6 @@
 #include <sys/socket.h>
 #include <netinet/tcp.h>
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -287,7 +284,7 @@ static void broadcaster_task(void *arg)
 {
     (void)arg;
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(BB_DATA_HTTP_SWEEP_INTERVAL_MS));
+        bb_task_delay_ms(BB_DATA_HTTP_SWEEP_INTERVAL_MS);
         peer_liveness_prepass();
         bb_data_http_sweep_step();
     }

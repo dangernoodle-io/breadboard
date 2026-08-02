@@ -283,7 +283,7 @@ static void ota_boot_worker(void *arg)
     bb_err_t err = bb_ota_pull_run_sync(st.download_url);
     if (err == BB_OK) {
         bb_log_w(TAG, "boot-mode: image written, rebooting to new image");
-        vTaskDelay(pdMS_TO_TICKS(500));
+        bb_task_delay_ms(500);
         bb_system_restart_reason(BB_RESET_SRC_OTA_BOOT_DONE, NULL);
     }
 
@@ -391,7 +391,7 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
 
     // Wait for the STA link (caller started WiFi; IP may not be bound yet).
     for (int i = 0; i < 60 && !bb_wifi_has_ip(); i++) {
-        vTaskDelay(pdMS_TO_TICKS(500));
+        bb_task_delay_ms(500);
     }
     if (!bb_wifi_has_ip()) {
         bb_log_e(TAG, "OTA boot-mode: no wifi, rebooting normal");
@@ -453,7 +453,7 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
 static void ota_boot_reboot_task(void *arg)
 {
     (void)arg;
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    bb_task_delay_ms(1000);
     bb_system_restart_reason(BB_RESET_SRC_OTA_BOOT_APPLY, NULL);
 }
 
