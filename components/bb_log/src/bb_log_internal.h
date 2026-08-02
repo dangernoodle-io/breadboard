@@ -94,6 +94,38 @@ void bb_log_line_parse(const char *line, size_t len,
                        char *tag_out, size_t tag_cap,
                        char *msg_out, size_t msg_cap);
 
+// ---------------------------------------------------------------------------
+// bb_log_telem_route_wide() -- pure, portable, host-testable TELEM
+// wide-routing decision core (components/bb_log/src/bb_log_telem_route.c).
+// B1-831 PR-2: knobs + this decision function only -- no call site yet. A
+// later PR wires a check into s_log_vprintf (platform/espidf/bb_log/
+// bb_log.c) so a TELEM-tagged line can stay console-only instead of also
+// fanning out unconditionally to every other sink (bb_log_event forwarder
+// queue, optional UDP mirror).
+// ---------------------------------------------------------------------------
+
+/**
+ * Should this log line also be routed to the wide sinks (bb_log_event
+ * forwarder queue, optional UDP mirror), on top of the console writer which
+ * every line always reaches? Framed positively ("should route wide") to
+ * avoid a double-negative bug at the call site.
+ *
+ * - route_events_enabled == true: always true, regardless of tag -- the
+ *   TELEM gate is fully open, every tag (TELEM or not) routes wide.
+ * - route_events_enabled == false: true for every tag EXCEPT an exact match
+ *   against the configured TELEM tag (BB_LOG_TELEM_TAG, bridged from
+ *   CONFIG_BB_LOG_TELEM_TAG, default "TELEM") -- a TELEM-tagged line stays
+ *   console-only.
+ * - tag is NULL or empty: always true (can never equal the non-empty
+ *   configured TELEM tag, so it's not a TELEM line).
+ * - Comparison is an exact, case-sensitive match -- "TELEMETRY" or any other
+ *   prefix/superstring of the configured tag is a DIFFERENT tag and always
+ *   routes wide, even when route_events_enabled is false.
+ *
+ * Pure -- no I/O, no platform calls, no side effects.
+ */
+bool bb_log_telem_route_wide(bool route_events_enabled, const char *tag);
+
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
