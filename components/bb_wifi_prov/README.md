@@ -1,7 +1,7 @@
 # bb_wifi_prov
 
 <!-- BEGIN bbtool:brief -->
-bb_wifi_prov — Wi-Fi provisioning HTTP routes: parses a POSTed SSID/password form and a captive-portal redirect. Registers POST /save, POST /api/wifi/scan (B1-809 -- this component's own SSID-list endpoint; see bb_wifi_prov_start()'s doc; CAUTION -- its "refresh" query param hops the radio channel and can transiently drop the requesting client's own SoftAP association), and a shared GET /* wildcard on the shared HTTP server that serves consumer assets plus the captive-portal redirect as its no-match fallback; does not register /api/version or /api/reboot (those live in bb_wifi_http / bb_system), and does not itself bring up SoftAP or drive a Wi-Fi lifecycle state machine (see bb_wifi_ap for AP bring-up).
+bb_wifi_prov — Wi-Fi provisioning HTTP routes: parses a POSTed SSID/password form and a captive-portal redirect. Registers POST /save, POST /api/wifi/scan (B1-809 -- this component's own SSID-list endpoint; see bb_wifi_prov_start()'s doc; CAUTION -- its "refresh" query param hops the radio channel and can transiently drop the requesting client's own SoftAP association), and a shared GET /* wildcard on the shared HTTP server that serves consumer assets plus the captive-portal redirect as its no-match fallback; does not register /api/version or /api/diag/reboot (those live in bb_wifi_http / bb_system), and does not itself bring up SoftAP or drive a Wi-Fi lifecycle state machine (see bb_wifi_ap for AP bring-up).
 <!-- END bbtool:brief -->
 
 ## Public API

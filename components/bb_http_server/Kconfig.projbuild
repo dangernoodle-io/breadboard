@@ -96,7 +96,7 @@ config BB_HTTP_TASK_STACK_SIZE
       builds with shallow handlers.
 
       B1-1287 (hardware-confirmed: 5/5 `Stack canary watchpoint triggered`
-      panics on POST /api/reboot at 6144 before this fix, 0/5 after) moved
+      panics on POST /api/diag/reboot at 6144 before this fix, 0/5 after) moved
       the five bb_data-fed handlers' own `body`/`parse_scratch` buffers off
       this task's stack onto bb_data's shared scratch pair
       (bb_data_scratch_acquire(), components/bb_data). Post-migration DWARF

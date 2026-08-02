@@ -26,7 +26,7 @@ static const char *const k_expected_composed_schema =
 // Dedicated PlatformIO test env (native_openapi_runtime_meta, see
 // platformio.ini) that builds WITH -DCONFIG_BB_OPENAPI_RUNTIME_META=1 --
 // proves bb_system_routes.c's runtime-compose path (B1-1059 emit batch A,
-// site 2) actually wires up for POST /api/reboot's request schema: the
+// site 2) actually wires up for POST /api/diag/reboot's request schema: the
 // guarded assemble-and-patch step runs exactly once and composes content
 // byte-identical to the hand-authored literal (reusing
 // test_bb_system_reboot_meta_golden.c's proven engine==literal golden
@@ -86,7 +86,7 @@ void test_bb_system_reboot_assemble_request_schema_offline_on_compose_failure(vo
 }
 
 // B1-1244 HIGH-fix regression: proves what bb_openapi_emit_stream() actually
-// EMITS for the real production POST /api/reboot route after a compose
+// EMITS for the real production POST /api/diag/reboot route after a compose
 // failure -- not just that the test accessor/struct field reads NULL (the
 // offline_on_compose_failure test above, and the routes_init degrade test
 // further up, already cover that), but that bb_openapi_emit.c's
@@ -130,7 +130,7 @@ void test_bb_system_reboot_route_omits_request_body_on_compose_failure(void)
     TEST_ASSERT_NOT_NULL(doc);
 
     cJSON *reboot_path = cJSON_GetObjectItemCaseSensitive(
-        cJSON_GetObjectItemCaseSensitive(doc, "paths"), "/api/reboot");
+        cJSON_GetObjectItemCaseSensitive(doc, "paths"), "/api/diag/reboot");
     TEST_ASSERT_NOT_NULL(reboot_path);
     cJSON *reboot_post = cJSON_GetObjectItemCaseSensitive(reboot_path, "post");
     TEST_ASSERT_NOT_NULL(reboot_post);

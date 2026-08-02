@@ -362,20 +362,20 @@ class TestRecover(unittest.TestCase):
 
 class TestReboot(unittest.TestCase):
     def test_success_no_settle(self):
-        c = MockClient(reqs={("POST", "/api/reboot"): (200, b"")})
+        c = MockClient(reqs={("POST", "/api/diag/reboot"): (200, b"")})
         with _patch_identity(True):
             r = ota.reboot(c, _live_guard())
         self.assertTrue(r.ok, r.detail)
         self.assertEqual(r.detail, "reboot issued")
 
     def test_connection_reset_is_ok(self):
-        c = MockClient(reqs={("POST", "/api/reboot"): (None, b"")})
+        c = MockClient(reqs={("POST", "/api/diag/reboot"): (None, b"")})
         with _patch_identity(True):
             r = ota.reboot(c, _live_guard())
         self.assertTrue(r.ok)
 
     def test_rejected(self):
-        c = MockClient(reqs={("POST", "/api/reboot"): (500, b"err")})
+        c = MockClient(reqs={("POST", "/api/diag/reboot"): (500, b"err")})
         with _patch_identity(True):
             r = ota.reboot(c, _live_guard())
         self.assertFalse(r.ok)
@@ -391,7 +391,7 @@ class TestReboot(unittest.TestCase):
     def test_settle_waits_and_confirms_ready(self):
         c = MockClient(
             gets=_healthy_gets(),
-            reqs={("POST", "/api/reboot"): (200, b"")},
+            reqs={("POST", "/api/diag/reboot"): (200, b"")},
         )
         with _patch_identity(True):
             with patch.object(ota, "wait_for_boot", return_value="v0.70.0"):

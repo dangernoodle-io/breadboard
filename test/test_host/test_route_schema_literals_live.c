@@ -20,7 +20,7 @@
 //   - bb_storage_http_routes_init()               -- DELETE /api/diag/storage
 //   - bb_storage_http_factory_reset_routes_init()  -- POST /api/diag/factory-reset
 //   - bb_log_register_routes_init()                -- GET/POST /api/log/level
-//   - bb_system_routes_init()                      -- POST /api/reboot
+//   - bb_system_routes_init()                      -- POST /api/diag/reboot
 //
 // All four live under platform/espidf/ (bb_storage_http_routes.c,
 // bb_log_http.c, bb_system_routes.c) -- portable code filed under
@@ -79,12 +79,12 @@ static void seed_live_routes(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_http_routes_init(dummy));                // DELETE /api/diag/storage
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_http_factory_reset_routes_init(dummy));  // POST /api/diag/factory-reset
     TEST_ASSERT_EQUAL(BB_OK, bb_log_register_routes_init(dummy));                // GET/POST /api/log/level
-    TEST_ASSERT_EQUAL(BB_OK, bb_system_routes_init(dummy));                      // POST /api/reboot
+    TEST_ASSERT_EQUAL(BB_OK, bb_system_routes_init(dummy));                      // POST /api/diag/reboot
 }
 
 // ---------------------------------------------------------------------------
 // Presence-of-specific-route check: proves the routes THIS test file exists
-// to cover (GET and POST /api/log/level, POST /api/reboot) are actually in
+// to cover (GET and POST /api/log/level, POST /api/diag/reboot) are actually in
 // the registry, not merely that *some* route/schema is non-zero. A `>0`
 // count alone is still satisfied by the pre-existing storage routes even if
 // bb_log_register_routes_init() silently falls back to its
@@ -118,7 +118,7 @@ static void check_reboot_route_present(const bb_route_t *route, void *ctx_)
 {
     reboot_presence_ctx_t *ctx = (reboot_presence_ctx_t *)ctx_;
     if (!route || !route->path) return;
-    if (strcmp(route->path, "/api/reboot") != 0) return;
+    if (strcmp(route->path, "/api/diag/reboot") != 0) return;
     if (route->method == BB_HTTP_POST) ctx->saw_post_reboot = true;
 }
 
@@ -165,7 +165,7 @@ void test_route_schema_literals_live_all_parse(void)
     reboot_presence_ctx_t reboot_presence = { 0 };
     bb_http_route_registry_foreach(check_reboot_route_present, &reboot_presence);
     TEST_ASSERT_TRUE_MESSAGE(reboot_presence.saw_post_reboot,
-                              "POST /api/reboot missing from registry -- "
+                              "POST /api/diag/reboot missing from registry -- "
                               "bb_system_routes_init() did not register it");
 
     bb_http_route_registry_clear();

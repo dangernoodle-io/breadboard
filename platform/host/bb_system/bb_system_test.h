@@ -32,7 +32,7 @@ void bb_system_boot_count_reset_for_test(void);
 void bb_system_reboot_budget_reset_for_test(void);
 
 /**
- * Host-only test hook (B1-1148 finding 1): reset the POST /api/reboot
+ * Host-only test hook (B1-1148 finding 1): reset the POST /api/diag/reboot
  * handler's resolved-value capture (see
  * bb_system_reboot_capture_get_for_test()) to "not called". s_reboot_capture
  * is process-lifetime state; call from setUp() to prevent cross-test

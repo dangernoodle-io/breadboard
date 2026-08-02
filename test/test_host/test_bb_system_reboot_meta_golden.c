@@ -1,6 +1,6 @@
 // test_bb_system_reboot_meta_golden -- B1-1181a: proves the #if-gated
 // co-located bb_serialize_desc_meta_t pattern (B1-1059 PR-2a exemplar,
-// test_bb_wifi_http_wire_meta_golden.c) for the POST /api/reboot REQUEST
+// test_bb_wifi_http_wire_meta_golden.c) for the POST /api/diag/reboot REQUEST
 // descriptor (s_reboot_desc / bb_system_reboot_meta, both file-scope in
 // platform/espidf/bb_system/bb_system_routes.c -- the desc is exposed here
 // only via bb_system_reboot_desc_for_test(), same posture as

@@ -15,7 +15,7 @@ extern "C" {
  * the radio channel and can transiently drop the requesting client's own
  * SoftAP association), and a shared GET /* wildcard on the shared HTTP
  * server that serves consumer assets plus the captive-portal redirect as
- * its no-match fallback; does not register /api/version or /api/reboot
+ * its no-match fallback; does not register /api/version or /api/diag/reboot
  * (those live in bb_wifi_http / bb_system), and does not itself bring up
  * SoftAP or drive a Wi-Fi lifecycle state machine (see bb_wifi_ap for AP
  * bring-up).
@@ -138,7 +138,7 @@ void bb_wifi_prov_set_save_callback(bb_wifi_prov_save_cb_t cb);
  *
  * Pass NULL when the prov UI needs no extra routes beyond POST /save,
  * POST /api/wifi/scan, and the captive-portal wildcard. bb_wifi_prov itself
- * does not register /api/version or /api/reboot — those live in
+ * does not register /api/version or /api/diag/reboot — those live in
  * bb_wifi_http / bb_system; a consumer wanting them wires them in via this
  * callback or its own codegen/handwire composition.
  */

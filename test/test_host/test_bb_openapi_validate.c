@@ -419,7 +419,7 @@ void test_validate_enum_numeric_mismatch_renders_value(void)
 // Production schema smoke tests
 // ---------------------------------------------------------------------------
 
-// Mirrors POST /api/reboot response schema from
+// Mirrors POST /api/diag/reboot response schema from
 // platform/espidf/bb_system/bb_system_routes.c
 void test_validate_smoke_reboot_schema(void)
 {

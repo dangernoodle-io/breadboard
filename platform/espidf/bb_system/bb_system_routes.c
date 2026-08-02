@@ -1,4 +1,4 @@
-// bb_system_routes — POST /api/reboot handler (B1-1148 PR2).
+// bb_system_routes — POST /api/diag/reboot handler (B1-1148 PR2).
 //
 // Portable: no ESP-IDF-specific includes at the top level. Compiled on both
 // ESP-IDF and host (for unit tests) -- same posture as
@@ -54,13 +54,13 @@
 static const char *TAG = "bb_system_routes";
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
-// Bound on the request body accepted for POST /api/reboot's optional
+// Bound on the request body accepted for POST /api/diag/reboot's optional
 // {"ts": <epoch_s>, "detail": "<string>"} JSON. Both fields are optional;
 // no body at all is a normal, tolerated request.
 #define BB_SYSTEM_REBOOT_BODY_MAX 256
 
 // ---------------------------------------------------------------------------
-// "reboot" bb_data ingress binding (B1-1148 PR2) -- backs POST /api/reboot's
+// "reboot" bb_data ingress binding (B1-1148 PR2) -- backs POST /api/diag/reboot's
 // optional {"ts": <epoch_s>, "detail": "<string, up to 48 chars>"} body.
 // ---------------------------------------------------------------------------
 
@@ -134,7 +134,7 @@ static const bb_serialize_desc_t s_reboot_desc = {
 // bb_system.h's banner). NOT a oneOf: the wire binds "ts" TWICE (BB_TYPE_U64
 // + BB_TYPE_F64 divergence-guard shadow, see s_reboot_fields' doc comment
 // above), but the F64 occurrence is an internal check never meant to
-// surface -- the hand-authored POST /api/reboot request_schema below
+// surface -- the hand-authored POST /api/diag/reboot request_schema below
 // renders "ts":{"type":"integer"} only. The meta row below tags occurrence
 // 0 (the U64 occurrence, kind defaults to BB_SERIALIZE_META_KIND_FIELD) and
 // carries no row for occurrence 1 (the F64 shadow), which
@@ -258,7 +258,7 @@ static void send_500(bb_http_request_t *req, const char *msg)
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/reboot 200 response wire descriptor (B1-1286) -- a single fixed
+// POST /api/diag/reboot 200 response wire descriptor (B1-1286) -- a single fixed
 // literal field, {"status":"rebooting"}; migration target for
 // reboot_handler's success-path emission below (see that call site's own
 // doc comment for the ordering guarantee this preserves).
@@ -504,6 +504,24 @@ const char *const bb_system_reboot_request_schema = BB_SYSTEM_REBOOT_REQUEST_SCH
 // onto the runtime-compose path. Config OFF (default) is a zero-diff no-op:
 // the `#else` arm below is byte-identical to the pre-migration inline
 // literal.
+//
+// PROV-GATE HAZARD (B1-1398): this route moved from top-level /api/reboot to
+// /api/diag/reboot for namespace consistency with the other administrative
+// endpoints under /api/diag/. bb_http_prov_gate's wildcard allowlist entries
+// are prefix matches (bb_route_uri_match, see bb_http_prov_gate.h), so a
+// consumer that calls bb_http_prov_allow(method, "/api/diag/*") during
+// provisioning now ALSO exposes this reboot route -- something a bare
+// /api/reboot path never fell under. No in-tree consumer allowlists a
+// /api/diag/* (or broader /api/*) prefix today (the sole production caller,
+// bb_wifi_prov_gate_wire_register(), only allowlists exact paths), but a
+// future consumer adding such a wildcard entry must account for reboot
+// being reachable during provisioning as a result. The allowlist match
+// itself is a pure UNION over its entries with no deny-entry type
+// (bb_http_prov_gate.c -- any matching entry admits the path, order
+// independent; see bb_http_prov_gate.h's own doc comment on why a narrower
+// entry must never suppress a broader one), so once such a wildcard is added
+// there is no way to carve reboot back out of it at the gate layer today --
+// a deny/exclude mechanism is tracked separately, not part of this route move.
 #if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
 
 // Sized with headroom over the golden-proven composed body
@@ -529,7 +547,7 @@ static char s_reboot_request_schema_buf[192];
 // the failure mode this exact route used to have).
 static bb_route_t s_reboot_route = {
     .method               = BB_HTTP_POST,
-    .path                 = "/api/reboot",
+    .path                 = "/api/diag/reboot",
     .tag                  = "system",
     .summary              = "Reboot the device",
     .request_content_type = "application/json",
@@ -542,7 +560,7 @@ static bb_route_t s_reboot_route = {
 
 static const bb_route_t s_reboot_route = {
     .method               = BB_HTTP_POST,
-    .path                 = "/api/reboot",
+    .path                 = "/api/diag/reboot",
     .tag                  = "system",
     .summary              = "Reboot the device",
     .request_content_type = "application/json",
@@ -577,7 +595,7 @@ bb_err_t bb_system_routes_init(bb_http_handle_t server)
 
     // Documentation-only schema compose (config ON only): a compose failure
     // here must not abort real route registration below (the "reboot"
-    // bb_data bind + POST /api/reboot). s_reboot_route.request_schema starts
+    // bb_data bind + POST /api/diag/reboot). s_reboot_route.request_schema starts
     // NULL and is patched to s_reboot_request_schema_buf only on
     // ensure_reboot_request_schema_patched()'s SUCCESS path (see that
     // route's own doc comment above), so on failure the field stays NULL --
