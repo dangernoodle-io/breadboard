@@ -7,6 +7,7 @@
 #include "bb_task.h"
 #include "bb_registry.h"
 #include "bb_str.h"
+#include "bb_wdt.h"
 
 #include <pthread.h>
 #include <stddef.h>
@@ -25,6 +26,7 @@
 // ---------------------------------------------------------------------------
 
 bb_err_t bb_task_resolve(const bb_task_config_t *cfg, int num_cores,
+                          uint32_t claimed_core_mask,
                           bb_task_resolved_t *out)
 {
     if (!cfg || !out) {
@@ -41,12 +43,60 @@ bb_err_t bb_task_resolve(const bb_task_config_t *cfg, int num_cores,
             return BB_ERR_INVALID_ARG;
         }
     }
+    // core_owning declares cfg->core a CLAIMED pin -- meaningless without a
+    // real core to own. An "owning" task with no core to own is a caller
+    // bug, not something to silently downgrade to unaffinitized.
+    if (cfg->core_owning && cfg->core == BB_TASK_CORE_ANY) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    // FAST-PATH rejection of a second owning claim on an already-claimed
+    // core (B1-1364 PR3), using the caller-supplied `claimed_core_mask`
+    // snapshot -- NOT the enforcement mechanism (see bb_task.h's
+    // bb_task_resolve() doc). bb_wdt's claimed-core state is a single
+    // shared bitmask with no per-owner refcount (see bb_wdt.h): claim ORs a
+    // bit, release unconditionally clears it. Two core_owning=true tasks
+    // both targeting the same core would let the first to deregister
+    // silently un-claim the second owner's still-live idle-check excuse,
+    // eventually tripping the Task WDT on a core that is still actively
+    // pinned -- with no obvious link back to the deregistering task. This
+    // check catches the common (non-racing) case loudly and early, before
+    // any task is created; the caller-supplied snapshot can go stale
+    // between being read and the shell's actual claim, so the real,
+    // race-proof guarantee is the creation shell's
+    // bb_wdt_claim_core_exclusive() call (atomic check-and-set under
+    // bb_wdt's own lock), never this snapshot check alone. Checked against
+    // cfg->core (not yet steered/clamped) -- at this point cfg->core_owning
+    // implies cfg->core is 0 or 1 (validated above), so the cast is safe.
+    if (cfg->core_owning &&
+        (claimed_core_mask & (1U << (uint32_t)cfg->core)) != 0U) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    int core = cfg->core;
+
+    // Core-claim steering (B1-1364 PR2, purity restored B1-1356): an
+    // unaffinitized request (core == BB_TASK_CORE_ANY, which per the
+    // validation above always means core_owning == false here) is steered
+    // away from a core another task already claims via bb_wdt, so it
+    // doesn't land on -- and starve -- a pinned owner's core.
+    // `claimed_core_mask` is supplied by the caller (the platform creation
+    // shell, which reads bb_wdt_claimed_core_mask()) rather than read here,
+    // so this function stays a pure function of its arguments only; the
+    // bb_wdt_claim_core() side effect itself never happens here -- see
+    // bb_task.h's bb_task_resolve() doc.
+    if (core == BB_TASK_CORE_ANY) {
+        core = bb_wdt_steer_core(core, claimed_core_mask, num_cores);
+    }
 
     // Unicore clamp: mirrors the hand-rolled
     // `if (core != tskNO_AFFINITY && core >= configNUMBER_OF_CORES) core =
     // tskNO_AFFINITY;` idiom duplicated across bb_ota_pull/bb_ota_check/
-    // bb_task_registry_sw_wdt -- owned once, here.
-    int core = cfg->core;
+    // bb_task_registry_sw_wdt -- owned once, here. Also the mechanism that
+    // degrades a core_owning claim to a no-op on a unicore target: an
+    // explicit owning pin outside num_cores clamps to BB_TASK_CORE_ANY here,
+    // so the creation shell's `resolved.core != BB_TASK_CORE_ANY` check
+    // never calls bb_wdt_claim_core() with a core that doesn't exist.
     if (core != BB_TASK_CORE_ANY && core >= num_cores) {
         core = BB_TASK_CORE_ANY;
     }
@@ -112,7 +162,12 @@ bb_err_t bb_task_base_upsert(void *handle, const char *name,
     void *existing = bb_registry_lookup_ptr(&s_base_registry, handle);
     if (existing) {
         // Update-if-present: tolerate re-invocation on the same handle
-        // (pool-recycle reuse) -- never double-inserts.
+        // (pool-recycle reuse) -- never double-inserts. Deliberately does
+        // NOT touch entry->core/core_owning -- safe only because
+        // bb_task_create() is the sole writer of those two fields (via
+        // bb_task_base_set_core_owning(), called once immediately after its
+        // own upsert); a base entry ever re-upserted here retains whatever
+        // core-owning state bb_task_create() last recorded for it.
         bb_task_base_entry_t *entry = (bb_task_base_entry_t *)existing;
         copy_name(entry, name);
         entry->stack_bytes = stack_bytes;
@@ -223,6 +278,27 @@ bb_err_t bb_task_base_set_free_bytes(void *handle, uint32_t free_bytes)
     bb_task_base_entry_t *entry = (bb_task_base_entry_t *)existing;
     entry->free_bytes = free_bytes;
     entry->sampled    = true;
+    pthread_mutex_unlock(&s_lock);
+    return BB_OK;
+}
+
+bb_err_t bb_task_base_set_core_owning(void *handle, int core, bool core_owning)
+{
+    if (!handle) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    pthread_mutex_lock(&s_lock);
+
+    void *existing = bb_registry_lookup_ptr(&s_base_registry, handle);
+    if (!existing) {
+        pthread_mutex_unlock(&s_lock);
+        return BB_ERR_NOT_FOUND;
+    }
+
+    bb_task_base_entry_t *entry = (bb_task_base_entry_t *)existing;
+    entry->core         = core;
+    entry->core_owning  = core_owning;
     pthread_mutex_unlock(&s_lock);
     return BB_OK;
 }
@@ -417,12 +493,52 @@ int bb_task_base_sweep_apply(bb_task_base_entry_t *entries, int n, uint32_t now_
 }
 
 // ---------------------------------------------------------------------------
-// bb_task_deregister — thin portable wrapper over bb_task_base_remove.
+// bb_task_deregister — bb_task_base_remove, plus release of a live bb_wdt
+// core claim (B1-1364 PR2). Duplicates bb_task_base_remove()'s lookup+free
+// critical section (rather than delegating to it) so the entry's
+// core/core_owning fields can be captured before the entry is freed.
 // ---------------------------------------------------------------------------
 
 bb_err_t bb_task_deregister(void *handle)
 {
-    return bb_task_base_remove(handle);
+    if (!handle) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    pthread_mutex_lock(&s_lock);
+
+    void *value = bb_registry_lookup_ptr(&s_base_registry, handle);
+    if (!value) {
+        pthread_mutex_unlock(&s_lock);
+        return BB_ERR_NOT_FOUND;
+    }
+
+    // Capture before freeing -- the bb_wdt_release_core() call below takes
+    // bb_wdt's own lock and triggers a Task WDT reconfigure, so it must run
+    // OUTSIDE this critical section, never while holding s_lock.
+    bb_task_base_entry_t *entry         = (bb_task_base_entry_t *)value;
+    bool                  release_owning = entry->core_owning;
+    int                   release_core   = entry->core;
+
+    // value was resolved under this same lock and s_base_registry is never
+    // frozen, so deregister_ptr cannot fail here -- free unconditionally
+    // rather than gate on an unreachable (and therefore untestable) error
+    // branch (mirrors bb_task_base_remove() above).
+    bb_registry_deregister_ptr(&s_base_registry, handle);
+    pool_free_locked(entry);
+
+    pthread_mutex_unlock(&s_lock);
+
+    // release_core is only ever a real core (0/1) when release_owning is
+    // true -- bb_task_create() only records core_owning == true after a
+    // real bb_wdt_claim_core(resolved.core) call (see bb_task_espidf.c /
+    // bb_task_host.c), and bb_task_resolve()'s unicore clamp already
+    // degrades an out-of-range owning claim to BB_TASK_CORE_ANY before that
+    // decision is made.
+    if (release_owning) {
+        bb_wdt_release_core(release_core);
+    }
+    return BB_OK;
 }
 
 // ---------------------------------------------------------------------------

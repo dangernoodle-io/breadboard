@@ -5,6 +5,7 @@
 // tick-conversion + base ops it calls are the coverage-gated pure code in
 // components/bb_task/src/bb_task_common.c).
 #include "bb_task.h"
+#include "bb_wdt.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -19,9 +20,37 @@ bb_err_t bb_task_create(const bb_task_config_t *cfg, void **out_handle)
     }
 
     bb_task_resolved_t resolved;
-    bb_err_t err = bb_task_resolve(cfg, configNUMBER_OF_CORES, &resolved);
+    // bb_wdt_claimed_core_mask() is read here (the platform shell), not
+    // inside bb_task_resolve() -- keeps the resolver a pure function of its
+    // arguments (B1-1356). See bb_task.h's bb_task_resolve() doc.
+    bb_err_t err = bb_task_resolve(cfg, configNUMBER_OF_CORES,
+                                    bb_wdt_claimed_core_mask(), &resolved);
     if (err != BB_OK) {
         return err;
+    }
+
+    // core_owning claim (B1-1364 PR2/PR3-fix): only a REAL resolved core is
+    // ever claimed -- bb_task_resolve()'s unicore clamp already degrades an
+    // out-of-range owning request to BB_TASK_CORE_ANY, so this never calls
+    // bb_wdt_claim_core_exclusive() with a core that doesn't exist. Claimed
+    // BEFORE the task is created, so the Task WDT idle-check excuse is in
+    // effect before the pinned task can starve that core's idle task (see
+    // bb_wdt.h's core-claim ordering requirement).
+    //
+    // bb_wdt_claim_core_exclusive() (not the plain, permissive
+    // bb_wdt_claim_core()) is the actual exclusivity enforcement -- an
+    // atomic check-and-set under bb_wdt's own lock, closing the TOCTOU
+    // window between bb_task_resolve()'s claimed_core_mask snapshot (read
+    // above, before resolve) and this call: two concurrent core_owning
+    // creations targeting the same core can both pass that snapshot check,
+    // but only one of them wins this call. The other propagates
+    // BB_ERR_INVALID_STATE out of bb_task_create() without creating a task.
+    bool owning_claim = cfg->core_owning && resolved.core != BB_TASK_CORE_ANY;
+    if (owning_claim) {
+        bb_err_t claim_rc = bb_wdt_claim_core_exclusive(resolved.core);
+        if (claim_rc != BB_OK) {
+            return claim_rc;
+        }
     }
 
     TaskHandle_t handle = NULL;
@@ -62,6 +91,12 @@ bb_err_t bb_task_create(const bb_task_config_t *cfg, void **out_handle)
     }
 
     if (ok != pdPASS || !handle) {
+        // Task creation failed after a successful claim above -- release it
+        // rather than leaking an excused-idle-check claim for a task that
+        // was never created.
+        if (owning_claim) {
+            bb_wdt_release_core(resolved.core);
+        }
         // Silent -- bb_task is a floor-safe primitive with no bb_log
         // dependency (would form a component cycle: bb_log's writer task
         // creates via bb_task_create()). Caller already gets BB_ERR_NO_MEM.
@@ -73,9 +108,26 @@ bb_err_t bb_task_create(const bb_task_config_t *cfg, void **out_handle)
     // these two locals distinct rather than passing `depth` into the
     // registry, which would ship a cross-platform unit split with host
     // (see platform/host/bb_task/bb_task_host.c, which already passes bytes).
-    // Base upsert failure is silent for the same reason (no bb_log dep) --
+    // Base upsert failure (e.g. BB_ERR_NO_SPACE, BB_TASK_BASE_MAX
+    // exhausted) is otherwise silent for the same reason (no bb_log dep) --
     // best-effort diagnostics only, task creation itself already succeeded.
-    (void)bb_task_base_upsert(handle, cfg->name, resolved.stack_bytes, cfg->wdt_arm);
+    bb_err_t base_rc = bb_task_base_upsert(handle, cfg->name, resolved.stack_bytes, cfg->wdt_arm);
+    // Records what was actually claimed above (owning_claim), not just
+    // cfg->core_owning, so bb_task_deregister() releases exactly what was
+    // claimed -- including the unicore no-op-claim case, where owning_claim
+    // is false even though cfg->core_owning was requested true.
+    if (base_rc == BB_OK) {
+        base_rc = bb_task_base_set_core_owning(handle, resolved.core, owning_claim);
+    }
+    if (owning_claim && base_rc != BB_OK) {
+        // The base registry could not record this handle (or its
+        // core-owning fields), so bb_task_deregister() will never find it
+        // to release the claim taken above (it looks the handle up in this
+        // same registry and returns BB_ERR_NOT_FOUND when absent) --
+        // release it here instead, or it leaks for the life of the device,
+        // permanently excusing this core's idle check.
+        bb_wdt_release_core(resolved.core);
+    }
 
     if (out_handle) {
         *out_handle = handle;

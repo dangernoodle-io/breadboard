@@ -3,7 +3,7 @@
 
 #include "bb_lock.h"
 #include "bb_lock_once.h"
-#include "bb_log.h"
+#include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 
@@ -57,7 +57,7 @@ static uint32_t kconfig_default_idle_mask(void)
 // idle_core_mask bit at or above the real core count, e.g. bit 1 from
 // bb_wdt_claim_core(1) on a 1-core esp32-s2/-c3 target. Without this clamp,
 // a single out-of-range claim would silently reject every subsequent
-// reconfigure -- including unrelated timeout changes -- via the bb_log_w
+// reconfigure -- including unrelated timeout changes -- via the ESP_LOGW
 // warning path below, forever, until the offending claim is released.
 static void do_reconfigure(uint32_t timeout_s)
 {
@@ -76,7 +76,13 @@ static void do_reconfigure(uint32_t timeout_s)
     };
     esp_err_t err = esp_task_wdt_reconfigure(&cfg);
     if (err != ESP_OK) {
-        bb_log_w(TAG, "esp_task_wdt_reconfigure(%ums): %s",
+        // Raw ESP_LOGW, not bb_log_w -- bb_wdt is a floor-safe primitive
+        // (mirrors platform/espidf/bb_core/bb_lock.c's identical choice):
+        // bb_log's writer task is created via bb_task_create(), and
+        // bb_task's own core-claim wiring depends on bb_wdt, so a bb_wdt ->
+        // bb_log dependency would close bb_task -> bb_wdt -> bb_log ->
+        // bb_task into a component cycle.
+        ESP_LOGW(TAG, "esp_task_wdt_reconfigure(%ums): %s",
                  (unsigned)cfg.timeout_ms, esp_err_to_name(err));
     }
 }

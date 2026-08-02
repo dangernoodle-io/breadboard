@@ -78,6 +78,32 @@ typedef struct {
     uint32_t           priority;     // UBaseType_t on the espidf side
     int                core;         // BB_TASK_CORE_ANY / 0 / 1
 
+    // Declares `core` a CLAIMED pin (via bb_wdt_claim_core_exclusive(),
+    // B1-1364 PR1/PR3-fix) rather than an advisory affinity hint -- the
+    // Task WDT idle check for that core is excused for as long as this task
+    // lives, and exactly one owning task per core is enforced. Only
+    // meaningful when core != BB_TASK_CORE_ANY; bb_task_resolve() rejects
+    // core_owning == true paired with core == BB_TASK_CORE_ANY with
+    // BB_ERR_INVALID_ARG (an "owning" task with no core to own is a caller
+    // bug, not something to silently downgrade).
+    //
+    // bb_task_resolve() ALSO rejects core_owning == true when `core` is
+    // already claimed in the caller-supplied claimed_core_mask snapshot --
+    // but that is a FAST-PATH / early error only, not the real enforcement:
+    // the snapshot can go stale between when the shell reads it and when it
+    // actually claims. The real, race-proof exclusivity guarantee is
+    // enforced by the creation shell's bb_wdt_claim_core_exclusive() call
+    // (atomic check-and-set under bb_wdt's own lock, see bb_wdt.h) -- a
+    // concurrent core_owning == true request that slips past the resolver's
+    // stale-snapshot check still gets rejected there, with BB_ERR_INVALID_
+    // STATE propagated out of bb_task_create().
+    //
+    // On a unicore target, bb_task_resolve()'s existing unicore clamp
+    // reduces an explicit core to BB_TASK_CORE_ANY first, so core_owning
+    // degrades to a no-op claim there -- never call
+    // bb_wdt_claim_core_exclusive() with a core that doesn't exist.
+    bool                core_owning;
+
     bb_task_backing_t  backing;
     // STATIC only -- opaque StackType_t*/StaticTask_t* buffers, required
     // when backing == BB_TASK_BACKING_STATIC (validated by bb_task_resolve).
@@ -103,15 +129,45 @@ typedef struct {
     bb_task_backing_t  backing;
 } bb_task_resolved_t;
 
-// Pure resolver -- no FreeRTOS types, no task creation. Validates `cfg` and
-// fills `*out` on success.
+// Pure resolver -- no FreeRTOS types, no task creation, no access to any
+// global/static state. Validates `cfg` and fills `*out` on success.
 // `num_cores` is the caller-supplied core count (configNUMBER_OF_CORES on
 // the espidf shell; any value on host tests) so the unicore clamp stays
 // host-testable without a FreeRTOS dependency.
 // Returns BB_ERR_INVALID_ARG when cfg or out is NULL, cfg->entry is NULL,
-// cfg->stack_bytes is 0, or cfg->backing == BB_TASK_BACKING_STATIC and
-// cfg->stack_buf/cfg->tcb_buf is NULL.
+// cfg->stack_bytes is 0, cfg->backing == BB_TASK_BACKING_STATIC and
+// cfg->stack_buf/cfg->tcb_buf is NULL, cfg->core_owning is true with
+// cfg->core == BB_TASK_CORE_ANY, or cfg->core_owning is true and
+// `claimed_core_mask` already has cfg->core's bit set (B1-1364 PR3 --
+// rejects a second owning claim on a core another task already owns per the
+// caller-supplied snapshot). This snapshot-based check is a FAST PATH /
+// early error only -- `claimed_core_mask` is read by the caller before this
+// function runs and can go stale by the time the creation shell actually
+// claims, so a caller must NOT treat a BB_OK return here as a guarantee
+// that the eventual claim will succeed. The real, race-proof exclusivity
+// guarantee is bb_wdt_claim_core_exclusive() (atomic check-and-set under
+// bb_wdt's own lock, see bb_wdt.h), called by the creation shell after this
+// resolver returns -- its BB_ERR_INVALID_STATE is what actually protects a
+// concurrent double-claim, and is propagated out of bb_task_create().
+//
+// core-claim steering (B1-1364 PR2, purity restored B1-1356): when
+// cfg->core == BB_TASK_CORE_ANY (which, per the validation above, implies
+// cfg->core_owning is false), the requested core is steered away from a
+// core another task already claims via bb_wdt's core-claim mechanism
+// (bb_wdt_steer_core() over `claimed_core_mask`) before the unicore clamp
+// runs. `claimed_core_mask` is bb_wdt's live claimed-core state
+// (bb_wdt_claimed_core_mask()), read by the CALLER and passed in here --
+// this keeps bb_task_resolve() a mathematically pure function of its
+// arguments only (order-independent, no hidden global read), rather than a
+// function of bb_wdt's live state. The platform creation shells
+// (platform/espidf/bb_task/bb_task_espidf.c, platform/host/bb_task/
+// bb_task_host.c) read bb_wdt_claimed_core_mask() and pass it through; this
+// function performs no side effect of its own (no claim, no WDT
+// reconfigure) -- the actual bb_wdt_claim_core() side effect lives in
+// those same platform shells, called only after this resolver returns
+// BB_OK.
 bb_err_t bb_task_resolve(const bb_task_config_t *cfg, int num_cores,
+                          uint32_t claimed_core_mask,
                           bb_task_resolved_t *out);
 
 // ---------------------------------------------------------------------------
@@ -128,6 +184,18 @@ typedef struct {
     char      name[BB_TASK_NAME_MAX];
     uint32_t  stack_bytes;
     bool      wdt_arm;
+    // Resolved core affinity (BB_TASK_CORE_ANY / 0 / 1) and whether this
+    // task's cfg->core_owning claimed that core via bb_wdt_claim_core() at
+    // creation time (B1-1364 PR2) -- recorded by bb_task_create() via
+    // bb_task_base_set_core_owning() below, so bb_task_deregister() can
+    // release a live claim without the caller re-supplying its own cfg.
+    // Both default to the zero value (core == 0, core_owning == false)
+    // until bb_task_create() sets them; a base entry created via the
+    // legacy bb_task_base_upsert()/_touch_or_insert() paths (not
+    // bb_task_create()) never has core_owning set, so bb_task_deregister()
+    // never attempts a release for it.
+    int       core;
+    bool      core_owning;
     uint32_t  seen_tick;
     // Current stack high-water FREE bytes, last observed by the periodic
     // base-scan (platform/espidf/bb_task_registry/bb_task_registry_base_scan.c)
@@ -179,6 +247,15 @@ bb_err_t bb_task_base_touch(void *handle, uint32_t now_tick);
 // Returns BB_ERR_INVALID_ARG if handle is NULL.
 // Returns BB_ERR_NOT_FOUND if handle was never upserted.
 bb_err_t bb_task_base_set_free_bytes(void *handle, uint32_t free_bytes);
+
+// Records the resolved core affinity and core-owning flag for `handle`'s
+// base entry (B1-1364 PR2) -- written by bb_task_create() only, immediately
+// after upsert, so bb_task_deregister() can release a live bb_wdt core
+// claim without the caller re-supplying its own cfg. Does NOT touch
+// name/stack_bytes/wdt_arm/seen_tick/free_bytes/sampled.
+// Returns BB_ERR_INVALID_ARG if handle is NULL.
+// Returns BB_ERR_NOT_FOUND if handle was never upserted.
+bb_err_t bb_task_base_set_core_owning(void *handle, int core, bool core_owning);
 
 // Atomic touch-or-insert -- a SINGLE critical section performs the
 // lookup-then-touch-or-insert decision, closing the race a separately
