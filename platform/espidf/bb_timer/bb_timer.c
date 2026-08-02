@@ -93,6 +93,28 @@ static TaskHandle_t  s_disp_task  = NULL;
 // instead of replaying a cached failure or crashing on a half-built lock.
 static bb_once_t s_disp_once = BB_ONCE_INIT;
 
+// Last real failure observed by a WINNING disp_bootstrap() attempt
+// (B1-1364 PR4 error-path parity) -- bb_once_run_fallible()'s fn signature
+// is bool-only (see bb_once.h), so this side-channel is how
+// disp_ensure_started() recovers the actual bb_err_t (BB_ERR_NO_MEM from a
+// real bb_task_create() allocation failure, BB_ERR_INVALID_ARG from a
+// resolver misconfiguration, etc.) instead of collapsing every failure mode
+// to a single hardcoded BB_ERR_NO_SPACE (the exact review finding PR3 hit).
+// Written only inside disp_bootstrap() (inside bb_once_run_fallible()'s
+// exclusive RUNNING window), but read by disp_ensure_started() AFTER that
+// call returns -- i.e. outside the window -- so this is a plain
+// cross-caller shared variable, not fn()-local state; it must be
+// _Atomic to avoid a data race/UB under the C11 memory model even though
+// every caller here only logs the value and none branches on it. Its
+// value is "the most recently observed attempt's error, not necessarily
+// THIS call's own attempt" -- bb_once.h's documented CALLER CONTRACT (see
+// bb_once_run_fallible()'s doc comment) is what makes that an acceptable
+// approximation: it holds only under the single-active-caller-at-a-time
+// boot-time composition-root contract this primitive's current consumers
+// rely on (no genuinely concurrent contention at these call sites), not as
+// a guarantee this code itself makes.
+static _Atomic bb_err_t s_disp_last_err = BB_ERR_NO_SPACE;
+
 static void disp_task_fn(void *unused)
 {
     (void)unused;
@@ -135,7 +157,10 @@ static bool disp_bootstrap(void *ctx)
     if (s_disp_queue != NULL) return true;
 
     s_disp_queue = xQueueCreate(BB_TIMER_DISP_QUEUE_DEPTH, sizeof(bb_disp_msg_t));
-    if (s_disp_queue == NULL) return false;
+    if (s_disp_queue == NULL) {
+        s_disp_last_err = BB_ERR_NO_SPACE;
+        return false;
+    }
 
     bb_task_config_t cfg = {
         .entry       = disp_task_fn,
@@ -144,6 +169,12 @@ static bool disp_bootstrap(void *ctx)
         .stack_bytes = BB_TIMER_DISP_STACK,
         .priority    = BB_TIMER_DISP_PRIORITY,
         .core        = BB_TIMER_DISP_CORE,
+        // Not core-claiming (B1-1364 PR4) -- bb_timer_disp is steerable, not
+        // an owner: it never pins itself to a specific core on purpose (the
+        // Kconfig-tunable BB_TIMER_DISP_CORE default is -1/ANY), so it must
+        // stay eligible for bb_task_resolve()'s core-claim steering rather
+        // than exempting itself from it.
+        .core_owning = false,
         .backing     = BB_TASK_BACKING_DYNAMIC,
         // Data flag only, surfaced at GET /api/diag/tasks — the actual hw
         // WDT subscribe is self-performed inside disp_task_fn above.
@@ -157,6 +188,7 @@ static bool disp_bootstrap(void *ctx)
     if (err != BB_OK) {
         vQueueDelete(s_disp_queue);
         s_disp_queue = NULL;
+        s_disp_last_err = err;
         return false;
     }
     return true;
@@ -168,11 +200,15 @@ static bool disp_bootstrap(void *ctx)
 // blocking/yielding wait, no busy-spin), and the s_disp_queue == NULL
 // re-check below (not the fallible-once's own return value) is the
 // defense-in-depth guard: a transient failure leaves it NULL so the next
-// caller genuinely retries rather than replaying a cached failure.
+// caller genuinely retries rather than replaying a cached failure. On
+// failure, s_disp_last_err (set inside disp_bootstrap()) is returned
+// instead of a hardcoded BB_ERR_NO_SPACE, so a real bb_task_create()
+// failure (e.g. BB_ERR_NO_MEM) is not misreported as a queue-create failure
+// (B1-1364 PR4 error-path parity).
 static bb_err_t disp_ensure_started(void)
 {
     bb_once_run_fallible(&s_disp_once, disp_bootstrap, NULL);
-    return (s_disp_queue != NULL) ? BB_OK : BB_ERR_NO_SPACE;
+    return (s_disp_queue != NULL) ? BB_OK : s_disp_last_err;
 }
 
 /* Low-level generic timer */
@@ -598,6 +634,12 @@ bb_err_t bb_timer_worker_periodic_create(void (*work_fn)(void *arg), void *arg,
         .stack_bytes = stack,
         .priority    = (uint32_t)priority,
         .core        = core,
+        // Not core-claiming (B1-1364 PR4) -- a bb_timer worker (e.g.
+        // bb_cache's eviction sweep) is steerable, not an owner: callers
+        // configure `core` via bb_timer_worker_cfg_t only as an advisory
+        // affinity hint, never an exclusivity claim, so it must stay
+        // eligible for bb_task_resolve()'s core-claim steering.
+        .core_owning = false,
         .backing     = BB_TASK_BACKING_DYNAMIC,
         .wdt_arm     = false,
     };
@@ -605,7 +647,13 @@ bb_err_t bb_timer_worker_periodic_create(void (*work_fn)(void *arg), void *arg,
     if (task_err != BB_OK) {
         vSemaphoreDelete(t->worker_sem);
         bb_mem_free(t);
-        return BB_ERR_NO_SPACE;
+        // Propagate the real bb_task_create() failure (B1-1364 PR4
+        // error-path parity) instead of collapsing every failure mode to a
+        // hardcoded BB_ERR_NO_SPACE -- the exact review finding PR3 hit.
+        // bb_cache_evict_start() (platform/espidf/bb_cache/bb_cache_espidf.c)
+        // forwards this value verbatim into its own error log, so a
+        // misleading code here would misdirect that diagnostic too.
+        return task_err;
     }
 
     esp_timer_create_args_t args = {
