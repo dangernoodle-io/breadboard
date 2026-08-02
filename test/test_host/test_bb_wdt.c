@@ -1,8 +1,20 @@
 #include "unity.h"
 #include "bb_wdt.h"
 #include "bb_wdt_test.h"
+#include "bb_task.h"
 #include <stdint.h>
 #include <stdbool.h>
+
+/* BB_WDT_CORE_ANY and BB_TASK_CORE_ANY are independently defined (bb_wdt
+ * does not, and must not, take a component dependency on bb_task -- a later
+ * PR wires bb_task -> bb_wdt, and a bb_wdt -> bb_task edge would make that a
+ * cycle). This tripwire is compiled on every native test run, so a drift
+ * between the two sentinels is caught here rather than left to guard
+ * nothing until the two components are actually wired together. */
+_Static_assert(BB_WDT_CORE_ANY == BB_TASK_CORE_ANY,
+                "BB_WDT_CORE_ANY must equal BB_TASK_CORE_ANY -- both are the "
+                "same 'no explicit core' sentinel, kept as two independent "
+                "#defines only to avoid a premature bb_wdt->bb_task dependency");
 
 /* -------------------------------------------------------------------------
  * Helpers
@@ -183,4 +195,306 @@ void test_bb_wdt_subscribe_handle_distinguishes_from_null(void)
     bb_wdt_test_reset();
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_task_subscribe_handle(NULL));
     TEST_ASSERT_NULL(bb_wdt_test_last_subscribe_handle());
+}
+
+/* -------------------------------------------------------------------------
+ * bb_wdt_claim_core / bb_wdt_release_core: bookkeeping
+ * (B1-1364 PR1 -- core-claim mechanism, DORMANT: no in-tree caller yet)
+ * ---------------------------------------------------------------------- */
+
+void test_bb_wdt_claim_core_sets_bit(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(0));
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_claimed_core_mask());
+}
+
+void test_bb_wdt_claim_core_1_sets_bit(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(1));
+    TEST_ASSERT_EQUAL_UINT32(1U << 1, bb_wdt_claimed_core_mask());
+}
+
+void test_bb_wdt_claim_core_both_accumulates(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(0));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(1));
+    TEST_ASSERT_EQUAL_UINT32((1U << 0) | (1U << 1), bb_wdt_claimed_core_mask());
+}
+
+void test_bb_wdt_claim_core_idempotent_same_core(void)
+{
+    /* claims accumulate into a bitmask -- idle-check suppression is not an
+     * exclusive resource, so re-claiming an already-claimed core is a
+     * success, not a conflict. */
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(0));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(0));
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_claimed_core_mask());
+}
+
+void test_bb_wdt_claim_core_invalid_arg(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_wdt_claim_core(2));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_wdt_claim_core(-2));
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_claimed_core_mask());
+}
+
+void test_bb_wdt_release_core_clears_bit(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(0));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(1));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_release_core(0));
+    TEST_ASSERT_EQUAL_UINT32(1U << 1, bb_wdt_claimed_core_mask());
+}
+
+void test_bb_wdt_release_core_1_clears_bit(void)
+{
+    /* covers the core==1 valid-arg branch of bb_wdt_release_core()'s
+     * validation (core != 0 && core != 1), distinct from the core==0 case
+     * above. */
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(1));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_release_core(1));
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_claimed_core_mask());
+}
+
+void test_bb_wdt_release_core_unclaimed_is_ok(void)
+{
+    /* tolerant: releasing a core that was never claimed is not an error. */
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_release_core(0));
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_claimed_core_mask());
+}
+
+void test_bb_wdt_release_core_invalid_arg(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_wdt_release_core(3));
+}
+
+void test_bb_wdt_test_reset_clears_claims(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(0));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(1));
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_claimed_core_mask());
+}
+
+/* -------------------------------------------------------------------------
+ * bb_wdt_derive_idle_mask: PURE mask-union math
+ * ---------------------------------------------------------------------- */
+
+void test_bb_wdt_derive_idle_mask_zero_zero(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_derive_idle_mask(0, 0));
+}
+
+void test_bb_wdt_derive_idle_mask_kconfig_only(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_derive_idle_mask(1U << 0, 0));
+}
+
+void test_bb_wdt_derive_idle_mask_claimed_only(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(1U << 1, bb_wdt_derive_idle_mask(0, 1U << 1));
+}
+
+void test_bb_wdt_derive_idle_mask_union_never_overrides(void)
+{
+    /* OR, never override: a claim on core 1 must not drop the board's
+     * Kconfig-configured excuse on core 0, and vice versa. */
+    TEST_ASSERT_EQUAL_UINT32((1U << 0) | (1U << 1),
+                              bb_wdt_derive_idle_mask(1U << 0, 1U << 1));
+}
+
+void test_bb_wdt_derive_idle_mask_both_same_bit_is_idempotent(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_derive_idle_mask(1U << 0, 1U << 0));
+}
+
+void test_bb_wdt_derive_idle_mask_both_full(void)
+{
+    uint32_t both = (1U << 0) | (1U << 1);
+    TEST_ASSERT_EQUAL_UINT32(both, bb_wdt_derive_idle_mask(both, both));
+}
+
+/* -------------------------------------------------------------------------
+ * bb_wdt_clamp_idle_mask: PURE clamp math (Finding 1, B1-1364 PR1 review)
+ * ---------------------------------------------------------------------- */
+
+void test_bb_wdt_clamp_idle_mask_dual_core_unchanged(void)
+{
+    uint32_t both = (1U << 0) | (1U << 1);
+    TEST_ASSERT_EQUAL_UINT32(both, bb_wdt_clamp_idle_mask(both, 2));
+}
+
+void test_bb_wdt_clamp_idle_mask_unicore_drops_bit1(void)
+{
+    /* the exact scenario esp_task_wdt_reconfigure() would otherwise reject:
+     * bit 1 set on a 1-core target. */
+    uint32_t both = (1U << 0) | (1U << 1);
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_clamp_idle_mask(both, 1));
+}
+
+void test_bb_wdt_clamp_idle_mask_unicore_only_bit1_clamps_to_zero(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_clamp_idle_mask(1U << 1, 1));
+}
+
+void test_bb_wdt_clamp_idle_mask_zero_cores_clamps_to_zero(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_clamp_idle_mask((1U << 0) | (1U << 1), 0));
+}
+
+void test_bb_wdt_clamp_idle_mask_negative_cores_clamps_to_zero(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_clamp_idle_mask(1U << 0, -1));
+}
+
+void test_bb_wdt_clamp_idle_mask_large_num_cores_unchanged(void)
+{
+    /* num_cores >= 32: no uint32_t bit can be out of range; also guards
+     * against `1U << 32` (undefined behavior). */
+    uint32_t both = (1U << 0) | (1U << 1);
+    TEST_ASSERT_EQUAL_UINT32(both, bb_wdt_clamp_idle_mask(both, 32));
+}
+
+/* -------------------------------------------------------------------------
+ * Finding 1 (B1-1364 PR1 review): a core-1 claim on a 1-core configuration
+ * must never produce an out-of-range idle_core_mask, and must not poison a
+ * subsequent reconfigure. Exercised through the same do_reconfigure() path
+ * the ESP-IDF backend uses (see bb_wdt_test_set_num_cores()).
+ * ---------------------------------------------------------------------- */
+
+void test_bb_wdt_claim_core_1_on_unicore_never_produces_out_of_range_mask(void)
+{
+    bb_wdt_test_reset();
+    bb_wdt_test_set_num_cores(1);
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(1));
+    /* bookkeeping still records the claim (bb_wdt_claimed_core_mask() and
+     * bb_wdt_steer_core() see it -- claiming is not validated against the
+     * real core count)... */
+    TEST_ASSERT_EQUAL_UINT32(1U << 1, bb_wdt_claimed_core_mask());
+    /* ...but the mask actually handed to reconfigure never sets an
+     * out-of-range bit -- esp_task_wdt_reconfigure() would reject a mask
+     * with bit 1 set on a 1-core target. */
+    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_test_last_reconfigured_mask());
+}
+
+void test_bb_wdt_claim_core_1_on_unicore_does_not_poison_later_reconfigure(void)
+{
+    bb_wdt_test_reset();
+    bb_wdt_test_set_num_cores(1);
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(1));
+    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_test_last_reconfigured_mask());
+
+    /* a legitimate core-0 claim afterward must still apply cleanly -- the
+     * out-of-range claim must never persist/poison a later reconfigure
+     * (the historical bug this PR fixes: esp_task_wdt_reconfigure()
+     * rejecting the out-of-range mask would silently drop this too). */
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(0));
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_test_last_reconfigured_mask());
+
+    /* an unrelated bb_wdt_set_timeout() call afterward must also still
+     * apply -- proving the earlier out-of-range claim never poisons the
+     * shared reconfigure path for a caller with no relationship to it. */
+    bb_wdt_set_timeout(60);
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_test_last_reconfigured_mask());
+}
+
+/* -------------------------------------------------------------------------
+ * bb_wdt_set_timeout() must NOT clobber a live claim -- the highest-value
+ * test in this PR (B1-1364 PR1). Proves bb_wdt_set_timeout() and
+ * bb_wdt_claim_core()/bb_wdt_release_core() share ONE derivation path, not
+ * two that can silently diverge.
+ * ---------------------------------------------------------------------- */
+
+void test_bb_wdt_set_timeout_does_not_clobber_claim(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(0));
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_test_last_reconfigured_mask());
+
+    /* an unrelated later bb_wdt_set_timeout() (e.g. the
+     * bb_wdt_extend_begin()/extend_end() pair) must still apply the live
+     * claim, not silently re-derive from Kconfig alone. */
+    bb_wdt_set_timeout(60);
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_test_last_reconfigured_mask());
+}
+
+void test_bb_wdt_release_core_reconfigures_immediately(void)
+{
+    /* claim/release each trigger their own reconfigure -- no observable
+     * "declared but not applied" window. */
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(0));
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_test_last_reconfigured_mask());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_release_core(0));
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_test_last_reconfigured_mask());
+}
+
+/* -------------------------------------------------------------------------
+ * bb_wdt_steer_core: PURE
+ * ---------------------------------------------------------------------- */
+
+void test_bb_wdt_steer_core_explicit_pin_0_passes_through(void)
+{
+    /* an explicit pin always wins over steering, even if that core is
+     * claimed by someone else. */
+    TEST_ASSERT_EQUAL_INT(0, bb_wdt_steer_core(0, 1U << 1, 2));
+}
+
+void test_bb_wdt_steer_core_explicit_pin_1_passes_through(void)
+{
+    TEST_ASSERT_EQUAL_INT(1, bb_wdt_steer_core(1, 1U << 0, 2));
+}
+
+void test_bb_wdt_steer_core_any_steers_away_from_claimed_core0(void)
+{
+    TEST_ASSERT_EQUAL_INT(1, bb_wdt_steer_core(BB_WDT_CORE_ANY, 1U << 0, 2));
+}
+
+void test_bb_wdt_steer_core_any_steers_away_from_claimed_core1(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, bb_wdt_steer_core(BB_WDT_CORE_ANY, 1U << 1, 2));
+}
+
+void test_bb_wdt_steer_core_any_zero_claimed_unchanged(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_WDT_CORE_ANY, bb_wdt_steer_core(BB_WDT_CORE_ANY, 0, 2));
+}
+
+void test_bb_wdt_steer_core_any_both_claimed_unchanged(void)
+{
+    /* both claimed -- nothing to steer toward. */
+    uint32_t both = (1U << 0) | (1U << 1);
+    TEST_ASSERT_EQUAL_INT(BB_WDT_CORE_ANY, bb_wdt_steer_core(BB_WDT_CORE_ANY, both, 2));
+}
+
+void test_bb_wdt_steer_core_unicore_any_unchanged(void)
+{
+    /* num_cores < 2: nothing to steer away from, even if a claim is
+     * (nonsensically) recorded. */
+    TEST_ASSERT_EQUAL_INT(BB_WDT_CORE_ANY, bb_wdt_steer_core(BB_WDT_CORE_ANY, 1U << 0, 1));
+}
+
+void test_bb_wdt_steer_core_unicore_explicit_pin_unchanged(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, bb_wdt_steer_core(0, 0, 1));
+}
+
+void test_bb_wdt_steer_core_other_value_passes_through(void)
+{
+    /* any requested value other than 0, 1, or BB_WDT_CORE_ANY (a caller
+     * passing a raw, non-sentinel value) is passed through unchanged --
+     * only BB_WDT_CORE_ANY is ever steered. */
+    TEST_ASSERT_EQUAL_INT(5, bb_wdt_steer_core(5, 1U << 0, 2));
 }
