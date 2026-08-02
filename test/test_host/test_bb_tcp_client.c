@@ -1032,3 +1032,145 @@ void test_bb_tcp_client_health_fill_concurrent_coherent(void)
     TEST_ASSERT_EQUAL_INT64(2000, snap.last_ok_ms);
     TEST_ASSERT_EQUAL_UINT64(1, snap.fail_count);
 }
+
+// ---------------------------------------------------------------------------
+// bb_tcp_client_get_host_port
+//
+// No lock is taken: rests on the single-writer-per-instance invariant
+// (same basis as bb_tcp_client_get_state()'s no-lock read). cfg.host/
+// cfg.port carry the additional, stronger guarantee of being
+// write-once-at-init and never mutated afterward.
+//
+// Truncation decision: out_host is ALWAYS NUL-terminated when requested; if
+// the configured host does not fit in out_host_cap - 1 bytes, the copy is
+// truncated-and-terminated (via bb_strlcpy) AND BB_ERR_NO_SPACE is
+// returned -- truncation is a reported error, never silent.
+// ---------------------------------------------------------------------------
+
+void test_bb_tcp_client_get_host_port_reads_configured_host_and_port(void)
+{
+    reset_world();
+    bb_tcp_client_cfg_t cfg = { .host = "stratum.example.com", .port = 3333 };
+    bb_tcp_client_t h = make_instance(&cfg);
+
+    char host[BB_TCP_CLIENT_HOST_MAX] = {0};
+    uint16_t port = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_get_host_port(h, host, sizeof(host), &port));
+    TEST_ASSERT_EQUAL_STRING("stratum.example.com", host);
+    TEST_ASSERT_EQUAL_UINT16(3333, port);
+}
+
+void test_bb_tcp_client_get_host_port_null_handle_returns_invalid_arg(void)
+{
+    reset_world();
+
+    char host[BB_TCP_CLIENT_HOST_MAX] = {0};
+    uint16_t port = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_tcp_client_get_host_port(NULL, host, sizeof(host), &port));
+}
+
+void test_bb_tcp_client_get_host_port_invalid_handle_returns_invalid_arg(void)
+{
+    reset_world();
+    bb_tcp_client_t h = make_instance(NULL);
+    bb_tcp_client_destroy(h);
+
+    char host[BB_TCP_CLIENT_HOST_MAX] = {0};
+    uint16_t port = 0;
+    // A destroyed handle's pool slot is zeroed/released -- must be rejected
+    // like any other invalid handle, not read stale/zeroed cfg.
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_tcp_client_get_host_port(h, host, sizeof(host), &port));
+}
+
+void test_bb_tcp_client_get_host_port_exact_fit_buffer_succeeds(void)
+{
+    reset_world();
+    bb_tcp_client_cfg_t cfg = { .host = "a.io", .port = 80 };  // strlen("a.io") == 4
+    bb_tcp_client_t h = make_instance(&cfg);
+
+    char host[5];  // exactly strlen("a.io") + 1 -- room for the NUL, no more
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_get_host_port(h, host, sizeof(host), NULL));
+    TEST_ASSERT_EQUAL_STRING("a.io", host);
+}
+
+void test_bb_tcp_client_get_host_port_undersized_buffer_truncates_and_reports_no_space(void)
+{
+    reset_world();
+    bb_tcp_client_cfg_t cfg = { .host = "stratum.example.com", .port = 3333 };
+    bb_tcp_client_t h = make_instance(&cfg);
+
+    char host[5] = { 'X', 'X', 'X', 'X', 'X' };  // too small for the 20-char host
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_tcp_client_get_host_port(h, host, sizeof(host), NULL));
+    // Truncated-and-NUL-terminated, never left unterminated/untouched.
+    TEST_ASSERT_EQUAL_STRING("stra", host);
+}
+
+void test_bb_tcp_client_get_host_port_undersized_buffer_still_populates_port(void)
+{
+    reset_world();
+    bb_tcp_client_cfg_t cfg = { .host = "stratum.example.com", .port = 3333 };
+    bb_tcp_client_t h = make_instance(&cfg);
+
+    // A caller asking for BOTH host and port must still get a valid port
+    // even when the host truncates -- BB_ERR_NO_SPACE must not read as
+    // "nothing was written".
+    char host[5] = { 'X', 'X', 'X', 'X', 'X' };
+    uint16_t port = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_tcp_client_get_host_port(h, host, sizeof(host), &port));
+    TEST_ASSERT_EQUAL_STRING("stra", host);
+    TEST_ASSERT_EQUAL_UINT16(3333, port);
+}
+
+void test_bb_tcp_client_get_host_port_cap_one_returns_no_space_and_empty_string(void)
+{
+    reset_world();
+    bb_tcp_client_cfg_t cfg = { .host = "stratum.example.com", .port = 3333 };
+    bb_tcp_client_t h = make_instance(&cfg);
+
+    // out_host_cap == 1 -- room only for the NUL terminator, no host bytes.
+    char host[1] = { 'X' };
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_tcp_client_get_host_port(h, host, sizeof(host), NULL));
+    TEST_ASSERT_EQUAL_INT('\0', host[0]);
+}
+
+void test_bb_tcp_client_get_host_port_null_out_host_returns_port_only(void)
+{
+    reset_world();
+    bb_tcp_client_cfg_t cfg = { .host = "stratum.example.com", .port = 3333 };
+    bb_tcp_client_t h = make_instance(&cfg);
+
+    uint16_t port = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_get_host_port(h, NULL, 0, &port));
+    TEST_ASSERT_EQUAL_UINT16(3333, port);
+}
+
+void test_bb_tcp_client_get_host_port_null_out_port_returns_host_only(void)
+{
+    reset_world();
+    bb_tcp_client_cfg_t cfg = { .host = "stratum.example.com", .port = 3333 };
+    bb_tcp_client_t h = make_instance(&cfg);
+
+    char host[BB_TCP_CLIENT_HOST_MAX] = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_tcp_client_get_host_port(h, host, sizeof(host), NULL));
+    TEST_ASSERT_EQUAL_STRING("stratum.example.com", host);
+}
+
+void test_bb_tcp_client_get_host_port_both_out_null_returns_invalid_arg(void)
+{
+    reset_world();
+    bb_tcp_client_t h = make_instance(NULL);
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_tcp_client_get_host_port(h, NULL, 0, NULL));
+}
+
+void test_bb_tcp_client_get_host_port_nonnull_host_zero_cap_returns_invalid_arg(void)
+{
+    reset_world();
+    bb_tcp_client_t h = make_instance(NULL);
+
+    char host[BB_TCP_CLIENT_HOST_MAX] = {0};
+    uint16_t port = 0;
+    // out_host non-NULL but out_host_cap == 0 is ambiguous (no room to
+    // NUL-terminate anything) -- rejected rather than silently a no-op.
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_tcp_client_get_host_port(h, host, 0, &port));
+}

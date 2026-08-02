@@ -64,3 +64,11 @@ bb_err_t bb_tcp_client_health_fill(bb_tcp_client_t h, bb_tcp_client_health_snap_
     if (out) memset(out, 0, sizeof(*out));
     return BB_ERR_UNSUPPORTED;
 }
+
+bb_err_t bb_tcp_client_get_host_port(bb_tcp_client_t h, char *out_host, size_t out_host_cap, uint16_t *out_port)
+{
+    (void)h;
+    if (out_host && out_host_cap > 0) out_host[0] = '\0';
+    if (out_port) *out_port = 0;
+    return BB_ERR_UNSUPPORTED;
+}

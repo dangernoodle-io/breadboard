@@ -8,6 +8,7 @@
 #include "bb_tcp_client_priv.h"
 #include "bb_log.h"
 #include "bb_clock.h"
+#include "bb_str.h"
 
 #include <inttypes.h>
 #include <string.h>
@@ -241,6 +242,27 @@ bb_err_t bb_tcp_client_destroy(bb_tcp_client_t h)
     pthread_mutex_destroy(&inst->health.lock);
     memset(inst, 0, sizeof(*inst));
     return BB_OK;
+}
+
+bb_err_t bb_tcp_client_get_host_port(bb_tcp_client_t h, char *out_host, size_t out_host_cap, uint16_t *out_port)
+{
+    bool want_host = (out_host != NULL);
+    if (want_host && out_host_cap == 0) return BB_ERR_INVALID_ARG;
+    if (!want_host && !out_port) return BB_ERR_INVALID_ARG;
+
+    bb_tcp_client_inst_t *inst = inst_from_handle(h);
+    if (!inst) return BB_ERR_INVALID_ARG;
+
+    // No lock needed: rests on the single-writer-per-instance invariant
+    // above s_pool (bb_tcp_client_get_state()'s basis too). cfg is the
+    // additional, stronger write-once-at-init guarantee (vs. inst->health).
+    bb_err_t rc = BB_OK;
+    if (want_host) {
+        size_t src_len = bb_strlcpy(out_host, inst->cfg.host, out_host_cap);
+        if (src_len >= out_host_cap) rc = BB_ERR_NO_SPACE;  // truncated but still NUL-terminated
+    }
+    if (out_port) *out_port = inst->cfg.port;
+    return rc;
 }
 
 bb_err_t bb_tcp_client_health_fill(bb_tcp_client_t h, bb_tcp_client_health_snap_t *out)

@@ -187,6 +187,35 @@ bb_err_t bb_tcp_client_close(bb_tcp_client_t h);
 bb_tcp_client_state_t bb_tcp_client_get_state(bb_tcp_client_t h);
 
 /**
+ * Returns the endpoint (host and/or port) this instance was configured
+ * with (cfg.host/cfg.port). No lock is taken: like
+ * bb_tcp_client_get_state(), this getter rests on the general
+ * single-writer-per-instance invariant -- each instance is driven by
+ * exactly one caller task, so no cross-task caution is needed by
+ * default. cfg.host/cfg.port carry an additional, stronger guarantee on
+ * top of that general invariant: they are write-once-at-init
+ * (bb_tcp_client_init()) and never mutated afterward -- unlike the
+ * cross-task bb_tcp_client_health_fill() snapshot below, which is this
+ * component's one deliberate exception to the single-writer invariant.
+ *
+ * Either output may be omitted independently: pass out_host = NULL (or
+ * out_host_cap = 0) to skip the host, or out_port = NULL to skip the port.
+ * Omitting BOTH is a caller error (nothing would be returned).
+ *
+ * out_host, when requested, is ALWAYS NUL-terminated. If the configured
+ * host does not fit in out_host_cap - 1 bytes, the copy is truncated (and
+ * still NUL-terminated) and BB_ERR_NO_SPACE is returned -- truncation is
+ * reported, never silent.
+ *
+ * @return BB_OK on success; BB_ERR_INVALID_ARG if h is NULL/invalid, if
+ *         out_host is non-NULL with out_host_cap == 0, or if both out_host
+ *         and out_port are NULL/omitted; BB_ERR_NO_SPACE if out_host was
+ *         requested but too small to hold the configured host (a
+ *         truncated, NUL-terminated copy is still written).
+ */
+bb_err_t bb_tcp_client_get_host_port(bb_tcp_client_t h, char *out_host, size_t out_host_cap, uint16_t *out_port);
+
+/**
  * Close (if connected) and release the instance back to the static pool.
  * Safe to call with NULL.
  */
