@@ -23,7 +23,7 @@ from cmake_parse import (
 )
 from boards import discover_components, ManifestError
 from composition import resolve_composition
-from discovery import build_index, normalize_roots
+from discovery import build_index, normalize_roots, PLATFORMS
 from wire_parse import parse_markers, ParseError as WireParseError
 
 NAME = "lint"
@@ -2821,6 +2821,409 @@ def _check_init_marker_gated_srcs(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Rule: binds-data-mismatch (B1-1376)
+# ---------------------------------------------------------------------------
+
+# `bb_data_bind()` callers all share one shape (see
+# components/bb_data/include/bb_data.h's bb_data_binding_t -- a flat struct
+# of scalar/pointer fields, never a nested compound-literal field in any
+# call site in-tree today): a local `bb_data_binding_t <var> = { .key =
+# <literal-or-macro>, ... };` declaration, later passed as `bb_data_bind(
+# &<var>)` -- or, less commonly, the whole binding as an inline compound
+# literal `bb_data_bind(&(bb_data_binding_t){ .key = ..., ... })`. Both
+# shapes are matched; a `[^{}]*` body (never a nested-brace-aware balanced
+# walk) is the KNOWN LIMITATION this shares with the rest of this file's
+# text-only checkers -- a binding field itself initialized from a nested
+# compound literal (none exist in-tree today) would break the match.
+_BB_DATA_BINDING_DECL_RE = re.compile(
+    r'\bbb_data_binding_t\s+(\w+)\s*=\s*\{([^{}]*)\}\s*;', re.DOTALL)
+_BB_DATA_BIND_VAR_CALL_RE = re.compile(r'\bbb_data_bind\s*\(\s*&\s*(\w+)\s*\)')
+_BB_DATA_BIND_INLINE_CALL_RE = re.compile(
+    r'\bbb_data_bind\s*\(\s*&\s*\(\s*bb_data_binding_t\s*\)\s*\{([^{}]*)\}\s*\)',
+    re.DOTALL)
+# NOTE: a `.key = "a,b"` value (comma inside the string literal) would be
+# truncated at the internal comma -- no in-tree key contains a comma today,
+# so this is a known text-only-regex limitation, not fixed here.
+_KEY_FIELD_RE = re.compile(r'\.key\s*=\s*([^,}]+)')
+_DEFINE_STRING_RE = re.compile(
+    r'^[ \t]*#[ \t]*define[ \t]+(\w+)[ \t]+"((?:[^"\\]|\\.)*)"', re.MULTILINE)
+# Function-definition headers (`ReturnType name(args) {`, brace on the same
+# or next line) -- used only to find the nearest ENCLOSING function name for
+# a given position (`_enclosing_fn_name`), so a `bb_data_bind()` call site
+# living inside a test-only helper (in-tree convention: `*_for_test` /
+# `*_bind_for_test`, e.g. bb_system_reboot_bind_for_test(),
+# bb_storage_http_factory_reset_bind_for_test()) can be excluded from the
+# production bind set. Name-based, not `#ifdef ..._TESTING`-block-stripping
+# -- simpler and matches the actual in-tree convention (every test-only bind
+# helper in this repo is named `*_for_test`); a hypothetical test-only
+# helper that binds without that naming convention would not be caught.
+_FN_HEADER_RE = re.compile(
+    r'^[A-Za-z_][\w \t\*]*?\b(\w+)\s*\([^;{}]*\)\s*\{', re.MULTILINE)
+_TEST_ONLY_FN_SUFFIX = "_for_test"
+
+
+def _enclosing_fn_name(headers: List[tuple], pos: int) -> Optional[str]:
+    """The name of the nearest function header starting before `pos` --
+    text-only (no brace-balanced walk, same known limitation as the rest of
+    this file), but functions in this codebase don't nest, so the closest
+    PRECEDING header is always the true enclosing function."""
+    name = None
+    for start, hname in headers:
+        if start > pos:
+            break
+        name = hname
+    return name
+
+
+def _is_test_only_fn_name(name: Optional[str]) -> bool:
+    return name is not None and name.endswith(_TEST_ONLY_FN_SUFFIX)
+
+
+def _strip_c_comments_keep_strings(src: str) -> str:
+    """Blank `//` and `/* */` comments only -- unlike `_strip_noise` (which
+    ALSO blanks string-literal content, the right behavior for every other
+    rule in this file, which only ever needs to avoid false-firing on
+    pattern text sitting inside a comment or string), this rule needs to
+    read what a `.key = "..."` string literal actually SAYS, so string
+    content must survive. Preserves every newline/character offset (same
+    contract as `_strip_noise`) so line numbers stay accurate."""
+    out = []
+    i, n = 0, len(src)
+    while i < n:
+        c = src[i]
+        if c == '/' and i + 1 < n and src[i + 1] == '/':
+            i += 2
+            while i < n and src[i] != '\n':
+                out.append(' ')
+                i += 1
+            continue
+        if c == '/' and i + 1 < n and src[i + 1] == '*':
+            i += 2
+            while i < n:
+                if src[i] == '*' and i + 1 < n and src[i + 1] == '/':
+                    i += 2
+                    break
+                out.append('\n' if src[i] == '\n' else ' ')
+                i += 1
+            continue
+        if c == '"':
+            j = i + 1
+            while j < n and src[j] != '"':
+                j += 2 if (src[j] == '\\' and j + 1 < n) else 1
+            j = min(j + 1, n)
+            out.append(src[i:j])
+            i = j
+            continue
+        out.append(c)
+        i += 1
+    return ''.join(out)
+
+
+def _line_of(text: str, index: int) -> int:
+    return text.count('\n', 0, index) + 1
+
+
+def _rel_to_root(p: Path, root_resolved: Path) -> Path:
+    """`p` relative to `root_resolved` when possible, `p` unchanged
+    otherwise -- guarded (never a bare `.relative_to`, which raises
+    `ValueError` for a path outside `root_resolved`). This is the preferred
+    safe pattern; at least one older unconverted inline instance remains
+    elsewhere in this file (see _check_init_marker_gated_srcs)."""
+    return p.relative_to(root_resolved) if p.is_relative_to(root_resolved) else p
+
+
+def _component_source_dirs(index, name: str) -> List[Path]:
+    """Every on-disk directory that belongs to component `name`: its
+    `components/<name>/` dir (if discovered) plus every
+    `platform/{host,espidf,arduino}/<name>/` dir that exists
+    (`discovery.PLATFORMS`) -- the real mapping from a component name to
+    the `.c` files that can define its `bb_data_bind()` calls. Neither side
+    alone is enough: a component's binds can live entirely under
+    `platform/<plat>/<name>/` (e.g. bb_mdns_cache), so scanning
+    `components/` alone would be BLIND to them; a component with no
+    platform-side presence has no `platform/` dir at all, so scanning only
+    `platform/` would miss the rest."""
+    dirs = []
+    comp_dir = index.component_dir(name)
+    if comp_dir is not None:
+        dirs.append(comp_dir)
+    for plat in PLATFORMS:
+        plat_dir = index.platform_dir(name, plat)
+        if plat_dir is not None:
+            dirs.append(plat_dir)
+    return dirs
+
+
+def _resolve_key_literal(raw: str, macros: dict) -> Optional[str]:
+    """Resolve one `.key = <raw>` token to its string value: a quoted
+    string literal is unquoted directly; a bare identifier (the
+    BB_DISPLAY_INFO_TOPIC/BB_DIAG_BOOT_TOPIC/BB_OTA_CHECK_TOPIC shape) is
+    looked up in `macros` (a `#define IDENT "value"` table grepped from the
+    SAME component's own tree -- see `_collect_bb_data_bindings`) and
+    RESOLVED, never hard-coded as a fixed exemption list (a hole: a fourth
+    macro key added later would silently bypass verification instead of
+    being resolved same as the first three). Returns `None` when an
+    identifier has no matching `#define` in that tree -- the caller reports
+    that as its own violation, never silently treats it as "not bound"."""
+    raw = raw.strip()
+    if raw.startswith('"'):
+        return raw[1:raw.rindex('"')]
+    return macros.get(raw)
+
+
+def _collect_bb_data_bindings(ctx: Context, index, name: str):
+    """Returns `(bound, unresolved)` for every PRODUCTION `bb_data_bind()`
+    call found in component `name`'s own `.c` files
+    (`_component_source_dirs`): `bound` is `{key: (path, line)}` (first call
+    site seen per key); `unresolved` is `[(path, line, detail)]` for a call
+    site this text-only checker could not read the key of -- an
+    unresolvable `.key=` macro (`_resolve_key_literal` returned `None`), or
+    a `bb_data_bind(&var)` whose `var`'s nearest PRECEDING `bb_data_binding_t
+    var = {...};` declaration in the same file can't be found
+    (nearest-preceding, not a single per-file last-wins map -- this is
+    DEFENSIVE: no in-tree case depends on it today, since every reused
+    variable name -- e.g. `reboot_binding`, `factory_reset_binding`,
+    `storage_delete_binding` -- binds the same key at every declaration
+    site, so naive last-wins would give an identical answer; it exists so a
+    genuinely different reused name doesn't silently misresolve). Every
+    `unresolved` entry is surfaced by the caller as its own violation --
+    never silently dropped, which would misreport a real binding as
+    declared-but-not-bound.
+
+    A call site inside a test-only helper (`_is_test_only_fn_name`, the
+    in-tree `*_for_test` convention -- e.g.
+    `bb_system_reboot_bind_for_test()`,
+    `bb_storage_http_factory_reset_bind_for_test()`) is excluded entirely
+    (neither `bound` nor `unresolved`) -- it is not a production bind site,
+    and counting it would let a future test-only helper that binds a
+    synthetic key force a developer to add a test-only key to the real
+    `binds_data=` declaration, the exact phantom-binding inflation this rule
+    exists to prevent."""
+    dirs = _component_source_dirs(index, name)
+    all_files: List[Path] = []
+    for d in dirs:
+        all_files.extend(sorted(d.rglob("*.c")))
+        all_files.extend(sorted(d.rglob("*.h")))
+
+    macros: dict = {}
+    for p in all_files:
+        for m in _DEFINE_STRING_RE.finditer(ctx.read(p)):
+            macros.setdefault(m.group(1), m.group(2))
+
+    bound: dict = {}
+    unresolved: list = []
+
+    for p in [f for f in all_files if f.suffix == ".c"]:
+        stripped = _strip_c_comments_keep_strings(ctx.read(p))
+        headers = [(m.start(), m.group(1))
+                   for m in _FN_HEADER_RE.finditer(stripped)]
+
+        decls: dict = {}
+        for m in _BB_DATA_BINDING_DECL_RE.finditer(stripped):
+            if _is_test_only_fn_name(_enclosing_fn_name(headers, m.start())):
+                continue
+            decls.setdefault(m.group(1), []).append((m.start(), m.group(2)))
+
+        for m in _BB_DATA_BIND_INLINE_CALL_RE.finditer(stripped):
+            if _is_test_only_fn_name(_enclosing_fn_name(headers, m.start())):
+                continue
+            line = _line_of(stripped, m.start())
+            key_m = _KEY_FIELD_RE.search(m.group(1))
+            if key_m is None:
+                unresolved.append((p, line,
+                    "bb_data_bind()'s inline binding literal has no .key field"))
+                continue
+            value = _resolve_key_literal(key_m.group(1), macros)
+            if value is None:
+                unresolved.append((p, line,
+                    f"bb_data_bind()'s .key macro '{key_m.group(1).strip()}'"
+                    f" has no resolvable #define in this component's tree"))
+                continue
+            bound.setdefault(value, (p, line))
+
+        for m in _BB_DATA_BIND_VAR_CALL_RE.finditer(stripped):
+            if _is_test_only_fn_name(_enclosing_fn_name(headers, m.start())):
+                continue
+            var = m.group(1)
+            call_pos = m.start()
+            line = _line_of(stripped, call_pos)
+            candidates = [d for d in decls.get(var, []) if d[0] < call_pos]
+            if not candidates:
+                unresolved.append((p, line,
+                    f"bb_data_bind(&{var}) -- no preceding"
+                    f" 'bb_data_binding_t {var} = {{...}};' declaration"
+                    f" found in this file to read its .key from"))
+                continue
+            body = max(candidates, key=lambda d: d[0])[1]
+            key_m = _KEY_FIELD_RE.search(body)
+            if key_m is None:
+                unresolved.append((p, line,
+                    f"bb_data_bind(&{var}) -- its bb_data_binding_t literal"
+                    f" has no .key field"))
+                continue
+            value = _resolve_key_literal(key_m.group(1), macros)
+            if value is None:
+                unresolved.append((p, line,
+                    f"bb_data_bind(&{var})'s .key macro"
+                    f" '{key_m.group(1).strip()}' has no resolvable #define"
+                    f" in this component's tree"))
+                continue
+            bound.setdefault(value, (p, line))
+
+    return bound, unresolved
+
+
+def _check_binds_data_mismatch(ctx: Context) -> list:
+    """Rule: binds-data-mismatch (B1-1376) -- a `// bbtool:init
+    binds_data=` marker's key list is a hand-written CLAIM, consumed only
+    by `commands.wire.check_binds_data_cap`'s BB_DATA_MAX_BINDINGS gate;
+    THE GAP THIS CLOSES: nothing previously checked that claim against the
+    real `bb_data_bind()` call sites it's supposed to describe. This rule
+    diffs the two sets in EITHER direction:
+      - a key the component actually binds but the marker doesn't declare
+        UNDERcounts `check_binds_data_cap`'s distinct-key count -- the same
+        defect class B1-1355 originally had (one entry's fn calling
+        bb_data_bind() more than once), one level up: the cap check can now
+        pass a composition that overflows the real runtime table.
+      - a key the marker declares but the component never binds anywhere
+        INFLATES that count for no real capacity use, wasting cap budget on
+        a phantom binding.
+
+    Owning-component resolution: `entry.component` when set (true only for
+    a `--consumer-manifest`-shaped marker, e.g. examples/*/main/bb_wire.h --
+    `component=` is the ONLY place that names it, since a manifest file
+    lives outside both `components/` and `platform/`); otherwise
+    `discovery.build_index(...).owner_of_path(entry.src_file)` (a
+    component/platform header marker) -- the SAME discovered directories
+    `_component_source_dirs` searches for `.c` files, so a header's and its
+    `.c` files' component ownership can never disagree. An entry whose
+    owner can't be resolved either way is a hard violation naming the entry
+    -- never silently skipped, mirroring every other guard in this file.
+
+    A call site this checker cannot read (an unresolvable `.key=` macro, or
+    a `bb_data_bind(&var)` whose declaration it can't find --
+    `_collect_bb_data_bindings`'s `unresolved` list) is reported as ITS OWN
+    violation, separate from the declared/actual diff -- LOUD, never a
+    silent skip that could misreport a real binding as
+    declared-but-not-bound.
+
+    ZERO-CALL-SITE BRANCH: when a component carrying a binds_data=
+    declaration has no bb_data_bind() call site anywhere in its own tree
+    (both resolved and unresolved sets empty), a specific, actionable
+    message is emitted naming the component. The generic "declared but not
+    bound" message's fix would be impossible to apply in this case, as the
+    bind typically happens at a consuming app's composition root, out of
+    this checker's reach.
+
+    Deliberately INERT until at least one entry actually declares
+    `binds_data=` (mirrors `check_binds_data_cap`'s posture) -- a component
+    with real `bb_data_bind()` calls but no marker, or a marker with no
+    `binds_data=` at all, is out of scope and never flagged."""
+    violations = []
+    root = Path(ctx.root)
+    # `discovery.build_index` canonicalizes every root via `os.path.realpath`
+    # (B1-979/B1-1084), so every path `_collect_bb_data_bindings` returns
+    # (derived from the index's own component/platform dirs) is already in
+    # resolved form -- `root_resolved` (not the bare `root` above) is what
+    # those paths must be measured against, mirroring
+    # `_check_init_marker_gated_srcs`'s identical `root_resolved` pattern
+    # (needed on macOS, where `/tmp` -> `/private/tmp` would otherwise raise
+    # ValueError on every `.relative_to(root)` call here).
+    root_resolved = root.resolve()
+    entries = [e for e in _collect_init_markers(ctx) if e.binds_data]
+    if not entries:
+        return violations
+
+    index = build_index(normalize_roots(str(root)))
+
+    for entry in entries:
+        owner = entry.component or index.owner_of_path(entry.src_file)
+        declared_str = ",".join(entry.binds_data)
+        if owner is None:
+            violations.append(ctx.violation(
+                root / entry.src_file, entry.src_line,
+                f"fn={entry.fn}: 'binds_data={declared_str}' but this"
+                f" marker's owning component could not be determined (no"
+                f" 'component=' field, and {entry.src_file} does not"
+                f" resolve under any discovered components/ or platform/"
+                f" directory) -- cannot verify the declared keys against"
+                f" real bb_data_bind() call sites",
+            ))
+            continue
+
+        bound, unresolved = _collect_bb_data_bindings(ctx, index, owner)
+
+        for path, line, detail in unresolved:
+            rel = _rel_to_root(path, root_resolved)
+            violations.append(ctx.violation(
+                root / entry.src_file, entry.src_line,
+                f"fn={entry.fn} (component '{owner}'): {rel}:{line}: {detail}"
+                f" -- cannot verify this call site's key against"
+                f" 'binds_data={declared_str}'; resolve it (or fix the"
+                f" .key= expression) rather than leaving it invisible to"
+                f" this checker",
+            ))
+
+        if not bound and not unresolved:
+            # No bb_data_bind() call site at all was found anywhere in
+            # component `owner`'s own tree (e.g. bb_log_event -- its bind is
+            # made by the CONSUMING app at its composition root, per
+            # components/bb_log_event/README.md, never in the component's
+            # own components/ or platform/ tree). Reporting this the same
+            # way as a real per-key mismatch ("declared but not bound") is
+            # actively harmful here: that message's fix ("bind the key") is
+            # IMPOSSIBLE to apply by editing this marker, because this
+            # checker cannot follow a bind into an arbitrary consuming app.
+            # Name the actual situation instead, with an applicable fix.
+            violations.append(ctx.violation(
+                root / entry.src_file, entry.src_line,
+                f"fn={entry.fn}: 'binds_data={declared_str}' declares"
+                f" {len(entry.binds_data)} key(s), but component '{owner}'"
+                f" has NO bb_data_bind() call site anywhere in its own tree"
+                f" -- either this component's bind happens at a consuming"
+                f" app's composition root instead (out of this checker's"
+                f" reach; drop 'binds_data=' from this marker, since a key"
+                f" bound elsewhere can never be verified here), or the"
+                f" declaration itself is wrong (remove it, or add the real"
+                f" bb_data_bind() call to this component's own tree)",
+            ))
+            continue
+
+        declared = set(entry.binds_data)
+        actual = set(bound.keys())
+        missing = sorted(actual - declared)
+        extra = sorted(declared - actual)
+        if not missing and not extra:
+            continue
+
+        parts = []
+        if missing:
+            sites = ", ".join(
+                f"{_rel_to_root(bound[k][0], root_resolved)}:{bound[k][1]} key={k}"
+                for k in missing
+            )
+            parts.append(f"bound but not declared: {','.join(missing)} ({sites})")
+        if extra:
+            parts.append(
+                f"declared but not bound anywhere in component '{owner}': "
+                f"{','.join(extra)}"
+            )
+        violations.append(ctx.violation(
+            root / entry.src_file, entry.src_line,
+            f"fn={entry.fn}: 'binds_data={declared_str}' does not match"
+            f" component '{owner}''s real bb_data_bind() call sites -- "
+            f"{'; '.join(parts)} -- a declared-but-not-bound key inflates"
+            f" commands.wire.check_binds_data_cap's distinct-key count for"
+            f" no real capacity use, and a bound-but-not-declared key"
+            f" undercounts it (the exact defect the cap check exists to"
+            f" catch, one level up); fix the 'binds_data=' list on this"
+            f" marker to match",
+        ))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Rule registry
 # ---------------------------------------------------------------------------
 
@@ -3024,6 +3427,17 @@ def _register_lint_rules() -> None:
                  " uncompiled/undeclared symbol (B1-1337); add an"
                  " unconditional fallback definition (e.g. a static inline"
                  " #else stub in the public header) or drop the marker",
+        ),
+        Rule(
+            id="binds-data-mismatch",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_binds_data_mismatch,
+            hint="a `// bbtool:init binds_data=` marker's declared key list"
+                 " must exactly match its owning component's real"
+                 " bb_data_bind() call sites (B1-1376) -- a declared but"
+                 " unbound key inflates check_binds_data_cap's count, a"
+                 " bound but undeclared key undercounts it",
         ),
     ]
     for rule in rules:

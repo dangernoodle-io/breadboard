@@ -1,4 +1,5 @@
 """Per-rule fixture tests ported from check_lint_test.sh."""
+import argparse
 import os
 import sys
 import tempfile
@@ -33,8 +34,10 @@ from commands.lint import (
     _check_emit_seam_unwired_subscriber,
     _check_prov_default_form_internal_ref,
     _check_init_marker_gated_srcs,
+    _check_binds_data_mismatch,
     _strip_noise,
     _parse_kconfig_int_defaults,
+    run as lint_run,
 )
 
 
@@ -2702,6 +2705,283 @@ class TestInitMarkerGatedSrcs(unittest.TestCase):
                 "a typo'd/unrecognized macro gating the only definition"
                 " must fire -- this checker cannot prove it's safe, so it"
                 " must not be silently trusted")
+
+
+class TestBindsDataMismatch(unittest.TestCase):
+    """B1-1376: a `// bbtool:init binds_data=` marker's declared key list
+    must exactly match its owning component's real bb_data_bind() call
+    sites, in either direction."""
+
+    def _write(self, tmpdir: str, relpath: str, content: str) -> None:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    def _make_component(self, tmpdir: str, name: str, header_marker: str,
+                         c_body: str) -> None:
+        self._write(
+            tmpdir, f"components/{name}/CMakeLists.txt",
+            f'idf_component_register(SRCS "{name}.c" INCLUDE_DIRS "include")\n')
+        self._write(
+            tmpdir, f"components/{name}/include/{name}.h",
+            "#pragma once\n" + header_marker + f"bb_err_t {name}_init(void);\n")
+        self._write(tmpdir, f"components/{name}/{name}.c", c_body)
+
+    def test_exact_match_passes(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(
+                td, "bb_fake",
+                "// bbtool:init tier=regular fn=bb_fake_init binds_data=fan,power\n",
+                "bb_err_t bb_fake_init(void) {\n"
+                "    bb_data_binding_t fan_binding = {\n"
+                "        .key = \"fan\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    bb_data_bind(&fan_binding);\n"
+                "    bb_data_binding_t power_binding = {\n"
+                "        .key = \"power\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    bb_data_bind(&power_binding);\n"
+                "    return BB_OK;\n"
+                "}\n")
+            violations = _check_binds_data_mismatch(make_ctx(td))
+            self.assertFalse(violations, violations)
+
+    def test_declared_but_not_bound_errors(self):
+        """The marker claims 'thermal' but no bb_data_bind() call in the
+        component actually binds it -- inflates check_binds_data_cap's
+        distinct-key count for no real capacity use."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(
+                td, "bb_fake",
+                "// bbtool:init tier=regular fn=bb_fake_init"
+                " binds_data=fan,power,thermal\n",
+                "bb_err_t bb_fake_init(void) {\n"
+                "    bb_data_binding_t fan_binding = {\n"
+                "        .key = \"fan\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    bb_data_bind(&fan_binding);\n"
+                "    bb_data_binding_t power_binding = {\n"
+                "        .key = \"power\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    bb_data_bind(&power_binding);\n"
+                "    return BB_OK;\n"
+                "}\n")
+            violations = _check_binds_data_mismatch(make_ctx(td))
+            self.assertTrue(violations, "a declared-but-unbound key must fire")
+            detail = violations[-1]["detail"]
+            self.assertIn("declared but not bound", detail)
+            self.assertIn("thermal", detail)
+
+    def test_bound_but_not_declared_errors(self):
+        """The component's bb_data_bind() calls bind 'power' too, but the
+        marker only claims 'fan' -- undercounts check_binds_data_cap's
+        distinct-key count, the exact defect class the cap check exists to
+        catch, one level up."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(
+                td, "bb_fake",
+                "// bbtool:init tier=regular fn=bb_fake_init binds_data=fan\n",
+                "bb_err_t bb_fake_init(void) {\n"
+                "    bb_data_binding_t fan_binding = {\n"
+                "        .key = \"fan\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    bb_data_bind(&fan_binding);\n"
+                "    bb_data_binding_t power_binding = {\n"
+                "        .key = \"power\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    bb_data_bind(&power_binding);\n"
+                "    return BB_OK;\n"
+                "}\n")
+            violations = _check_binds_data_mismatch(make_ctx(td))
+            self.assertTrue(violations, "a bound-but-undeclared key must fire")
+            detail = violations[-1]["detail"]
+            self.assertIn("bound but not declared", detail)
+            self.assertIn("power", detail)
+
+    def test_macro_constant_key_resolves(self):
+        """The BB_DISPLAY_INFO_TOPIC/BB_DIAG_BOOT_TOPIC/BB_OTA_CHECK_TOPIC
+        shape: a `.key=` identifier resolved via a `#define IDENT "value"`
+        grepped from the same component's own tree, never an exemption
+        list -- must match cleanly when the marker's declared key equals
+        the RESOLVED macro value, not the macro's bare identifier text."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(
+                td, "bb_fake",
+                "// bbtool:init tier=regular fn=bb_fake_init"
+                " binds_data=fake.topic\n",
+                "#define BB_FAKE_TOPIC \"fake.topic\"\n"
+                "bb_err_t bb_fake_init(void) {\n"
+                "    bb_data_binding_t binding = {\n"
+                "        .key = BB_FAKE_TOPIC, .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    return bb_data_bind(&binding);\n"
+                "}\n")
+            violations = _check_binds_data_mismatch(make_ctx(td))
+            self.assertFalse(violations, violations)
+
+    def test_unresolvable_macro_key_reports_loudly(self):
+        """A `.key=` identifier with no matching #define anywhere in the
+        component's tree must be reported as its own violation -- never
+        silently treated as 'not bound' (which would misreport a real
+        binding as declared-but-not-bound)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(
+                td, "bb_fake",
+                "// bbtool:init tier=regular fn=bb_fake_init"
+                " binds_data=fake.topic\n",
+                "bb_err_t bb_fake_init(void) {\n"
+                "    bb_data_binding_t binding = {\n"
+                "        .key = BB_UNDEFINED_TOPIC, .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    return bb_data_bind(&binding);\n"
+                "}\n")
+            violations = _check_binds_data_mismatch(make_ctx(td))
+            self.assertTrue(violations, "an unresolvable .key= macro must fire")
+            details = " ".join(v["detail"] for v in violations)
+            self.assertIn("BB_UNDEFINED_TOPIC", details)
+            self.assertIn("no resolvable #define", details)
+
+    def test_platform_only_binds_resolve(self):
+        """A component whose bb_data_bind() calls live entirely under
+        platform/<plat>/<name>/, not components/<name>/ -- checking
+        components/ alone would be blind to them (bb_mdns_cache's real
+        shape)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._write(
+                td, "components/bb_fake/CMakeLists.txt",
+                'idf_component_register(INCLUDE_DIRS "include")\n')
+            self._write(
+                td, "components/bb_fake/include/bb_fake.h",
+                "#pragma once\n"
+                "// bbtool:init tier=regular fn=bb_fake_init binds_data=fan\n"
+                "bb_err_t bb_fake_init(void);\n")
+            self._write(
+                td, "platform/espidf/bb_fake/bb_fake_espidf.c",
+                "bb_err_t bb_fake_init(void) {\n"
+                "    bb_data_binding_t fan_binding = {\n"
+                "        .key = \"fan\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    return bb_data_bind(&fan_binding);\n"
+                "}\n")
+            violations = _check_binds_data_mismatch(make_ctx(td))
+            self.assertFalse(violations, violations)
+
+    def test_no_marker_no_binds_declaration_never_fires(self):
+        """A component with real bb_data_bind() calls but NO
+        `binds_data=` marker at all is out of scope -- this rule only
+        verifies an EXISTING claim, it never invents one."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(
+                td, "bb_fake",
+                "// bbtool:init tier=regular fn=bb_fake_init\n",
+                "bb_err_t bb_fake_init(void) {\n"
+                "    bb_data_binding_t fan_binding = {\n"
+                "        .key = \"fan\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    return bb_data_bind(&fan_binding);\n"
+                "}\n")
+            violations = _check_binds_data_mismatch(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "no binds_data= marker at all must never fire, regardless"
+                " of real bb_data_bind() calls present")
+
+    def test_zero_call_sites_reports_actionable_message(self):
+        """A component with NO bb_data_bind() call site anywhere in its own
+        tree (e.g. bb_log_event's real shape -- its bind is made by the
+        CONSUMING app at its composition root, per
+        components/bb_log_event/README.md) must not be reported the same
+        way as a real per-key mismatch: that message's suggested fix ("bind
+        the key") is impossible to apply on this marker, since this checker
+        cannot follow a bind into an arbitrary consuming app. It must
+        instead name the actual situation with an applicable fix."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(
+                td, "bb_fake",
+                "// bbtool:init tier=regular fn=bb_fake_init"
+                " binds_data=log\n",
+                "bb_err_t bb_fake_init(void) {\n"
+                "    return BB_OK;\n"
+                "}\n")
+            violations = _check_binds_data_mismatch(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "declaring binds_data= on a component with zero"
+                " bb_data_bind() call sites must fire")
+            detail = violations[-1]["detail"]
+            self.assertIn("NO bb_data_bind() call site anywhere", detail)
+            self.assertNotIn("declared but not bound anywhere in component",
+                              detail,
+                              "must not reuse the per-key mismatch message"
+                              " -- its suggested fix is impossible to apply"
+                              " when the component has zero call sites")
+
+    def test_test_only_bind_helper_excluded(self):
+        """A `*_for_test` helper (the in-tree convention --
+        bb_system_reboot_bind_for_test(),
+        bb_storage_http_factory_reset_bind_for_test()) binding a DIFFERENT
+        key than production must be excluded from the real bind set --
+        otherwise a future test-only helper binding a synthetic key would
+        force a developer to add a test-only key to the real declaration,
+        the exact phantom-binding inflation this rule exists to prevent."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(
+                td, "bb_fake",
+                "// bbtool:init tier=regular fn=bb_fake_init"
+                " binds_data=fan\n",
+                "bb_err_t bb_fake_init(void) {\n"
+                "    bb_data_binding_t fan_binding = {\n"
+                "        .key = \"fan\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    return bb_data_bind(&fan_binding);\n"
+                "}\n"
+                "\n"
+                "#ifdef BB_FAKE_TESTING\n"
+                "bb_err_t bb_fake_thermal_bind_for_test(void)\n"
+                "{\n"
+                "    bb_data_binding_t thermal_binding = {\n"
+                "        .key = \"thermal\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    return bb_data_bind(&thermal_binding);\n"
+                "}\n"
+                "#endif\n")
+            violations = _check_binds_data_mismatch(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "a test-only helper's bind of a different key must not be"
+                " counted as a production bind: " + str(violations))
+
+    def test_wired_into_lint_run_entry_point(self):
+        """Proof this rule actually runs through the real `bbtool lint`
+        entry point (`run()`), not merely reachable if called directly
+        (PR #1189's failure mode: a check whose only test called the
+        function directly, leaving the registration call site itself
+        deletable with everything green). Filters to just this rule id and
+        asserts a non-zero exit over a tree with a genuine mismatch."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(
+                td, "bb_fake",
+                "// bbtool:init tier=regular fn=bb_fake_init"
+                " binds_data=fan,power\n",
+                "bb_err_t bb_fake_init(void) {\n"
+                "    bb_data_binding_t fan_binding = {\n"
+                "        .key = \"fan\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    return bb_data_bind(&fan_binding);\n"
+                "}\n")
+            args = argparse.Namespace(
+                root=td,
+                profile=None,
+                rules=["binds-data-mismatch"],
+                list=False,
+                _config_dict={},
+                _root_abs=td,
+            )
+            rc = lint_run(args)
+            self.assertEqual(
+                rc, 1,
+                "bbtool lint's real run() entry point must surface a"
+                " binds-data-mismatch violation as a non-zero exit")
 
 
 if __name__ == "__main__":
