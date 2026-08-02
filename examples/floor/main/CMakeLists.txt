@@ -43,6 +43,18 @@ bb_include_generated_or_fail(BB_FLOOR_GENERATED_FRAGMENT
     "${CMAKE_CURRENT_LIST_DIR}/generated/bb_autowire_components.cmake"
     "floor: run `make floor-gen` (see the Makefile) before building.")
 
+# B1-1371: stale-artifact guard. `bb_app_init.c` is gitignored and, unlike
+# BB_FLOOR_GENERATED_FRAGMENT above, is compiled here unconditionally (see
+# the EXISTS conditional above) with NO `floor-gen` prerequisite on the
+# `floor` Make target -- floor's own plain `make floor` never regenerates it
+# at all, so a leftover copy from an earlier checkout whose call targets
+# have since been renamed/deleted compiles silently otherwise (the exact
+# incident this ticket closes; see cmake/bb_generated.cmake's
+# bb_verify_generated_or_fail docstring for scope -- catches a
+# deleted/renamed call target, not a pure re-ordering).
+bb_verify_generated_or_fail("${BB_FLOOR_GENERATED_APP_INIT}"
+    "floor: STALE generated/bb_app_init.c -- run `make floor-gen` (see the Makefile) before building.")
+
 idf_component_register(
     SRCS ${_floor_srcs}
     INCLUDE_DIRS "."
