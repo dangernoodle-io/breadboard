@@ -67,6 +67,17 @@ severity = "error"
 # cycle) -- it records every task it creates in its own pointer-keyed base
 # registry (bb_task_base_upsert) instead. A later PR migrates existing
 # bb_task_registry callers onto bb_task; until then both coexist.
+#
+# Known gap (B1-1364 PR3): this rule only inspects files matching an
+# xTaskCreate* regex (scripts/bbtool/commands/lint.py ~line 1165) --
+# bb_task_registry_monitor.c was migrated off xTaskCreate() onto
+# bb_task_create() and the rule now silently skips it entirely (not
+# allowlisted, just no longer matched), so a future edit that deletes the
+# monitor's self-registration into bb_task_registry would go undetected
+# here. Not fixed in this PR -- extending the rule to also flag
+# bb_task_create(...) call sites lacking a paired
+# bb_task_registry_register(...) is a separate tooling change, tracked
+# outside this diff.
 allow = ["platform/espidf/bb_task/bb_task_espidf.c"]
 
 [lint.rules.component-readme]

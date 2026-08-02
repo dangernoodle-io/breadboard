@@ -1,6 +1,6 @@
 # no-psram — shared sdkconfig defaults for no-PSRAM-class smoke boards
 # (esp32, esp32-autofan, esp32-boot-progress, esp32-boot-status,
-# esp32-cache-sweep, esp32c3). elecrow-p4-hmi7 and tdongle set
+# esp32-cache-sweep, esp32-sw-wdt, esp32c3). elecrow-p4-hmi7 and tdongle set
 # CONFIG_SPIRAM=y and do NOT include this fragment.
 #
 # One place for settings shared by every no-PSRAM board in this example, so
