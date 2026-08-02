@@ -1,7 +1,10 @@
-// bb_log_event_parse — pure host+espidf log-line parser for bb_log_event.
-// No FreeRTOS or ESP-IDF dependencies; host tests cover all branches.
+// bb_log_line_parse — pure host+espidf log-line parser, relocated from
+// bb_log_event (B1-831 PR-1) so bb_log itself can reuse it (PR-2/PR-3) --
+// bb_log cannot depend back on bb_log_event (see bb_log's CMakeLists.txt,
+// KB #708/#704). No FreeRTOS or ESP-IDF dependencies; host tests cover all
+// branches.
 
-#include "bb_log_event_parse.h"
+#include "bb_log_internal.h"
 #include <string.h>
 #include <stddef.h>
 
@@ -36,10 +39,10 @@ static void safe_copy(char *dst, const char *src, size_t n, size_t cap)
     dst[copy] = '\0';
 }
 
-void bb_log_event_parse(const char *line, size_t len,
-                        char *level_out,
-                        char *tag_out, size_t tag_cap,
-                        char *msg_out, size_t msg_cap)
+void bb_log_line_parse(const char *line, size_t len,
+                       char *level_out,
+                       char *tag_out, size_t tag_cap,
+                       char *msg_out, size_t msg_cap)
 {
     // Default fallback values
     if (level_out) *level_out = '?';

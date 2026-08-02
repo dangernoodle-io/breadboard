@@ -81,6 +81,106 @@
       "type": "uncovered_branch"
     },
     {
+      "id": "107",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "108",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "109",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "15",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "16",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "18",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "19",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "28",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "36",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "48",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "49",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "50",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "56",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "63",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "68",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "72",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "77",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "85",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "93",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
+      "id": "96",
+      "path": "components/bb_log/src/bb_log_line_parse.c",
+      "type": "uncovered_branch"
+    },
+    {
       "id": "437",
       "path": "components/bb_openapi/src/bb_openapi_emit_shared.c",
       "type": "uncovered_branch"
@@ -1498,106 +1598,6 @@
     {
       "id": "95",
       "path": "platform/host/bb_led_rgb_pwm/bb_led_rgb_pwm.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "104",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "105",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "106",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "12",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "13",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "15",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "16",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "25",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "33",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "45",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "46",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "47",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "53",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "60",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "65",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "69",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "74",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "82",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "90",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "93",
-      "path": "platform/host/bb_log_event/bb_log_event_parse.c",
       "type": "uncovered_branch"
     },
     {
@@ -3116,11 +3116,6 @@
       "type": "uncovered_branch"
     },
     {
-      "id": "262",
-      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "271",
       "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
       "type": "uncovered_branch"
@@ -3134,11 +3129,6 @@
       "id": "303",
       "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
       "type": "uncovered_branch"
-    },
-    {
-      "id": "304",
-      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
-      "type": "uncovered_line"
     },
     {
       "id": "347",
@@ -3159,6 +3149,16 @@
       "id": "509",
       "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
       "type": "uncovered_branch"
+    },
+    {
+      "id": "262",
+      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
+      "type": "uncovered_line"
+    },
+    {
+      "id": "304",
+      "path": "platform/host/bb_ws_server/bb_ws_server_host.c",
+      "type": "uncovered_line"
     }
   ]
 }

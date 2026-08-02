@@ -73,6 +73,27 @@ bb_log_flush_wait_step_t bb_log_flush_wait_decide(bool take_succeeded,
  */
 uint32_t bb_log_flush_remaining_ms(uint32_t budget_ms, uint32_t elapsed_ms);
 
+// ---------------------------------------------------------------------------
+// bb_log_line_parse() -- pure, portable, host-testable parser for the
+// console-format log line s_log_vprintf produces (components/bb_log/src/
+// bb_log_line_parse.c). Relocated here from bb_log_event (B1-831 PR-1) so
+// bb_log itself can reuse it in a later PR without bb_log depending back on
+// bb_log_event -- see the REQUIRES comment at the top of this component's
+// CMakeLists.txt (KB #708/#704) for why that dependency direction is fixed.
+// ---------------------------------------------------------------------------
+
+/**
+ * Pure log-line parser. Compiled on both host and ESP-IDF (no platform deps).
+ * Parses ESP-IDF console format: "<L> (<ts>) <tag>: <msg>"
+ * Strips leading ANSI CSI escape sequences and trailing CR/LF.
+ * On parse failure: level_out='?', tag_out="", msg_out=<trimmed line>.
+ * msg is bounded to 160 bytes before copying into msg_out.
+ */
+void bb_log_line_parse(const char *line, size_t len,
+                       char *level_out,
+                       char *tag_out, size_t tag_cap,
+                       char *msg_out, size_t msg_cap);
+
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"

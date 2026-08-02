@@ -1947,7 +1947,7 @@ def _check_component_path_unresolved(ctx: Context) -> list:
     stays within `platform/` or crosses from `test/` into `platform/` —
     e.g. `test/test_host/test_main.c`'s `../../platform/host/bb_wdt/
     bb_wdt_test.h`, or `platform/espidf/bb_log_event/bb_log_event.c`'s
-    `../../host/bb_log_event/bb_log_event_parse.h`. Extending coverage to
+    `../../../components/bb_log/src/bb_log_internal.h`. Extending coverage to
     that class is deliberately deferred to its own change (it would
     surface pre-existing paths needing their own separate fixes) — see
     B1-1143."""

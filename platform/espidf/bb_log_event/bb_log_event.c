@@ -14,7 +14,6 @@
 #include "bb_log_event.h"
 #include "bb_log_event_wire.h"
 #include "../../../components/bb_log_event/bb_log_event_line_wire_priv.h"
-#include "../../host/bb_log_event/bb_log_event_parse.h"
 #include "../../../components/bb_log/src/bb_log_internal.h"
 #include "bb_log.h"
 #include "bb_data.h"
@@ -93,8 +92,8 @@ static void s_forwarder_task(void *arg)
     for (;;) {
         if (xQueueReceive(s_q, &msg, portMAX_DELAY) != pdTRUE) continue;
 
-        bb_log_event_parse(msg.line, msg.len, &level, tag, sizeof(tag),
-                           msgbuf, sizeof(msgbuf));
+        bb_log_line_parse(msg.line, msg.len, &level, tag, sizeof(tag),
+                          msgbuf, sizeof(msgbuf));
 
         uint64_t ts = bb_clock_now_ms64();
 

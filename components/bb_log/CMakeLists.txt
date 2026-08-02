@@ -3,11 +3,12 @@ set(_log_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log.c"
               "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_level.c"
               "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_config.c"
               "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_flush_wait.c"
+              "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_line_parse.c"
               "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_secret.c")
 set(_log_reqs bb_core)
 # Core deps: genuinely referenced by the always-built sources (bb_log.c,
 # bb_log_level_backend.c, bb_log_level.c, bb_log_config.c,
-# bb_log_flush_wait.c).
+# bb_log_flush_wait.c, bb_log_line_parse.c).
 # bb_task creates the writer task unconditionally in bb_log_stream_init()
 # (Option C, KB #731) -- bb_task is a floor-safe primitive (REQUIRES bb_core;
 # PRIV_REQUIRES bb_registry freertos bb_str, no bb_log dep) that upserts a
