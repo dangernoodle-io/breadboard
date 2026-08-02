@@ -482,6 +482,85 @@ class TestRenderSource(unittest.TestCase):
             self.assertEqual(render_source(ordered), render_source(ordered, []))
 
 
+class TestUnsatisfiableHoistedRequires(unittest.TestCase):
+    """B1-1396: a same-tier `requires=` on a HOISTED provider key (today just
+    http_server) must be rejected at codegen time, never silently emitted as
+    a call that render_source already knows will be skipped at runtime."""
+
+    def test_pre_http_requires_http_server_raises(self):
+        """The exact defect: a tier=pre_http entry (not the http_server
+        provider itself) declaring requires=http_server is structurally
+        unsatisfiable -- render_source always renders the http_server
+        provider's capture line AFTER every other pre_http entry, so this
+        entry's guard is always false at runtime. Must be a hard WireError
+        naming the offending fn, the unsatisfiable capability, and the
+        tier=regular fix."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)
+            _make_component(
+                root, "bb_pre_http_dep",
+                "#pragma once\n"
+                "// bbtool:init tier=pre_http requires=http_server "
+                "fn=bb_pre_http_dep_init\n"
+                "bb_err_t bb_pre_http_dep_init(void);\n",
+            )
+            entries = _collect_with_routes_manifest(
+                tmp, root, ["bb_log", "bb_http", "bb_pre_http_dep", "bb_routes"])
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError) as ctx:
+                render_source(ordered)
+            message = str(ctx.exception)
+            self.assertIn("bb_pre_http_dep_init", message)
+            self.assertIn("http_server", message)
+            self.assertIn("tier=regular", message)
+
+    def test_regular_requires_http_server_still_works(self):
+        """The documented remedy: the SAME requires=http_server declaration
+        at tier=regular is genuinely satisfiable (render_source always
+        renders the entire regular tier after the http_server capture line)
+        -- must render normally, guarded by the runtime availability check,
+        never raise."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)
+            _make_component(
+                root, "bb_regular_dep",
+                "#pragma once\n"
+                "// bbtool:init tier=regular requires=http_server "
+                "fn=bb_regular_dep_init\n"
+                "bb_err_t bb_regular_dep_init(void);\n",
+            )
+            entries = _collect_with_routes_manifest(
+                tmp, root, ["bb_log", "bb_http", "bb_regular_dep", "bb_routes"])
+            ordered = topo_sort(entries)
+            source = render_source(ordered)
+            self.assertIn("if (bb_app_avail_http_server)", source)
+            self.assertIn("bb_regular_dep_init();", source)
+            handle_pos = source.index("__auto_type bb_app_http_handle")
+            call_pos = source.index("bb_regular_dep_init();")
+            self.assertLess(handle_pos, call_pos)
+
+    def test_http_wildcard_last_is_not_a_hoisted_key(self):
+        """http_wildcard_last (B1-1280) is a same-tier ordering GATE, never a
+        hoisted-out-of-loop provider like http_server -- a same-tier
+        requires= on it is genuinely satisfiable via the ordinary topo_sort
+        edge and must NOT be rejected by the B1-1396 check."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_wildcard(tmp, route_order=0, wildcard_order=50)
+            _make_component(
+                root, "bb_wildcard_dep",
+                "#pragma once\n"
+                "// bbtool:init tier=regular requires=http_wildcard_last "
+                "fn=bb_wildcard_dep_init order=100\n"
+                "bb_err_t bb_wildcard_dep_init(void);\n",
+            )
+            entries = _collect_with_routes_manifest(
+                tmp, root, ["bb_log", "bb_http", "bb_wildcard", "bb_wildcard_dep", "bb_routes"])
+            ordered = topo_sort(entries)
+            source = render_source(ordered)
+            self.assertIn("if (bb_app_avail_http_wildcard_last)", source)
+            self.assertIn("bb_wildcard_dep_init();", source)
+
+
 class TestConsumesSetterInjection(unittest.TestCase):
     def test_provider_and_consumer_both_composed_emits_setter_call(self):
         with tempfile.TemporaryDirectory() as tmp:
