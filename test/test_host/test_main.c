@@ -1823,6 +1823,15 @@ void test_bb_http_host_capture_set_req_body_null_body_zeroes_len(void);
 void test_bb_http_host_capture_end_mismatched_req_invalid_arg(void);
 void test_bb_http_host_capture_free_null_cap_noop(void);
 
+// Forward declarations from test_bb_http_core_steer.c
+void test_bb_http_core_steer_resolve_unconfigured_unclaimed_returns_no_affinity(void);
+void test_bb_http_core_steer_resolve_steers_away_from_claimed_core0(void);
+void test_bb_http_core_steer_resolve_steers_away_from_claimed_core1(void);
+void test_bb_http_core_steer_resolve_both_claimed_returns_no_affinity(void);
+void test_bb_http_core_steer_resolve_explicit_pin_passes_through_even_when_claimed(void);
+void test_bb_http_core_steer_resolve_unicore_unconfigured_returns_no_affinity(void);
+void test_bb_http_core_steer_resolve_unicore_explicit_pin_unchanged(void);
+
 // Forward declarations from test_bb_route_uri_match.c
 void test_bb_route_uri_match_null_pattern_false(void);
 void test_bb_route_uri_match_null_uri_false(void);
@@ -9569,6 +9578,15 @@ int main(void) {
     RUN_TEST(test_bb_http_host_capture_set_req_body_null_body_zeroes_len);
     RUN_TEST(test_bb_http_host_capture_end_mismatched_req_invalid_arg);
     RUN_TEST(test_bb_http_host_capture_free_null_cap_noop);
+
+    // bb_http_core_steer_resolve tests (B1-1364 PR5 -- httpd worker core steering)
+    RUN_TEST(test_bb_http_core_steer_resolve_unconfigured_unclaimed_returns_no_affinity);
+    RUN_TEST(test_bb_http_core_steer_resolve_steers_away_from_claimed_core0);
+    RUN_TEST(test_bb_http_core_steer_resolve_steers_away_from_claimed_core1);
+    RUN_TEST(test_bb_http_core_steer_resolve_both_claimed_returns_no_affinity);
+    RUN_TEST(test_bb_http_core_steer_resolve_explicit_pin_passes_through_even_when_claimed);
+    RUN_TEST(test_bb_http_core_steer_resolve_unicore_unconfigured_returns_no_affinity);
+    RUN_TEST(test_bb_http_core_steer_resolve_unicore_explicit_pin_unchanged);
 
     // bb_route_uri_match tests (the shared pattern-vs-uri predicate seam)
     RUN_TEST(test_bb_route_uri_match_null_pattern_false);
