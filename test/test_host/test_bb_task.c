@@ -1235,3 +1235,42 @@ void test_bb_task_yield_host_stub_does_not_crash(void)
 {
     bb_task_yield();  // must not crash
 }
+
+// ---------------------------------------------------------------------------
+// bb_task_stack_hwm_bytes -- host stub (B1-1365). No real FreeRTOS stack
+// exists on host, so this proves the injectable-value seam + NULL-forwarding
+// wiring only, not real high-water-mark measurement (that only exists in the
+// espidf shell -- see platform/espidf/bb_task/bb_task_espidf.c, which
+// reuses bb_num_words_to_bytes() for the words->bytes conversion, verified
+// only by an espidf build, not host-testable: it's a bare live FreeRTOS
+// call, not conditional logic).
+// ---------------------------------------------------------------------------
+
+void test_bb_task_stack_hwm_bytes_defaults_to_zero(void)
+{
+    bb_task_test_set_stack_hwm_bytes(0);
+    TEST_ASSERT_EQUAL_UINT32(0, bb_task_stack_hwm_bytes(NULL));
+}
+
+void test_bb_task_stack_hwm_bytes_returns_injected_value(void)
+{
+    bb_task_test_set_stack_hwm_bytes(1234);
+    TEST_ASSERT_EQUAL_UINT32(1234, bb_task_stack_hwm_bytes(NULL));
+
+    bb_task_test_set_stack_hwm_bytes(0);
+}
+
+void test_bb_task_stack_hwm_bytes_forwards_null_handle_unchanged(void)
+{
+    bb_task_test_set_stack_hwm_bytes(0);
+    bb_task_stack_hwm_bytes(NULL);
+    TEST_ASSERT_NULL(bb_task_test_last_stack_hwm_handle());
+}
+
+void test_bb_task_stack_hwm_bytes_forwards_non_null_handle_unchanged(void)
+{
+    bb_task_test_set_stack_hwm_bytes(0);
+    int fake;
+    bb_task_stack_hwm_bytes(&fake);
+    TEST_ASSERT_EQUAL_PTR(&fake, bb_task_test_last_stack_hwm_handle());
+}

@@ -100,3 +100,35 @@ void bb_task_delay_ms(uint32_t ms)
 void bb_task_yield(void)
 {
 }
+
+// bb_task_stack_hwm_bytes -- host stub. No real FreeRTOS stack exists on
+// host, so this never fabricates a plausible-looking measurement; it
+// returns whatever bb_task_test_set_stack_hwm_bytes() last injected
+// (0 by default), and under BB_TASK_TESTING records the handle passed in so
+// a test can confirm NULL was forwarded through unchanged. See bb_task.h's
+// bb_task_stack_hwm_bytes() doc for the full host-stub rationale.
+#ifdef BB_TASK_TESTING
+static uint32_t s_test_stack_hwm_bytes;
+static void     *s_test_last_stack_hwm_handle;
+
+void bb_task_test_set_stack_hwm_bytes(uint32_t bytes)
+{
+    s_test_stack_hwm_bytes = bytes;
+}
+
+void *bb_task_test_last_stack_hwm_handle(void)
+{
+    return s_test_last_stack_hwm_handle;
+}
+#endif
+
+uint32_t bb_task_stack_hwm_bytes(void *handle_or_null)
+{
+#ifdef BB_TASK_TESTING
+    s_test_last_stack_hwm_handle = handle_or_null;
+    return s_test_stack_hwm_bytes;
+#else
+    (void)handle_or_null;
+    return 0;
+#endif
+}

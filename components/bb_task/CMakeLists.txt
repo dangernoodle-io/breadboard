@@ -4,5 +4,5 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_task/bb_task_espidf.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
-    PRIV_REQUIRES bb_registry freertos bb_str bb_wdt
+    PRIV_REQUIRES bb_registry freertos bb_num bb_str bb_wdt
 )
