@@ -20,3 +20,14 @@ bool bb_route_uri_match(const char *pattern, const char *uri, size_t match_upto)
     if (plen != match_upto) return false;
     return memcmp(uri, pattern, match_upto) == 0;
 }
+
+bool bb_route_match_is_wildcard(const char *path)
+{
+    size_t plen = strlen(path);
+    return plen > 0 && path[plen - 1] == '*';
+}
+
+bool bb_route_match_wildcard_in_api_scope(const char *path)
+{
+    return strncmp(path, "/api/", 5) == 0;
+}

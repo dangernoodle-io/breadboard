@@ -52,3 +52,34 @@
 #include <stdbool.h>
 
 bool bb_route_uri_match(const char *pattern, const char *uri, size_t match_upto);
+
+// ---------------------------------------------------------------------------
+// Shared entry-admission idiom -- consolidated out of bb_route_exclude.c and
+// bb_http_prov_gate.c (both hand-rolled the identical wildcard-detection +
+// /api/-only-wildcard restriction before this extraction; second instance
+// triggers consolidation per house rule). Only the parts that were BYTE-
+// IDENTICAL between the two call sites live here: NUL-termination handling,
+// caller-specific logging, error codes, empty-path policy, and cap-exhaustion
+// checks stay in each call site because they differ (or are allowed to
+// differ) between bb_http_route_exclude() and bb_http_prov_allow().
+//
+// KNOWN DIVERGENCE (B1-1405, deliberate -- not accidental drift): an empty
+// path is rejected by bb_http_route_exclude() but accepted by
+// bb_http_prov_allow() as a non-wildcard exact entry (see
+// test_bb_http_prov_gate_empty_path_not_wildcard). Do not "fix" one call
+// site to match the other without re-checking B1-1405 first.
+// ---------------------------------------------------------------------------
+
+// Does `path` look like a suffix-wildcard entry (trailing '*')? path must be
+// non-NULL -- callers reject NULL before calling this.
+bool bb_route_match_is_wildcard(const char *path);
+
+// Is a wildcard `path` inside the INTERIM /api/-only wildcard scope (see
+// bb_route_match.h's TARGET SHAPE note above, and each caller's own header
+// for why the restriction exists)? path must be non-NULL. The two callers
+// use this differently: bb_http_prov_gate.c gates the call behind
+// bb_route_match_is_wildcard(path) (only asks when path is already known to
+// be a wildcard); bb_http_route_exclude() calls it unconditionally, on every
+// path, as a general /api/-scope check (the strncmp(path, "/api/", 5)
+// body is correct either way).
+bool bb_route_match_wildcard_in_api_scope(const char *path);

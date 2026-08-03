@@ -1,6 +1,7 @@
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_log.h"
+#include "bb_route_exclude.h"
 #include "bb_route_match.h"
 #include "bb_str.h"
 #include <assert.h>
@@ -147,6 +148,19 @@ void bb_http_route_registry_foreach(bb_route_walker_fn cb, void *ctx)
 // translation-unit-static copy when the handler field must be wired at runtime.
 static bb_err_t registry_add(const bb_route_t *route)
 {
+    // Composition-time exclusion (B1-1401): a route named via
+    // bb_http_route_exclude() is a benign no-op here, NOT a registration
+    // failure -- it is never stored, so it structurally cannot appear in
+    // bb_http_route_registry_foreach() (and therefore never in the
+    // bb_openapi spec walk, which consumes only that walker).
+    // No NULL-path ternary here (unlike the overflow log below): route_excluded()
+    // returns false for a NULL path, so a hit here always has a non-NULL path.
+    if (route_excluded(route->method, route->path)) {
+        bb_log_w(TAG, "route excluded: %d %s (registry)",
+                 (int)route->method, route->path);
+        return BB_OK;
+    }
+
     if (s_count >= BB_ROUTE_REGISTRY_CAP) {
         bb_log_e(TAG, "route registry full (cap=%d); dropping descriptor for %s",
                  BB_ROUTE_REGISTRY_CAP, route->path ? route->path : "(null)");
@@ -303,6 +317,16 @@ void bb_dispatch_api_reset(void)
 bb_err_t bb_dispatch_api_add(bb_http_method_t method, const char *path,
                               bb_http_handler_fn handler)
 {
+    // Composition-time exclusion (B1-1401): same benign no-op posture as
+    // registry_add()'s gate above -- never stored, so bb_dispatch_api_lookup()
+    // unconditionally MISSes it (404) regardless of provisioning state. No
+    // NULL-path ternary here either: route_excluded() returns false for a
+    // NULL path, so a hit here always has a non-NULL path.
+    if (route_excluded(method, path)) {
+        bb_log_w(TAG, "route excluded: %d %s (dispatch)", (int)method, path);
+        return BB_OK;
+    }
+
     if (s_dispatch_count >= BB_DISPATCH_API_CAP) {
         return BB_ERR_NO_SPACE;
     }

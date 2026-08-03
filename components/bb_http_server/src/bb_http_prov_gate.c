@@ -64,15 +64,14 @@ bb_err_t bb_http_prov_allow(bb_http_method_t method, const char *path)
 {
     if (!path) return BB_ERR_INVALID_ARG;
 
-    size_t plen        = strlen(path);
-    bool   is_wildcard = plen > 0 && path[plen - 1] == '*';
+    bool is_wildcard = bb_route_match_is_wildcard(path);
 
     // INTERIM restriction (see header): a wildcard entry is only verified
     // correct for the /api/* family bb_route_uri_match's subset predicate
     // is actually exercised against (bb_dispatch_api). Reject a non-/api
     // wildcard rather than silently admitting an entry that could diverge
     // from what httpd actually routes.
-    if (is_wildcard && strncmp(path, "/api/", 5) != 0) {
+    if (is_wildcard && !bb_route_match_wildcard_in_api_scope(path)) {
         bb_log_e(TAG, "wildcard prov-allow entry %s rejected: wildcard entries "
                  "are only permitted under /api/ (see bb_http_prov_gate.h)", path);
         return BB_ERR_INVALID_ARG;
