@@ -123,24 +123,36 @@ uint32_t bb_wdt_claimed_core_mask(void)
     return mask;
 }
 
-uint32_t bb_wdt_derive_idle_mask(uint32_t kconfig_default_mask, uint32_t claimed_mask)
+bb_wdt_excused_mask_t bb_wdt_derive_excused_mask(bb_wdt_excused_mask_t excused_seed,
+                                                  bb_wdt_excused_mask_t claimed_mask)
 {
-    // OR, never override: a claim only ever ADDS an excused core, it never
-    // removes a check the board owner asked for via Kconfig.
-    return kconfig_default_mask | claimed_mask;
+    // UNION, never override -- both operands are EXCUSED polarity (see
+    // bb_wdt.h's "Polarity hardening" note, B1-1408): a claim only ever
+    // ADDS an excused core, it never removes an idle check the board owner
+    // asked for via Kconfig.
+    return (bb_wdt_excused_mask_t){ .bits = excused_seed.bits | claimed_mask.bits };
 }
 
-uint32_t bb_wdt_clamp_idle_mask(uint32_t mask, int num_cores)
+bb_wdt_excused_mask_t bb_wdt_clamp_core_mask(bb_wdt_excused_mask_t mask, int num_cores)
 {
     if (num_cores <= 0) {
-        return 0U;
+        return (bb_wdt_excused_mask_t){ .bits = 0U };
     }
     if (num_cores >= 32) {
         // No uint32_t bit can be out of range for a 32+-core target; also
         // guards against `1U << 32`, which is undefined behavior in C.
         return mask;
     }
-    return mask & ((1U << (uint32_t)num_cores) - 1U);
+    return (bb_wdt_excused_mask_t){ .bits = mask.bits & ((1U << (uint32_t)num_cores) - 1U) };
+}
+
+uint32_t bb_wdt_invert_core_mask(uint32_t mask, int num_cores)
+{
+    // full_mask(num_cores): reuse bb_wdt_clamp_core_mask()'s identical
+    // range-truncation math rather than re-deriving it -- clamping
+    // "all bits set" to num_cores IS full_mask(num_cores).
+    uint32_t full = bb_wdt_clamp_core_mask((bb_wdt_excused_mask_t){ .bits = ~0U }, num_cores).bits;
+    return full & ~mask;
 }
 
 int bb_wdt_steer_core(int requested, uint32_t claimed_mask, int num_cores)

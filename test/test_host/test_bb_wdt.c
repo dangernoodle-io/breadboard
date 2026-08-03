@@ -358,82 +358,215 @@ void test_bb_wdt_test_reset_clears_claims(void)
 }
 
 /* -------------------------------------------------------------------------
- * bb_wdt_derive_idle_mask: PURE mask-union math
+ * bb_wdt_derive_excused_mask: PURE mask-union math.
+ *
+ * B1-1408: renamed from bb_wdt_derive_idle_mask(). The formula (bitwise OR)
+ * is UNCHANGED -- only the naming/polarity contract changes. Both inputs
+ * here are EXCUSED-polarity literals (bit set == this core's idle check is
+ * suppressed), not the board's Kconfig-configured MONITORED-polarity value
+ * -- see bb_wdt.h's "Polarity hardening" note. That is why these numeric
+ * assertions survive the fix unchanged: they exercise the pure union math
+ * in one fixed, self-consistent polarity, never the seed-computation step
+ * where the actual defect lived (kconfig_default_idle_mask() feeding a
+ * MONITORED-polarity value in directly, unconverted).
  * ---------------------------------------------------------------------- */
 
-void test_bb_wdt_derive_idle_mask_zero_zero(void)
+void test_bb_wdt_derive_excused_mask_zero_zero(void)
 {
-    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_derive_idle_mask(0, 0));
+    TEST_ASSERT_EQUAL_UINT32(0,
+        bb_wdt_derive_excused_mask((bb_wdt_excused_mask_t){ 0 }, (bb_wdt_excused_mask_t){ 0 }).bits);
 }
 
-void test_bb_wdt_derive_idle_mask_kconfig_only(void)
+void test_bb_wdt_derive_excused_mask_seed_only(void)
 {
-    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_derive_idle_mask(1U << 0, 0));
+    TEST_ASSERT_EQUAL_UINT32(1U << 0,
+        bb_wdt_derive_excused_mask((bb_wdt_excused_mask_t){ 1U << 0 }, (bb_wdt_excused_mask_t){ 0 }).bits);
 }
 
-void test_bb_wdt_derive_idle_mask_claimed_only(void)
+void test_bb_wdt_derive_excused_mask_claimed_only(void)
 {
-    TEST_ASSERT_EQUAL_UINT32(1U << 1, bb_wdt_derive_idle_mask(0, 1U << 1));
+    TEST_ASSERT_EQUAL_UINT32(1U << 1,
+        bb_wdt_derive_excused_mask((bb_wdt_excused_mask_t){ 0 }, (bb_wdt_excused_mask_t){ 1U << 1 }).bits);
 }
 
-void test_bb_wdt_derive_idle_mask_union_never_overrides(void)
+void test_bb_wdt_derive_excused_mask_union_never_overrides(void)
 {
     /* OR, never override: a claim on core 1 must not drop the board's
-     * Kconfig-configured excuse on core 0, and vice versa. */
+     * Kconfig-derived excused seed on core 0, and vice versa. */
     TEST_ASSERT_EQUAL_UINT32((1U << 0) | (1U << 1),
-                              bb_wdt_derive_idle_mask(1U << 0, 1U << 1));
+        bb_wdt_derive_excused_mask((bb_wdt_excused_mask_t){ 1U << 0 }, (bb_wdt_excused_mask_t){ 1U << 1 }).bits);
 }
 
-void test_bb_wdt_derive_idle_mask_both_same_bit_is_idempotent(void)
+void test_bb_wdt_derive_excused_mask_both_same_bit_is_idempotent(void)
 {
-    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_derive_idle_mask(1U << 0, 1U << 0));
+    TEST_ASSERT_EQUAL_UINT32(1U << 0,
+        bb_wdt_derive_excused_mask((bb_wdt_excused_mask_t){ 1U << 0 }, (bb_wdt_excused_mask_t){ 1U << 0 }).bits);
 }
 
-void test_bb_wdt_derive_idle_mask_both_full(void)
+void test_bb_wdt_derive_excused_mask_both_full(void)
 {
     uint32_t both = (1U << 0) | (1U << 1);
-    TEST_ASSERT_EQUAL_UINT32(both, bb_wdt_derive_idle_mask(both, both));
+    TEST_ASSERT_EQUAL_UINT32(both,
+        bb_wdt_derive_excused_mask((bb_wdt_excused_mask_t){ both }, (bb_wdt_excused_mask_t){ both }).bits);
 }
 
 /* -------------------------------------------------------------------------
- * bb_wdt_clamp_idle_mask: PURE clamp math (Finding 1, B1-1364 PR1 review)
+ * bb_wdt_clamp_core_mask: PURE clamp math (Finding 1, B1-1364 PR1 review).
+ *
+ * B1-1408: renamed from bb_wdt_clamp_idle_mask(). Pure range-truncation
+ * math, unchanged and polarity-agnostic in isolation -- these numeric
+ * assertions survive the fix unchanged for the same reason as the derive
+ * tests above.
  * ---------------------------------------------------------------------- */
 
-void test_bb_wdt_clamp_idle_mask_dual_core_unchanged(void)
+void test_bb_wdt_clamp_core_mask_dual_core_unchanged(void)
 {
     uint32_t both = (1U << 0) | (1U << 1);
-    TEST_ASSERT_EQUAL_UINT32(both, bb_wdt_clamp_idle_mask(both, 2));
+    TEST_ASSERT_EQUAL_UINT32(both,
+        bb_wdt_clamp_core_mask((bb_wdt_excused_mask_t){ both }, 2).bits);
 }
 
-void test_bb_wdt_clamp_idle_mask_unicore_drops_bit1(void)
+void test_bb_wdt_clamp_core_mask_unicore_drops_bit1(void)
 {
     /* the exact scenario esp_task_wdt_reconfigure() would otherwise reject:
      * bit 1 set on a 1-core target. */
     uint32_t both = (1U << 0) | (1U << 1);
-    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_clamp_idle_mask(both, 1));
+    TEST_ASSERT_EQUAL_UINT32(1U << 0,
+        bb_wdt_clamp_core_mask((bb_wdt_excused_mask_t){ both }, 1).bits);
 }
 
-void test_bb_wdt_clamp_idle_mask_unicore_only_bit1_clamps_to_zero(void)
+void test_bb_wdt_clamp_core_mask_unicore_only_bit1_clamps_to_zero(void)
 {
-    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_clamp_idle_mask(1U << 1, 1));
+    TEST_ASSERT_EQUAL_UINT32(0U,
+        bb_wdt_clamp_core_mask((bb_wdt_excused_mask_t){ 1U << 1 }, 1).bits);
 }
 
-void test_bb_wdt_clamp_idle_mask_zero_cores_clamps_to_zero(void)
+void test_bb_wdt_clamp_core_mask_zero_cores_clamps_to_zero(void)
 {
-    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_clamp_idle_mask((1U << 0) | (1U << 1), 0));
+    TEST_ASSERT_EQUAL_UINT32(0U,
+        bb_wdt_clamp_core_mask((bb_wdt_excused_mask_t){ (1U << 0) | (1U << 1) }, 0).bits);
 }
 
-void test_bb_wdt_clamp_idle_mask_negative_cores_clamps_to_zero(void)
+void test_bb_wdt_clamp_core_mask_negative_cores_clamps_to_zero(void)
 {
-    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_clamp_idle_mask(1U << 0, -1));
+    TEST_ASSERT_EQUAL_UINT32(0U,
+        bb_wdt_clamp_core_mask((bb_wdt_excused_mask_t){ 1U << 0 }, -1).bits);
 }
 
-void test_bb_wdt_clamp_idle_mask_large_num_cores_unchanged(void)
+void test_bb_wdt_clamp_core_mask_large_num_cores_unchanged(void)
 {
     /* num_cores >= 32: no uint32_t bit can be out of range; also guards
      * against `1U << 32` (undefined behavior). */
     uint32_t both = (1U << 0) | (1U << 1);
-    TEST_ASSERT_EQUAL_UINT32(both, bb_wdt_clamp_idle_mask(both, 32));
+    TEST_ASSERT_EQUAL_UINT32(both,
+        bb_wdt_clamp_core_mask((bb_wdt_excused_mask_t){ both }, 32).bits);
+}
+
+/* -------------------------------------------------------------------------
+ * bb_wdt_invert_core_mask: PURE, self-inverse polarity flip (B1-1408). New
+ * -- this function did not exist pre-fix; it is the actual defect fix (the
+ * old code fed a MONITORED-polarity Kconfig value directly into the
+ * excused-polarity union with no conversion at either boundary).
+ * ---------------------------------------------------------------------- */
+
+void test_bb_wdt_invert_core_mask_core0_excused_yields_core1_monitored(void)
+{
+    /* Required test (B1-1408 spec): core 0 excused on a 2-core target ->
+     * the resulting MONITORED mask must NOT contain bit 0 but MUST contain
+     * bit 1. */
+    uint32_t monitored = bb_wdt_invert_core_mask(1U << 0, 2);
+    TEST_ASSERT_EQUAL_UINT32(1U << 1, monitored);
+    TEST_ASSERT_FALSE((monitored & (1U << 0)) != 0U);
+}
+
+void test_bb_wdt_invert_core_mask_nothing_excused_yields_all_monitored(void)
+{
+    TEST_ASSERT_EQUAL_UINT32((1U << 0) | (1U << 1), bb_wdt_invert_core_mask(0U, 2));
+}
+
+void test_bb_wdt_invert_core_mask_everything_excused_yields_nothing_monitored(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_invert_core_mask((1U << 0) | (1U << 1), 2));
+}
+
+void test_bb_wdt_invert_core_mask_self_inverse(void)
+{
+    /* Applying it twice (to an already-in-range mask) returns the
+     * original -- the property the design relies on to reuse ONE helper at
+     * both polarity boundaries. */
+    uint32_t original = 1U << 1;
+    uint32_t once = bb_wdt_invert_core_mask(original, 2);
+    uint32_t twice = bb_wdt_invert_core_mask(once, 2);
+    TEST_ASSERT_EQUAL_UINT32(original, twice);
+}
+
+void test_bb_wdt_invert_core_mask_unicore_only_bit0_in_range(void)
+{
+    /* num_cores == 1: only bit 0 participates in the flip -- an
+     * out-of-range bit 1 in the input is dropped, not carried through. */
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_invert_core_mask(1U << 1, 1));
+    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_invert_core_mask(1U << 0, 1));
+}
+
+/* -------------------------------------------------------------------------
+ * End-to-end PURE math, combining derive + clamp + invert exactly as
+ * do_reconfigure() does -- these are the required (B1-1408 spec) tests that
+ * prove the whole excused -> monitored pipeline, independent of either
+ * platform backend's do_reconfigure() plumbing.
+ * ---------------------------------------------------------------------- */
+
+void test_bb_wdt_pipeline_kconfig_yy_plus_claim_core0_yields_core1_monitored(void)
+{
+    /* Required test (B1-1408 spec): Kconfig y/y seed (both cores
+     * monitored by default) + a claim on core 0 -> final MONITORED mask
+     * == (1U << 1) only. */
+    uint32_t kconfig_monitored_seed = (1U << 0) | (1U << 1); /* Kconfig y/y */
+    bb_wdt_excused_mask_t excused_seed = {
+        .bits = bb_wdt_invert_core_mask(kconfig_monitored_seed, 2)
+    };
+    bb_wdt_excused_mask_t excused =
+        bb_wdt_clamp_core_mask(
+            bb_wdt_derive_excused_mask(excused_seed, (bb_wdt_excused_mask_t){ 1U << 0 }), 2);
+    uint32_t monitored = bb_wdt_invert_core_mask(excused.bits, 2);
+    TEST_ASSERT_EQUAL_UINT32(1U << 1, monitored);
+}
+
+void test_bb_wdt_pipeline_claim_on_kconfig_already_unmonitored_core_is_noop(void)
+{
+    /* Required test (B1-1408 spec): claiming a core Kconfig already leaves
+     * unmonitored is a no-op on the final mask, not a re-add -- the union
+     * is idempotent whether or not the claim happens. */
+    uint32_t kconfig_monitored_seed = 1U << 0; /* core 1 NOT monitored by Kconfig */
+    bb_wdt_excused_mask_t excused_seed = {
+        .bits = bb_wdt_invert_core_mask(kconfig_monitored_seed, 2)
+    };
+
+    bb_wdt_excused_mask_t excused_without_claim =
+        bb_wdt_clamp_core_mask(
+            bb_wdt_derive_excused_mask(excused_seed, (bb_wdt_excused_mask_t){ 0U }), 2);
+    uint32_t monitored_without_claim = bb_wdt_invert_core_mask(excused_without_claim.bits, 2);
+
+    bb_wdt_excused_mask_t excused_with_claim =
+        bb_wdt_clamp_core_mask(
+            bb_wdt_derive_excused_mask(excused_seed, (bb_wdt_excused_mask_t){ 1U << 1 }), 2);
+    uint32_t monitored_with_claim = bb_wdt_invert_core_mask(excused_with_claim.bits, 2);
+
+    TEST_ASSERT_EQUAL_UINT32(monitored_without_claim, monitored_with_claim);
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, monitored_with_claim);
+}
+
+void test_bb_wdt_pipeline_both_cores_claimed_yields_nothing_monitored(void)
+{
+    /* Required test (B1-1408 spec): both cores claimed -> final MONITORED
+     * mask == 0. */
+    uint32_t kconfig_monitored_seed = (1U << 0) | (1U << 1); /* Kconfig y/y */
+    bb_wdt_excused_mask_t excused_seed = {
+        .bits = bb_wdt_invert_core_mask(kconfig_monitored_seed, 2)
+    };
+    bb_wdt_excused_mask_t excused = bb_wdt_clamp_core_mask(
+        bb_wdt_derive_excused_mask(excused_seed, (bb_wdt_excused_mask_t){ (1U << 0) | (1U << 1) }), 2);
+    uint32_t monitored = bb_wdt_invert_core_mask(excused.bits, 2);
+    TEST_ASSERT_EQUAL_UINT32(0U, monitored);
 }
 
 /* -------------------------------------------------------------------------
@@ -454,9 +587,16 @@ void test_bb_wdt_claim_core_1_on_unicore_never_produces_out_of_range_mask(void)
      * real core count)... */
     TEST_ASSERT_EQUAL_UINT32(1U << 1, bb_wdt_claimed_core_mask());
     /* ...but the mask actually handed to reconfigure never sets an
-     * out-of-range bit -- esp_task_wdt_reconfigure() would reject a mask
-     * with bit 1 set on a 1-core target. */
-    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_test_last_reconfigured_mask());
+     * out-of-range bit, and the out-of-range claim has zero effect on the
+     * one real core (core 0), which was never claimed and must therefore
+     * still be monitored. B1-1408: this value CHANGED from the pre-fix 0U
+     * -- see the commit body for the pre/post trace. Under the old
+     * OR-without-inversion code, the out-of-range claim clamped to 0 wiped
+     * out core 0's monitoring too (a worse bug than merely failing to
+     * excuse), because the "final mask" was computed and consumed
+     * directly in excused-looking polarity with no conversion to ESP-IDF's
+     * real monitored polarity. */
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_test_last_reconfigured_mask());
 }
 
 void test_bb_wdt_claim_core_1_on_unicore_does_not_poison_later_reconfigure(void)
@@ -465,20 +605,24 @@ void test_bb_wdt_claim_core_1_on_unicore_does_not_poison_later_reconfigure(void)
     bb_wdt_test_set_num_cores(1);
 
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(1));
-    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_test_last_reconfigured_mask());
+    /* B1-1408: changed from 0U -- see the sibling test above. */
+    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_test_last_reconfigured_mask());
 
     /* a legitimate core-0 claim afterward must still apply cleanly -- the
      * out-of-range claim must never persist/poison a later reconfigure
      * (the historical bug this PR fixes: esp_task_wdt_reconfigure()
-     * rejecting the out-of-range mask would silently drop this too). */
+     * rejecting the out-of-range mask would silently drop this too). Core
+     * 0 is now claimed (excused), so the one real core must NOT be
+     * monitored -- B1-1408: changed from 1U << 0 (the pre-fix value
+     * asserted core 0 WAS monitored despite being claimed -- backwards). */
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(0));
-    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_test_last_reconfigured_mask());
+    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_test_last_reconfigured_mask());
 
     /* an unrelated bb_wdt_set_timeout() call afterward must also still
      * apply -- proving the earlier out-of-range claim never poisons the
      * shared reconfigure path for a caller with no relationship to it. */
     bb_wdt_set_timeout(60);
-    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_test_last_reconfigured_mask());
+    TEST_ASSERT_EQUAL_UINT32(0U, bb_wdt_test_last_reconfigured_mask());
 }
 
 /* -------------------------------------------------------------------------
@@ -492,13 +636,18 @@ void test_bb_wdt_set_timeout_does_not_clobber_claim(void)
 {
     bb_wdt_test_reset();
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(0));
-    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_test_last_reconfigured_mask());
+    /* core 0 is claimed (excused), so it must NOT be monitored; core 1 is
+     * unclaimed and must still be monitored. B1-1408: changed from
+     * 1U << 0 -- the pre-fix value asserted core 0 WAS monitored despite
+     * being the claimed (supposedly excused) core, which is exactly the
+     * defect this PR fixes. */
+    TEST_ASSERT_EQUAL_UINT32(1U << 1, bb_wdt_test_last_reconfigured_mask());
 
     /* an unrelated later bb_wdt_set_timeout() (e.g. the
      * bb_wdt_extend_begin()/extend_end() pair) must still apply the live
      * claim, not silently re-derive from Kconfig alone. */
     bb_wdt_set_timeout(60);
-    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_test_last_reconfigured_mask());
+    TEST_ASSERT_EQUAL_UINT32(1U << 1, bb_wdt_test_last_reconfigured_mask());
 }
 
 void test_bb_wdt_release_core_reconfigures_immediately(void)
@@ -507,9 +656,15 @@ void test_bb_wdt_release_core_reconfigures_immediately(void)
      * "declared but not applied" window. */
     bb_wdt_test_reset();
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_claim_core(0));
-    TEST_ASSERT_EQUAL_UINT32(1U << 0, bb_wdt_test_last_reconfigured_mask());
+    /* B1-1408: changed from 1U << 0 -- see the sibling test above. */
+    TEST_ASSERT_EQUAL_UINT32(1U << 1, bb_wdt_test_last_reconfigured_mask());
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_release_core(0));
-    TEST_ASSERT_EQUAL_UINT32(0, bb_wdt_test_last_reconfigured_mask());
+    /* nothing claimed -> both cores monitored (host's default-all-monitored
+     * excused_seed == 0 mirrors a default y/y Kconfig once inverted).
+     * B1-1408: changed from 0 -- the pre-fix value asserted NOTHING was
+     * monitored once the claim released, when in fact both cores should be
+     * (again) monitored with no live claims. */
+    TEST_ASSERT_EQUAL_UINT32((1U << 0) | (1U << 1), bb_wdt_test_last_reconfigured_mask());
 }
 
 /* -------------------------------------------------------------------------

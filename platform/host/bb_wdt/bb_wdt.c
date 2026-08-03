@@ -10,7 +10,7 @@ static int   s_unsub_count            = 0;
 static void *s_last_subscribe_handle  = NULL;
 static void *s_last_unsubscribe_handle = NULL;
 static uint32_t s_last_reconfigured_mask = 0;
-// Simulated core count for bb_wdt_clamp_idle_mask() -- mirrors the ESP-IDF
+// Simulated core count for bb_wdt_clamp_core_mask() -- mirrors the ESP-IDF
 // backend's configNUMBER_OF_CORES argument. Defaults to 2 (dual-core) so
 // existing dual-core-shaped tests are unaffected; a test sets this to 1 to
 // reproduce a unicore (esp32-s2/-c3) target's clamp behavior.
@@ -37,24 +37,41 @@ uint32_t bb_wdt_test_last_reconfigured_mask(void) { return s_last_reconfigured_m
 void bb_wdt_test_set_num_cores(int num_cores) { s_num_cores = num_cores; }
 #endif /* BB_WDT_TESTING */
 
-// Host has no Kconfig-derived idle-check default -- the derived mask is
-// exactly the claimed mask. SHARED reconfigure path -- both
-// bb_wdt_set_timeout() and bb_wdt_priv_reapply() (claim/release) go through
-// this single function, mirroring the ESP-IDF backend's do_reconfigure(), so
-// a claim can never be silently clobbered by a later bb_wdt_set_timeout().
+// Host has no Kconfig-derived idle-check default -- excused_seed 0U is the
+// EXCUSED-polarity equivalent of "everything monitored by default" (the
+// same result a default y/y Kconfig on the ESP-IDF backend inverts to --
+// see bb_wdt.h's "Polarity hardening" note, B1-1408). SHARED reconfigure
+// path -- both bb_wdt_set_timeout() and bb_wdt_priv_reapply() (claim/
+// release) go through this single function, mirroring the ESP-IDF backend's
+// do_reconfigure(), so a claim can never be silently clobbered by a later
+// bb_wdt_set_timeout().
 //
-// The derived mask is clamped via bb_wdt_clamp_idle_mask() exactly like the
+// The excused mask is clamped via bb_wdt_clamp_core_mask() exactly like the
 // ESP-IDF backend, against the BB_WDT_TESTING-only simulated core count
 // (s_num_cores, default 2) -- this is what makes the unicore
 // out-of-range-claim behavior host-testable at all (see
 // bb_wdt_test_set_num_cores()); the real ESP-IDF backend clamps against
-// configNUMBER_OF_CORES instead.
+// configNUMBER_OF_CORES instead. It is then converted back to MONITORED
+// polarity exactly once via bb_wdt_invert_core_mask(), mirroring the
+// ESP-IDF backend's single conversion immediately before writing
+// esp_task_wdt_config_t.idle_core_mask -- s_last_reconfigured_mask is the
+// host-observable stand-in for that same value.
 static void do_reconfigure(uint32_t timeout_s)
 {
     (void)timeout_s;
-    uint32_t derived = bb_wdt_derive_idle_mask(0U, bb_wdt_claimed_core_mask());
+    bb_wdt_excused_mask_t excused_seed = { .bits = 0U };
+    // A claim IS excused-polarity by contract (see bb_wdt.h's "Polarity
+    // hardening" note) -- named conversion of the bare uint32_t
+    // bb_wdt_claimed_core_mask() returns (kept bare there since it is also
+    // consumed as a raw ownership bitmask outside bb_wdt).
+    bb_wdt_excused_mask_t claimed_excused = { .bits = bb_wdt_claimed_core_mask() };
+    bb_wdt_excused_mask_t excused =
+        bb_wdt_derive_excused_mask(excused_seed, claimed_excused);
 #ifdef BB_WDT_TESTING
-    s_last_reconfigured_mask = bb_wdt_clamp_idle_mask(derived, s_num_cores);
+    bb_wdt_excused_mask_t clamped = bb_wdt_clamp_core_mask(excused, s_num_cores);
+    s_last_reconfigured_mask = bb_wdt_invert_core_mask(clamped.bits, s_num_cores);
+#else
+    (void)excused;
 #endif
 }
 

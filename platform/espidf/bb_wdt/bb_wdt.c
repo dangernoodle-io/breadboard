@@ -32,7 +32,21 @@ static inline bb_err_t ensure_timeout_lock(void)
 }
 
 // The board's Kconfig-configured idle-check default, independent of any
-// runtime claim.
+// runtime claim. MONITORED polarity -- bit N set means core N's idle task
+// IS monitored (esp_task_wdt.h: "1 << i means that core i's idle task will
+// be monitored by the TWDT") -- mirroring ESP-IDF's own app_startup.c
+// computation from these exact same Kconfig symbols. do_reconfigure() below
+// converts this ONCE into bb_wdt's internal EXCUSED polarity via
+// bb_wdt_invert_core_mask() before feeding bb_wdt_derive_excused_mask(); see
+// bb_wdt.h's "Polarity hardening" note (B1-1408).
+//
+// Boot window: ESP-IDF's app_startup.c inits the Task WDT from these same
+// Kconfig symbols (CONFIG_ESP_TASK_WDT_INIT, default y) BEFORE app_main()
+// runs -- bb_wdt's own value governs only from its first reconfigure
+// onward (the first bb_wdt_set_timeout()/claim/release call). The two agree
+// in the nothing-claimed case by construction (same Kconfig symbols, same
+// formula); bb_wdt does not own the idle-check mask from boot, only from
+// its first reconfigure.
 static uint32_t kconfig_default_idle_mask(void)
 {
     return
@@ -48,10 +62,16 @@ static uint32_t kconfig_default_idle_mask(void)
 // SHARED reconfigure path -- both bb_wdt_set_timeout() and
 // bb_wdt_priv_reapply() (claim/release) go through this single function, so
 // every reconfigure derives the idle mask via the same
-// bb_wdt_derive_idle_mask() union (kconfig default | claimed), never a bare
-// re-derivation from Kconfig alone that would drop a live claim.
+// bb_wdt_derive_excused_mask() union (excused seed | claimed), never a bare
+// re-derivation from Kconfig alone that would drop a live claim. The whole
+// computation happens in EXCUSED polarity (bb_wdt.h's "Polarity hardening"
+// note, B1-1408) except the two single-call conversions at each end:
+// kconfig_default_idle_mask()'s MONITORED-polarity seed is inverted once on
+// the way in, and the final excused mask is inverted back to MONITORED
+// polarity exactly once, immediately before it is written into
+// esp_task_wdt_config_t.idle_core_mask below.
 //
-// The derived mask is then run through bb_wdt_clamp_idle_mask() with this
+// The excused mask is clamped via bb_wdt_clamp_core_mask() with this
 // target's REAL core count (configNUMBER_OF_CORES, not a hardcoded 2) --
 // esp_task_wdt_reconfigure() rejects (ESP_ERR_INVALID_ARG) any
 // idle_core_mask bit at or above the real core count, e.g. bit 1 from
@@ -61,12 +81,26 @@ static uint32_t kconfig_default_idle_mask(void)
 // warning path below, forever, until the offending claim is released.
 static void do_reconfigure(uint32_t timeout_s)
 {
+    int num_cores = configNUMBER_OF_CORES;
+    bb_wdt_excused_mask_t excused_seed = {
+        .bits = bb_wdt_invert_core_mask(kconfig_default_idle_mask(), num_cores)
+    };
+    // A claim IS excused-polarity by contract (see bb_wdt.h's "Polarity
+    // hardening" note) -- named conversion of the bare uint32_t
+    // bb_wdt_claimed_core_mask() returns (kept bare there since it is also
+    // consumed as a raw ownership bitmask outside bb_wdt, by
+    // bb_task_resolve() and bb_http_server's worker steering).
+    bb_wdt_excused_mask_t claimed_excused = { .bits = bb_wdt_claimed_core_mask() };
+    bb_wdt_excused_mask_t excused = bb_wdt_clamp_core_mask(
+        bb_wdt_derive_excused_mask(excused_seed, claimed_excused),
+        num_cores);
+    // Convert back to MONITORED polarity EXACTLY ONCE, right here -- the
+    // only place in bb_wdt that may hold a monitored-polarity value.
+    uint32_t monitored = bb_wdt_invert_core_mask(excused.bits, num_cores);
+
     esp_task_wdt_config_t cfg = {
         .timeout_ms = timeout_s * 1000U,
-        .idle_core_mask = bb_wdt_clamp_idle_mask(
-            bb_wdt_derive_idle_mask(kconfig_default_idle_mask(),
-                                     bb_wdt_claimed_core_mask()),
-            configNUMBER_OF_CORES),
+        .idle_core_mask = monitored,
         .trigger_panic =
 #if defined(CONFIG_ESP_TASK_WDT_PANIC) && CONFIG_ESP_TASK_WDT_PANIC
             true,
