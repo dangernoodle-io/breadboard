@@ -35,7 +35,11 @@ the marker author, validated only by the C compiler at build time):
   - Every `server=true` entry (always tier=regular) is called with exactly
     one argument: the captured http handle. It still returns `bb_err_t`.
   - First-error semantics per tier: the first non-BB_OK return is recorded
-    and returned, but every remaining entry in that tier still runs.
+    and returned, but every remaining entry in that tier still runs. Every
+    non-BB_OK return is ALSO named at the point of failure via a
+    `bb_log_e(BB_APP_INIT_TAG, ...)` call naming that entry's `fn` (B1-1397)
+    -- the pre-existing aggregate `bb_app_init_rest failed (%d)` line the
+    composition-root caller logs afterward names no component on its own.
 
 **Known limitation:** if the http_server-providing `fn` itself returns NULL
 (or an otherwise "no handle" sentinel), `render_source` has no way to detect
@@ -666,13 +670,52 @@ def _emit_provides_avail(entry: InitEntry, guarded_tokens: frozenset, success_ex
     return f"    if ({success_expr}) {{\n{_indent_block(sets)}    }}\n"
 
 
+def _emit_failure_log(entry: InitEntry) -> str:
+    """B1-1397: name the failing entry AT THE POINT OF FAILURE, not only in
+    the aggregate `bb_app_init_rest failed (%d)` line the composition-root
+    caller logs after every tier entry has already run (entry_espidf.c).
+    That aggregate names no component -- identifying the culprit meant
+    correlating the bare first-error code against generated bb_app_init.c
+    by hand.
+
+    Flash-conscious: a single SHARED `bb_log_e` format string ("%s failed
+    (%d)" / "%s (component=%s) failed (%d)") across every entry -- the
+    compiler merges identical string literals (-fmerge-constants, on by
+    default under ESP-IDF's -Os), so this costs at most two format strings
+    for the whole file, not one per entry. Only each entry's own `fn` (and
+    `component=`, when a manifest marker declared one -- almost always
+    absent for a component-header marker, see WireError checks above) name
+    is a genuinely new, per-entry string literal -- unavoidable, since
+    that's the whole point of the fix, but cheap (a handful of bytes per
+    entry, not a duplicated sentence). Emitted only on the failing branch,
+    same posture as the existing `requires=`-unavailable bb_log_w."""
+    if entry.component:
+        return (
+            f'        bb_log_e(BB_APP_INIT_TAG, "%s (component=%s) failed (%d)", '
+            f'"{entry.fn}", "{entry.component}", (int)bb_app_rc);\n'
+        )
+    return f'        bb_log_e(BB_APP_INIT_TAG, "%s failed (%d)", "{entry.fn}", (int)bb_app_rc);\n'
+
+
+def _emit_rc_failure_check(entry: InitEntry) -> str:
+    """Shared failure-branch body for both the plain (`_emit_call`) and
+    parameterized (`_emit_args_call`) `bb_err_t` emission paths -- named-
+    failure logging (B1-1397) plus the pre-existing first-error bookkeeping,
+    now nested under one `if (bb_app_rc != BB_OK)` instead of two separate
+    single-line checks (the aggregate `bb_app_first_err` line is unchanged
+    in effect, just re-homed under the new block)."""
+    return (
+        "    if (bb_app_rc != BB_OK) {\n"
+        f"{_emit_failure_log(entry)}"
+        "        if (bb_app_first_err == BB_OK) { bb_app_first_err = bb_app_rc; }\n"
+        "    }\n"
+    )
+
+
 def _emit_call(entry: InitEntry, guarded_tokens: frozenset = frozenset(), handle_var: str = None) -> str:
     arg = handle_var if (entry.server and handle_var) else ""
-    body = (
-        f"    bb_app_rc = {entry.fn}({arg});\n"
-        f"    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) {{ "
-        f"bb_app_first_err = bb_app_rc; }}\n"
-    )
+    body = f"    bb_app_rc = {entry.fn}({arg});\n"
+    body += _emit_rc_failure_check(entry)
     body += _emit_provides_avail(entry, guarded_tokens, success_expr="bb_app_rc == BB_OK")
     return _guard_requires(entry, body)
 
@@ -738,11 +781,8 @@ def _emit_args_call(entry: InitEntry, guarded_tokens: frozenset = frozenset()) -
     the SAME `_guard_requires`/`_emit_provides_avail` wrappers, so
     `tier=`/`order=`/`requires=`/`provides=` behave identically regardless
     of whether an entry has `args=` set."""
-    body = (
-        f"    bb_app_rc = {entry.fn}({entry.args});\n"
-        f"    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) {{ "
-        f"bb_app_first_err = bb_app_rc; }}\n"
-    )
+    body = f"    bb_app_rc = {entry.fn}({entry.args});\n"
+    body += _emit_rc_failure_check(entry)
     body += _emit_provides_avail(entry, guarded_tokens, success_expr="bb_app_rc == BB_OK")
     return _guard_requires(entry, body)
 
@@ -955,11 +995,25 @@ def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry
         " */",
         include_lines,
     ]
+    # B1-1397: every bb_err_t-returning entry now logs its own name on the
+    # failing branch (see _emit_failure_log), not just the requires=/
+    # provides=-gated ones -- so bb_log.h + BB_APP_INIT_TAG are needed
+    # unconditionally now, not only when guarded_tokens is non-empty.
+    log_includes = []
+    if not any(h.split("/")[-1] == "bb_log.h" for h in headers):
+        log_includes.append('#include "bb_log.h"')
     if guarded_tokens:
-        gating_includes = ['#include <stdbool.h>']
-        if not any(h.split("/")[-1] == "bb_log.h" for h in headers):
-            gating_includes.append('#include "bb_log.h"')
-        header_lines.append("\n".join(gating_includes))
+        log_includes.insert(0, '#include <stdbool.h>')
+    if log_includes:
+        header_lines.append("\n".join(log_includes))
+    tag_block = [
+        "",
+        "/* B1-1397: shared log tag for both the per-entry named-failure log",
+        " * (see below) and the requires=/provides= gating log (B1-853). */",
+        '#define BB_APP_INIT_TAG "bb_app_init"',
+    ]
+    header_lines.append("\n".join(tag_block))
+    if guarded_tokens:
         avail_block = [
             "",
             "/* B1-853: requires=/provides= runtime gating -- a token becomes",
@@ -968,7 +1022,6 @@ def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry
             " * called), so a dependent never runs against a failed/skipped",
             " * provider. Declared at file scope so availability persists",
             " * across bb_app_init_early()/bb_app_init_rest(). */",
-            '#define BB_APP_INIT_TAG "bb_app_init"',
         ]
         avail_block.extend(
             f"static bool bb_app_avail_{tok} = false;" for tok in sorted(guarded_tokens)

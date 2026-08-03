@@ -765,8 +765,11 @@ class TestGateDependents(unittest.TestCase):
             self.assertIn(
                 "    if (bb_app_avail_x) {\n"
                 "        bb_app_rc = bb_b_init();\n"
-                "        if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
-                "{ bb_app_first_err = bb_app_rc; }\n"
+                "        if (bb_app_rc != BB_OK) {\n"
+                '            bb_log_e(BB_APP_INIT_TAG, "%s failed (%d)", '
+                '"bb_b_init", (int)bb_app_rc);\n'
+                "            if (bb_app_first_err == BB_OK) { bb_app_first_err = bb_app_rc; }\n"
+                "        }\n"
                 "        if (bb_app_rc == BB_OK) {\n"
                 "            bb_app_avail_y = true;\n"
                 "        }\n"
@@ -779,8 +782,11 @@ class TestGateDependents(unittest.TestCase):
             # A's success marks x available -- unguarded (A has no requires=).
             self.assertIn(
                 "    bb_app_rc = bb_a_init();\n"
-                "    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
-                "{ bb_app_first_err = bb_app_rc; }\n"
+                "    if (bb_app_rc != BB_OK) {\n"
+                '        bb_log_e(BB_APP_INIT_TAG, "%s failed (%d)", '
+                '"bb_a_init", (int)bb_app_rc);\n'
+                "        if (bb_app_first_err == BB_OK) { bb_app_first_err = bb_app_rc; }\n"
+                "    }\n"
                 "    if (bb_app_rc == BB_OK) {\n"
                 "        bb_app_avail_x = true;\n"
                 "    }\n",
@@ -800,8 +806,11 @@ class TestGateDependents(unittest.TestCase):
             self.assertIn(
                 "    if (bb_app_avail_y) {\n"
                 "        bb_app_rc = bb_c_init();\n"
-                "        if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
-                "{ bb_app_first_err = bb_app_rc; }\n"
+                "        if (bb_app_rc != BB_OK) {\n"
+                '            bb_log_e(BB_APP_INIT_TAG, "%s failed (%d)", '
+                '"bb_c_init", (int)bb_app_rc);\n'
+                "            if (bb_app_first_err == BB_OK) { bb_app_first_err = bb_app_rc; }\n"
+                "        }\n"
                 "    } else {\n"
                 '        bb_log_w(BB_APP_INIT_TAG, "skipping bb_c_init: '
                 'required provider unavailable");\n'
@@ -819,23 +828,58 @@ class TestGateDependents(unittest.TestCase):
             source = render_source(topo_sort(entries))
             self.assertIn(
                 "    bb_app_rc = bb_d_noop();\n"
-                "    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
-                "{ bb_app_first_err = bb_app_rc; }\n\n",
+                "    if (bb_app_rc != BB_OK) {\n"
+                '        bb_log_e(BB_APP_INIT_TAG, "%s failed (%d)", '
+                '"bb_d_noop", (int)bb_app_rc);\n'
+                "        if (bb_app_first_err == BB_OK) { bb_app_first_err = bb_app_rc; }\n"
+                "    }\n\n",
                 source,
             )
             self.assertNotIn("bb_app_avail_", source.split("bb_app_rc = bb_d_noop();")[1].split("\n\n")[0])
 
     def test_no_requires_anywhere_emits_no_gating_scaffolding_at_all(self):
         """Zero-regression guard: a composition with no `requires=` markers
-        at all gets NO availability flags, NO extra includes, NO guard -- the
-        whole-file output stays byte-identical to pre-B1-853 codegen."""
+        at all gets NO availability flags and NO `<stdbool.h>` include --
+        the B1-853 gating scaffolding stays absent when nothing needs it.
+        BB_APP_INIT_TAG itself, however, is now expected regardless of
+        requires=/provides= usage (B1-1397): every bb_err_t-returning entry
+        logs its own name on failure, so the tag macro is unconditional."""
         with tempfile.TemporaryDirectory() as tmp:
             root = _fixture_root(tmp)
             entries = collect_entries(str(root), ["bb_meminfo"], "espidf")
             source = render_source(topo_sort(entries))
             self.assertNotIn("bb_app_avail_", source)
             self.assertNotIn("<stdbool.h>", source)
-            self.assertNotIn("BB_APP_INIT_TAG", source)
+            self.assertIn('#define BB_APP_INIT_TAG "bb_app_init"', source)
+
+
+class TestFailureLogComponentBranch(unittest.TestCase):
+    """B1-1397: `_emit_failure_log`'s `component=` branch (a manifest entry
+    naming which component owns the `fn` it calls) is a SEPARATE format
+    string ("%s (component=%s) failed (%d)") from the plain branch every
+    other test above exercises -- assert on it directly so a regression in
+    arg order/count/value in THIS branch (e.g. swapping fn and component)
+    fails a test instead of passing CI unnoticed."""
+
+    def test_manifest_entry_with_component_emits_component_qualified_log_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "main" / "smoke_app.c"
+            _write(
+                manifest_path,
+                "// bbtool:init tier=early fn=bb_wifi_prov_autoinit "
+                "component=bb_wifi_prov\n",
+            )
+            entries, _ = collect_manifest_entries(str(manifest_path))
+            source = render_source(topo_sort(entries))
+            self.assertIn(
+                "    bb_app_rc = bb_wifi_prov_autoinit();\n"
+                "    if (bb_app_rc != BB_OK) {\n"
+                '        bb_log_e(BB_APP_INIT_TAG, "%s (component=%s) failed (%d)", '
+                '"bb_wifi_prov_autoinit", "bb_wifi_prov", (int)bb_app_rc);\n'
+                "        if (bb_app_first_err == BB_OK) { bb_app_first_err = bb_app_rc; }\n"
+                "    }\n",
+                source,
+            )
 
 
 def _fixture_root_with_multi_provider(tmp: str) -> Path:
@@ -882,8 +926,11 @@ class TestGateDependentsMultiProvider(unittest.TestCase):
             # their own success -- never reset to false by the other.
             self.assertIn(
                 "    bb_app_rc = bb_p1_init();\n"
-                "    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
-                "{ bb_app_first_err = bb_app_rc; }\n"
+                "    if (bb_app_rc != BB_OK) {\n"
+                '        bb_log_e(BB_APP_INIT_TAG, "%s failed (%d)", '
+                '"bb_p1_init", (int)bb_app_rc);\n'
+                "        if (bb_app_first_err == BB_OK) { bb_app_first_err = bb_app_rc; }\n"
+                "    }\n"
                 "    if (bb_app_rc == BB_OK) {\n"
                 "        bb_app_avail_x = true;\n"
                 "    }\n",
@@ -891,8 +938,11 @@ class TestGateDependentsMultiProvider(unittest.TestCase):
             )
             self.assertIn(
                 "    bb_app_rc = bb_p2_init();\n"
-                "    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
-                "{ bb_app_first_err = bb_app_rc; }\n"
+                "    if (bb_app_rc != BB_OK) {\n"
+                '        bb_log_e(BB_APP_INIT_TAG, "%s failed (%d)", '
+                '"bb_p2_init", (int)bb_app_rc);\n'
+                "        if (bb_app_first_err == BB_OK) { bb_app_first_err = bb_app_rc; }\n"
+                "    }\n"
                 "    if (bb_app_rc == BB_OK) {\n"
                 "        bb_app_avail_x = true;\n"
                 "    }\n",
@@ -964,8 +1014,11 @@ class TestGateDependentsCrossTier(unittest.TestCase):
 
             self.assertIn(
                 "    bb_app_rc = bb_early_provider_init();\n"
-                "    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
-                "{ bb_app_first_err = bb_app_rc; }\n"
+                "    if (bb_app_rc != BB_OK) {\n"
+                '        bb_log_e(BB_APP_INIT_TAG, "%s failed (%d)", '
+                '"bb_early_provider_init", (int)bb_app_rc);\n'
+                "        if (bb_app_first_err == BB_OK) { bb_app_first_err = bb_app_rc; }\n"
+                "    }\n"
                 "    if (bb_app_rc == BB_OK) {\n"
                 "        bb_app_avail_cross_x = true;\n"
                 "    }\n",
@@ -976,8 +1029,11 @@ class TestGateDependentsCrossTier(unittest.TestCase):
             self.assertIn(
                 "    if (bb_app_avail_cross_x) {\n"
                 "        bb_app_rc = bb_late_dep_init();\n"
-                "        if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
-                "{ bb_app_first_err = bb_app_rc; }\n"
+                "        if (bb_app_rc != BB_OK) {\n"
+                '            bb_log_e(BB_APP_INIT_TAG, "%s failed (%d)", '
+                '"bb_late_dep_init", (int)bb_app_rc);\n'
+                "            if (bb_app_first_err == BB_OK) { bb_app_first_err = bb_app_rc; }\n"
+                "        }\n"
                 "    } else {\n"
                 '        bb_log_w(BB_APP_INIT_TAG, "skipping bb_late_dep_init: '
                 'required provider unavailable");\n'
@@ -1070,8 +1126,11 @@ class TestArgsEmission(unittest.TestCase):
             source = render_source(topo_sort(entries))
             self.assertIn(
                 "    bb_app_rc = bb_args_provider_init(1,2);\n"
-                "    if (bb_app_rc != BB_OK && bb_app_first_err == BB_OK) "
-                "{ bb_app_first_err = bb_app_rc; }\n"
+                "    if (bb_app_rc != BB_OK) {\n"
+                '        bb_log_e(BB_APP_INIT_TAG, "%s failed (%d)", '
+                '"bb_args_provider_init", (int)bb_app_rc);\n'
+                "        if (bb_app_first_err == BB_OK) { bb_app_first_err = bb_app_rc; }\n"
+                "    }\n"
                 "    if (bb_app_rc == BB_OK) {\n"
                 "        bb_app_avail_y = true;\n"
                 "    }\n",

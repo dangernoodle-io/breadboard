@@ -9,10 +9,16 @@
 
 // bb_system_routes -- co-located with bb_system per the "opt-in *_routes
 // endpoint co-located with its data SSOT" convention (see bb_storage_http.h/
-// bb_log_http.h). Declarations + // bbtool:init markers only move here; the
-// routes' definitions stay in bb_system_routes.c (platform/espidf/bb_system/
+// bb_log_http.h). Only the declarations moved here (B1-1313); the routes'
+// definitions stay in bb_system_routes.c (platform/espidf/bb_system/
 // bb_system_routes.c, portable, host-compiled via the bbtool-scaffold-hint
 // in components/bb_system/CMakeLists.txt) -- NOT in scope, see B1-1313.
+// The bbtool init marker for bb_system_routes_init does NOT live in this
+// header -- it was relocated to the consuming composition's manifest
+// (examples/smoke/main/bb_wire.h) under B1-1279/B1-1314/B1-1315: a
+// component composing bb_system for its reboot-reason SSOT (etc.) must not
+// be forced to also expose POST /api/reboot, so the route-registering hook
+// is opt-in per consumer rather than auto-wired from this component header.
 //
 // bb_http_server.h is itself fully portable (opaque bb_http_handle_t, no
 // ESP_PLATFORM-gated content), so this include and the declarations below
