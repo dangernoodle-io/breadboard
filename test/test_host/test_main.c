@@ -2470,6 +2470,26 @@ void test_route_registry_foreach_empty_is_noop(void);
 void test_route_registry_foreach_null_cb_is_safe(void);
 void test_route_registry_descriptor_fields_preserved(void);
 void test_route_registry_count_after_clear_and_readd(void);
+// Forward declarations from test_route_exclude.c (B1-1401)
+void test_route_exclude_rejects_null_path(void);
+void test_route_exclude_rejects_non_api_wildcard(void);
+void test_route_exclude_rejects_non_api_exact_path(void);
+void test_route_exclude_accepts_api_wildcard(void);
+void test_route_exclude_rejects_empty_path(void);
+void test_route_exclude_cap_exhaustion_returns_no_space(void);
+void test_route_exclude_exact_match_suppresses_registry_add(void);
+void test_route_exclude_exact_match_suppresses_dispatch_add(void);
+void test_route_exclude_does_not_affect_other_routes(void);
+void test_route_exclude_suppresses_descriptor_only_registration(void);
+void test_route_exclude_wildcard_suppresses_matching_subpaths(void);
+void test_route_exclude_empty_table_does_not_suppress_anything(void);
+void test_route_exclude_verify_passes_when_all_matched(void);
+void test_route_exclude_verify_returns_not_found_for_unmatched_entry(void);
+void test_route_exclude_verify_names_first_unmatched_entry(void);
+void test_route_exclude_reset_clears_table(void);
+void test_route_exclude_method_qualified_does_not_suppress_other_method(void);
+void test_route_exclude_bogus_path_never_matches(void);
+void test_route_exclude_non_api_handler_bound_route_closure(void);
 // Forward declarations from test_route_schemas.c
 void test_route_schemas_telemetry_patch_200_parses(void);
 void test_route_schemas_registry_all_valid(void);
@@ -5689,6 +5709,11 @@ void setUp(void) {
     // before each test for the same isolation reason as bb_dispatch_api_reset()
     // above.
     bb_http_prov_gate_reset();
+    // bb_http_route_exclude's table (bb_route_exclude.c) is likewise a
+    // process-wide static shared by every test in this binary — reset it
+    // before each test for the same isolation reason as
+    // bb_dispatch_api_reset()/bb_http_prov_gate_reset() above.
+    bb_http_route_exclude_reset();
     // wifi_prov_gate_wire.c's completeness signal (B1-1279 PR-4 review fix)
     // is likewise a process-wide static -- reset it here too as a defence-
     // in-depth backstop for the local teardown() in
@@ -7214,6 +7239,28 @@ int main(void) {
     RUN_TEST(test_route_registry_foreach_null_cb_is_safe);
     RUN_TEST(test_route_registry_descriptor_fields_preserved);
     RUN_TEST(test_route_registry_count_after_clear_and_readd);
+
+    // Composition-time route exclusion tests (B1-1401)
+    RUN_TEST(test_route_exclude_rejects_null_path);
+    RUN_TEST(test_route_exclude_rejects_non_api_wildcard);
+    RUN_TEST(test_route_exclude_rejects_non_api_exact_path);
+    RUN_TEST(test_route_exclude_accepts_api_wildcard);
+    RUN_TEST(test_route_exclude_rejects_empty_path);
+    RUN_TEST(test_route_exclude_cap_exhaustion_returns_no_space);
+    RUN_TEST(test_route_exclude_exact_match_suppresses_registry_add);
+    RUN_TEST(test_route_exclude_exact_match_suppresses_dispatch_add);
+    RUN_TEST(test_route_exclude_does_not_affect_other_routes);
+    RUN_TEST(test_route_exclude_suppresses_descriptor_only_registration);
+    RUN_TEST(test_route_exclude_wildcard_suppresses_matching_subpaths);
+    RUN_TEST(test_route_exclude_empty_table_does_not_suppress_anything);
+    RUN_TEST(test_route_exclude_verify_passes_when_all_matched);
+    RUN_TEST(test_route_exclude_verify_returns_not_found_for_unmatched_entry);
+    RUN_TEST(test_route_exclude_verify_names_first_unmatched_entry);
+    RUN_TEST(test_route_exclude_reset_clears_table);
+    RUN_TEST(test_route_exclude_method_qualified_does_not_suppress_other_method);
+    RUN_TEST(test_route_exclude_bogus_path_never_matches);
+    RUN_TEST(test_route_exclude_non_api_handler_bound_route_closure);
+
     RUN_TEST(test_route_schemas_telemetry_patch_200_parses);
     RUN_TEST(test_route_schemas_registry_all_valid);
     RUN_TEST(test_route_schemas_walker_flags_malformed);

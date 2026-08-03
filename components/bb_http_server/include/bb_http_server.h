@@ -409,6 +409,105 @@ size_t bb_http_route_handler_cap(void);
 // Portable: usable on host (test) and ESP-IDF platforms.
 bool bb_http_uri_is_registered(const char *uri);
 
+// ---------------------------------------------------------------------------
+// Composition-time route exclusion (B1-1401)
+// ---------------------------------------------------------------------------
+//
+// A structural way for app composition (handwire or codegen) to suppress a
+// specific (method,path) route a component would otherwise register, without
+// forking or patching that component. Enforced INSIDE
+// bb_http_register_described_route()/bb_http_register_route_descriptor_only()
+// (route_registry.c's registry_add()) and bb_dispatch_api_add() -- the two
+// choke points every DESCRIPTOR-only (handler==NULL) route passes through,
+// regardless of whether it reaches them via codegen-generated bb_app_init()
+// or a handwired call (e.g. examples/floor's direct
+// bb_diag_routes_init(server)/bb_health_init(server) calls, which never run
+// through generated composition code at all). A handler-BOUND /api/ route is
+// gated differently: for an /api/ path, bb_http_register_route() never
+// touches the platform backend at all -- it calls bb_dispatch_api_add()
+// (route_registry.c) directly, and that function has its own independent
+// route_excluded() check, which is what keeps the route out of the
+// bb_dispatch_api table bb_dispatch_api_lookup() actually serves from. That
+// gate fires INSIDE bb_http_register_route()'s /api/ branch, before
+// registry_add() ever runs. registry_add() runs afterward (from
+// bb_http_register_described_route()) and, for a handler-bound route, gates
+// only that route's OpenAPI descriptor entry -- it has no bearing on
+// dispatch-table membership for handler-bound /api/ routes (see SCOPE LIMITS
+// below for the one class this does NOT cover).
+//
+// An excluded route is never stored: it is a benign no-op that returns
+// BB_OK, NOT a registration failure. Because bb_openapi_emit.c walks only
+// bb_http_route_registry_foreach() over the same registry, an excluded
+// route structurally cannot appear in the OpenAPI spec. Because it also
+// never reaches the dispatch table, bb_dispatch_api_lookup() unconditionally
+// MISSes it (404), regardless of provisioning state.
+//
+// Exclusion granularity is bounded by REGISTRATION granularity: you cannot
+// carve a sub-path out of an already-wildcard-registered route (e.g.
+// excluding one path under a component's own "/api/foo/*" registration).
+//
+// SCOPE LIMITS: this mechanism covers /api/ paths ONLY (exact or wildcard).
+// bb_http_route_exclude() rejects any non-/api/ path outright, with
+// BB_ERR_INVALID_ARG and a logged reason -- it is NOT silently accepted and
+// silently ignored. The reason is structural, not a policy choice: a
+// non-/api/ handler-bound route (e.g. the asset GET "/*", captive-portal
+// pages, "/ping") is registered directly with the platform backend by
+// bb_http_register_route() -- ESP-IDF's own httpd_register_uri_handler(), or
+// the host backend's equivalent route table -- BEFORE registry_add() ever
+// runs, and neither backend consults this exclusion table. There is no
+// choke point on that path this primitive can hook, so admitting such an
+// entry would return BB_OK while suppressing nothing. (Same restriction
+// bb_http_prov_gate's wildcard entries apply -- see bb_http_prov_gate.h.)
+//   - Does NOT suppress an init fn's non-HTTP side effects. Excluding a
+//     route only stops IT from being registered/dispatched -- it has no
+//     effect on anything else that init fn does, e.g. a component's
+//     bb_data_bind() call, which runs regardless of whether the route it
+//     backs is excluded.
+
+// Exclude (method, path) from route registration: any subsequent
+// registry_add()/bb_dispatch_api_add() call for a matching (method,path)
+// becomes a benign no-op instead of storing the route (see the scope
+// notes above). `path` must have static/persistent storage duration --
+// only the pointer is stored.
+//
+// A path ending in '*' is a suffix-wildcard (prefix) entry, matched via the
+// same bb_route_uri_match() predicate bb_dispatch_api and bb_http_prov_gate
+// use. Any other path is an exact-match entry. Both forms are accepted ONLY
+// when path starts with "/api/" (see SCOPE LIMITS above) -- a non-/api path,
+// wildcard or exact, is rejected with BB_ERR_INVALID_ARG (and logged) rather
+// than silently admitted and silently doing nothing.
+//
+// Returns BB_OK on success, BB_ERR_INVALID_ARG for a NULL or empty path or a
+// rejected non-/api path, or BB_ERR_NO_SPACE when the exclusion table
+// is full (BB_HTTP_ROUTE_EXCLUDE_CAP entries already recorded). An empty
+// path is rejected alongside NULL -- it matches no real registered route,
+// so admitting it would only consume a table slot destined to fail
+// bb_http_route_exclude_verify()'s typo guard later.
+//
+// Composition-time only, unsynchronized: like
+// bb_http_route_exclude_reset() below, this has no locking. Call it only
+// before httpd workers are live (i.e. during app composition, before
+// bb_http_server_start()), never concurrently with a running server.
+bb_err_t bb_http_route_exclude(bb_http_method_t method, const char *path);
+
+// Post-composition typo guard: walk every entry recorded via
+// bb_http_route_exclude() and confirm it actually matched at least one
+// registration attempt. At any single registration you only know "this one
+// attempt did not match" -- never "this exclusion will never match
+// anything" -- so this is a deliberate separate call, made once composition
+// is complete (e.g. at the end of app_main / after bb_app_init()).
+//
+// Returns BB_OK if every recorded entry matched at least one registration;
+// BB_ERR_NOT_FOUND on the FIRST entry that never matched (logged by
+// method+path) -- almost always a typo'd path or a route that was renamed
+// out from under the exclusion.
+bb_err_t bb_http_route_exclude_verify(void);
+
+// Clear the exclusion table (intended for tests). NOT safe to call with
+// httpd workers live (no locking) -- same convention as
+// bb_http_route_registry_clear()/bb_dispatch_api_reset().
+void bb_http_route_exclude_reset(void);
+
 #ifdef __cplusplus
 }
 #endif

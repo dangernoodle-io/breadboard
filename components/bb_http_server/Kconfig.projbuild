@@ -195,6 +195,18 @@ config BB_HTTP_PROV_ALLOWLIST_CAP
       bb_http_prov_allow() returns BB_ERR_NO_SPACE; the entry is
       dropped (default-deny still applies to it).
 
+config BB_HTTP_ROUTE_EXCLUDE_CAP
+    int "Composition-time route exclusion table capacity"
+    default 8
+    range 4 32
+    help
+      Maximum number of (method,path) entries the bb_http_route_exclude
+      table holds. This list is meant to stay short — composition-time
+      overrides of specific routes an app wants to suppress. Overflow
+      logs an error and bb_http_route_exclude() returns
+      BB_ERR_NO_SPACE; the entry is dropped (the route it would have
+      excluded stays registered).
+
 config BB_WIFI_PROV_GATE_DISABLE
     bool "Disable the provisioning route gate (bb_http_prov_gate_allow always allows)"
     default n

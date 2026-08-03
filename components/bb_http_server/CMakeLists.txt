@@ -7,6 +7,7 @@ idf_component_register(
          "src/bb_http_query.c"
          "src/bb_http_body.c"
          "src/route_registry.c"
+         "src/bb_route_exclude.c"
          "src/bb_route_match.c"
          "src/bb_http_prov_gate.c"
          "src/bb_http_json_obj.c"
