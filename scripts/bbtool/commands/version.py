@@ -26,6 +26,8 @@ import re
 import subprocess
 import sys
 
+from core import write_if_changed as _core_write_if_changed
+
 NAME = "version"
 HELP = "Compute and emit breadboard firmware version"
 
@@ -126,17 +128,13 @@ def _compute_version(consumer_dir, bb_dir):
 
 
 def _write_if_changed(path, content):
-    """Write content to path only when it differs from the existing file."""
-    try:
-        with open(path) as fh:
-            if fh.read() == content:
-                return False
-    except OSError:
-        pass
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as fh:
-        fh.write(content)
-    return True
+    """Write content to path only when it differs from the existing file.
+    Thin wrapper over `core.write_if_changed` (B1-1403 review finding 3 --
+    extracted shared helper; this module had the first hand-rolled copy,
+    commands/codegen.py the second) -- preserves this module's original
+    observable behaviour exactly (bool return, parent dir created via
+    makedirs=True)."""
+    return _core_write_if_changed(path, content, makedirs=True)
 
 
 # ---------------------------------------------------------------------------

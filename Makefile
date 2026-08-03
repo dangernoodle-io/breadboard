@@ -148,7 +148,16 @@ smoke-uno_cc3000: ## Build smoke example for Arduino UNO + CC3000 shield
 	cp examples/smoke/include/secrets.h.example examples/smoke/include/secrets.h
 	$(PIO) run -d examples/smoke -e uno_cc3000
 
-floor: ## Build the hand-wired floor example for esp32 (no codegen pre-step)
+# B1-1403: floor-gen prerequisite added for parity with every smoke-<board>
+# target (each already lists its own smoke-gen-<board> prerequisite) --
+# CMake itself now also unconditionally regenerates generated/bb_app_init.c
+# on every real-pass configure (see examples/floor/main/CMakeLists.txt's
+# bb_regenerate_wire_or_fail call), so this is belt-and-braces, not
+# load-bearing: it keeps `make floor` discoverable/consistent with the rest
+# of the Makefile and still populates generated/ before a Make-only
+# invocation that never runs `pio`/CMake at all (e.g. `make check`'s
+# docs/lint tooling scanning examples/floor/main/generated/).
+floor: floor-gen ## Build the hand-wired floor example for esp32
 	$(PIO) run -d examples/floor -e esp32
 
 # Codegen-only half of floor-codegen (no PIO build) -- lint prerequisite
