@@ -92,6 +92,37 @@ class TestRunCli(unittest.TestCase):
             config_pos = source.index("bb_log_config_init()")
             self.assertLess(stream_pos, config_pos)
             self.assertIn("bb_err_t bb_app_init(void)", source)
+            self.assertIn("bbtool codegen: wrote", buf.getvalue())
+
+    def test_run_second_identical_invocation_reports_unchanged(self):
+        """B1-1403: `_verb()` prints "wrote" only when `_write_if_changed`
+        actually replaced a file's content -- re-running `run()` against the
+        SAME resolved output (identical fixture, identical out paths) must
+        report "unchanged" for all three artifacts on the second pass, since
+        nothing touches disk. First pass still reports "wrote" (byte-for-byte
+        new content)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            components_out = str(root / "out" / "bb_autowire_components.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components="bb_log,bb_meminfo",
+                platform="espidf", components_out=components_out, wire_out=wire_out,
+            )
+
+            buf1 = io.StringIO()
+            with contextlib.redirect_stdout(buf1):
+                rc1 = run(args)
+            self.assertEqual(rc1, 0)
+            self.assertIn("bbtool codegen: wrote", buf1.getvalue())
+            self.assertNotIn("bbtool codegen: unchanged", buf1.getvalue())
+
+            buf2 = io.StringIO()
+            with contextlib.redirect_stdout(buf2):
+                rc2 = run(args)
+            self.assertEqual(rc2, 0)
+            self.assertNotIn("bbtool codegen: wrote", buf2.getvalue())
+            self.assertIn("bbtool codegen: unchanged", buf2.getvalue())
 
     def test_run_requires_components(self):
         args = argparse.Namespace(root=os.getcwd(), components=None,
@@ -1080,6 +1111,43 @@ class TestPioMain(unittest.TestCase):
             self.assertIn("bb_pio_fixture", components_out.read_text(encoding="utf-8"))
             self.assertIn("bb_pio_fixture_init()", wire_out.read_text(encoding="utf-8"))
             self.assertIn("bb_codegen: wrote", buf.getvalue())
+
+    def test_pio_main_second_identical_invocation_reports_unchanged(self):
+        """B1-1403: same "wrote" vs "unchanged" contract as `run()`'s
+        counterpart above, exercised through the `pio_main` SCons entry
+        point -- a second call against the SAME config/root (identical
+        resolved output) must report "unchanged" for all three artifacts
+        since `_write_if_changed` touches nothing on disk."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root, extra = self._consumer_and_extra(tmp)
+            _make_component(
+                extra, "bb_pio_fixture",
+                "#pragma once\n"
+                "// bbtool:init tier=early fn=bb_pio_fixture_init\n"
+                "bb_err_t bb_pio_fixture_init(void);\n",
+            )
+            rel = os.path.relpath(str(extra), str(root))
+            config = {
+                "discovery": {"extra_roots": [rel]},
+                "capability": {},
+                "board": {"native": {"platform": "host", "add_components": ["bb_pio_fixture"]}},
+            }
+
+            env1 = _FakeEnv()
+            buf1 = io.StringIO()
+            with contextlib.redirect_stdout(buf1):
+                pio_main(env1, str(root), "native", config)
+            self.assertIsNone(env1.exited_with)
+            self.assertIn("bb_codegen: wrote", buf1.getvalue())
+            self.assertNotIn("bb_codegen: unchanged", buf1.getvalue())
+
+            env2 = _FakeEnv()
+            buf2 = io.StringIO()
+            with contextlib.redirect_stdout(buf2):
+                pio_main(env2, str(root), "native", config)
+            self.assertIsNone(env2.exited_with)
+            self.assertNotIn("bb_codegen: wrote", buf2.getvalue())
+            self.assertIn("bb_codegen: unchanged", buf2.getvalue())
 
     def test_pio_main_exits_on_unknown_board(self):
         """ManifestError branch #1: `load_manifest`/`resolve_component_names`

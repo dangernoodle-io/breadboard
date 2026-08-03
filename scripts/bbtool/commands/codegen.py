@@ -52,7 +52,7 @@ from commands.wire import (
     render_cmake_fragment as render_wire_cmake_fragment,
     render_source,
 )
-from core import load_config
+from core import load_config, write_if_changed as _write_if_changed
 from discovery import CollisionError, normalize_roots
 from wire_graph import CycleError, MissingProviderError, topo_sort
 from wire_parse import ParseError
@@ -65,6 +65,20 @@ _THIS_DIR = os.path.dirname(os.path.realpath(_THIS_FILE))
 
 NAME = "codegen"
 HELP = "codegen: resolve the composition once, emit both the link-set fragment and bb_app_init.c"
+
+
+# B1-1403: with codegen now invoked unconditionally on every CMake configure
+# (see `cmake/bb_generated.cmake`'s `bb_regenerate_wire_or_fail`), an
+# unconditional overwrite would bump the output file's mtime on every single
+# build even when its content is byte-identical to what's already on disk --
+# forcing ninja/make to treat it (and every dependent object file) as
+# changed and rebuild it for nothing. `core.write_if_changed` (imported
+# above as `_write_if_changed`, review finding 3's shared extraction of what
+# was this module's own hand-rolled copy) compares content first, keeping a
+# content-stable regeneration a true no-op for the build graph, and writes
+# atomically via a same-call-UNIQUE tmp file + `os.replace` -- see that
+# function's docstring for why the tmp name must be unique (finding 4) and
+# cleaned up on a write failure (finding 5).
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -382,25 +396,35 @@ def run(args: argparse.Namespace) -> int:
 
     components_out = args.components_out or os.path.join(root, COMPOSITION_DEFAULT_OUT_REL)
     os.makedirs(os.path.dirname(components_out), exist_ok=True)
-    with open(components_out, "w", encoding="utf-8") as f:
-        f.write(render_components_fragment(components, board=board_guard))
+    components_changed = _write_if_changed(components_out, render_components_fragment(components, board=board_guard))
 
     wire_out = args.wire_out or os.path.join(root, WIRE_DEFAULT_OUT_REL)
     wire_cmake_out = os.path.splitext(wire_out)[0] + ".cmake"
     os.makedirs(os.path.dirname(wire_out), exist_ok=True)
-    with open(wire_out, "w", encoding="utf-8") as f:
-        f.write(source)
-    with open(wire_cmake_out, "w", encoding="utf-8") as f:
-        f.write(render_wire_cmake_fragment(os.path.relpath(wire_out, root).replace(os.sep, "/")))
+    wire_changed = _write_if_changed(wire_out, source)
+    wire_cmake_changed = _write_if_changed(
+        wire_cmake_out, render_wire_cmake_fragment(os.path.relpath(wire_out, root).replace(os.sep, "/")))
 
-    print(f"bbtool codegen: wrote {components_out} ({len(components)} components)")
+    # B1-1403: `_write_if_changed`'s return value drives the verb ("wrote" vs
+    # "unchanged") instead of an unconditional "wrote" -- now that codegen
+    # runs on every real-pass CMake configure (bb_regenerate_wire_or_fail),
+    # an unconditional "wrote" would print on every single build even when
+    # the resolved content was byte-identical and nothing touched disk.
+    print(f"bbtool codegen: {_verb(components_changed)} {components_out} ({len(components)} components)")
     for name in components:
         print(f"  {name}")
-    print(f"bbtool codegen: wrote {wire_out} ({len(ordered)} init entries)")
-    print(f"bbtool codegen: wrote {wire_cmake_out}")
+    print(f"bbtool codegen: {_verb(wire_changed)} {wire_out} ({len(ordered)} init entries)")
+    print(f"bbtool codegen: {_verb(wire_cmake_changed)} {wire_cmake_out}")
     for e in ordered:
         print(f"  [{e.tier}] {e.fn} ({e.src_file}:{e.src_line})")
     return 0
+
+
+def _verb(changed: bool) -> str:
+    """"wrote" when `_write_if_changed` actually replaced the file's
+    content, "unchanged" when the resolved output was byte-identical to
+    what was already on disk and nothing touched the filesystem."""
+    return "wrote" if changed else "unchanged"
 
 
 # ---------------------------------------------------------------------------
@@ -456,17 +480,17 @@ def pio_main(env, root: str, board: str, config: dict) -> None:
 
     components_out = os.path.join(root, COMPOSITION_DEFAULT_OUT_REL)
     os.makedirs(os.path.dirname(components_out), exist_ok=True)
-    with open(components_out, "w", encoding="utf-8") as f:
-        f.write(render_components_fragment(components, board=board))
+    components_changed = _write_if_changed(components_out, render_components_fragment(components, board=board))
 
     wire_out = os.path.join(root, WIRE_DEFAULT_OUT_REL)
     wire_cmake_out = os.path.splitext(wire_out)[0] + ".cmake"
     os.makedirs(os.path.dirname(wire_out), exist_ok=True)
-    with open(wire_out, "w", encoding="utf-8") as f:
-        f.write(source)
-    with open(wire_cmake_out, "w", encoding="utf-8") as f:
-        f.write(render_wire_cmake_fragment(os.path.relpath(wire_out, root).replace(os.sep, "/")))
+    wire_changed = _write_if_changed(wire_out, source)
+    wire_cmake_changed = _write_if_changed(
+        wire_cmake_out, render_wire_cmake_fragment(os.path.relpath(wire_out, root).replace(os.sep, "/")))
 
-    print(f"bb_codegen: wrote {components_out} ({len(components)} components)")
-    print(f"bb_codegen: wrote {wire_out} ({len(ordered)} init entries)")
-    print(f"bb_codegen: wrote {wire_cmake_out}")
+    # B1-1403: see `run()`'s identical comment -- the verb reflects whether
+    # `_write_if_changed` actually touched the filesystem.
+    print(f"bb_codegen: {_verb(components_changed)} {components_out} ({len(components)} components)")
+    print(f"bb_codegen: {_verb(wire_changed)} {wire_out} ({len(ordered)} init entries)")
+    print(f"bb_codegen: {_verb(wire_cmake_changed)} {wire_cmake_out}")

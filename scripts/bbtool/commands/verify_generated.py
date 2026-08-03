@@ -16,25 +16,36 @@ autoregister calls it now (correctly) follows.
 **Mechanism chosen: call-site symbol existence, not a full re-resolve.**
 Re-running the whole `wire`/`composition` pipeline at every CMake configure
 would be the fully sound fix (see the module docstring trade-off below), but
-that means codegen becomes a build-graph step instead of an explicit `make
-*-gen` target -- a restructuring of how codegen is invoked, out of scope for
-this ticket. Cheaper and still real: parse every function CALLED in the
-generated file and confirm each one is still declared SOMEWHERE in the
-current tree. `// bbtool:init fn=<name>` markers live in the SAME public
-header as the function's own prototype (see `commands.wire`'s module
-docstring), so a real, live composition always has a matching declaration to
-find; a symbol with no declaration anywhere is proof the generated call
-target no longer exists in current source -- exactly the
-`bb_health_reserve_routes()` case above.
+at the time this check was added that meant codegen becoming a build-graph
+step instead of an explicit `make *-gen` target -- a restructuring of how
+codegen is invoked, out of scope for THIS ticket (B1-1371). Cheaper and
+still real: parse every function CALLED in the generated file and confirm
+each one is still declared SOMEWHERE in the current tree. `// bbtool:init
+fn=<name>` markers live in the SAME public header as the function's own
+prototype (see `commands.wire`'s module docstring), so a real, live
+composition always has a matching declaration to find; a symbol with no
+declaration anywhere is proof the generated call target no longer exists in
+current source -- exactly the `bb_health_reserve_routes()` case above.
 
-**What this does NOT catch.** A stale file whose called functions still all
-exist in the CURRENT tree -- e.g. a pure ORDERING regression (the
-`bb_health_init()`-before-autoregister half of the same incident) -- is
-invisible to this check: nothing here re-derives the correct tier order or
-diffs it against what the file actually emits. This check closes the
-"calls something that no longer exists" half of staleness, not "calls the
-right things in the wrong order" half. See the ticket for why a full
-re-resolve is deliberately not attempted here.
+**What this does NOT catch (closed separately, B1-1403).** A stale file
+whose called functions still all exist in the CURRENT tree -- e.g. a pure
+ORDERING regression (the `bb_health_init()`-before-autoregister half of the
+same incident) -- is invisible to THIS check: nothing here re-derives the
+correct tier order or diffs it against what the file actually emits. B1-1403
+closes that remaining gap the way this docstring originally flagged as
+out-of-scope: `cmake/bb_generated.cmake`'s `bb_regenerate_wire_or_fail` now
+runs `bbtool codegen` itself at every real-pass CMake configure, so
+`bb_app_init.c` is unconditionally regenerated from the CURRENT marker set
+rather than merely checked for staleness. An ordering regression can no
+longer survive a configure pass that actually runs -- which the example
+CMakeLists.txt call sites' `CMAKE_CONFIGURE_DEPENDS` registration (every
+component/platform header AND CMakeLists.txt, the bbtool sources, and
+bbtool.toml) makes happen on every codegen-input change, not just when the
+CMakeLists.txt itself is touched. This symbol-existence check remains as
+cheap belt-and-braces defense-in-depth: it still catches a codegen bug in
+the regeneration itself, a hand-edit of the generated file after configure,
+or any future path that writes `bb_app_init.c` out-of-band without going
+through `bb_regenerate_wire_or_fail`.
 """
 from __future__ import annotations
 import argparse
