@@ -604,7 +604,7 @@ bb_err_t bb_system_get_app_sha256(char *out, size_t out_size);
 // bbtool:init tier=early fn=bb_system_boot_banner_init
 bb_err_t bb_system_boot_banner_init(void);
 
-// POST /api/reboot route declarations (bb_system_reboot_request_schema,
+// POST /api/diag/reboot route declarations (bb_system_reboot_request_schema,
 // bb_system_routes_reserve/_init, and their BB_SYSTEM_TESTING-gated test
 // accessors) moved to bb_system_routes.h (B1-1313) -- same co-located-
 // *_routes-header split as bb_storage_http.h/bb_log_http.h, so a codegen

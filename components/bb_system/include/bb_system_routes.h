@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @brief POST /api/reboot route over bb_system, carved out of bb_system.h so
+ * @brief POST /api/diag/reboot route over bb_system, carved out of bb_system.h so
  * a codegen consumer can compose bb_system's primitives (reboot-reason SSOT,
  * boot banner, boot-fail counters, bb_system_snap) without inheriting the
  * HTTP route surface / the bb_http_server edge (B1-1313).
@@ -31,18 +31,18 @@
 extern "C" {
 #endif
 
-// Hand-authored JSON Schema for POST /api/reboot's request body (B1-1059
+// Hand-authored JSON Schema for POST /api/diag/reboot's request body (B1-1059
 // emit batch A, site 2) -- bb_system_routes.c is portable (compiled on both
 // ESP-IDF and host), so this is unconditional, not ESP_PLATFORM-gated. See
 // test/test_host/test_bb_system_reboot_meta_golden.c for the byte-fidelity
 // proof against bb_system_reboot_meta.
 extern const char *const bb_system_reboot_request_schema;
 
-/// Registry hook — registers POST /api/reboot.
+/// Registry hook — registers POST /api/diag/reboot.
 bb_err_t bb_system_routes_init(bb_http_handle_t server);
 
 #ifdef BB_SYSTEM_TESTING
-/// Expose the POST /api/reboot handler for host unit tests (B1-1148 PR1).
+/// Expose the POST /api/diag/reboot handler for host unit tests (B1-1148 PR1).
 /// req is the opaque bb_http_request_t handle (no ESP_PLATFORM dependency --
 /// same posture as bb_storage_http_delete_handler_for_test).
 bb_err_t bb_system_reboot_handler_for_test(bb_http_request_t *req);
@@ -56,7 +56,7 @@ bb_err_t bb_system_reboot_handler_for_test(bb_http_request_t *req);
 bb_err_t bb_system_reboot_bind_for_test(void);
 
 /// Runtime-compose test accessors (B1-1059 emit batch A, site 2) for POST
-/// /api/reboot's request schema (bb_system_routes.c's file-scope
+/// /api/diag/reboot's request schema (bb_system_routes.c's file-scope
 /// s_reboot_route). The assemble fn runs the same guarded, idempotent
 /// compose-and-patch step bb_system_routes_init() runs
 /// (CONFIG_BB_OPENAPI_RUNTIME_META build only; a documented no-op returning
@@ -67,7 +67,7 @@ bb_err_t bb_system_reboot_assemble_request_schema_for_test(void);
 const char *bb_system_reboot_get_request_schema_for_test(void);
 
 // bb_serialize_desc_meta_t companion (B1-1181a) -- co-located JSON Schema
-// docs/validation table for the POST /api/reboot request descriptor
+// docs/validation table for the POST /api/diag/reboot request descriptor
 // (bb_system_routes.c's file-scope s_reboot_desc), same #if-gated pattern
 // as bb_storage_http.h's bb_storage_http_factory_reset_meta (B1-1059
 // PR-2b-i-1). BB_SERIALIZE_META_HOST is a host-only define (set by the

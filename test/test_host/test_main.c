@@ -8272,7 +8272,7 @@ int main(void) {
     RUN_TEST(test_bb_system_restart_deferred_reuses_shared_timer_across_calls);
     RUN_TEST(test_bb_system_restart_deferred_pending_lock_acquired_on_arm_and_fire);
 
-    // bb_system POST /api/reboot route tests (B1-1148 PR1)
+    // bb_system POST /api/diag/reboot route tests (B1-1148 PR1)
     RUN_TEST(test_bb_system_reboot_route_no_body_returns_200);
     RUN_TEST(test_bb_system_reboot_route_empty_body_returns_200);
     RUN_TEST(test_bb_system_reboot_route_empty_object_body_returns_200);

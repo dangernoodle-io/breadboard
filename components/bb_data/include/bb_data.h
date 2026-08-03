@@ -411,7 +411,7 @@ bb_err_t bb_data_generation(const char *key, uint32_t *out_gen);
 // stack locals can instead borrow both from ONE shared, file-scope static
 // pair owned by bb_data itself -- confirmed on hardware (controlled A/B) to
 // be the difference between a `Stack canary watchpoint triggered` panic and
-// a clean POST /api/reboot at CONFIG_BB_HTTP_TASK_STACK_SIZE=6144.
+// a clean POST /api/diag/reboot at CONFIG_BB_HTTP_TASK_STACK_SIZE=6144.
 //
 // SAFETY (why a single shared static instance is sound here, unlike
 // bb_data_render()/bb_data_apply()'s own deliberately reentrant, caller-

@@ -9,7 +9,7 @@
 # only, never a Kconfig-gated SRCS switch). It always compiles and its
 # object is always archived into the component library; nothing strips it.
 # Composition, not code presence, is the lever: a headless consumer that
-# doesn't want POST /api/reboot simply doesn't name bb_system_routes_init in
+# doesn't want POST /api/diag/reboot simply doesn't name bb_system_routes_init in
 # its manifest (or doesn't call it, hand-wired) -- same lever B1-1314/
 # B1-1279 already rely on -- so the route is never registered/reachable,
 # though the unreferenced object still carries a small flash cost.

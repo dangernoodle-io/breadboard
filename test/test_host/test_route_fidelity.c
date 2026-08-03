@@ -98,7 +98,7 @@ const char *bb_mdns_get_hostname(void);
 // Any edit to the production literal must also update the copy here.
 // ---------------------------------------------------------------------------
 
-// POST /api/reboot — bb_system_routes.c
+// POST /api/diag/reboot — bb_system_routes.c
 static const char k_reboot_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{\"status\":{\"type\":\"string\"}},"
@@ -562,7 +562,7 @@ typedef struct {
 // listed here; their test functions below do their own setup and call
 // run_fidelity with a stack-allocated entry.
 static const fidelity_entry_t k_audit[] = {
-    { "/api/reboot",            h_reboot,            200, "application/json", k_reboot_schema        },
+    { "/api/diag/reboot",       h_reboot,            200, "application/json", k_reboot_schema        },
     { "/api/health",            h_health,            200, "application/json", k_health_schema        },
     { "/api/wifi",              h_wifi_info,         200, "application/json", k_wifi_schema          },
     { "/api/update/progress",   h_ota_status,        200, "application/json", k_ota_status_schema    },

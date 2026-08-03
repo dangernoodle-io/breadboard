@@ -322,20 +322,20 @@ def reboot(
     criteria: Optional["Criteria"] = None,
     profile: Optional["Profile"] = None,
 ) -> VerifyResult:
-    """Reboot the device via POST /api/reboot (bodyless), safety-gated.
+    """Reboot the device via POST /api/diag/reboot (bodyless), safety-gated.
 
-    POST /api/reboot via guard.  sc=None (connection reset mid-response) is the
+    POST /api/diag/reboot via guard.  sc=None (connection reset mid-response) is the
     expected success case — the device rebooted before it could close the HTTP
     connection.  sc in (200, 202, 204, None) is treated as success.
 
     When settle is given: wait_for_boot then wait_until_ready (with settle_delay
     set to the given value) to confirm the device recovered.
     """
-    g = guard.check(client, "POST", "/api/reboot")
+    g = guard.check(client, "POST", "/api/diag/reboot")
     if Guard.is_dry_run_skip(g):
         return VerifyResult(ok=True, dry_run=True, detail="dry-run: would reboot")
 
-    sc, _ = client.request("POST", "/api/reboot", timeout=TIMEOUT_WRITE)
+    sc, _ = client.request("POST", "/api/diag/reboot", timeout=TIMEOUT_WRITE)
     # sc=None: connection reset because device rebooted — expected success.
     if sc not in (200, 202, 204, None):
         return VerifyResult(ok=False, detail=f"reboot rejected HTTP {sc}")

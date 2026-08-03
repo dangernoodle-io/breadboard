@@ -1,4 +1,4 @@
-// Tests for the POST /api/reboot route handler (B1-1148 PR2).
+// Tests for the POST /api/diag/reboot route handler (B1-1148 PR2).
 //
 // PR2 migrates the request body off the hand-rolled
 // bb_system_reboot_parse_body() (deleted) onto a "reboot" bb_data ingress

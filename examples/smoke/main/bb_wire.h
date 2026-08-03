@@ -127,7 +127,7 @@
 // route-registering registry hooks relocated out of their component headers
 // (B1-1279/B1-1314) -- a component composing bb_system for its
 // reboot-reason SSOT (etc.) must not also be forced to expose POST
-// /api/reboot. `component=` (B1-1275) pulls in each component's own
+// /api/diag/reboot. `component=` (B1-1275) pulls in each component's own
 // REQUIRES/PRIV_REQUIRES closure so the manifest entry composes correctly.
 // See bb_wifi_prov_autoinit below for the precedent this mirrors.
 
