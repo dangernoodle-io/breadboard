@@ -132,11 +132,15 @@ bool bb_wdt_park_wait(bool (*try_wait)(void *ctx, uint32_t ms),
  * is indistinguishable from a re-claim by the same owner, and a release
  * unconditionally clears the bit regardless of how many owners claimed it.
  * Every reconfigure (bb_wdt_set_timeout(), bb_wdt_claim_core(),
- * bb_wdt_release_core()) computes `kconfig_default_mask | claimed_mask` --
- * the claim only ever ADDS an excused core, never removes a check the board
- * owner asked for via Kconfig on an unclaimed core. claim/release each
- * trigger their own reconfigure, so there is no observable
- * "declared but not applied" window.
+ * bb_wdt_release_core()) computes `excused_seed | claimed_mask`, entirely in
+ * EXCUSED polarity (see "Polarity hardening" above) -- the claim only ever
+ * ADDS an excused core, never removes an idle check the board owner asked
+ * for via Kconfig on an unclaimed core. `excused_seed` is the board's
+ * Kconfig-configured default CONVERTED into excused polarity once per
+ * reconfigure by bb_wdt_invert_core_mask(); the result is converted back to
+ * ESP-IDF's monitored polarity, again exactly once, immediately before
+ * building esp_task_wdt_config_t. claim/release each trigger their own
+ * reconfigure, so there is no observable "declared but not applied" window.
  *
  * Exclusivity of OWNERSHIP (as opposed to idle-check suppression) is
  * enforced ATOMICALLY by bb_wdt_claim_core_exclusive() below (B1-1364
@@ -169,8 +173,8 @@ bool bb_wdt_park_wait(bool (*try_wait)(void *ctx, uint32_t ms),
  * bookkeeps successfully (claiming is not validated against the real core
  * count) and bb_wdt_claimed_core_mask()/bb_wdt_steer_core() see the claim,
  * but it has NO effect on the applied Task WDT idle mask -- the platform
- * reconfigure path runs the derived mask through bb_wdt_clamp_idle_mask()
- * with the target's real core count before calling
+ * reconfigure path runs the derived excused mask through
+ * bb_wdt_clamp_core_mask() with the target's real core count before calling
  * esp_task_wdt_reconfigure(), which otherwise rejects (ESP_ERR_INVALID_ARG)
  * any idle_core_mask bit at or above CONFIG_FREERTOS_NUMBER_OF_CORES. This
  * clamp is load-bearing: without it, a single out-of-range claim would make
@@ -185,6 +189,42 @@ bool bb_wdt_park_wait(bool (*try_wait)(void *ctx, uint32_t ms),
  * (kept independent here so bb_wdt does not take on a bb_task dependency
  * before the integration PR). Pass to bb_wdt_steer_core() as `requested`. */
 #define BB_WDT_CORE_ANY (-1)
+
+/*
+ * ---------------------------------------------------------------------------
+ * Polarity hardening (B1-1408).
+ *
+ * ESP-IDF's own esp_task_wdt.h idle_core_mask is MONITORED polarity: "1 << i
+ * means that core i's idle task will be monitored by the TWDT" -- a SET bit
+ * means the core IS watched, not that it is excused. bb_wdt's entire
+ * internal representation is instead EXCUSED polarity: a SET bit means that
+ * core's idle check is SUPPRESSED (the opposite meaning). The two masks are
+ * NOT interchangeable -- OR-ing an excused-polarity claim into a
+ * monitored-polarity mask (the historical bug this fixes) makes a claimed
+ * core MORE monitored, not less. These are wrapped single-member structs
+ * (not bare uint32_t typedefs) specifically so the compiler rejects an
+ * implicit interchange between the two polarities -- the exact class of
+ * mistake that let the bug ship and survive a review cycle.
+ *
+ * bb_wdt_derive_excused_mask() and bb_wdt_clamp_core_mask() speak ONLY
+ * excused polarity -- ENFORCED, not just documented: both of
+ * bb_wdt_derive_excused_mask()'s parameters are bb_wdt_excused_mask_t (a
+ * claim IS excused-polarity by contract -- claiming a core means "suppress
+ * its idle check", the same meaning as a set bit in this type), so the
+ * compiler rejects passing a bare/monitored-polarity uint32_t into either
+ * slot. bb_wdt_claimed_core_mask() itself stays a bare uint32_t (it is also
+ * consumed as a raw ownership bitmask outside bb_wdt, by bb_task_resolve()
+ * and bb_http_server's worker steering); its two bb_wdt_derive_excused_mask()
+ * call sites (both platform do_reconfigure() paths) each wrap it in a single,
+ * explicitly named bb_wdt_excused_mask_t conversion at the call site -- never
+ * an implicit/blind cast. The ONLY place bb_wdt may hold or write a
+ * monitored-polarity value is the platform reconfigure path's final
+ * conversion, immediately before it is assigned to
+ * esp_task_wdt_config_t.idle_core_mask -- see bb_wdt_invert_core_mask().
+ * ---------------------------------------------------------------------------
+ */
+typedef struct { uint32_t bits; } bb_wdt_excused_mask_t;
+typedef struct { uint32_t bits; } bb_wdt_monitored_mask_t;
 
 /*
  * Claim `core` (0 or 1): the Task WDT idle check for that core will be
@@ -226,32 +266,72 @@ bb_err_t bb_wdt_release_core(int core);
 uint32_t bb_wdt_claimed_core_mask(void);
 
 /*
- * PURE: derive the idle-check mask actually applied to the Task WDT --
- * always the union (bitwise OR) of the board's Kconfig-configured default
- * mask and the currently claimed-core mask. Never overrides or removes a
- * bit either side sets; a claim only ever adds an excused core. Exposed for
- * host testing; the platform reconfigure path is the only real caller.
+ * PURE: derive the excused-core mask actually applied to the Task WDT --
+ * always the union (bitwise OR) of `excused_seed` (the board's
+ * Kconfig-configured default, already converted to EXCUSED polarity -- see
+ * "Polarity hardening" above and bb_wdt_invert_core_mask()) and
+ * `claimed_mask` (a claimed-core mask -- see bb_wdt_claimed_core_mask() --
+ * wrapped as bb_wdt_excused_mask_t at the call site, since a claim IS
+ * excused polarity by contract). Never overrides or removes a bit either
+ * side sets; a claim only ever adds an excused core. Both parameters are
+ * typed bb_wdt_excused_mask_t specifically so this can never accept a raw
+ * ESP-IDF monitored-polarity mask (e.g. the un-inverted output of the
+ * platform's Kconfig read), which would reproduce the exact defect this type
+ * split exists to prevent (B1-1408). Exposed for host testing; the platform
+ * reconfigure path is the only real caller.
  */
-uint32_t bb_wdt_derive_idle_mask(uint32_t kconfig_default_mask, uint32_t claimed_mask);
+bb_wdt_excused_mask_t bb_wdt_derive_excused_mask(bb_wdt_excused_mask_t excused_seed,
+                                                  bb_wdt_excused_mask_t claimed_mask);
 
 /*
- * PURE: clamp a derived idle-check mask to the cores that actually exist on
- * this target (num_cores). esp_task_wdt_reconfigure() returns
- * ESP_ERR_INVALID_ARG for any idle_core_mask with a bit set at or above
- * num_cores -- e.g. bit 1 on a 1-core esp32-s2/-c3 build
- * (CONFIG_FREERTOS_NUMBER_OF_CORES == 1). Every platform reconfigure call
- * MUST clamp through this before calling esp_task_wdt_reconfigure(), so a
- * claim on a core that doesn't exist on this target can never produce a
- * mask the real API rejects (which would otherwise silently drop every
- * subsequent reconfigure, including unrelated timeout changes, until the
- * offending claim is released -- see bb_wdt_claim_core()'s unicore note).
+ * PURE: clamp a derived excused-core mask to the cores that actually exist
+ * on this target (num_cores). This is pure range-truncation math and is
+ * agnostic to polarity in isolation, but it is only ever called on an
+ * EXCUSED-polarity mask in this codebase (see "Polarity hardening" above):
+ * esp_task_wdt_reconfigure() returns ESP_ERR_INVALID_ARG for any
+ * idle_core_mask with a bit set at or above num_cores -- e.g. bit 1 on a
+ * 1-core esp32-s2/-c3 build (CONFIG_FREERTOS_NUMBER_OF_CORES == 1). Every
+ * platform reconfigure call MUST clamp through this before calling
+ * esp_task_wdt_reconfigure(), so a claim on a core that doesn't exist on
+ * this target can never produce a mask the real API rejects (which would
+ * otherwise silently drop every subsequent reconfigure, including unrelated
+ * timeout changes, until the offending claim is released -- see
+ * bb_wdt_claim_core()'s unicore note).
  *
  * num_cores <= 0 clamps to 0 (defensive; not a real target configuration).
  * num_cores >= 32 returns mask unchanged (no bit can be out of range for a
  * uint32_t mask). Exposed for host testing; the platform reconfigure path
  * is the only real caller.
  */
-uint32_t bb_wdt_clamp_idle_mask(uint32_t mask, int num_cores);
+bb_wdt_excused_mask_t bb_wdt_clamp_core_mask(bb_wdt_excused_mask_t mask, int num_cores);
+
+/*
+ * PURE, self-inverse: flip a core mask's polarity within the cores that
+ * actually exist on this target -- `~mask & full_mask(num_cores)`, where
+ * full_mask(num_cores) has exactly the low `num_cores` bits set. Applying it
+ * twice returns the original value, provided that value has no bit set
+ * outside num_cores (e.g. already clamped via bb_wdt_clamp_core_mask()).
+ *
+ * This is the ONE symmetric helper that crosses BOTH polarity boundaries
+ * bb_wdt has (see "Polarity hardening" above):
+ *   (1) the platform's Kconfig-derived idle-check default is computed in
+ *       ESP-IDF's own MONITORED polarity (mirroring ESP-IDF's own
+ *       app_startup.c computation from the same Kconfig symbols);
+ *       bb_wdt_invert_core_mask() converts it ONCE into the EXCUSED
+ *       polarity bb_wdt_derive_excused_mask() expects as `excused_seed`.
+ *   (2) the platform reconfigure path converts the final derived + clamped
+ *       EXCUSED mask back into MONITORED polarity, again EXACTLY ONCE,
+ *       immediately before writing esp_task_wdt_config_t.idle_core_mask --
+ *       the only place in bb_wdt that may hold a monitored-polarity value.
+ *
+ * Deliberately typed as bare uint32_t in and out, not either
+ * bb_wdt_excused_mask_t or bb_wdt_monitored_mask_t: it IS the conversion
+ * between the two, so it straddles both types by definition -- wrapping it
+ * to one side would just force an unsafe cast at its own two call sites.
+ * Exposed for host testing; the platform reconfigure path (both boundaries)
+ * is the only real caller.
+ */
+uint32_t bb_wdt_invert_core_mask(uint32_t mask, int num_cores);
 
 /*
  * PURE: steer a requested core affinity away from a core claimed by
