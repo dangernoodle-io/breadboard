@@ -44,6 +44,33 @@
 // platform's real matcher (see bb_route_match.h's TARGET SHAPE) instead of
 // carrying its own interim subset — at that point a wildcard entry means
 // the same thing everywhere and the /api/-only rule is no longer needed.
+//
+// DENY (B1-1400): bb_http_prov_deny() records narrow carve-outs the
+// allowlist should NOT permit even though a broader allow entry matches --
+// e.g. allowing /api/diag/* while still denying /api/diag/reboot
+// specifically (the B1-1279 motivating case). Deny is a STRICT POST-FILTER
+// evaluated AFTER the union allowlist resolves, never mixed into the same
+// pass, and never given any precedence/longest-prefix scheme of its own --
+// that would break the allow-vs-allow order-independence guaranteed above.
+// The resulting predicate is: union(allow matches) && !union(deny
+// matches). Deny always wins over allow; there is no way to un-deny a path
+// short of not calling bb_http_prov_deny() for it. Denylist entries are
+// stored in a SEPARATE table from the allowlist (same entry shape, same
+// per-(method,path) granularity, same /api/-only wildcard restriction as
+// bb_http_prov_allow() -- see bb_http_prov_deny() below).
+//
+// Interaction with bb_http_route_exclude() (B1-1401, a different
+// component-internal primitive, see bb_route_exclude.h): a route excluded
+// via bb_http_route_exclude() is never registered at all --
+// bb_dispatch_api_lookup() misses and the request 404s before dispatch
+// ever calls this gate. This gate is simply never reached for an excluded
+// path. There is no interaction logic between deny and exclude beyond
+// that -- a deny entry for an already-excluded path is dead but harmless
+// (it names a path the gate will never be asked to decide). Layer
+// distinction: exclude is permanent/structural/always-404 (composition
+// time, never provisioning-scoped); deny is a runtime,
+// provisioning-window-scoped restriction only -- the path works normally
+// once provisioning ends.
 
 #include "bb_http.h"
 
@@ -61,6 +88,15 @@ extern "C" {
 #define BB_HTTP_PROV_ALLOWLIST_CAP 8
 #endif
 
+// Maximum number of (method,path) entries the denylist holds. Deliberately
+// small — this list is meant to stay short (narrow carve-outs under a
+// broader allow entry, see the DENY note above).
+#ifdef CONFIG_BB_HTTP_PROV_DENYLIST_CAP
+#define BB_HTTP_PROV_DENYLIST_CAP CONFIG_BB_HTTP_PROV_DENYLIST_CAP
+#else
+#define BB_HTTP_PROV_DENYLIST_CAP 4
+#endif
+
 // Record that (method, path) is reachable while provisioning is active.
 // `path` must have static/persistent storage duration — only the pointer is
 // stored. Safe to call for a path never registered elsewhere.
@@ -73,17 +109,70 @@ extern "C" {
 //
 // Returns BB_OK on success, BB_ERR_INVALID_ARG for a NULL path or a
 // rejected non-/api wildcard, or BB_ERR_NO_SPACE when the allowlist is full
-// (BB_HTTP_PROV_ALLOWLIST_CAP entries already recorded).
+// (BB_HTTP_PROV_ALLOWLIST_CAP entries already recorded). A dropped ALLOW
+// entry is safe: this gate's default posture is deny, so a path that never
+// made it into the allowlist simply stays denied — overflow here costs the
+// caller functionality (a route it wanted reachable during provisioning
+// isn't), never security. Contrast bb_http_prov_deny() below, whose
+// overflow is the opposite direction.
 bb_err_t bb_http_prov_allow(bb_http_method_t method, const char *path);
+
+// Record that (method, path) is DENIED while provisioning is active, even
+// if a broader bb_http_prov_allow() entry would otherwise match it. See
+// the DENY note above for the strict-post-filter semantics: deny always
+// wins over allow. `path` must have static/persistent storage duration —
+// only the pointer is stored. Safe to call for a path never registered via
+// bb_http_prov_allow() (it simply never matters — deny only ever narrows
+// an allow, it can't itself grant access).
+//
+// Same wildcard restriction as bb_http_prov_allow(): a wildcard ('*') entry
+// is accepted ONLY when path starts with "/api/"; a non-/api wildcard is
+// rejected with BB_ERR_INVALID_ARG. A non-wildcard path outside /api/ is
+// permitted (deny is not /api/-restricted overall, only wildcard deny
+// entries are, exactly mirroring allow).
+//
+// An empty path is accepted as a non-wildcard exact entry, the same
+// precedent bb_http_prov_allow() sets (NOT bb_http_route_exclude()'s
+// rejection of an empty path — see B1-1405, bb_route_match.h's KNOWN
+// DIVERGENCE note). Deny is allow's direct sibling primitive; exclude is a
+// different layer with a different empty-path failure mode.
+//
+// Deny is per-(method,path) with no "all methods" form, exactly mirroring
+// bb_http_prov_allow() — not a bug, but it means a caller trying to carve
+// a path out entirely must call this once per method that has a matching
+// allow entry; a partially-denied method set is indistinguishable from a
+// fully-denied one at the call site (bb_http_prov_gate_allow() only ever
+// sees one method per request) and there is no verify_denies()-style check
+// for a forgotten method.
+//
+// Returns BB_OK on success, BB_ERR_INVALID_ARG for a NULL path or a
+// rejected non-/api wildcard, or BB_ERR_NO_SPACE when the denylist is full
+// (BB_HTTP_PROV_DENYLIST_CAP entries already recorded). UNLIKE
+// bb_http_prov_allow()'s overflow above, a dropped DENY entry is NOT
+// safe: the entry that failed to record is exactly the carve-out meant to
+// narrow an already-allowed path, so its absence leaves that path
+// ALLOWED — this fails OPEN, the opposite direction from allow's
+// fail-closed overflow, and bb_http_prov_gate_verify_denies() cannot catch
+// it either (a dropped entry was never recorded, so there is nothing to
+// verify). A caller MUST treat any non-BB_OK return from this function as
+// fatal (abort composition / refuse to boot into provisioning) rather than
+// best-effort — do NOT copy bb_http_prov_allow()'s "a dropped entry is
+// safe" assumption across to this function.
+bb_err_t bb_http_prov_deny(bb_http_method_t method, const char *path);
 
 // Pure decision function: is (method, uri) reachable right now?
 //
 // When prov_active is false, always returns true (provisioning isn't
-// gating anything). When prov_active is true, returns true only if
-// (method, uri) matches an entry previously recorded via
-// bb_http_prov_allow() — an allowlisted path under the WRONG method still
-// returns false (the allowlist is per (method,path), not per path). No
-// allowlist entry means denied; this is structural, there is no override.
+// gating anything). When prov_active is true: first resolves the union
+// allowlist exactly as before (returns true only if (method, uri) matches
+// an entry previously recorded via bb_http_prov_allow() — an allowlisted
+// path under the WRONG method still returns false, the allowlist is per
+// (method,path), not per path). If the allowlist denies, this returns
+// false immediately, unchanged from pre-deny behavior. If the allowlist
+// allows, the denylist is then consulted as a strict post-filter: any
+// matching bb_http_prov_deny() entry on the same method flips the result
+// to false. No allowlist entry (or a matching deny entry) means denied;
+// this is structural, there is no override.
 bool bb_http_prov_gate_allow(bool prov_active, bb_http_method_t method, const char *uri);
 
 // Signal source: does the caller currently consider provisioning active?
@@ -127,12 +216,49 @@ bool bb_http_prov_gate_check(bb_http_method_t method, const char *uri);
 // bb_http_prov_gate_allow() does (always false when the escape hatch is on).
 bool bb_http_prov_gate_is_active(void);
 
-// Clear the allowlist and the injected active-fn. TEST-ONLY — used by
-// test_main.c's setUp() to isolate the process-wide static state between
-// tests. NOT safe to call with httpd workers live (no locking): a worker
-// mid-bb_http_prov_gate_allow() can observe a torn state between this
-// clearing the count and zeroing the entries. There is no production caller
-// of this function anywhere in-tree (same convention as
+// Composition-time static reachability check for the denylist: for every
+// entry recorded via bb_http_prov_deny(), is there ANY allow entry that
+// could ever match the same (method, path)? An orphaned deny entry — one
+// no allow entry could ever reach — is very likely a typo or a stale
+// carve-out left over after the allow entry it was meant to narrow was
+// removed; it currently does nothing (the strict post-filter in
+// bb_http_prov_gate_allow() only ever runs after an allow match, so an
+// unreachable deny entry is silently inert, not a hidden extra
+// restriction).
+//
+// This is a STATIC config-vs-config check, deliberately NOT a per-request
+// "matched" latch (contrast bb_http_route_exclude_verify()'s B1-1401
+// design, which DOES use a matched latch): a deny entry is evaluated at
+// REQUEST time against live URIs, so a latch would false-positive on every
+// cold boot before the first matching request ever arrives — there is no
+// way to distinguish "unreachable" from "reachable but not yet exercised"
+// with a latch. Reachability between two static tables (allow, deny) is
+// fully decidable at composition time by feeding each deny entry's path
+// through bb_route_uri_match() against every allow entry, with no
+// per-request bookkeeping required.
+//
+// SCOPE LIMIT: this only catches "a deny entry names a path no allow entry
+// could ever reach". It does NOT catch the opposite mistake — "a path that
+// should have been denied but the app forgot to call bb_http_prov_deny()
+// for it" — that omission has no static signature to detect; it is a
+// review-time concern, not an automatable one.
+//
+// Call once at composition time (after all bb_http_prov_allow() and
+// bb_http_prov_deny() calls have run, before the HTTP server starts
+// serving). Returns BB_OK if every deny entry is reachable by some allow
+// entry, or BB_ERR_NOT_FOUND if ANY orphan exists. The return value itself
+// does not identify which entry (or entries) are orphaned — the bare
+// bb_err_t carries no out-param for that. EVERY orphan found is logged (not
+// just the first); read the log, not the return value, to find which
+// entries need fixing.
+bb_err_t bb_http_prov_gate_verify_denies(void);
+
+// Clear the allowlist, the denylist, and the injected active-fn. TEST-ONLY
+// — used by test_main.c's setUp() to isolate the process-wide static state
+// between tests. NOT safe to call with httpd workers live (no locking): a
+// worker mid-bb_http_prov_gate_allow() can observe a torn state between
+// this clearing a count and zeroing its entries. There is no production
+// caller of this function anywhere in-tree (same convention as
 // bb_dispatch_api_reset() / bb_http_route_registry_clear() in
 // route_registry.c).
 void bb_http_prov_gate_reset(void);

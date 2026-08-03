@@ -195,6 +195,21 @@ config BB_HTTP_PROV_ALLOWLIST_CAP
       bb_http_prov_allow() returns BB_ERR_NO_SPACE; the entry is
       dropped (default-deny still applies to it).
 
+config BB_HTTP_PROV_DENYLIST_CAP
+    int "Provisioning gate denylist capacity"
+    default 4
+    range 4 16
+    help
+      Maximum number of (method,path) entries the bb_http_prov_gate
+      denylist holds. This list is meant to stay short — narrow
+      carve-outs under an otherwise-allowed prefix (e.g. denying
+      /api/diag/reboot while /api/diag/* stays allowed). Overflow logs
+      an error and bb_http_prov_deny() returns BB_ERR_NO_SPACE; the
+      entry is dropped (the path stays allowed, not denied). UNLIKE
+      allowlist overflow above, this fails OPEN, not closed: a caller
+      MUST treat a non-BB_OK return from bb_http_prov_deny() as fatal
+      rather than best-effort.
+
 config BB_HTTP_ROUTE_EXCLUDE_CAP
     int "Composition-time route exclusion table capacity"
     default 8

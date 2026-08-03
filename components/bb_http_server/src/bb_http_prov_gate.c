@@ -22,6 +22,13 @@ typedef struct {
 static bb_http_prov_gate_entry_t s_allowlist[BB_HTTP_PROV_ALLOWLIST_CAP];
 static size_t                    s_allowlist_count;
 
+// Denylist: a SECOND, separate table (same entry shape) rather than a bool
+// folded into s_allowlist[] — deny and allow are independent lists composed
+// by bb_http_prov_gate_allow() as a strict post-filter, not two flavors of
+// one entry (see bb_http_prov_gate.h's DENY note for the full rationale).
+static bb_http_prov_gate_entry_t s_denylist[BB_HTTP_PROV_DENYLIST_CAP];
+static size_t                    s_denylist_count;
+
 // Injected "is provisioning active" signal source (see bb_http_prov_gate.h).
 // NULL (the default) means "never active" — an app that never wires a
 // source sees zero gating.
@@ -35,6 +42,8 @@ void bb_http_prov_gate_reset(void)
     // rather than a stale count over zeroed (NULL-path) entries.
     s_allowlist_count = 0;
     memset(s_allowlist, 0, sizeof(s_allowlist));
+    s_denylist_count = 0;
+    memset(s_denylist, 0, sizeof(s_denylist));
     s_active_fn = NULL;
 }
 
@@ -90,6 +99,38 @@ bb_err_t bb_http_prov_allow(bb_http_method_t method, const char *path)
     return BB_OK;
 }
 
+bb_err_t bb_http_prov_deny(bb_http_method_t method, const char *path)
+{
+    if (!path) return BB_ERR_INVALID_ARG;
+
+    bool is_wildcard = bb_route_match_is_wildcard(path);
+
+    // Same INTERIM restriction as bb_http_prov_allow() (see
+    // bb_http_prov_gate.h) — a wildcard entry is only verified correct
+    // for the /api/* family. An empty path is deliberately ACCEPTED here
+    // as a non-wildcard exact entry, following bb_http_prov_allow()'s
+    // precedent rather than bb_http_route_exclude()'s rejection (B1-1405,
+    // deliberate divergence — see bb_route_match.h): deny is allow's
+    // direct sibling, exclude is a different layer.
+    if (is_wildcard && !bb_route_match_wildcard_in_api_scope(path)) {
+        bb_log_e(TAG, "wildcard prov-deny entry %s rejected: wildcard entries "
+                 "are only permitted under /api/ (see bb_http_prov_gate.h)", path);
+        return BB_ERR_INVALID_ARG;
+    }
+
+    if (s_denylist_count >= BB_HTTP_PROV_DENYLIST_CAP) {
+        bb_log_e(TAG, "prov denylist full (cap=%d); dropping entry for %s",
+                 BB_HTTP_PROV_DENYLIST_CAP, path);
+        return BB_ERR_NO_SPACE;
+    }
+
+    s_denylist[s_denylist_count].method = method;
+    s_denylist[s_denylist_count].path   = path;
+    s_denylist_count++;
+
+    return BB_OK;
+}
+
 bool bb_http_prov_gate_allow(bool prov_active, bb_http_method_t method, const char *uri)
 {
 #if defined(CONFIG_BB_WIFI_PROV_GATE_DISABLE) && CONFIG_BB_WIFI_PROV_GATE_DISABLE
@@ -111,11 +152,99 @@ bool bb_http_prov_gate_allow(bool prov_active, bb_http_method_t method, const ch
     }
 
     // Union over entries: any matching entry on the right method allows.
+    bool allowed = false;
     for (size_t i = 0; i < s_allowlist_count; i++) {
         if (s_allowlist[i].method != method) continue;
-        if (bb_route_uri_match(s_allowlist[i].path, uri, path_len)) return true;
+        if (bb_route_uri_match(s_allowlist[i].path, uri, path_len)) {
+            allowed = true;
+            break;
+        }
     }
 
-    return false;
+    if (!allowed) return false;
+
+    // Strict post-filter (B1-1400): the union allowlist resolves FIRST,
+    // deny is applied only afterward and always wins — see bb_http_prov_gate.h's
+    // DENY note for why this is not folded into the allow loop above or
+    // given any precedence scheme of its own.
+    for (size_t i = 0; i < s_denylist_count; i++) {
+        if (s_denylist[i].method != method) continue;
+        if (bb_route_uri_match(s_denylist[i].path, uri, path_len)) return false;
+    }
+
+    return true;
 #endif
+}
+
+// Does an allow entry's matched-URI set overlap a deny entry's matched-URI
+// set (B1-1400 HIGH-1 fix)? Reachability is prefix-SET overlap, not a
+// literal-uri-match trick: the old implementation fed the deny entry's own
+// text (star included) through bb_route_uri_match() as if it were a
+// concrete request URI, which only happens to work when the deny side's
+// own prefix is the longer/narrower one. Handled per shape:
+//   - exact vs exact: overlap iff the two literal strings are identical.
+//   - wildcard vs wildcard: overlap iff one entry's prefix (path without
+//     the trailing '*') is a prefix of the other's — symmetric, doesn't
+//     matter which side is broader, because any URI matching the longer
+//     prefix also matches the shorter one.
+//   - exactly one side is a wildcard: the exact side names exactly one
+//     concrete URI (its own path), so overlap is precisely
+//     bb_route_uri_match()'s own definition of "does this pattern match
+//     this URI" — reuse it directly, with match_upto pinned to the EXACT
+//     side's real length (never the wildcard side's length, which would
+//     include its trailing '*' as a data byte, the root cause of the old
+//     bug: a wildcard deny under an exact allow was matched with the
+//     wildcard entry's own path as the "pattern" every time, regardless of
+//     which side actually carried the wildcard).
+static bool bb_http_prov_gate_entries_overlap(const bb_http_prov_gate_entry_t *allow,
+                                               const bb_http_prov_gate_entry_t *deny)
+{
+    bool allow_wild = bb_route_match_is_wildcard(allow->path);
+    bool deny_wild  = bb_route_match_is_wildcard(deny->path);
+
+    if (!allow_wild && !deny_wild) {
+        size_t allow_len = strlen(allow->path);
+        size_t deny_len  = strlen(deny->path);
+        return allow_len == deny_len && memcmp(allow->path, deny->path, allow_len) == 0;
+    }
+
+    if (allow_wild && deny_wild) {
+        size_t allow_prefix_len = strlen(allow->path) - 1;
+        size_t deny_prefix_len  = strlen(deny->path) - 1;
+        size_t min_len = allow_prefix_len < deny_prefix_len ? allow_prefix_len : deny_prefix_len;
+        return memcmp(allow->path, deny->path, min_len) == 0;
+    }
+
+    if (allow_wild) {
+        return bb_route_uri_match(allow->path, deny->path, strlen(deny->path));
+    }
+    return bb_route_uri_match(deny->path, allow->path, strlen(allow->path));
+}
+
+bb_err_t bb_http_prov_gate_verify_denies(void)
+{
+    bool found_orphan = false;
+
+    // One pass: log EVERY orphaned deny entry (composition-time diagnostic,
+    // cheap — these tables are small), but only report the FIRST one back
+    // to the caller as the failure, per bb_http_prov_gate.h's contract.
+    for (size_t i = 0; i < s_denylist_count; i++) {
+        bool reachable = false;
+
+        for (size_t j = 0; j < s_allowlist_count; j++) {
+            if (s_allowlist[j].method != s_denylist[i].method) continue;
+            if (bb_http_prov_gate_entries_overlap(&s_allowlist[j], &s_denylist[i])) {
+                reachable = true;
+                break;
+            }
+        }
+
+        if (!reachable) {
+            bb_log_e(TAG, "prov-deny entry unreachable by any allow entry: "
+                     "method=%d path=%s", (int)s_denylist[i].method, s_denylist[i].path);
+            found_orphan = true;
+        }
+    }
+
+    return found_orphan ? BB_ERR_NOT_FOUND : BB_OK;
 }

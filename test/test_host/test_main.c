@@ -1741,6 +1741,30 @@ void test_bb_http_prov_gate_wildcard_prefix_longer_than_uri_denies(void);
 void test_bb_http_prov_gate_exact_same_length_mismatch_denies(void);
 void test_bb_http_prov_gate_wildcard_non_api_path_rejected(void);
 void test_bb_http_prov_gate_wildcard_api_path_accepted(void);
+void test_bb_http_prov_gate_deny_null_path_invalid_arg(void);
+void test_bb_http_prov_gate_deny_wildcard_non_api_path_rejected(void);
+void test_bb_http_prov_gate_deny_overflow_returns_no_space(void);
+void test_bb_http_prov_gate_deny_overflow_leaves_path_allowed(void);
+void test_bb_http_prov_gate_deny_success(void);
+void test_bb_http_prov_gate_deny_empty_path_accepted(void);
+void test_bb_http_prov_gate_deny_wildcard_api_path_accepted(void);
+void test_bb_http_prov_gate_allow_no_deny_entries_allows(void);
+void test_bb_http_prov_gate_exact_deny_suppresses_exact_allow(void);
+void test_bb_http_prov_gate_deny_carves_out_wildcard_allow(void);
+void test_bb_http_prov_gate_deny_method_mismatch_does_not_suppress(void);
+void test_bb_http_prov_gate_deny_then_allow_order_independent(void);
+void test_bb_http_prov_gate_allow_then_deny_order_independent(void);
+void test_bb_http_prov_gate_verify_denies_orphan_returns_not_found(void);
+void test_bb_http_prov_gate_verify_denies_covered_returns_ok(void);
+void test_bb_http_prov_gate_verify_denies_skips_method_mismatched_allow(void);
+void test_bb_http_prov_gate_verify_denies_empty_returns_ok(void);
+void test_bb_http_prov_gate_verify_denies_wildcard_deny_vs_exact_allow_covered(void);
+void test_bb_http_prov_gate_verify_denies_wildcard_deny_broader_than_wildcard_allow_covered(void);
+void test_bb_http_prov_gate_verify_denies_wildcard_deny_orphan_returns_not_found(void);
+void test_bb_http_prov_gate_verify_denies_exact_deny_vs_exact_allow_covered(void);
+void test_bb_http_prov_gate_verify_denies_exact_vs_exact_same_length_mismatch_orphan(void);
+void test_bb_http_prov_gate_verify_denies_exact_vs_exact_length_mismatch_orphan(void);
+void test_bb_http_prov_gate_deny_write_path_actually_gates_read_path(void);
 
 // Forward declarations from test_bb_http_prov_gate_wire.c
 void test_bb_http_prov_gate_wire_api_active_allowlisted_reaches_handler(void);
@@ -9551,6 +9575,32 @@ int main(void) {
     RUN_TEST(test_bb_http_prov_gate_exact_same_length_mismatch_denies);
     RUN_TEST(test_bb_http_prov_gate_wildcard_non_api_path_rejected);
     RUN_TEST(test_bb_http_prov_gate_wildcard_api_path_accepted);
+
+    // bb_http_prov_gate deny (B1-1400) tests
+    RUN_TEST(test_bb_http_prov_gate_deny_null_path_invalid_arg);
+    RUN_TEST(test_bb_http_prov_gate_deny_wildcard_non_api_path_rejected);
+    RUN_TEST(test_bb_http_prov_gate_deny_overflow_returns_no_space);
+    RUN_TEST(test_bb_http_prov_gate_deny_overflow_leaves_path_allowed);
+    RUN_TEST(test_bb_http_prov_gate_deny_success);
+    RUN_TEST(test_bb_http_prov_gate_deny_empty_path_accepted);
+    RUN_TEST(test_bb_http_prov_gate_deny_wildcard_api_path_accepted);
+    RUN_TEST(test_bb_http_prov_gate_allow_no_deny_entries_allows);
+    RUN_TEST(test_bb_http_prov_gate_exact_deny_suppresses_exact_allow);
+    RUN_TEST(test_bb_http_prov_gate_deny_carves_out_wildcard_allow);
+    RUN_TEST(test_bb_http_prov_gate_deny_method_mismatch_does_not_suppress);
+    RUN_TEST(test_bb_http_prov_gate_deny_then_allow_order_independent);
+    RUN_TEST(test_bb_http_prov_gate_allow_then_deny_order_independent);
+    RUN_TEST(test_bb_http_prov_gate_verify_denies_orphan_returns_not_found);
+    RUN_TEST(test_bb_http_prov_gate_verify_denies_covered_returns_ok);
+    RUN_TEST(test_bb_http_prov_gate_verify_denies_skips_method_mismatched_allow);
+    RUN_TEST(test_bb_http_prov_gate_verify_denies_empty_returns_ok);
+    RUN_TEST(test_bb_http_prov_gate_verify_denies_wildcard_deny_vs_exact_allow_covered);
+    RUN_TEST(test_bb_http_prov_gate_verify_denies_wildcard_deny_broader_than_wildcard_allow_covered);
+    RUN_TEST(test_bb_http_prov_gate_verify_denies_wildcard_deny_orphan_returns_not_found);
+    RUN_TEST(test_bb_http_prov_gate_verify_denies_exact_deny_vs_exact_allow_covered);
+    RUN_TEST(test_bb_http_prov_gate_verify_denies_exact_vs_exact_same_length_mismatch_orphan);
+    RUN_TEST(test_bb_http_prov_gate_verify_denies_exact_vs_exact_length_mismatch_orphan);
+    RUN_TEST(test_bb_http_prov_gate_deny_write_path_actually_gates_read_path);
 
     // bb_http_prov_gate wiring tests (B1-1279 PR3 -- the three dispatch
     // insertion points, via their host mirrors)
