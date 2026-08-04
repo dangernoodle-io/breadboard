@@ -49,6 +49,7 @@
 #include "bb_task_registry.h"
 #include "bb_system.h"
 #include "floor_prov_reboot.h"
+#include "floor_task_stack.h"
 #include <inttypes.h>
 #include <stdbool.h>
 
@@ -136,17 +137,118 @@ static void heap_log_tick(void *arg)
 }
 
 // The floor's second telemetry SOURCE (per-task stack high-water marks):
-// bb_serialize_console_tasks_report() -- gather (bb_task_base_foreach(), the
-// SSOT populated by bb_task_registry's periodic base-scan) -> render (one
-// bb_serialize_console_render() line per task) -> bb_log_i() per task, all
-// internal to that call. Serial only, same measured-not-published posture
-// as heap_log_tick above. Own bb_timer MODE-A job (see
+// migrated (B1-1418 PR-2) off bb_serialize_console's own retired
+// bb_serialize_console_tasks_report() onto bb_data's rows-only table-
+// producer shape -- floor is the first REAL exercise of
+// bb_data_render_rows() outside host tests. The "tasks" key is bound
+// rows-only (desc/gather/apply all NULL, rows non-NULL -- see the
+// bb_data_bind() call in app_main() below) straight onto
+// bb_serialize_console_tasks_row_desc/bb_serialize_console_tasks_gather(),
+// the same SSOT primitives the retired entry point used internally
+// (bb_task_base_foreach(), populated by bb_task_registry's periodic base-
+// scan). Serial only, same measured-not-published posture as
+// heap_log_tick above. Own bb_timer MODE-A job (see
 // FLOOR_TASK_STACK_LOG_INTERVAL_MS above for why not heap's timer) on the
 // shared bb_timer_disp task -- no dedicated task.
+
+// bb_data_row_gather_fn thunk: bb_serialize_console_tasks_gather()'s own
+// (dst, cap) shape already matches this signature modulo the unused `args`
+// parameter (this row producer takes no query filter), so this is a
+// one-line forwarder, not a bespoke gather implementation -- the composition
+// root supplies only the untyped bb_data_row_gather_fn cast, matching the
+// producers[] table's bb_data_gather_plain thunk precedent above.
+static size_t tasks_row_gather(void *dst_rows, size_t max_rows, const bb_data_gather_args_t *args)
+{
+    (void)args;
+    return bb_serialize_console_tasks_gather((bb_serialize_console_tasks_row_snap_t *)dst_rows, max_rows);
+}
+
+static const bb_data_row_binding_t s_tasks_row_binding = {
+    .row_desc   = &bb_serialize_console_tasks_row_desc,
+    .row_gather = tasks_row_gather,
+    .row_size   = sizeof(bb_serialize_console_tasks_row_snap_t),
+};
+
+// Row-scratch capacity for the "tasks" table producer. Deliberately its OWN
+// literal rather than bb_task.h's BB_TASK_BASE_MAX_CAP: floor has no direct
+// bb_task dependency today (bb_task is a PRIV_REQUIRES of bb_task_registry/
+// bb_serialize_console, not floor's own manifest) and bb_serialize_console.h
+// itself documents staying free of a bb_task dependency for the same
+// public-header-coupling reason (see BB_SERIALIZE_CONSOLE_TASKS_NAME_MAX's
+// own doc comment) -- adding one here solely to size a scratch array would
+// be new REQUIRES churn for no behavioral gain, since
+// bb_serialize_console_tasks_gather()'s own truncate-don't-overflow contract
+// already caps at whichever of the two is smaller. Matches
+// BB_TASK_BASE_MAX_CAP's Kconfig default (24) today -- but BB_TASK_BASE_MAX
+// (components/bb_task/Kconfig) is a live `range 1 64` knob a board can
+// legally raise above this literal, silently truncating the report with no
+// signal of its own (firmware review MEDIUM finding, B1-1418 PR-2) -- see
+// floor_task_stack.h/task_stack_log_tick() below for the runtime warning
+// that makes that drift loud instead of silent.
+#define FLOOR_TASK_STACK_ROWS_MAX 24
+
+// File-static rather than a stack local -- same rationale the retired
+// bb_serialize_console_tasks_report() itself documented: a stack array sized
+// off FLOOR_TASK_STACK_ROWS_MAX would couple this tick's caller's stack
+// budget (the shared bb_timer_disp task, BB_TIMER_DISP_STACK) to it.
+// Single-caller (task_stack_log_tick is the only bb_data_render_rows() call
+// site for this key, a periodic timer job) so a shared static buffer is
+// safe -- NOT reentrant.
+static bb_serialize_console_tasks_row_snap_t s_task_row_scratch[FLOOR_TASK_STACK_ROWS_MAX];
+
+// bb_data_render_rows_req_t.emit_row: the per-row bb_log_i() call the
+// retired bb_serialize_console_tasks_report() used to make internally --
+// bb_data stays host-testable and format-neutral (it does NOT call
+// bb_log_i() itself), so the composition root supplies this callback
+// instead. `ctx` also accumulates `count` -- the number of rows this call
+// actually emitted this tick -- so task_stack_log_tick() below can feed it
+// to floor_task_stack_should_warn_truncated() (see floor_task_stack.h)
+// without a second pass over bb_data_render_rows()'s output; bb_data itself
+// exposes no row-count return, only the per-row callback.
+typedef struct {
+    const char *label;
+    size_t      count;
+} tasks_row_emit_ctx_t;
+
+static void tasks_row_emit(const char *line, size_t len, size_t row_idx, void *ctx)
+{
+    (void)len;
+    (void)row_idx;
+    tasks_row_emit_ctx_t *ec = (tasks_row_emit_ctx_t *)ctx;
+    bb_log_i(TAG, "%s task %s", ec->label, line);
+    ec->count++;
+}
+
+// Latch for the "possibly truncated" warning (firmware review MEDIUM
+// finding, B1-1418 PR-2): floor_task_stack_should_warn_truncated() (see
+// floor_task_stack.h for the full "why" -- BB_TASK_BASE_MAX is a live
+// Kconfig that can outgrow FLOOR_TASK_STACK_ROWS_MAX) decides per-tick
+// whether to warn; this static is the one-time latch it consults/this file
+// flips, so a registry parked at-or-over capacity warns once per boot, not
+// on every 12s tick forever.
+static bool s_tasks_truncation_warned = false;
+
 static void task_stack_log_tick(void *arg)
 {
     (void)arg;
-    bb_serialize_console_tasks_report("tick");
+    tasks_row_emit_ctx_t emit_ctx = { .label = "tick", .count = 0 };
+    bb_data_render_rows_req_t req = {
+        .key = "tasks", .fmt = BB_FORMAT_CONSOLE,
+        .row_scratch = s_task_row_scratch, .max_rows = FLOOR_TASK_STACK_ROWS_MAX,
+        .emit_row = tasks_row_emit, .emit_ctx = &emit_ctx,
+    };
+    bb_err_t err = bb_data_render_rows(&req);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "data_render_rows(tasks) failed (%d)", (int)err);
+        return;
+    }
+    if (floor_task_stack_should_warn_truncated(emit_ctx.count, FLOOR_TASK_STACK_ROWS_MAX,
+                                                s_tasks_truncation_warned)) {
+        s_tasks_truncation_warned = true;
+        bb_log_w(TAG, "tasks report possibly truncated at %u rows -- "
+                 "task registry may exceed floor's row-scratch capacity "
+                 "(FLOOR_TASK_STACK_ROWS_MAX)", (unsigned)FLOOR_TASK_STACK_ROWS_MAX);
+    }
 }
 
 // Shared by both of floor's periodic-log jobs (heap_log_timer,
@@ -475,6 +577,21 @@ void app_main(void)
     if (err != BB_OK) {
         bb_log_w(TAG, "serialize_json_register_format failed (%d)", (int)err);
     }
+    // B1-1418 PR-2: register the console format backend too -- this is the
+    // gap the tasks-report migration below exists to find. Before this PR,
+    // nothing in floor registered BB_FORMAT_CONSOLE: heap_log_tick calls
+    // bb_serialize_console_render() directly (bypassing bb_serialize's
+    // format-dispatch registry entirely), and the retired
+    // bb_serialize_console_tasks_report() did the same internally. Both
+    // never needed a registered renderer to work. bb_data_render_rows()
+    // (task_stack_log_tick below) does -- it looks up BB_FORMAT_CONSOLE via
+    // bb_serialize_format_get_render() and returns BB_ERR_UNSUPPORTED if
+    // nothing is registered -- so this call is genuinely load-bearing, not
+    // defensive boilerplate.
+    err = bb_serialize_console_register_format();
+    if (err != BB_OK) {
+        bb_log_w(TAG, "serialize_console_register_format failed (%d)", (int)err);
+    }
 
     // bb_diag sections: composition-time-only, once -- these write to
     // bb_diag's global section table (reject-on-duplicate) and need no
@@ -544,6 +661,19 @@ void app_main(void)
         if (err != BB_OK) {
             bb_log_w(TAG, "data_http_attach(%s) failed (%d)", producers[i].key, (int)err);
         }
+    }
+
+    // B1-1418 PR-2: bind the "tasks" key rows-only (desc/gather/apply all
+    // NULL, rows non-NULL) -- a pure table producer with no scalar egress
+    // at all, the shape PR-1 (#1221) made legal. Deliberately NOT run
+    // through the producers[] loop or bb_data_http_attach_sized() above:
+    // this binding has no desc/gather pair for bb_data_http's SSE/WS
+    // broadcaster to render (it's console-only, see bb_data_render_rows()'s
+    // own doc) -- task_stack_log_tick's own bb_data_render_rows() call is
+    // this key's only consumer.
+    err = bb_data_bind(&(bb_data_binding_t){ .key = "tasks", .rows = &s_tasks_row_binding });
+    if (err != BB_OK) {
+        bb_log_w(TAG, "data_bind(tasks) failed (%d)", (int)err);
     }
 
     // Now safe: the "wifi" lifecycle service is registered/started and

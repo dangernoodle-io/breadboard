@@ -1,4 +1,5 @@
 #include "unity.h"
+#include "bb_data.h"
 #include "bb_serialize_console.h"
 #include "bb_serialize_format.h"
 #include "bb_task.h"
@@ -764,20 +765,131 @@ void test_bb_serialize_console_tasks_row_desc_renders_without_sample(void)
     TEST_ASSERT_EQUAL_STRING("name=unsampled budget_bytes=4096", buf);
 }
 
-// bb_serialize_console_tasks_report() itself has no observable return value
-// (it logs, one line per task) -- smoke/no-crash check for the empty
-// registry, labelled, and NULL-label paths; per-row content is covered
-// above via the desc+gather+render path directly.
-void test_bb_serialize_console_tasks_report_smoke(void)
+// ---------------------------------------------------------------------------
+// bb_data_row_gather_fn thunk shape (B1-1418 PR-2) -- exercises the exact
+// pattern examples/floor/main/floor_app.c's private static thunk uses to
+// drive bb_serialize_console_tasks_row_desc/bb_serialize_console_tasks_gather()
+// through bb_data's rows-only table-producer shape
+// (bb_data_bind()/bb_data_render_rows()). floor_app.c itself is not
+// host-compiled (examples aren't part of the native scaffold's component
+// graph), so this pins the thunk's shape/behavior -- `args` ignored,
+// delegates straight through to bb_serialize_console_tasks_gather() -- at
+// the layer that IS host-tested; the thunk in floor_app.c is a one-line
+// forwarder with no branches of its own to separately cover.
+//
+// KNOWN GAP, accepted (firmware review MEDIUM finding on B1-1418 PR-2,
+// declined as out of scope for this migration): `test_tasks_row_gather_thunk`
+// below is a HAND-MIRRORED COPY of floor_app.c's `tasks_row_gather`, not an
+// #include of the same translation unit (unlike floor_prov_reboot.c/
+// floor_task_stack.c, which test/test_host/test_floor_prov_reboot.c and
+// test_floor_task_stack.c #include directly for exactly this reason --
+// floor_app.c itself can't be pulled in the same way, since it drags in
+// the whole composition root). This means editing floor's real thunk
+// without updating this mirror to match leaves this test passing against
+// STALE logic -- a real drift risk, not merely a style duplication. Restructuring
+// the example/host boundary so floor_app.c's own thunk becomes directly
+// host-includable (mirroring the floor_prov_reboot.c/floor_task_stack.c
+// split) is deferred to its own ticket, not folded into this migration PR.
+// ---------------------------------------------------------------------------
+
+static size_t test_tasks_row_gather_thunk(void *dst_rows, size_t max_rows, const bb_data_gather_args_t *args)
+{
+    (void)args;
+    return bb_serialize_console_tasks_gather((bb_serialize_console_tasks_row_snap_t *)dst_rows, max_rows);
+}
+
+static const bb_data_row_binding_t s_test_tasks_row_binding = {
+    .row_desc   = &bb_serialize_console_tasks_row_desc,
+    .row_gather = test_tasks_row_gather_thunk,
+    .row_size   = sizeof(bb_serialize_console_tasks_row_snap_t),
+};
+
+#define TEST_TASKS_ROW_CAP 4
+static bb_serialize_console_tasks_row_snap_t s_test_tasks_row_scratch[TEST_TASKS_ROW_CAP];
+
+typedef struct {
+    char   line[160];
+    size_t len;
+    size_t row_idx;
+} test_tasks_captured_row_t;
+
+static test_tasks_captured_row_t s_test_tasks_captured[TEST_TASKS_ROW_CAP];
+static size_t                    s_test_tasks_captured_count = 0;
+
+static void test_tasks_emit_capture(const char *line, size_t len, size_t row_idx, void *ctx)
+{
+    (void)ctx;
+    if (s_test_tasks_captured_count >= TEST_TASKS_ROW_CAP) return;
+
+    test_tasks_captured_row_t *cap = &s_test_tasks_captured[s_test_tasks_captured_count++];
+    strncpy(cap->line, line, sizeof(cap->line) - 1);
+    cap->line[sizeof(cap->line) - 1] = '\0';
+    cap->len                          = len;
+    cap->row_idx                      = row_idx;
+}
+
+// The whole point: a rows-only "tasks"-style binding (desc/gather both NULL,
+// rows-only, exactly floor's shape) built off the REAL production
+// row_desc/gather pair, rendered end to end through
+// bb_data_render_rows() -- content asserted, not just a return-code smoke
+// check.
+void test_bb_data_render_rows_tasks_binding_renders_content(void)
 {
     bb_task_base_test_reset();
-    bb_serialize_console_tasks_report("tick");
+    bb_data_test_reset();
+    bb_serialize_format_test_reset();
+    s_test_tasks_captured_count = 0;
+    memset(s_test_tasks_captured, 0, sizeof(s_test_tasks_captured));
 
-    int fake;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&fake, "worker", 2048, false));
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_set_free_bytes(&fake, 1500));
-    bb_serialize_console_tasks_report("tick");
-    bb_serialize_console_tasks_report(NULL);
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_console_register_format());
+
+    bb_data_binding_t binding = {
+        .key = "test.tasks", .desc = NULL, .gather = NULL, .rows = &s_test_tasks_row_binding,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&binding));
+
+    int worker;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&worker, "worker", 2048, false));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_set_free_bytes(&worker, 1500));
+
+    bb_data_render_rows_req_t req = {
+        .key = "test.tasks", .fmt = BB_FORMAT_CONSOLE,
+        .row_scratch = s_test_tasks_row_scratch, .max_rows = TEST_TASKS_ROW_CAP,
+        .emit_row = test_tasks_emit_capture,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_render_rows(&req));
+
+    TEST_ASSERT_EQUAL_UINT(1, s_test_tasks_captured_count);
+    TEST_ASSERT_EQUAL_UINT(0, s_test_tasks_captured[0].row_idx);
+    TEST_ASSERT_EQUAL_STRING("name=worker free_bytes=1500 budget_bytes=2048 used_bytes=548",
+                              s_test_tasks_captured[0].line);
+}
+
+// Empty registry: bb_data_render_rows() still returns BB_OK with zero rows
+// emitted (mirrors the retired bb_serialize_console_tasks_report()'s own
+// "empty registry logs nothing, not an error" contract).
+void test_bb_data_render_rows_tasks_binding_empty_registry_emits_nothing(void)
+{
+    bb_task_base_test_reset();
+    bb_data_test_reset();
+    bb_serialize_format_test_reset();
+    s_test_tasks_captured_count = 0;
+    memset(s_test_tasks_captured, 0, sizeof(s_test_tasks_captured));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_console_register_format());
+
+    bb_data_binding_t binding = {
+        .key = "test.tasks.empty", .desc = NULL, .gather = NULL, .rows = &s_test_tasks_row_binding,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&binding));
+
+    bb_data_render_rows_req_t req = {
+        .key = "test.tasks.empty", .fmt = BB_FORMAT_CONSOLE,
+        .row_scratch = s_test_tasks_row_scratch, .max_rows = TEST_TASKS_ROW_CAP,
+        .emit_row = test_tasks_emit_capture,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_render_rows(&req));
+    TEST_ASSERT_EQUAL_UINT(0, s_test_tasks_captured_count);
 }
 
 // ---------------------------------------------------------------------------

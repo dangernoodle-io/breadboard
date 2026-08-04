@@ -1,37 +1,22 @@
-// Task-stack-over-serial periodic report: bb_task_base_foreach() (the SSOT
+// Task-stack row gather + descriptor: bb_task_base_foreach() (the SSOT
 // per-task stack high-water free-bytes reader, populated by the periodic
 // base-scan via bb_task_base_set_free_bytes() -- B1-1128's
 // bb_num_words_to_bytes() SSOT, no second/third FreeRTOS sample here) ->
-// one bb_serialize_console_render() + bb_log_i() call PER TASK (this
-// backend is flat/scalar-only, see bb_serialize_console_emit()'s doc -- an
-// array of task rows cannot render as one nested line). No periodic task of
-// its own: a consumer calls bb_serialize_console_tasks_report() at its own
-// cadence (mirrors bb_serialize_console_heap_report()'s milestone-driven
-// contract).
+// bb_serialize_console_tasks_row_snap_t rows. The per-row console emit loop
+// this used to own directly (bb_serialize_console_tasks_report(), one
+// bb_serialize_console_render() + bb_log_i() call per task) has been
+// retired (B1-1418 PR-2) -- a consumer now drives this desc/gather pair
+// through bb_data's rows-only table-producer shape
+// (bb_data_bind()/bb_data_render_rows(), see examples/floor/main/
+// floor_app.c) instead of calling into this component directly.
 
 #include "bb_serialize_console.h"
 
-#include "bb_log.h"
 #include "bb_str.h"
 #include "bb_task.h"
 
 #include <stddef.h>
 #include <string.h>
-
-static const char *TAG = "bb_serialize_console_tasks";
-
-// ---------------------------------------------------------------------------
-// Kconfig bridge -- CONFIG_BB_SERIALIZE_CONSOLE_LINE_MAX_BYTES -> a C
-// default. Same symbol as bb_serialize_console_heap.c's own bridge (shared
-// Kconfig option, independently bridged per file per this component's
-// existing convention) -- never shadow the generated symbol with a bare
-// #ifndef.
-// ---------------------------------------------------------------------------
-#ifdef CONFIG_BB_SERIALIZE_CONSOLE_LINE_MAX_BYTES
-#define BB_SERIALIZE_CONSOLE_LINE_MAX_BYTES CONFIG_BB_SERIALIZE_CONSOLE_LINE_MAX_BYTES
-#else
-#define BB_SERIALIZE_CONSOLE_LINE_MAX_BYTES 160
-#endif
 
 static bool row_budget_present(const void *snap)
 {
@@ -130,39 +115,4 @@ size_t bb_serialize_console_tasks_gather(bb_serialize_console_tasks_row_snap_t *
     gather_ctx_t ctx = { .dst = dst, .cap = cap, .count = 0 };
     bb_task_base_foreach(gather_cb, &ctx);
     return ctx.count;
-}
-
-// ---------------------------------------------------------------------------
-// Report
-// ---------------------------------------------------------------------------
-
-// File-static rather than a stack local: BB_TASK_BASE_MAX_CAP is an
-// independent Kconfig (up to 64) and a stack array of that size would
-// couple this report's caller's stack budget (e.g. the shared
-// bb_timer_disp task, BB_TIMER_DISP_STACK) to it -- mirrors
-// bb_task_registry.c's identical s_sw_wdt_snapshot rationale. Single-caller
-// (bb_serialize_console_tasks_report has one runtime caller, a periodic
-// timer job) so a shared static buffer is safe -- NOT reentrant.
-static bb_serialize_console_tasks_row_snap_t s_task_rows[BB_TASK_BASE_MAX_CAP];
-
-void bb_serialize_console_tasks_report(const char *label)
-{
-    const char *lbl = label ? label : "?";
-
-    size_t n = bb_serialize_console_tasks_gather(s_task_rows, BB_TASK_BASE_MAX_CAP);
-
-    char line[BB_SERIALIZE_CONSOLE_LINE_MAX_BYTES];
-    for (size_t i = 0; i < n; i++) {
-        size_t out_len = 0;
-        bb_err_t rrc = bb_serialize_console_render(&bb_serialize_console_tasks_row_desc, &s_task_rows[i],
-                                                     line, sizeof(line), &out_len);
-        // LCOV_EXCL_START -- unreachable: line/sizeof(line) are always valid (buf non-NULL, cap>0)
-        if (rrc != BB_OK) {
-            bb_log_e(TAG, "%s: task render failed (%d)", lbl, (int)rrc);
-            continue;
-        }
-        // LCOV_EXCL_STOP
-
-        bb_log_i(TAG, "%s task %s", lbl, line);
-    }
 }
