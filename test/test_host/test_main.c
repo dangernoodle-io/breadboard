@@ -1251,6 +1251,10 @@ void test_bb_log_telem_route_wide_empty_tag_routes_wide(void);
 void test_bb_log_telem_route_wide_superstring_tag_routes_wide(void);
 void test_bb_log_telem_route_wide_prefix_tag_routes_wide(void);
 void test_bb_log_telem_route_wide_case_sensitive_mismatch_routes_wide(void);
+void test_bb_log_telem_should_route_wide_telem_tag_console_only_by_default(void);
+void test_bb_log_telem_should_route_wide_non_telem_tag_always_routes_wide(void);
+void test_bb_log_telem_should_route_wide_events_enabled_routes_telem_wide(void);
+void test_bb_log_telem_route_set_toggles_runtime_gate(void);
 
 // Forward declarations from test_log_stream.c
 void test_log_stream_format_basic(void);
@@ -6501,6 +6505,10 @@ int main(void) {
     RUN_TEST(test_bb_log_telem_route_wide_superstring_tag_routes_wide);
     RUN_TEST(test_bb_log_telem_route_wide_prefix_tag_routes_wide);
     RUN_TEST(test_bb_log_telem_route_wide_case_sensitive_mismatch_routes_wide);
+    RUN_TEST(test_bb_log_telem_should_route_wide_telem_tag_console_only_by_default);
+    RUN_TEST(test_bb_log_telem_should_route_wide_non_telem_tag_always_routes_wide);
+    RUN_TEST(test_bb_log_telem_should_route_wide_events_enabled_routes_telem_wide);
+    RUN_TEST(test_bb_log_telem_route_set_toggles_runtime_gate);
 
     // Log stream tests
     RUN_TEST(test_log_stream_format_basic);

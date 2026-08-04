@@ -97,17 +97,27 @@ void bb_log_line_parse(const char *line, size_t len,
 // ---------------------------------------------------------------------------
 // bb_log_telem_route_wide() -- pure, portable, host-testable TELEM
 // wide-routing decision core (components/bb_log/src/bb_log_telem_route.c).
-// B1-831 PR-2: knobs + this decision function only -- no call site yet. A
-// later PR wires a check into s_log_vprintf (platform/espidf/bb_log/
-// bb_log.c) so a TELEM-tagged line can stay console-only instead of also
-// fanning out unconditionally to every other sink (bb_log_event forwarder
-// queue, optional UDP mirror).
+// B1-831 PR-2 shipped the knobs + this decision function, no call site.
+// B1-831 PR-3 wires bb_log_telem_should_route_wide() into s_log_vprintf
+// (platform/espidf/bb_log/bb_log.c) so a TELEM-tagged line can stay
+// console-only instead of also fanning out to the wide sinks: the ring
+// (bb_log_stream_drain(), zero callers today), the bb_log_event forwarder
+// queue (the live GET /api/events?topic=log consumer), and the optional UDP
+// mirror (CONFIG_BB_LOG_UDP_SINK) -- all three are gated on the same
+// route_wide decision in s_log_vprintf. The console writer and the optional
+// bb_diag tap are NEVER gated -- every line always reaches them.
 // ---------------------------------------------------------------------------
 
+// Tag buffer capacity for bb_log_telem_should_route_wide()'s internal parse
+// -- mirrors bb_log_event's own forwarder tag[48] (platform/espidf/
+// bb_log_event/bb_log_event.c).
+#define BB_LOG_TELEM_TAG_PARSE_CAP 48
+
 /**
- * Should this log line also be routed to the wide sinks (bb_log_event
- * forwarder queue, optional UDP mirror), on top of the console writer which
- * every line always reaches? Framed positively ("should route wide") to
+ * Should this log line also be routed to the wide sinks (ring buffer,
+ * bb_log_event forwarder queue, optional UDP mirror), on top of the console
+ * writer and the optional bb_diag tap, which every line always reaches
+ * regardless of this decision? Framed positively ("should route wide") to
  * avoid a double-negative bug at the call site.
  *
  * - route_events_enabled == true: always true, regardless of tag -- the
@@ -125,6 +135,33 @@ void bb_log_line_parse(const char *line, size_t len,
  * Pure -- no I/O, no platform calls, no side effects.
  */
 bool bb_log_telem_route_wide(bool route_events_enabled, const char *tag);
+
+/**
+ * Runtime override for the TELEM wide-routing gate. Boots from
+ * CONFIG_BB_LOG_TELEM_ROUTE_EVENTS (default n) -- structurally the same idea
+ * as bb_log_level_set() overriding the BB_LOG_LEVELS boot default, but no
+ * production consumer is wired to call this yet: today it is reachable only
+ * from host tests. Not mutex-protected (plain volatile bool) -- see
+ * bb_log_telem_route.c for why that's safe here.
+ */
+void bb_log_telem_route_set(bool route_events_enabled);
+
+/**
+ * Current value of the TELEM wide-routing runtime gate (see
+ * bb_log_telem_route_set()).
+ */
+bool bb_log_telem_route_get(void);
+
+/**
+ * Should this already-formatted console log line (as s_log_vprintf produces
+ * it: "<L> (<ts>) <tag>: <msg>") also route wide, using the CURRENT runtime
+ * gate (bb_log_telem_route_get())? Parses just the tag out of `line`
+ * (bb_log_line_parse, msg/level discarded) and defers the actual decision to
+ * bb_log_telem_route_wide(). This is the single function the s_log_vprintf
+ * call site uses -- host tests exercise the exact same path via
+ * bb_log_telem_route_set() to drive the runtime gate.
+ */
+bool bb_log_telem_should_route_wide(const char *line, size_t len);
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"

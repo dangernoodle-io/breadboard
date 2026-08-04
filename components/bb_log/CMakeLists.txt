@@ -34,11 +34,13 @@ if(CONFIG_BB_LOG_UDP_SINK)
 endif()
 
 if(CONFIG_BB_LOG_TELEM_ROUTING)
-    # bb_log_telem_route_wide() (B1-831 PR-2) -- genuinely compiled out when
-    # this knob is off, not just documented as such. No call site references
-    # it yet (that lands in PR-3, gated by the same #if CONFIG_BB_LOG_TELEM_
-    # ROUTING at the s_log_vprintf call site) -- host tests reach it directly
-    # via bb_log_internal.h, unaffected by this ESP-IDF-only Kconfig gate.
+    # bb_log_telem_route_wide()/bb_log_telem_should_route_wide() (B1-831) --
+    # genuinely compiled out when this knob is off, not just documented as
+    # such. The s_log_vprintf call site (platform/espidf/bb_log/bb_log.c,
+    # B1-831 PR-3) carries its own matching #if CONFIG_BB_LOG_TELEM_ROUTING
+    # guard, so disabling this knob never leaves an unresolved symbol at
+    # link time. Host tests reach this file directly via bb_log_internal.h,
+    # unaffected by this ESP-IDF-only Kconfig gate.
     list(APPEND _log_srcs "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_telem_route.c")
 endif()
 
