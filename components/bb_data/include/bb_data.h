@@ -70,12 +70,32 @@ extern "C" {
 
 // Fixed binding-table capacity -- a handful of composed keys, not an
 // open-ended runtime set (mirrors bb_serialize_format's own small registry
-// sizing rationale). No Kconfig bridge -- this is a compile-time-only
-// constant, not a per-target tunable. The B1-1045 cutover briefly bumped
-// this 8->16 in anticipation of examples/floor binding 8 keys; floor's
-// scope narrowed to 3 (log, diag.meminfo, diag.system), so 8 is ample
-// headroom again.
-#define BB_DATA_MAX_BINDINGS 8
+// sizing rationale). Deliberately NOT a Kconfig bridge, even though most
+// capacity constants in this codebase are: scripts/bbtool/commands/wire.py's
+// check_binds_data_cap() enforces this cap at CODEGEN time via a raw-text
+// grep for a literal `#define BB_DATA_MAX_BINDINGS <N>` line (no
+// preprocessor involved, by design -- see that function's own docstring),
+// so a Kconfig-resolved value here (which could also vary per board via
+// sdkconfig) would make the codegen-time gate unparseable/unenforceable.
+// Keep this a plain integer literal.
+//
+// PR #1227 (bind data-http's "log" key into examples/smoke) hit this cap on
+// bench hardware (BB_ERR_NO_SPACE) even though check_binds_data_cap's
+// codegen-time gate reported the composition as fitting: examples/smoke's
+// `binds_data=` markers only declare 8 distinct keys (reboot, factory_reset,
+// storage_delete, wifi, fan, power, thermal, log), but
+// bb_diag_routes_init() (platform/espidf/bb_diag_http/bb_diag_http_routes.c)
+// ALSO self-binds a 9th key, "diag.boot", as an internal side effect with no
+// `binds_data=` annotation naming it -- invisible to both the cap check and
+// the binds-data-mismatch lint (bb_diag_http_routes.c calls the wrapper
+// bb_diag_boot_bind(), never bb_data_bind() directly; the real call lives in
+// a DIFFERENT component, components/bb_diag/bb_diag_boot_wire.c, which
+// neither text-only checker follows through the indirection). Default 12
+// covers the real 9-key requirement with headroom for that kind of
+// undercounted self-bind. examples/floor (handwire, not codegen -- entirely
+// outside both checkers' reach per scripts/bbtool/README.md's "Scope limit")
+// needs only 5 (log, tasks, diag.boot, storage_delete, factory_reset).
+#define BB_DATA_MAX_BINDINGS 12
 
 // Max length (including the terminating NUL) of a binding key -- a short
 // composed identifier, not user-controlled wire data. bb_data_bind()

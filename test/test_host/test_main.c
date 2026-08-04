@@ -197,6 +197,7 @@ void test_bb_data_bind_null_desc_returns_invalid_arg(void);
 void test_bb_data_bind_useless_binding_rejected(void);
 void test_bb_data_bind_key_max_length_boundary(void);
 void test_bb_data_bind_capacity_full_returns_no_space(void);
+void test_bb_data_bind_capacity_full_preserves_existing_slot_data(void);
 void test_bb_data_bind_default_replay_kind_is_state(void);
 void test_bb_data_bind_explicit_event_replay_kind_round_trips(void);
 void test_bb_data_binding_replay_kind_unbound_key_returns_not_found(void);
@@ -11908,6 +11909,7 @@ int main(void) {
     RUN_TEST(test_bb_data_bind_useless_binding_rejected);
     RUN_TEST(test_bb_data_bind_key_max_length_boundary);
     RUN_TEST(test_bb_data_bind_capacity_full_returns_no_space);
+    RUN_TEST(test_bb_data_bind_capacity_full_preserves_existing_slot_data);
     RUN_TEST(test_bb_data_bind_default_replay_kind_is_state);
     RUN_TEST(test_bb_data_bind_explicit_event_replay_kind_round_trips);
     RUN_TEST(test_bb_data_binding_replay_kind_unbound_key_returns_not_found);
