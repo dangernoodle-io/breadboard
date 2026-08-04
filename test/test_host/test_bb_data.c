@@ -204,6 +204,62 @@ void test_bb_data_bind_capacity_full_returns_no_space(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&rebind));
 }
 
+// B1-1444: a rejected overflow bind must not corrupt any already-bound
+// slot's data -- fill the table with distinct per-key values, attempt (and
+// fail) one more bind, then render every existing key and confirm its
+// gathered value is still exactly what it was bound with.
+void test_bb_data_bind_capacity_full_preserves_existing_slot_data(void)
+{
+    dt_reset();
+    dt_register_format();
+
+    char    keys[BB_DATA_MAX_BINDINGS][32];
+    int64_t ctx_vals[BB_DATA_MAX_BINDINGS];
+    for (int i = 0; i < BB_DATA_MAX_BINDINGS; i++) {
+        snprintf(keys[i], sizeof(keys[i]), "dt.preserve.%d", i);
+        ctx_vals[i] = 1000 + i;
+        bb_data_binding_t b = { .key = keys[i], .desc = &s_dt_desc,
+                                 .gather = dt_gather_ok, .ctx = &ctx_vals[i] };
+        TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+    }
+
+    char overflow_key[32];
+    snprintf(overflow_key, sizeof(overflow_key), "dt.preserve.%d", BB_DATA_MAX_BINDINGS);
+    int64_t overflow_ctx = 9999;
+    bb_data_binding_t overflow = { .key = overflow_key, .desc = &s_dt_desc,
+                                    .gather = dt_gather_ok, .ctx = &overflow_ctx };
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_bind(&overflow));
+
+    // The rejected key must not be reachable at all -- rendering it
+    // returns NOT_FOUND, not a corrupted/partial binding.
+    {
+        dt_snap_t             scratch;
+        char                  buf[64];
+        size_t                out_len = 0;
+        bb_data_render_req_t req = {
+            .fmt = BB_FORMAT_JSON, .key = overflow_key, .query = NULL,
+            .scratch = &scratch, .scratch_cap = sizeof(scratch),
+            .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+        };
+        TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_data_render(&req));
+    }
+
+    // Every pre-existing slot still renders its own untouched value.
+    for (int i = 0; i < BB_DATA_MAX_BINDINGS; i++) {
+        dt_snap_t             scratch;
+        char                  buf[64];
+        size_t                out_len = 0;
+        bb_data_render_req_t req = {
+            .fmt = BB_FORMAT_JSON, .key = keys[i], .query = NULL,
+            .scratch = &scratch, .scratch_cap = sizeof(scratch),
+            .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+        };
+        TEST_ASSERT_EQUAL(BB_OK, bb_data_render(&req));
+        TEST_ASSERT_TRUE(out_len > 0);
+        TEST_ASSERT_EQUAL_INT64(1000 + i, scratch.n);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // bb_data_render
 // ---------------------------------------------------------------------------

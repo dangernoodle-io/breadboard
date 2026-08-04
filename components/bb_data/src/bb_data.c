@@ -4,6 +4,7 @@
 // fixed array + linear string scan.
 #include "bb_data.h"
 
+#include "bb_log.h"
 #include "bb_registry.h"
 #include "bb_serialize_format.h"
 
@@ -11,6 +12,8 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <string.h>
+
+static const char *TAG = "bb_data";
 
 // One key's stored binding -- a BY-VALUE copy of the caller's
 // bb_data_binding_t (the caller's own struct may be a stack temporary), plus
@@ -89,7 +92,15 @@ bb_err_t bb_data_bind(const bb_data_binding_t *binding)
     bb_data_slot_t *slot = (bb_data_slot_t *)bb_registry_lookup(&s_bb_data_registry, binding->key);
     if (!slot) {
         slot = find_free_slot();
-        if (!slot) return BB_ERR_NO_SPACE;
+        if (!slot) {
+            // Name the rejected key -- the generic composition-root log line
+            // ("bb_data_bind (component=bb_data) failed (257)") gives no way
+            // to tell WHICH binding was lost; this is the only place that
+            // knows.
+            bb_log_e(TAG, "bind failed: table full (%d slots), key \"%s\" dropped",
+                     (int)BB_DATA_MAX_BINDINGS, binding->key);
+            return BB_ERR_NO_SPACE;
+        }
 
         strncpy(slot->key, binding->key, sizeof(slot->key) - 1);
         slot->key[sizeof(slot->key) - 1] = '\0';
