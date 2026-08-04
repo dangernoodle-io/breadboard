@@ -45,6 +45,18 @@ static bb_data_slot_t *find_free_slot(void)
     return NULL;
 }
 
+// Shared plain-fill thunk (B1-1415). See bb_data.h's own doc comment for the
+// full rationale/extension-point note.
+bb_err_t bb_data_gather_plain(void *dst, const bb_data_gather_args_t *args)
+{
+    if (!args || !args->ctx) return BB_ERR_INVALID_ARG;
+
+    const bb_data_plain_fill_ctx_t *plain = (const bb_data_plain_fill_ctx_t *)args->ctx;
+    if (!plain->fill) return BB_ERR_INVALID_ARG;
+
+    return plain->fill(dst);
+}
+
 bb_err_t bb_data_bind(const bb_data_binding_t *binding)
 {
     if (!binding || !binding->key || !binding->desc || !binding->gather) return BB_ERR_INVALID_ARG;
@@ -52,6 +64,10 @@ bb_err_t bb_data_bind(const bb_data_binding_t *binding)
     if (binding->rows) {
         if (!binding->rows->row_desc || !binding->rows->row_gather) return BB_ERR_INVALID_ARG;
         if (binding->rows->row_size != binding->rows->row_desc->snap_size) return BB_ERR_INVALID_ARG;
+    }
+    if (binding->gather == bb_data_gather_plain) {
+        if (!binding->ctx) return BB_ERR_INVALID_ARG;
+        if (!((const bb_data_plain_fill_ctx_t *)binding->ctx)->fill) return BB_ERR_INVALID_ARG;
     }
 
     bb_data_slot_t *slot = (bb_data_slot_t *)bb_registry_lookup(&s_bb_data_registry, binding->key);

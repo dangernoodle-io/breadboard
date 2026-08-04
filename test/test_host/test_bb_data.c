@@ -49,14 +49,28 @@ static bb_err_t dt_gather_fail(void *dst, const bb_data_gather_args_t *args)
     return BB_ERR_INVALID_STATE;
 }
 
-// Adapter: bb_meminfo_heap_snap_fill() takes a single out-param, not the
-// (dst, args) shape bb_data_gather_fn requires -- wrap rather than cast the
-// fn pointer across a mismatched signature.
-static bb_err_t dt_gather_meminfo(void *dst, const bb_data_gather_args_t *args)
+// bb_data_gather_plain() fixture (B1-1415): a typed plain-fill fn (the
+// `bb_err_t fn(dt_snap_t *dst)` shape a real producer would export) plus a
+// static const ctx wrapping it, exercised through the real
+// bb_data_gather_plain() thunk rather than a hand-rolled adapter.
+static int64_t s_dt_plain_fill_value = 0;
+
+static bb_err_t dt_plain_fill(dt_snap_t *dst)
 {
-    (void)args;
-    return bb_meminfo_heap_snap_fill((bb_meminfo_heap_snap_t *)dst);
+    dst->n = s_dt_plain_fill_value;
+    return BB_OK;
 }
+
+static const bb_data_plain_fill_ctx_t s_dt_plain_fill_ctx = {
+    .fill = (bb_data_plain_fill_fn)dt_plain_fill,
+};
+
+// bb_meminfo_heap_snap_fill() takes a single out-param, matching
+// bb_data_plain_fill_fn's shape exactly -- exercised through the real
+// bb_data_gather_plain() thunk (B1-1415) rather than a hand-rolled adapter.
+static const bb_data_plain_fill_ctx_t s_dt_meminfo_fill_ctx = {
+    .fill = (bb_data_plain_fill_fn)bb_meminfo_heap_snap_fill,
+};
 
 // Asserts the request-scoped query carried through to the gather hook
 // matches the expected "type" value, then fills the snapshot like
@@ -200,7 +214,8 @@ void test_bb_data_render_happy_path_with_meminfo_fixture(void)
     dt_register_format();
 
     bb_data_binding_t b = { .key = "dt.meminfo", .desc = &bb_meminfo_heap_snap_desc,
-                            .gather = dt_gather_meminfo };
+                            .gather = bb_data_gather_plain,
+                            .ctx = (void *)&s_dt_meminfo_fill_ctx };
     TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
 
     bb_meminfo_heap_snap_t scratch;
@@ -578,6 +593,98 @@ void test_bb_data_render_null_args_return_invalid_arg(void)
         .buf = buf, .buf_cap = sizeof(buf), .out_len = NULL,
     };
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_render(&req_no_out_len));
+}
+
+// ---------------------------------------------------------------------------
+// bb_data_gather_plain (B1-1415) -- the shared thunk retiring the four
+// hand-rolled `(void)args; return typed_fill(dst);` adapters.
+// ---------------------------------------------------------------------------
+
+// Direct-call test: proves the thunk actually reaches the wrapped fill and
+// its VALUES come through, not merely a BB_OK return.
+void test_bb_data_gather_plain_calls_fill_and_returns_its_value(void)
+{
+    s_dt_plain_fill_value = 4242;
+
+    dt_snap_t dst;
+    memset(&dst, 0, sizeof(dst));
+    bb_data_gather_args_t args = { .ctx = (void *)&s_dt_plain_fill_ctx, .query = NULL };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_gather_plain(&dst, &args));
+    TEST_ASSERT_EQUAL_INT64(4242, dst.n);
+}
+
+void test_bb_data_gather_plain_null_args_returns_invalid_arg(void)
+{
+    dt_snap_t dst;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_gather_plain(&dst, NULL));
+}
+
+void test_bb_data_gather_plain_null_ctx_returns_invalid_arg(void)
+{
+    dt_snap_t dst;
+    bb_data_gather_args_t args = { .ctx = NULL, .query = NULL };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_gather_plain(&dst, &args));
+}
+
+void test_bb_data_gather_plain_null_fill_returns_invalid_arg(void)
+{
+    static const bb_data_plain_fill_ctx_t no_fill_ctx = { .fill = NULL };
+    dt_snap_t dst;
+    bb_data_gather_args_t args = { .ctx = (void *)&no_fill_ctx, .query = NULL };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_gather_plain(&dst, &args));
+}
+
+// bb_data_bind() rejects a bb_data_gather_plain binding whose ctx is NULL --
+// catches the mis-bind at composition time rather than the first render's
+// NULL deref.
+void test_bb_data_bind_gather_plain_null_ctx_rejected(void)
+{
+    dt_reset();
+    bb_data_binding_t b = {
+        .key = "dt.plain.nullctx", .desc = &s_dt_desc, .gather = bb_data_gather_plain, .ctx = NULL,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_bind(&b));
+}
+
+// Same, but ctx is non-NULL with a NULL fill inside it.
+void test_bb_data_bind_gather_plain_null_fill_rejected(void)
+{
+    dt_reset();
+    static const bb_data_plain_fill_ctx_t no_fill_ctx = { .fill = NULL };
+    bb_data_binding_t b = {
+        .key    = "dt.plain.nullfill", .desc = &s_dt_desc, .gather = bb_data_gather_plain,
+        .ctx    = (void *)&no_fill_ctx,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_bind(&b));
+}
+
+// End-to-end through bb_data_bind()/bb_data_render(): proves the thunk is
+// actually reached along the real bind->render path, and the fill's VALUES
+// (not merely BB_OK) survive the JSON round trip.
+void test_bb_data_render_gather_plain_delivers_fill_values(void)
+{
+    dt_reset();
+    dt_register_format();
+
+    s_dt_plain_fill_value = 777;
+
+    bb_data_binding_t b = {
+        .key = "dt.plain.render", .desc = &s_dt_desc, .gather = bb_data_gather_plain,
+        .ctx = (void *)&s_dt_plain_fill_ctx,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    char   scratch[sizeof(dt_snap_t)];
+    char   buf[64];
+    size_t out_len = 0;
+    bb_data_render_req_t req = {
+        .fmt = BB_FORMAT_JSON, .key = "dt.plain.render", .query = NULL,
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = buf, .buf_cap = sizeof(buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_render(&req));
+    TEST_ASSERT_TRUE(out_len > 0);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "777"));
 }
 
 // ---------------------------------------------------------------------------

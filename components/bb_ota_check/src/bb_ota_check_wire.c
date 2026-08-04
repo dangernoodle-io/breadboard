@@ -96,20 +96,20 @@ bb_err_t bb_ota_check_gather(bb_ota_check_snap_t *dst)
 // self-bind lives here rather than at a single composition-root call site.
 // ---------------------------------------------------------------------------
 
-// Adapter: bb_data_gather_fn wraps bb_ota_check_gather()'s typed signature.
-// "update.available" has no request-scoped filter, so `args` is unused.
-static bb_err_t ota_check_data_gather(void *dst, const bb_data_gather_args_t *args)
-{
-    (void)args;
-    return bb_ota_check_gather((bb_ota_check_snap_t *)dst);
-}
+// bb_data_gather_plain()'s ctx (B1-1415): "update.available" has no
+// request-scoped filter, so bb_ota_check_gather()'s typed signature needs
+// only the shared thunk, not a per-site adapter.
+static const bb_data_plain_fill_ctx_t s_ota_check_fill_ctx = {
+    .fill = (bb_data_plain_fill_fn)bb_ota_check_gather,
+};
 
 bb_err_t bb_ota_check_bind(void)
 {
     bb_data_binding_t binding = {
         .key    = BB_OTA_CHECK_TOPIC,
         .desc   = &bb_ota_check_wire_desc,
-        .gather = ota_check_data_gather,
+        .gather = bb_data_gather_plain,
+        .ctx    = (void *)&s_ota_check_fill_ctx,
     };
     return bb_data_bind(&binding);
 }
