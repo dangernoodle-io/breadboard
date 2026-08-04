@@ -9,6 +9,7 @@
 #include "bb_data.h"
 #include "bb_serialize_console.h"
 #include "bb_serialize_format.h"
+#include "bb_serialize_json.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -222,6 +223,155 @@ void test_bb_data_bind_rows_valid_accepted(void)
         .rows = &s_dtr_row_binding,
     };
     TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+}
+
+// ---------------------------------------------------------------------------
+// bb_data_bind -- rows-only (dual-shape) binding validation (B1-1418).
+// ---------------------------------------------------------------------------
+
+// A pure table producer -- desc/gather both NULL, rows the only egress --
+// must be legal now (previously required a throwaway scalar desc/gather
+// pair).
+void test_bb_data_bind_rows_only_no_scalar_accepted(void)
+{
+    dtr_reset();
+
+    bb_data_binding_t b = {
+        .key = "dtr.rowsonly", .desc = NULL, .gather = NULL, .rows = &s_dtr_row_binding,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+}
+
+// `apply` durably writes through the binding's `desc` (bb_data_commit()'s
+// `slot->desc->snap_size` deref) -- meaningless, and a NULL-deref waiting to
+// happen, on a rows-only binding that has no `desc` at all. See
+// bb_data_bind()'s own doc for why this must be rejected at bind time
+// instead of surfacing as a NULL deref downstream in bb_data_commit().
+static bb_err_t dtr_apply_noop(const void *snap, const bb_data_apply_args_t *args)
+{
+    (void)snap;
+    (void)args;
+    return BB_OK;
+}
+
+// Mutation-tested (firmware review LOW finding on this commit): deleting
+// bb_data_bind()'s `!binding->desc && binding->apply` line makes this test
+// FAIL (confirmed: bind then wrongly returns BB_OK). Inverting it to check
+// `binding->gather` instead of `binding->desc` does NOT make this (or any
+// other) test fail -- confirmed by an actual mutation run, not just read.
+// That's not a gap in this test: bb_data_bind()'s own OUTER dual-shape gate
+// (a few lines up -- `scalar_shape`/`rows_only_shape`) already guarantees
+// `desc` and `gather` share the same nullness on every binding that reaches
+// this line (scalar requires both non-NULL, rows-only requires both NULL,
+// every other combination is rejected before this point) -- so checking
+// `!binding->desc` vs `!binding->gather` here is behaviorally IDENTICAL for
+// every input that can ever reach it. No test (this one or a new one) can
+// discriminate that specific inversion without first breaking the outer
+// gate's own invariant, which is a different check with its own dedicated
+// regression tests above (test_bb_data_bind_desc_without_gather_rejected,
+// test_bb_data_bind_gather_without_desc_rejected).
+void test_bb_data_bind_rows_only_with_apply_rejected(void)
+{
+    dtr_reset();
+
+    bb_data_binding_t b = {
+        .key = "dtr.rowsonlyapply", .desc = NULL, .gather = NULL,
+        .apply = dtr_apply_noop, .rows = &s_dtr_row_binding,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_bind(&b));
+}
+
+// Regression guard: desc without gather is still rejected (half-specified
+// scalar shape, not the rows-only shape).
+void test_bb_data_bind_desc_without_gather_rejected(void)
+{
+    dtr_reset();
+
+    bb_data_binding_t b = {
+        .key = "dtr.descnogather", .desc = &s_dtr_scalar_desc, .gather = NULL,
+        .rows = &s_dtr_row_binding,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_bind(&b));
+}
+
+// Regression guard: gather without desc is still rejected (half-specified
+// scalar shape, not the rows-only shape).
+void test_bb_data_bind_gather_without_desc_rejected(void)
+{
+    dtr_reset();
+
+    bb_data_binding_t b = {
+        .key = "dtr.gathernodesc", .desc = NULL, .gather = dtr_scalar_gather,
+        .rows = &s_dtr_row_binding,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_bind(&b));
+}
+
+// All three of desc/gather/rows absent -- a binding with nothing to render
+// at all.
+void test_bb_data_bind_all_absent_rejected(void)
+{
+    dtr_reset();
+
+    bb_data_binding_t b = { .key = "dtr.allabsent", .desc = NULL, .gather = NULL, .rows = NULL };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_bind(&b));
+}
+
+// ---------------------------------------------------------------------------
+// bb_data_render -- guard against a rows-only binding's NULL desc/gather
+// deref (B1-1418; see bb_data.c's own "NOT dead code" comment on this
+// guard -- reachable via the SSE broadcaster's generic sweep, not just this
+// direct call).
+// ---------------------------------------------------------------------------
+
+void test_bb_data_render_rows_only_binding_returns_unsupported(void)
+{
+    dtr_reset();
+    dtr_register_console_format();
+
+    bb_data_binding_t b = {
+        .key = "dtr.renderrowsonly", .desc = NULL, .gather = NULL, .rows = &s_dtr_row_binding,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    static char   scratch[64];
+    static char   out_buf[64];
+    size_t        out_len = 0;
+    bb_data_render_req_t req = {
+        .fmt = BB_FORMAT_CONSOLE, .key = "dtr.renderrowsonly",
+        .scratch = scratch, .scratch_cap = sizeof(scratch),
+        .buf = out_buf, .buf_cap = sizeof(out_buf), .out_len = &out_len,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_data_render(&req));
+}
+
+// ---------------------------------------------------------------------------
+// bb_data_render_rows -- rows-only binding renders successfully (the whole
+// point of this shape: a pure table producer with no scalar egress at all).
+// ---------------------------------------------------------------------------
+
+void test_bb_data_render_rows_rows_only_binding_renders_content(void)
+{
+    dtr_reset();
+    dtr_register_console_format();
+
+    bb_data_binding_t b = {
+        .key = "dtr.rowsonlyrender", .desc = NULL, .gather = NULL, .rows = &s_dtr_row_binding,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&b));
+
+    s_dtr_gather_available = 2;
+
+    bb_data_render_rows_req_t req = {
+        .key = "dtr.rowsonlyrender", .fmt = BB_FORMAT_CONSOLE,
+        .row_scratch = s_dtr_row_scratch, .max_rows = DTR_CAPTURE_MAX,
+        .emit_row = dtr_emit_capture,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_render_rows(&req));
+
+    TEST_ASSERT_EQUAL_UINT(2, s_dtr_captured_count);
+    TEST_ASSERT_EQUAL_STRING("name=r0 value=0", s_dtr_captured[0].line);
+    TEST_ASSERT_EQUAL_STRING("name=r1 value=10", s_dtr_captured[1].line);
 }
 
 void test_bb_data_bind_rows_omitted_defaults_null(void)
@@ -630,6 +780,56 @@ void test_bb_data_render_rows_row_exceeding_line_bound_truncates_silently(void)
     TEST_ASSERT_EQUAL_UINT(159, s_dtr_long_len);
     TEST_ASSERT_EQUAL_UINT(159, strlen(s_dtr_long_line));
     TEST_ASSERT_EQUAL_INT(0, strncmp(s_dtr_long_line, "name=", 5));
+}
+
+// ---------------------------------------------------------------------------
+// bb_data_commit -- rebind-to-rows-only residual (firmware review MEDIUM
+// finding on this commit): a key first bound scalar (desc+apply), parsed
+// successfully (bb_data_parse() gates only on `apply`, never `desc`), then
+// REBOUND to the desc-less rows-only shape before the matching
+// bb_data_commit() call -- the already-parsed `bb_data_parsed_t` still holds
+// the stale slot, now desc == NULL. Pins bb_data_commit()'s own `!slot->desc`
+// guard (mirroring bb_data_render()'s) rather than a NULL-deref crash.
+// ---------------------------------------------------------------------------
+
+void test_bb_data_commit_stale_parse_after_rebind_rows_only_returns_unsupported(void)
+{
+    dtr_reset();
+
+    bb_data_binding_t scalar_with_apply = {
+        .key = "dtr.rebind", .desc = &s_dtr_scalar_desc, .gather = dtr_scalar_gather,
+        .apply = dtr_apply_noop,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&scalar_with_apply));
+
+    static const bb_serialize_format_entry_t json_entry = {
+        .render = bb_serialize_json_render,
+        .parse  = bb_serialize_json_parse_bytes,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_register(BB_FORMAT_JSON, &json_entry));
+
+    static char parse_scratch[4096];
+    const char *body = "{\"n\":5}";
+    bb_data_parse_req_t parse_req = {
+        .fmt = BB_FORMAT_JSON, .key = "dtr.rebind",
+        .body = body, .body_len = strlen(body),
+        .parse_scratch = parse_scratch, .parse_scratch_cap = sizeof(parse_scratch),
+    };
+    bb_data_parsed_t parsed;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_parse(&parse_req, &parsed));
+
+    // Rebind the SAME key rows-only (desc/gather/apply all NULL) before
+    // committing the stale `parsed` above.
+    bb_data_binding_t rows_only = {
+        .key = "dtr.rebind", .desc = NULL, .gather = NULL, .rows = &s_dtr_row_binding,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&rows_only));
+
+    static char dst_scratch[64];
+    bb_data_commit_req_t commit_req = {
+        .mode = BB_DATA_APPLY_POST, .dst_scratch = dst_scratch, .dst_scratch_cap = sizeof(dst_scratch),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_data_commit(&parsed, &commit_req));
 }
 
 void test_bb_data_render_rows_row_render_failure_propagates(void)
