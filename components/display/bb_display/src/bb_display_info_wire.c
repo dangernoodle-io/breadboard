@@ -174,21 +174,20 @@ bb_err_t bb_display_info_gather(bb_display_info_wire_t *dst)
 // being rehomed to system.display under bb_system's diag endpoint (B1-1150).
 // ---------------------------------------------------------------------------
 
-// Adapter: bb_data_gather_fn wraps bb_display_info_gather()'s typed
-// signature. "health.display" has no request-scoped filter, so `args` is
-// unused.
-static bb_err_t display_info_data_gather(void *dst, const bb_data_gather_args_t *args)
-{
-    (void)args;
-    return bb_display_info_gather((bb_display_info_wire_t *)dst);
-}
+// bb_data_gather_plain()'s ctx (B1-1415): "health.display" has no
+// request-scoped filter, so bb_display_info_gather()'s typed signature needs
+// only the shared thunk, not a per-site adapter.
+static const bb_data_plain_fill_ctx_t s_display_info_fill_ctx = {
+    .fill = (bb_data_plain_fill_fn)bb_display_info_gather,
+};
 
 bb_err_t bb_display_info_bind(void)
 {
     bb_data_binding_t binding = {
         .key    = BB_DISPLAY_INFO_TOPIC,
         .desc   = &bb_display_info_wire_desc,
-        .gather = display_info_data_gather,
+        .gather = bb_data_gather_plain,
+        .ctx    = (void *)&s_display_info_fill_ctx,
     };
     return bb_data_bind(&binding);
 }

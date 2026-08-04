@@ -183,15 +183,14 @@ static bb_err_t diag_fill_system(void *dst, const bb_diag_fill_args_t *args)
     return bb_system_snap_fill((bb_system_snap_t *)dst);
 }
 
-// B1-1045 PR-4: gather adapter wrapping the dissolved-bb_event "log"
-// producer's PR-2 plain gather -- portable/host-testable at the producer's
-// own layer (see bb_log_event_gather()'s doc comment); this composition
-// root just supplies the untyped bb_data_gather_fn cast.
-static bb_err_t gather_log(void *dst, const bb_data_gather_args_t *args)
-{
-    (void)args;
-    return bb_log_event_gather((bb_log_event_wire_t *)dst);
-}
+// B1-1045 PR-4 / B1-1415: bb_data_gather_plain()'s ctx wrapping the
+// dissolved-bb_event "log" producer's PR-2 plain gather -- portable/
+// host-testable at the producer's own layer (see bb_log_event_gather()'s
+// doc comment); this composition root just supplies the typed fill pointer,
+// the shared thunk supplies the untyped bb_data_gather_fn cast.
+static const bb_data_plain_fill_ctx_t s_log_fill_ctx = {
+    .fill = (bb_data_plain_fill_fn)bb_log_event_gather,
+};
 
 // Provisioning-is-transient reboot trigger: fires on the "wifi" service's
 // STOPPED/PAUSED->RUNNING edge, which is exactly the first GOT_IP of this
@@ -523,16 +522,16 @@ void app_main(void)
     // floor's scope (see the file-header comment); smoke's own
     // event-cutover rehab is B1-1051.
     static const struct {
-        const char                *key;
-        const bb_serialize_desc_t *desc;
-        bb_data_gather_fn          gather;
+        const char                      *key;
+        const bb_serialize_desc_t       *desc;
+        const bb_data_plain_fill_ctx_t  *fill_ctx;
     } producers[] = {
-        { "log", &bb_log_event_wire_desc, gather_log },
+        { "log", &bb_log_event_wire_desc, &s_log_fill_ctx },
     };
     for (size_t i = 0; i < sizeof(producers) / sizeof(producers[0]); i++) {
         err = bb_data_bind(&(bb_data_binding_t){
             .key = producers[i].key, .desc = producers[i].desc,
-            .gather = producers[i].gather, .ctx = NULL });
+            .gather = bb_data_gather_plain, .ctx = (void *)producers[i].fill_ctx });
         if (err != BB_OK) {
             bb_log_w(TAG, "data_bind(%s) failed (%d)", producers[i].key, (int)err);
         }

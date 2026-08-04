@@ -320,20 +320,20 @@ bb_err_t bb_diag_boot_gather(bb_diag_boot_wire_t *dst)
 // bb_diag_boot_wire.h for why the bind lives here.
 // ---------------------------------------------------------------------------
 
-// Adapter: bb_data_gather_fn wraps bb_diag_boot_gather()'s typed signature.
-// "diag.boot" has no request-scoped filter, so `args` is otherwise unused.
-static bb_err_t diag_boot_data_gather(void *dst, const bb_data_gather_args_t *args)
-{
-    (void)args;
-    return bb_diag_boot_gather((bb_diag_boot_wire_t *)dst);
-}
+// bb_data_gather_plain()'s ctx (B1-1415): "diag.boot" has no request-scoped
+// filter, so bb_diag_boot_gather()'s typed signature needs only the shared
+// thunk, not a per-site adapter.
+static const bb_data_plain_fill_ctx_t s_diag_boot_fill_ctx = {
+    .fill = (bb_data_plain_fill_fn)bb_diag_boot_gather,
+};
 
 bb_err_t bb_diag_boot_bind(void)
 {
     bb_data_binding_t binding = {
         .key    = BB_DIAG_BOOT_TOPIC,
         .desc   = &bb_diag_boot_wire_desc,
-        .gather = diag_boot_data_gather,
+        .gather = bb_data_gather_plain,
+        .ctx    = (void *)&s_diag_boot_fill_ctx,
     };
     return bb_data_bind(&binding);
 }

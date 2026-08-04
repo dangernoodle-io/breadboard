@@ -115,6 +115,99 @@ typedef struct {
 typedef bb_err_t (*bb_data_gather_fn)(void *dst, const bb_data_gather_args_t *args);
 
 // ---------------------------------------------------------------------------
+// Shared plain-fill thunk (B1-1415) -- ADDITIVE. A producer whose typed fill
+// signature is already `bb_err_t fn(concrete_t *dst)` (i.e. it never reads
+// `args->query`/`args->ctx`) previously needed its own file-scope
+// `static bb_err_t adapter(void *dst, const bb_data_gather_args_t *args) {
+// (void)args; return typed_fill((concrete_t *)dst); }` purely to satisfy
+// bb_data_gather_fn's shape -- four near-identical copies of that same
+// four-line idiom existed in-tree before this PR (bb_ota_check_wire.c,
+// bb_display_info_wire.c, bb_diag_boot_wire.c, examples/floor's
+// gather_log()). bb_data_gather_plain() is the ONE shared thunk: bind it as
+// `.gather` directly, with `.ctx` pointing at a file-scope
+// `static const bb_data_plain_fill_ctx_t` holding the producer's typed fill
+// pointer -- no per-site adapter function required.
+//
+// WRAPPER STRUCT, not a bare function pointer stashed directly in `ctx` --
+// ISO C never guarantees a function pointer round-trips through an object
+// pointer (`void *`) at all; POSIX's dlsym-motivated allowance is what makes
+// that pattern portable in practice, not the C standard itself. The wrapper
+// struct sidesteps THAT specific question: `.ctx` stays a genuine object
+// pointer (to the struct), never a function pointer disguised as one, at
+// the cost of a few bytes of .rodata per binding.
+//
+// WHAT THIS DOES NOT AVOID: each binding site still does
+// `.fill = (bb_data_plain_fill_fn)producer_gather`, casting a function
+// pointer of type `bb_err_t(*)(concrete_t *)` to `bb_data_plain_fill_fn`
+// (`bb_err_t(*)(void *)`) -- a DIFFERENT function-pointer type. Converting
+// between function-pointer types is well defined (C11 6.3.2.3p8), but
+// bb_data_gather_plain() then CALLS through that mismatched-signature
+// pointer (`plain->fill(dst)`); 6.3.2.3p8 also says calling through a
+// converted pointer whose type is not compatible with the pointed-to
+// function's actual type is undefined behavior -- the same clause, a
+// different concrete case than the one above. It is benign on every ABI
+// this project targets (SysV/AAPCS pass a `T *` and a `void *` argument
+// identically, so the call is bitwise indistinguishable from a correctly-
+// typed one), accepted here as a pragmatic tradeoff -- not a free win. The
+// four adapters this replaced were strictly conformant on this exact point:
+// each was a real function whose signature exactly matched
+// bb_data_gather_fn, casting only the `void *dst` OBJECT argument (always
+// well defined). This consolidation trades that conformance for DRY,
+// deliberately.
+//
+// `-Wcast-function-type` flags exactly this cast; it requires `-Wextra`,
+// which neither toolchain this repo builds under currently enables, so it's
+// silent today. B1-1420 (declaring an explicit compiler-warning policy,
+// possibly including `-Wextra`) would need to address this pattern if it
+// lands.
+//
+// A CONFORMANT ALTERNATIVE, not taken here: give each producer's typed fill
+// a `void *dst` parameter directly, matching bb_data_plain_fill_fn exactly
+// and eliminating the cast (passing a concrete pointer to a `void *`
+// parameter is implicit and always well defined). Not adopted in this PR;
+// left as a future option, not resolved here.
+//
+// TYPE-CONFUSION TRUST BOUNDARY: bb_data_bind() can only check that `.ctx`
+// is non-NULL and that the bytes at its start (read as a
+// `bb_data_plain_fill_ctx_t *`) are a non-NULL pointer -- it cannot verify
+// `.ctx` actually points at a real `bb_data_plain_fill_ctx_t`. A binding
+// that sets `.gather = bb_data_gather_plain` but points `.ctx` at an
+// unrelated struct whose first field happens to be a non-NULL garbage
+// value passes bind-time validation, then calls that garbage value as a
+// function at render time -- silently, with no further check. This is a
+// caller-discipline contract, not something bb_data can enforce.
+//
+// IDENTITY CAVEAT: bb_data_bind()'s special case for this thunk
+// (`binding->gather == bb_data_gather_plain`) relies on function-pointer
+// IDENTITY. An identical-code-folding linker (gold/lld `--icf`) could in
+// principle alias a byte-identical unrelated function to the same address
+// and defeat that check. Not a live risk under GNU ld's defaults or
+// ESP-IDF's toolchain (neither enables ICF), but the scheme rests on
+// identity, so it's worth naming.
+//
+// EXTENSION POINT, not built here: hijacking `.ctx` for the fill selector is
+// safe today because none of the four migrated sites use `ctx` for anything
+// else (verified: no production gather reads `args->ctx`). A future producer
+// that needs BOTH plain-fill delegation AND a real, separate ctx value would
+// need this struct widened (e.g. an extra field) -- not attempted here, no
+// such producer exists yet.
+typedef bb_err_t (*bb_data_plain_fill_fn)(void *dst);
+
+typedef struct {
+    bb_data_plain_fill_fn fill;
+} bb_data_plain_fill_ctx_t;
+
+// Shared bb_data_gather_fn thunk: casts `args->ctx` to
+// `const bb_data_plain_fill_ctx_t *` and calls its `fill` with `dst`,
+// ignoring `args->query` entirely (this producer class never filters).
+//
+// Returns BB_ERR_INVALID_ARG if `args`, `args->ctx`, or the ctx's `fill` is
+// NULL, without dereferencing further. `args` is never NULL by
+// bb_data_gather_fn's own contract, but this thunk is defensive rather than
+// relying on that.
+bb_err_t bb_data_gather_plain(void *dst, const bb_data_gather_args_t *args);
+
+// ---------------------------------------------------------------------------
 // Table (multi-row) producer shape (B1-1414) -- ADDITIVE. bb_serialize
 // already carries first-class table support (BB_TYPE_ARR + elem_type ==
 // BB_TYPE_OBJ, BB_ARR_FIXED|BB_ARR_STREAM cardinality -- see
@@ -253,7 +346,10 @@ typedef struct {
 // >= BB_DATA_KEY_MAX. Also returns BB_ERR_INVALID_ARG if `binding->rows` is
 // non-NULL and either `binding->rows->row_desc` or `binding->rows->
 // row_gather` is NULL, or `binding->rows->row_size` != `binding->rows->
-// row_desc->snap_size`.
+// row_desc->snap_size`. Also returns BB_ERR_INVALID_ARG if `binding->gather`
+// is bb_data_gather_plain and `binding->ctx` is NULL, or is non-NULL but its
+// `bb_data_plain_fill_ctx_t.fill` is NULL -- catches a mis-bound plain-fill
+// site at composition time rather than at the first render's NULL deref.
 // Returns BB_ERR_NO_SPACE if the table is full (BB_DATA_MAX_BINDINGS
 // distinct keys already bound) and `binding->key` is not already bound.
 //
