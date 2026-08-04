@@ -59,7 +59,23 @@ bb_err_t bb_data_gather_plain(void *dst, const bb_data_gather_args_t *args)
 
 bb_err_t bb_data_bind(const bb_data_binding_t *binding)
 {
-    if (!binding || !binding->key || !binding->desc || !binding->gather) return BB_ERR_INVALID_ARG;
+    if (!binding || !binding->key) return BB_ERR_INVALID_ARG;
+    // Dual-shape contract (B1-1418): a binding is EITHER a scalar producer
+    // (desc && gather, the original shape) OR a rows-only table producer
+    // (!desc && !gather && rows -- no scalar egress at all). Reject every
+    // other combination: desc without gather or gather without desc (a
+    // half-specified scalar pair is never useful), and everything-absent
+    // (no desc, no gather, no rows -- a binding with nothing to render).
+    bool scalar_shape    = binding->desc && binding->gather;
+    bool rows_only_shape = !binding->desc && !binding->gather && binding->rows;
+    if (!scalar_shape && !rows_only_shape) return BB_ERR_INVALID_ARG;
+    // `apply` durably writes through slot->desc->snap_size
+    // (bb_data_commit()) -- meaningless, and a NULL-deref waiting to happen,
+    // on a rows-only binding that has no desc at all. bb_data_parse() only
+    // gates on slot->apply being set (never slot->desc), so an apply-set,
+    // desc-less binding would sail through parse and NULL-deref in commit;
+    // this rejects that shape at bind time instead.
+    if (!binding->desc && binding->apply) return BB_ERR_INVALID_ARG;
     if (strlen(binding->key) >= BB_DATA_KEY_MAX) return BB_ERR_INVALID_ARG;
     if (binding->rows) {
         if (!binding->rows->row_desc || !binding->rows->row_gather) return BB_ERR_INVALID_ARG;
@@ -102,6 +118,26 @@ bb_err_t bb_data_render(const bb_data_render_req_t *req)
 
     bb_serialize_render_fn render = bb_serialize_format_get_render(req->fmt);
     if (!render) return BB_ERR_UNSUPPORTED;
+
+    // NOT dead code (B1-1418): a rows-only binding (desc == NULL, gather ==
+    // NULL -- see bb_data_bind()'s dual-shape contract) has no scalar egress
+    // at all, so this generic scalar path can't serve it -- without this
+    // guard the deref below would NULL-crash. This is reachable in practice,
+    // not just in theory: bb_data_http_attach*() is a separate string-keyed
+    // registry that never inspects a binding's shape, and its SSE
+    // broadcaster sweep (bb_data_http_common.c) calls bb_data_render()
+    // generically for every attached key via espidf_render_fn() -- so a
+    // composition root that attaches a rows-only key hits this on the very
+    // next sweep.
+    //
+    // Checking `desc` alone suffices: bb_data_bind()'s dual-shape contract
+    // guarantees desc and gather are always both set or both NULL on any
+    // slot that made it past bind (a desc-without-gather or gather-without-
+    // desc binding is rejected there) -- checking both here would add an
+    // OR-branch gcov can never actually exercise as split (the mismatched
+    // desc/gather combination this guard would otherwise need to catch is
+    // provably unreachable).
+    if (!slot->desc) return BB_ERR_UNSUPPORTED;
 
     if (req->scratch_cap < slot->desc->snap_size) return BB_ERR_NO_SPACE;
 
@@ -194,6 +230,21 @@ bb_err_t bb_data_commit(const bb_data_parsed_t *parsed, const bb_data_commit_req
     if (!parsed || !parsed->_binding || !req || !req->dst_scratch) return BB_ERR_INVALID_ARG;
 
     bb_data_slot_t *slot = (bb_data_slot_t *)parsed->_binding;
+
+    // NOT dead code (B1-1418 residual): bb_data_parse() gates only on
+    // slot->apply, never slot->desc, and bb_data_bind() allows rebinding an
+    // already-bound key to the desc-less rows-only shape (which also forces
+    // apply back to NULL -- see bb_data_bind()'s dual-shape contract). A
+    // caller that parses, then rebinds the SAME key rows-only before
+    // committing, hands this function a `parsed` whose captured slot now has
+    // desc == NULL -- without this guard, the deref below and the
+    // slot->gather() call in the BB_DATA_APPLY_PATCH branch would both
+    // NULL-crash. Checking `desc` alone suffices for `gather` too: every bind
+    // (initial or rebind) sets desc/gather together from the same binding
+    // (scalar shape requires both non-NULL, rows-only requires both NULL --
+    // see bb_data_bind()), so they can never diverge on any given slot. This
+    // mirrors bb_data_render()'s own `!slot->desc` guard above.
+    if (!slot->desc) return BB_ERR_UNSUPPORTED;
 
     if (req->dst_scratch_cap < slot->desc->snap_size) return BB_ERR_NO_SPACE;
 

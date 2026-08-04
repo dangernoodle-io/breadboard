@@ -260,6 +260,13 @@ void test_bb_data_bind_row_size_mismatch_rejected(void);
 void test_bb_data_bind_rows_null_row_desc_rejected(void);
 void test_bb_data_bind_rows_null_row_gather_rejected(void);
 void test_bb_data_bind_rows_valid_accepted(void);
+void test_bb_data_bind_rows_only_no_scalar_accepted(void);
+void test_bb_data_bind_rows_only_with_apply_rejected(void);
+void test_bb_data_bind_desc_without_gather_rejected(void);
+void test_bb_data_bind_gather_without_desc_rejected(void);
+void test_bb_data_bind_all_absent_rejected(void);
+void test_bb_data_render_rows_only_binding_returns_unsupported(void);
+void test_bb_data_render_rows_rows_only_binding_renders_content(void);
 void test_bb_data_bind_rows_omitted_defaults_null(void);
 void test_bb_data_render_rows_emits_content_per_row_in_order(void);
 void test_bb_data_render_rows_zero_rows_emits_nothing(void);
@@ -272,6 +279,7 @@ void test_bb_data_render_rows_null_args_return_invalid_arg(void);
 void test_bb_data_render_rows_forwards_query_to_row_gather(void);
 void test_bb_data_render_rows_row_gather_overreport_clamps_to_max_rows(void);
 void test_bb_data_render_rows_row_exceeding_line_bound_truncates_silently(void);
+void test_bb_data_commit_stale_parse_after_rebind_rows_only_returns_unsupported(void);
 void test_bb_data_render_rows_row_render_failure_propagates(void);
 
 // Forward declarations from test_bb_diag_section.c
@@ -11945,6 +11953,13 @@ int main(void) {
     RUN_TEST(test_bb_data_bind_rows_null_row_desc_rejected);
     RUN_TEST(test_bb_data_bind_rows_null_row_gather_rejected);
     RUN_TEST(test_bb_data_bind_rows_valid_accepted);
+    RUN_TEST(test_bb_data_bind_rows_only_no_scalar_accepted);
+    RUN_TEST(test_bb_data_bind_rows_only_with_apply_rejected);
+    RUN_TEST(test_bb_data_bind_desc_without_gather_rejected);
+    RUN_TEST(test_bb_data_bind_gather_without_desc_rejected);
+    RUN_TEST(test_bb_data_bind_all_absent_rejected);
+    RUN_TEST(test_bb_data_render_rows_only_binding_returns_unsupported);
+    RUN_TEST(test_bb_data_render_rows_rows_only_binding_renders_content);
     RUN_TEST(test_bb_data_bind_rows_omitted_defaults_null);
     RUN_TEST(test_bb_data_render_rows_emits_content_per_row_in_order);
     RUN_TEST(test_bb_data_render_rows_zero_rows_emits_nothing);
@@ -11957,6 +11972,7 @@ int main(void) {
     RUN_TEST(test_bb_data_render_rows_forwards_query_to_row_gather);
     RUN_TEST(test_bb_data_render_rows_row_gather_overreport_clamps_to_max_rows);
     RUN_TEST(test_bb_data_render_rows_row_exceeding_line_bound_truncates_silently);
+    RUN_TEST(test_bb_data_commit_stale_parse_after_rebind_rows_only_returns_unsupported);
     RUN_TEST(test_bb_data_render_rows_row_render_failure_propagates);
 
     RUN_TEST(test_wifi_creds_apply_post_mode_does_not_reuse_stale_pending_password);

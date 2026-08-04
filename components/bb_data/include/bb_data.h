@@ -314,10 +314,11 @@ typedef enum {
 // One key's binding. `desc` is BORROWED (typically a static const owned by
 // the source component, e.g. bb_meminfo_heap_snap_desc) -- the caller keeps
 // it alive for the life of the binding; bb_data never copies or frees it.
-// `gather`/`ctx` are the egress path; `gather` MUST be set (a binding with
-// no gather is useless -- see bb_data_bind()). `replay_kind` defaults to
-// BB_DATA_STATE when zero-initialized (e.g. via a partial struct literal
-// that omits the field) -- every existing call site keeps today's
+// `gather`/`ctx` are the scalar egress path; `desc` and `gather` are set
+// together or both left NULL for a rows-only table producer (`rows`
+// non-NULL) -- see bb_data_bind()'s own dual-shape contract doc. `replay_kind`
+// defaults to BB_DATA_STATE when zero-initialized (e.g. via a partial struct
+// literal that omits the field) -- every existing call site keeps today's
 // fresh-render-only behavior with no change required.
 typedef struct {
     const char                  *key;
@@ -341,23 +342,36 @@ typedef struct {
 // begun is unsupported (no lock guards the binding table; this mirrors
 // bb_registry's own composition-time contract).
 //
-// Returns BB_ERR_INVALID_ARG if `binding`, `binding->key`, `binding->desc`,
-// or `binding->gather` is NULL, or if `strlen(binding->key)` is
-// >= BB_DATA_KEY_MAX. Also returns BB_ERR_INVALID_ARG if `binding->rows` is
-// non-NULL and either `binding->rows->row_desc` or `binding->rows->
-// row_gather` is NULL, or `binding->rows->row_size` != `binding->rows->
-// row_desc->snap_size`. Also returns BB_ERR_INVALID_ARG if `binding->gather`
-// is bb_data_gather_plain and `binding->ctx` is NULL, or is non-NULL but its
+// DUAL-SHAPE CONTRACT (B1-1418): a binding must be EITHER a scalar producer
+// (`desc` and `gather` both non-NULL, the original shape) OR a rows-only
+// table producer (`desc` and `gather` both NULL, `rows` non-NULL -- a pure
+// table binding with no scalar egress at all). Every other combination is
+// rejected: `desc` without `gather`, `gather` without `desc`, and
+// everything-absent (no `desc`, no `gather`, no `rows`). A rows-only
+// binding's `apply` MUST also be NULL (see below) -- `apply` durably writes
+// through the binding's `desc`, which a rows-only binding doesn't have.
+//
+// Returns BB_ERR_INVALID_ARG if `binding` or `binding->key` is NULL, if
+// `binding` matches neither shape above, or if `strlen(binding->key)` is
+// >= BB_DATA_KEY_MAX. Also returns BB_ERR_INVALID_ARG if `binding->desc` is
+// NULL and `binding->apply` is non-NULL -- `apply` is meaningless without a
+// `desc` to scatter into. This closes the DIRECT case (binding apply without
+// desc up front); it does NOT close the REBIND case, where a key is first
+// bound with a scalar (desc+apply) shape, successfully bb_data_parse()'d
+// (which gates only on `apply`, never `desc`), and then rebound rows-only
+// (desc == NULL) before the matching bb_data_commit() call -- the parsed
+// result still holds the stale slot, now desc-less. bb_data_commit() itself
+// carries its own `!slot->desc` guard (mirroring bb_data_render()'s) to
+// close that residual NULL-deref; see its own doc for details. Also returns
+// BB_ERR_INVALID_ARG if `binding->rows` is non-NULL and either
+// `binding->rows->row_desc` or `binding->rows->row_gather` is NULL, or
+// `binding->rows->row_size` != `binding->rows->row_desc->snap_size`. Also
+// returns BB_ERR_INVALID_ARG if `binding->gather` is bb_data_gather_plain and
+// `binding->ctx` is NULL, or is non-NULL but its
 // `bb_data_plain_fill_ctx_t.fill` is NULL -- catches a mis-bound plain-fill
 // site at composition time rather than at the first render's NULL deref.
 // Returns BB_ERR_NO_SPACE if the table is full (BB_DATA_MAX_BINDINGS
 // distinct keys already bound) and `binding->key` is not already bound.
-//
-// NOTE: `desc`/`gather` are REQUIRED even when `rows` is also supplied --
-// there is no pure-table binding shape today. A future table-only producer
-// (no scalar egress at all) would need to fabricate a throwaway scalar
-// desc/gather pair to satisfy this validation; that gap is not addressed
-// here (no in-tree consumer needs it yet).
 bb_err_t bb_data_bind(const bb_data_binding_t *binding);
 
 // The ONE render entry point's request struct -- a config struct, not an
@@ -393,7 +407,10 @@ typedef struct {
 // `req->buf`, or `req->out_len` is NULL.
 // Returns BB_ERR_NOT_FOUND if `req->key` has no binding.
 // Returns BB_ERR_UNSUPPORTED if `req->fmt` has no registered renderer
-// (gather is never invoked).
+// (gather is never invoked), or if the binding is rows-only (`desc`/`gather`
+// both NULL -- see bb_data_bind()'s dual-shape contract; a rows-only binding
+// has no scalar egress, so it must be driven through bb_data_render_rows()
+// instead).
 // Returns BB_ERR_NO_SPACE if `req->scratch_cap` is smaller than the
 // binding's desc->snap_size (gather is never invoked), or if the renderer's
 // own output overflows `req->buf_cap`.
@@ -558,6 +575,11 @@ typedef struct {
 //
 // Returns BB_ERR_INVALID_ARG if `parsed`, `parsed`'s internal binding
 // handle, `req`, or `req->dst_scratch` is NULL.
+// Returns BB_ERR_UNSUPPORTED if `parsed`'s captured binding is currently
+// desc-less (the slot was rebound rows-only after the paired bb_data_parse()
+// call -- see bb_data_bind()'s own doc for this residual; the seed
+// gather()/populate()/apply() steps below all require a desc and are never
+// invoked in this case).
 // Returns BB_ERR_NO_SPACE if `req->dst_scratch_cap` is smaller than the
 // binding's desc->snap_size.
 // Otherwise propagates whatever the seed gather() call (PATCH mode only),
