@@ -35,6 +35,12 @@ size_t bb_data_http_host_frame_count(void);
 bb_err_t bb_data_http_host_frame_at(size_t idx, int *out_fd, bool *out_is_ws,
                                     char *buf, size_t buf_cap, size_t *out_len);
 
+// Copies capture record `idx`'s resolved send_fn `key` (B1-1123 PR-2) into
+// `buf`/`buf_cap`, truncating and NUL-terminating if `key` doesn't fit.
+// `buf` may be NULL/`buf_cap` may be 0 to just check idx validity.
+// Returns BB_ERR_NOT_FOUND if idx >= bb_data_http_host_frame_count().
+bb_err_t bb_data_http_host_frame_key_at(size_t idx, char *buf, size_t buf_cap);
+
 #ifdef __cplusplus
 }
 #endif
