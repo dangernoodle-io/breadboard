@@ -683,5 +683,8 @@ size_t bb_ws_server_open_count(void)
 void bb_ws_server_set_disconnect_cb(bb_ws_server_disconnect_cb_t cb, void *ctx)
 { (void)cb; (void)ctx; }
 
+void bb_ws_server_set_connect_cb(bb_ws_server_connect_cb_t cb, void *ctx)
+{ (void)cb; (void)ctx; }
+
 #endif // CONFIG_HTTPD_WS_SUPPORT
 #endif // ESP_PLATFORM

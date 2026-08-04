@@ -13,6 +13,7 @@
 #include "bb_http.h"
 #ifdef ESP_PLATFORM
 #include "bb_ws_server.h"
+#include "bb_data.h"
 #endif
 
 #ifdef __cplusplus
@@ -29,6 +30,17 @@ bb_err_t smoke_ws_echo_handler(bb_http_request_t *req,
 bb_err_t smoke_wsbcast_handler(bb_http_request_t *req);
 
 extern const bb_route_t smoke_ws_route;
+
+// B1-1425: "log" bb_data key producer wiring -- the bb_data_gather_plain()
+// thunk's typed fill pointer, wrapping bb_log_event_gather() (components/
+// bb_log_event/include/bb_log_event_wire.h, ESP-IDF only, same shape as
+// examples/floor/main/floor_app.c's own s_log_fill_ctx). Not static -- see
+// smoke_ping_handler's comment above; examples/smoke/main/bb_wire.h's
+// bb_data_bind() manifest entry references this by address so the "log" key
+// bb_data_http_espidf_routes_init()/_ws_routes_init() serve at GET
+// /api/events?topic=log and GET /ws/events actually carries real traffic
+// instead of streaming nothing.
+extern const bb_data_plain_fill_ctx_t smoke_log_fill_ctx;
 #endif
 
 #ifdef __cplusplus
