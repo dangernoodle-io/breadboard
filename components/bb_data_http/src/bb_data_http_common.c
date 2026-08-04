@@ -654,7 +654,7 @@ void bb_data_http_sweep_step(void)
         int64_t ts        = 0;
         uint32_t id        = 0;
         while (bb_queue_peek_oldest(c->outbound, frame, sizeof(frame), &frame_len, &ts, &id) == BB_OK) {
-            s_send_fn(c->fd, c->is_ws, frame, frame_len, s_send_ctx);
+            s_send_fn(c, frame, frame_len, s_send_ctx);
             bb_queue_pop_oldest(c->outbound);
         }
     }
