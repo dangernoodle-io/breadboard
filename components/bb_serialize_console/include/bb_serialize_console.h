@@ -32,10 +32,25 @@ extern "C" {
 // caller via bb_serialize_console_ctx_init(); `cap` is the FULL buffer
 // capacity, including room for the NUL terminator (every append respects
 // this bound and never writes past it).
+//
+// `path`/`path_depth` is the nested-key qualification stack (B1-1416):
+// begin_obj pushes the field's own `.key` onto `path`, end_obj pops it, and
+// each scalar emit joins path[0..path_depth) plus the field's own key with
+// '.' separators (e.g. "internal.free") before writing. Entries are
+// BORROWED pointers into the walked descriptor's own static-const `.key`
+// strings -- no copying, no allocation. Sized to bb_serialize.h's own
+// BB_SERIALIZE_MAX_DEPTH (the walker refuses to recurse past that cap, see
+// bb_serialize_walk.c), so a legitimate walk can never overflow this stack;
+// a defensive guard still declines to push past the cap rather than
+// corrupt the array (truncate-don't-fail, matching this backend's overall
+// overflow contract).
 typedef struct {
     char  *buf;
     size_t cap;  // full capacity, including the NUL terminator
     size_t len;  // bytes written so far, excludes NUL
+
+    const char *path[BB_SERIALIZE_MAX_DEPTH];
+    size_t      path_depth;
 } bb_serialize_console_ctx_t;
 
 // Initializes `ctx` to an empty writer over `buf`/`cap`. NUL-terminates
@@ -43,13 +58,20 @@ typedef struct {
 void bb_serialize_console_ctx_init(bb_serialize_console_ctx_t *ctx, char *buf, size_t cap);
 
 // Returns a bb_serialize_emit_t vtable bound to `ctx` (format_id ==
-// BB_FORMAT_CONSOLE). Pass the result to bb_serialize_walk(). Nested
-// BB_TYPE_OBJ/BB_TYPE_ARR fields are supported structurally (begin/end
-// callbacks are safe no-ops) but do NOT prefix child keys with their
-// parent's key -- this backend is designed for flat, scalar-only
-// descriptors (e.g. bb_serialize_console_heap_desc below); a descriptor
-// with nested containers still renders without crashing, just without
-// nesting-aware key qualification.
+// BB_FORMAT_CONSOLE). Pass the result to bb_serialize_walk(). BB_TYPE_OBJ
+// nesting is qualification-aware (B1-1416): a scalar field nested inside
+// one or more BB_TYPE_OBJ ancestors renders with its full dotted path,
+// e.g. a field keyed "free" inside an object keyed "internal" renders as
+// "internal.free=...", so sibling objects sharing a child key (e.g. two
+// per-region heap snapshots that both have a "free" field) render as
+// distinct tokens rather than colliding on one line.
+//
+// BB_TYPE_ARR is explicitly OUT OF SCOPE for qualification: the walker
+// passes key == NULL for every array element (see bb_serialize_walk.c), so
+// there is no parent key to compose with -- begin_arr/end_arr remain
+// deliberate no-ops. B1-1414's one-line-per-row console render already
+// owns the array/table story; this backend still renders an array's
+// elements without crashing, just without nesting-aware qualification.
 bb_serialize_emit_t bb_serialize_console_emit(bb_serialize_console_ctx_t *ctx);
 
 // Registers this backend under BB_FORMAT_CONSOLE in bb_serialize's
