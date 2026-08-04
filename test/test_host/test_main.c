@@ -478,7 +478,8 @@ void test_bb_serialize_console_tasks_row_desc_matches_snap_layout(void);
 void test_bb_serialize_console_tasks_row_desc_renders_with_budget(void);
 void test_bb_serialize_console_tasks_row_desc_renders_without_budget(void);
 void test_bb_serialize_console_tasks_row_desc_renders_without_sample(void);
-void test_bb_serialize_console_tasks_report_smoke(void);
+void test_bb_data_render_rows_tasks_binding_renders_content(void);
+void test_bb_data_render_rows_tasks_binding_empty_registry_emits_nothing(void);
 void test_bb_format_name_console_returns_console(void);
 
 // Forward declarations from test_bb_serialize_logfmt.c
@@ -1508,6 +1509,10 @@ void test_floor_prov_reboot_normal_boot_no_fire(void);
 void test_floor_prov_reboot_already_triggered_no_fire(void);
 void test_floor_prov_reboot_non_running_new_state_no_fire(void);
 void test_floor_prov_reboot_running_to_running_no_fire(void);
+void test_floor_task_stack_warns_when_emitted_equals_max_rows(void);
+void test_floor_task_stack_no_warn_when_emitted_below_max_rows(void);
+void test_floor_task_stack_already_warned_no_fire(void);
+void test_floor_task_stack_zero_max_rows_no_fire(void);
 
 // Forward declarations from test_bb_http_json_obj_stream.c
 void test_resp_no_content_sets_204_empty_body(void);
@@ -6979,6 +6984,10 @@ int main(void) {
     RUN_TEST(test_floor_prov_reboot_already_triggered_no_fire);
     RUN_TEST(test_floor_prov_reboot_non_running_new_state_no_fire);
     RUN_TEST(test_floor_prov_reboot_running_to_running_no_fire);
+    RUN_TEST(test_floor_task_stack_warns_when_emitted_equals_max_rows);
+    RUN_TEST(test_floor_task_stack_no_warn_when_emitted_below_max_rows);
+    RUN_TEST(test_floor_task_stack_already_warned_no_fire);
+    RUN_TEST(test_floor_task_stack_zero_max_rows_no_fire);
 
     // JSON walker and HTTP send_json tests
 
@@ -11256,7 +11265,8 @@ int main(void) {
     RUN_TEST(test_bb_serialize_console_tasks_row_desc_renders_with_budget);
     RUN_TEST(test_bb_serialize_console_tasks_row_desc_renders_without_budget);
     RUN_TEST(test_bb_serialize_console_tasks_row_desc_renders_without_sample);
-    RUN_TEST(test_bb_serialize_console_tasks_report_smoke);
+    RUN_TEST(test_bb_data_render_rows_tasks_binding_renders_content);
+    RUN_TEST(test_bb_data_render_rows_tasks_binding_empty_registry_emits_nothing);
 
     RUN_TEST(test_bb_serialize_logfmt_flat_scalars);
     RUN_TEST(test_bb_serialize_logfmt_null_str_n_emits_null);

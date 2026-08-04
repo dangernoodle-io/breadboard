@@ -147,9 +147,9 @@ bb_err_t bb_serialize_console_heap_gather(void *dst, void *ctx);
 void bb_serialize_console_heap_report(const char *label);
 
 // ---------------------------------------------------------------------------
-// Task-stack-over-serial periodic report -- built on bb_task's base
-// registry (components/bb_task, bb_task_base_foreach()), the SSOT every
-// live FreeRTOS task's stack high-water free bytes is persisted to by the
+// Task-stack row descriptor/gather -- built on bb_task's base registry
+// (components/bb_task, bb_task_base_foreach()), the SSOT every live
+// FreeRTOS task's stack high-water free bytes is persisted to by the
 // periodic base-scan (platform/espidf/bb_task_registry/
 // bb_task_registry_base_scan.c), which already computes the value via
 // bb_num_words_to_bytes() (B1-1128) -- this component reads that persisted
@@ -157,11 +157,14 @@ void bb_serialize_console_heap_report(const char *label);
 //
 // One line PER TASK, not one nested report: bb_serialize_console_render()
 // is flat/scalar-only (see the comment on bb_serialize_console_emit() above)
-// and cannot render an array of task rows as a single structured line, so
-// bb_serialize_console_tasks_report() walks a bounded snapshot and emits one
-// bb_serialize_console_render() + bb_log_i() call per task (mirrors this
-// header's own per-row precedent, e.g. bb_diag_tasks_get_wire's per-task
-// rows, just logged instead of served).
+// and cannot render an array of task rows as a single structured line. This
+// component supplies only the row descriptor/gather primitives below --
+// driving them into a per-row console report is a consumer's job, via
+// bb_data's rows-only table-producer shape (bb_data_bind()/
+// bb_data_render_rows(), B1-1418 PR-2). This retires the component's own
+// former bb_serialize_console_tasks_report() one-shot entry point, which
+// hand-rolled that same gather -> render -> bb_log_i() loop internally --
+// see examples/floor/main/floor_app.c for the composition-root replacement.
 // ---------------------------------------------------------------------------
 
 // Independent of BB_TASK_NAME_MAX (bb_task.h) on purpose -- this public
@@ -199,9 +202,12 @@ typedef struct {
     bool     sampled;
 } bb_serialize_console_tasks_row_snap_t;
 
-// Descriptor for bb_serialize_console_tasks_row_snap_t -- the SSOT
-// bb_serialize_console_tasks_report() walks (once per row) via
-// bb_serialize_console_render().
+// Descriptor for bb_serialize_console_tasks_row_snap_t -- the SSOT a
+// consumer walks (once per row) via bb_serialize_console_render(), or via
+// bb_data_render_rows() when bound rows-only as a bb_data table producer
+// (B1-1418 PR-2, see examples/floor/main/floor_app.c's "tasks" bb_data key
+// for the live composition-root call site -- this component itself no
+// longer walks it internally).
 extern const bb_serialize_desc_t bb_serialize_console_tasks_row_desc;
 
 // Snapshots every entry in bb_task's base registry (bb_task_base_foreach())
@@ -212,15 +218,6 @@ extern const bb_serialize_desc_t bb_serialize_console_tasks_row_desc;
 // truncate-don't-overflow contract as this header's render function). `dst`
 // must be non-NULL when `cap` > 0.
 size_t bb_serialize_console_tasks_gather(bb_serialize_console_tasks_row_snap_t *dst, size_t cap);
-
-// Gathers a fresh task-stack snapshot and logs ONE bb_log_i() line PER TASK,
-// each prefixed with `label` (e.g. "tick"), via
-// bb_serialize_console_tasks_row_desc/bb_serialize_console_render(). No
-// heap: the snapshot lives in a bounded file-static array (sized off
-// BB_TASK_BASE_MAX_CAP, kept off this single caller's stack on purpose --
-// see bb_serialize_console_tasks.c), plus a small on-stack per-line render
-// buffer. A registry with zero tracked tasks logs nothing (not an error).
-void bb_serialize_console_tasks_report(const char *label);
 
 #ifdef __cplusplus
 }
