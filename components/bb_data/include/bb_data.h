@@ -114,6 +114,73 @@ typedef struct {
 // BB_DATA_APPLY_PATCH seed.
 typedef bb_err_t (*bb_data_gather_fn)(void *dst, const bb_data_gather_args_t *args);
 
+// ---------------------------------------------------------------------------
+// Table (multi-row) producer shape (B1-1414) -- ADDITIVE. bb_serialize
+// already carries first-class table support (BB_TYPE_ARR + elem_type ==
+// BB_TYPE_OBJ, BB_ARR_FIXED|BB_ARR_STREAM cardinality -- see
+// bb_serialize.h's bb_serialize_field_t doc, and bb_diag_http's
+// bb_diag_tasks_get_wire_priv.h for a working in-tree instance), and
+// bb_data_bind()/bb_data_render() were already shape-agnostic: a table
+// descriptor renders through bb_data_render() to JSON exactly like a scalar
+// one. That JSON path needs NO new bb_data surface at all.
+//
+// The real gap is console-only: bb_serialize_console's begin_arr/begin_obj
+// are documented no-ops that never key-qualify nested fields (see
+// bb_serialize_console.h), so driving a table descriptor through the walker
+// to that backend yields one flattened line with duplicate keys, not a
+// table. bb_serialize_console_tasks_report() (bb_serialize_console_tasks.c)
+// already ships the fix for exactly this -- gather rows into a caller-owned
+// array, then call bb_serialize_console_render() ONCE PER ROW against the
+// row descriptor. bb_data_render_rows() below applies that same per-row
+// idiom behind bb_data's binding table, so a bound table producer can drive
+// it without a bespoke report function of its own -- it does NOT replace
+// bb_serialize_console_tasks_report() itself, which keeps its own live
+// caller (examples/floor/main/floor_app.c) unchanged in this PR. Migrating
+// that caller onto bb_data_render_rows() is deliberately deferred to
+// B1-1418, not attempted here.
+//
+// Deliberately independent of B1-1416 (nested-key/parent-qualified emit) --
+// N readable "key=val" lines, one per row, rather than one dense
+// parent.child-qualified line. Neither blocks the other.
+// ---------------------------------------------------------------------------
+
+// Row-gather hook: fills up to `max_rows` contiguous rows (each
+// `row_size` bytes, per bb_data_row_binding_t.row_size) into `dst_rows`
+// (CALLER-OWNED, capacity EXACTLY `max_rows * row_size` bytes) and returns
+// the actual row count written (0 <= n <= max_rows). Mirrors
+// bb_data_gather_fn's shape/contract otherwise -- `args` is never NULL.
+//
+// MUST NOT write more than `max_rows` rows to `dst_rows` under any
+// circumstances. bb_data cannot detect or prevent an overrun after the
+// fact: bb_data_render_rows() clamps the RETURNED count to `max_rows`
+// before driving its render loop, but that clamp runs only after this hook
+// has already returned -- if the hook itself wrote past `dst_rows`'s
+// capacity while filling rows, the caller's buffer has already been
+// corrupted before bb_data ever sees the return value. The buffer-safety
+// obligation for `dst_rows` rests ENTIRELY on this hook's own
+// implementation, not on anything bb_data_render_rows() does with the count
+// it returns.
+//
+// Not table-wide-locked by bb_data_render_rows(): a row producer that reads
+// a live, mutable collection (e.g. bb_task_base_foreach()) copies each row
+// whole under its OWN internal lock/iteration, but nothing holds a lock
+// across the render loop below -- an entry created/deleted between this
+// gather call and the row-by-row render is invisible to that one pass.
+// bb_serialize_console_tasks_report() already ships this exact
+// characteristic; see bb_data_render_rows()'s own doc for why.
+typedef size_t (*bb_data_row_gather_fn)(void *dst_rows, size_t max_rows,
+                                         const bb_data_gather_args_t *args);
+
+// A binding's OPTIONAL table producer. `row_desc` is BORROWED (same
+// lifetime contract as bb_data_binding_t.desc). `row_size` MUST equal
+// `row_desc->snap_size` -- bb_data_bind() rejects a mismatch (see its own
+// doc) rather than silently mis-striding `row_gather`'s output array.
+typedef struct {
+    const bb_serialize_desc_t *row_desc;
+    bb_data_row_gather_fn      row_gather;
+    uint16_t                   row_size;
+} bb_data_row_binding_t;
+
 // Args passed to a binding's apply hook on every bb_data_apply() call --
 // mirrors bb_data_gather_args_t's shape (ctx only). apply() is HTTP-agnostic
 // and has no request-scoped filter concept, so there is no `query` here.
@@ -160,18 +227,21 @@ typedef enum {
 // that omits the field) -- every existing call site keeps today's
 // fresh-render-only behavior with no change required.
 typedef struct {
-    const char                *key;
-    const bb_serialize_desc_t *desc;
-    bb_data_gather_fn          gather;
-    bb_data_apply_fn           apply;  // OPTIONAL -- NULL means egress-only (B1-1022)
-    void                      *ctx;
-    bb_data_replay_kind_t      replay_kind;
+    const char                  *key;
+    const bb_serialize_desc_t   *desc;
+    bb_data_gather_fn            gather;
+    bb_data_apply_fn             apply;  // OPTIONAL -- NULL means egress-only (B1-1022)
+    void                        *ctx;
+    bb_data_replay_kind_t        replay_kind;
+    const bb_data_row_binding_t *rows;    // OPTIONAL -- NULL means no table
+                                           // producer (B1-1414); see
+                                           // bb_data_render_rows()
 } bb_data_binding_t;
 
 // Binds (or re-binds) `binding->key`'s descriptor/gather/ctx. `binding`
 // itself may be a stack temporary -- bb_data copies its fields, it does not
 // retain the pointer. Re-binding an existing key OVERRIDES its desc/gather/
-// ctx in place.
+// ctx/rows in place.
 //
 // MUST be called only during single-threaded composition, before any
 // bb_data_render() traffic starts -- rebinding after render traffic has
@@ -180,9 +250,18 @@ typedef struct {
 //
 // Returns BB_ERR_INVALID_ARG if `binding`, `binding->key`, `binding->desc`,
 // or `binding->gather` is NULL, or if `strlen(binding->key)` is
-// >= BB_DATA_KEY_MAX.
+// >= BB_DATA_KEY_MAX. Also returns BB_ERR_INVALID_ARG if `binding->rows` is
+// non-NULL and either `binding->rows->row_desc` or `binding->rows->
+// row_gather` is NULL, or `binding->rows->row_size` != `binding->rows->
+// row_desc->snap_size`.
 // Returns BB_ERR_NO_SPACE if the table is full (BB_DATA_MAX_BINDINGS
 // distinct keys already bound) and `binding->key` is not already bound.
+//
+// NOTE: `desc`/`gather` are REQUIRED even when `rows` is also supplied --
+// there is no pure-table binding shape today. A future table-only producer
+// (no scalar egress at all) would need to fabricate a throwaway scalar
+// desc/gather pair to satisfy this validation; that gap is not addressed
+// here (no in-tree consumer needs it yet).
 bb_err_t bb_data_bind(const bb_data_binding_t *binding);
 
 // The ONE render entry point's request struct -- a config struct, not an
@@ -224,6 +303,66 @@ typedef struct {
 // own output overflows `req->buf_cap`.
 // Propagates any error the gather hook itself returns.
 bb_err_t bb_data_render(const bb_data_render_req_t *req);
+
+// bb_data_render_rows()'s request struct -- the table-render entry point
+// (B1-1414). CONSOLE-ONLY, deliberately: unlike bb_data_render(), there is
+// no `fmt` other than BB_FORMAT_CONSOLE this can ever render. Rendering a
+// table as N separate JSON fragments would each be a standalone value, not
+// elements of a valid JSON array -- actively wrong output, not merely an
+// unimplemented convenience. JSON table telemetry is already served by the
+// existing bb_data_render() path (bb_serialize's own BB_TYPE_ARR +
+// elem_type == BB_TYPE_OBJ shape), which needs no change here.
+//
+// `row_scratch` (capacity `max_rows * row_size` bytes, `row_size` per the
+// binding's bb_data_row_binding_t) is CALLER-OWNED, mirroring
+// bb_data_render_req_t.scratch -- bb_data_render_rows() holds no static
+// scratch of its own. `query` mirrors bb_data_render_req_t.query (OPTIONAL,
+// forwarded byte-for-byte to the row-gather hook). `emit_row` is called
+// once per rendered row, in gather order, with that row's rendered console
+// line (`len` excludes any NUL terminator) -- a callback, not a fixed
+// logging call, so bb_data stays host-testable and format-neutral (it does
+// NOT call bb_log_i() itself). Each rendered row is subject to an internal,
+// bb_data-owned per-row line cap (BB_DATA_ROW_LINE_MAX_BYTES, currently 160,
+// not caller-tunable): a row whose rendered line would exceed it is
+// silently TRUNCATED (still NUL-terminated) rather than erroring --
+// `emit_row` still fires for that row with `len` reflecting the truncated
+// length, and bb_data_render_rows() still returns BB_OK.
+typedef struct {
+    const char                  *key;
+    bb_format_t                  fmt;
+    const bb_serialize_query_t  *query;
+    void                        *row_scratch;
+    size_t                       max_rows;
+    void (*emit_row)(const char *line, size_t len, size_t row_idx, void *ctx);
+    void                        *emit_ctx;
+} bb_data_render_rows_req_t;
+
+// Renders `req->key`'s bound table producer as one BB_FORMAT_CONSOLE
+// "key=val ..." line PER ROW, calling `req->emit_row` once per row in
+// gather order. Looks up `req->key`'s binding FIRST, then checks
+// `req->fmt == BB_FORMAT_CONSOLE` and that the binding has a table producer
+// (`binding->rows != NULL`) -- gather never runs otherwise. Calls
+// `binding->rows->row_gather(req->row_scratch, req->max_rows, &args)` (args
+// built from the binding's stored `ctx` plus `req->query`, exactly like
+// bb_data_render()) to fill `req->row_scratch`, then renders and emits each
+// of the returned rows.
+//
+// NOT table-wide-locked across the render loop -- see
+// bb_data_row_gather_fn's own doc comment for why (mirrors
+// bb_serialize_console_tasks_report()'s established characteristic: a row
+// created/deleted between gather and render is invisible to that pass;
+// individual rows are copied whole, never torn mid-row).
+//
+// Returns BB_ERR_INVALID_ARG if `req`, `req->key`, `req->row_scratch`, or
+// `req->emit_row` is NULL.
+// Returns BB_ERR_NOT_FOUND if `req->key` has no binding.
+// Returns BB_ERR_UNSUPPORTED if `req->fmt` != BB_FORMAT_CONSOLE, if the
+// binding has no table producer (`binding->rows == NULL`), or if
+// BB_FORMAT_CONSOLE itself has no registered renderer (row_gather is never
+// invoked in any of these cases).
+// Propagates any error the row-gather hook or the per-row render itself
+// returns (stops rendering further rows on the first such error).
+bb_err_t bb_data_render_rows(const bb_data_render_rows_req_t *req);
 
 // ---------------------------------------------------------------------------
 // Ingress -- bb_data_apply() (B1-1022), the write-half mirror of
