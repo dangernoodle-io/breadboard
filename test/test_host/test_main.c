@@ -352,6 +352,7 @@ void test_bb_http_section_register_ns_table_full_returns_no_space(void);
 void test_bb_http_section_find_strips_prefix(void);
 void test_bb_http_section_find_no_match_returns_null(void);
 void test_bb_http_section_find_longest_prefix_wins(void);
+void test_bb_http_section_find_earlier_longer_registration_not_displaced_by_later_shorter(void);
 void test_bb_http_section_register_ns_prefix_too_broad_returns_invalid_arg(void);
 void test_bb_http_section_register_ns_root_prefix_returns_invalid_arg(void);
 void test_bb_http_section_register_ns_double_slash_prefix_too_broad_returns_invalid_arg(void);
@@ -12072,6 +12073,7 @@ int main(void) {
     RUN_TEST(test_bb_http_section_find_strips_prefix);
     RUN_TEST(test_bb_http_section_find_no_match_returns_null);
     RUN_TEST(test_bb_http_section_find_longest_prefix_wins);
+    RUN_TEST(test_bb_http_section_find_earlier_longer_registration_not_displaced_by_later_shorter);
     RUN_TEST(test_bb_http_section_register_ns_prefix_too_broad_returns_invalid_arg);
     RUN_TEST(test_bb_http_section_register_ns_root_prefix_returns_invalid_arg);
     RUN_TEST(test_bb_http_section_register_ns_double_slash_prefix_too_broad_returns_invalid_arg);

@@ -183,6 +183,29 @@ void test_bb_http_section_find_longest_prefix_wins(void)
     TEST_ASSERT_NOT_NULL(found->apply);
 }
 
+// Exercises the `len < best_len` skip branch in bb_http_section_find(): the
+// longer (correct) match is registered FIRST here, then a shorter, distinct
+// prefix that ALSO strncmp-matches the same URI is registered SECOND. If the
+// skip didn't fire, the later, shorter candidate's strncmp() would succeed
+// too and incorrectly overwrite `best` -- so this is genuinely
+// mutation-detectable (unlike a same-length case, which register_ns()'s
+// duplicate-prefix guard makes unreachable).
+void test_bb_http_section_find_earlier_longer_registration_not_displaced_by_later_shorter(void)
+{
+    hs_reset();
+    bb_http_section_ns_t inner = { .prefix = "/api/hs.rev/hs.deep/", .apply = hs_apply_ok };
+    bb_http_section_ns_t outer = { .prefix = "/api/hs.rev/", .render = hs_render_ok };
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_section_register_ns(&inner));  // longer, registered first
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_section_register_ns(&outer));  // shorter, registered second
+
+    char name[BB_HTTP_SECTION_NAME_MAX];
+    const bb_http_section_ns_t *found = bb_http_section_find("/api/hs.rev/hs.deep/x", name, sizeof(name));
+    TEST_ASSERT_NOT_NULL(found);
+    TEST_ASSERT_EQUAL_STRING("x", name);
+    TEST_ASSERT_NOT_NULL(found->apply);   // matched `inner` (still longest), not `outer`
+    TEST_ASSERT_NULL(found->render);
+}
+
 // Finding 3 (bb_http_section PR review, LOW): a prefix with fewer than 2
 // non-empty path segments (e.g. "/api/" itself) is exactly the
 // blanket-shadowing shape this dispatcher deliberately avoids -- REJECTED
