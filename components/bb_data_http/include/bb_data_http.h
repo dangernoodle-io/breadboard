@@ -107,13 +107,22 @@ typedef bb_err_t (*bb_data_http_render_fn)(const char *key, char *buf, size_t ca
 // links bb_data -- see the file header.
 typedef bb_err_t (*bb_data_http_generation_fn)(const char *key, uint32_t *out_gen, void *ctx);
 
-// Sends `len` already-rendered bytes to client `fd`. `is_ws` selects
-// WS-framed vs raw SSE-frame delivery -- the send_fn owns actual framing.
-// `ctx` is the opaque pointer passed to bb_data_http_set_send_fn(). The real
-// backend wraps a socket write (or bb_ws_server send); host tests supply a
-// capture stub (platform/host/bb_data_http/bb_data_http_host.h).
-typedef bb_err_t (*bb_data_http_send_fn)(int fd, bool is_ws, const void *bytes,
-                                          size_t len, void *ctx);
+// Sends `len` already-rendered bytes to `client` (the same handle returned
+// by bb_data_http_client_acquire[_ex]()). Transport-neutral by design (B1-1123
+// PR-1): the seam carries no fd/is_ws -- those were HTTP-specific and meant
+// nothing to a future MQTT/UDP backend. A backend that needs socket/framing
+// detail (e.g. the ESP-IDF SSE backend) resolves it itself, either from its
+// own side table keyed on `client` or, since bb_data_http_client_t is a
+// component-private struct shared with platform backends via
+// bb_data_http_internal.h, straight off `client` itself (see
+// platform/espidf/bb_data_http/bb_data_http_espidf.c's espidf_send_fn and
+// platform/host/bb_data_http/bb_data_http_host.c's host_send). `ctx` is the
+// opaque pointer passed to bb_data_http_set_send_fn() -- one shared value for
+// every call, not per-client. The real backend wraps a socket write (or
+// bb_ws_server send); host tests supply a capture stub
+// (platform/host/bb_data_http/bb_data_http_host.h).
+typedef bb_err_t (*bb_data_http_send_fn)(const bb_data_http_client_t *client,
+                                          const void *bytes, size_t len, void *ctx);
 
 // Install/replace the render seam. Passing fn=NULL disables rendering (dirty
 // keys are silently skipped -- see bb_data_http_sweep_step()).

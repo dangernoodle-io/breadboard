@@ -142,11 +142,15 @@ typedef struct {
 static bb_data_http_espidf_slot_t s_slots[BB_DATA_HTTP_ESPIDF_MAX_CLIENTS];
 static portMUX_TYPE s_slots_mux = portMUX_INITIALIZER_UNLOCKED;
 
-// Caller must hold s_slots_mux.
-static bb_data_http_espidf_slot_t *slot_find_by_fd_locked(int fd)
+// Caller must hold s_slots_mux. B1-1123 PR-1: send_fn now carries the
+// bb_data_http_client_t handle rather than an fd, so this side table is
+// looked up by that same handle -- it already stores `client` per slot (set
+// at connect time, below), so this is a straight pointer-equality scan
+// rather than the fd comparison it replaces.
+static bb_data_http_espidf_slot_t *slot_find_by_client_locked(const bb_data_http_client_t *client)
 {
     for (size_t i = 0; i < BB_DATA_HTTP_ESPIDF_MAX_CLIENTS; i++) {
-        if (s_slots[i].in_use && s_slots[i].fd == fd) {
+        if (s_slots[i].in_use && s_slots[i].client == client) {
             return &s_slots[i];
         }
     }
@@ -209,18 +213,24 @@ static bb_err_t espidf_generation_fn(const char *key, uint32_t *out_gen, void *c
 // SSE-only (fork #4: WS deferred to the cutover). A WS client should never
 // reach this seam -- bb_data_http_espidf_client_connect() only ever
 // acquires with is_ws=false -- but a defensive reject beats silently
-// mis-framing WS bytes as an SSE comment.
-static bb_err_t espidf_send_fn(int fd, bool is_ws, const void *bytes,
-                                size_t len, void *ctx)
+// mis-framing WS bytes as an SSE comment. `client->is_ws` (read directly off
+// the handle -- bb_data_http_client_t is shared with this platform backend
+// via bb_data_http_internal.h) replaces the old is_ws seam parameter
+// (B1-1123 PR-1); the transport-neutral seam no longer carries it.
+static bb_err_t espidf_send_fn(const bb_data_http_client_t *client,
+                                const void *bytes, size_t len, void *ctx)
 {
     (void)ctx;
-    if (is_ws) {
+    if (!client) {
+        return BB_ERR_INVALID_ARG;
+    }
+    if (client->is_ws) {
         bb_log_w(TAG, "send_fn: WS framing unsupported (SSE-only de-risk)");
         return BB_ERR_UNSUPPORTED;
     }
 
     portENTER_CRITICAL(&s_slots_mux);
-    bb_data_http_espidf_slot_t *slot = slot_find_by_fd_locked(fd);
+    bb_data_http_espidf_slot_t *slot = slot_find_by_client_locked(client);
     bb_http_request_t *async_req = slot ? slot->async_req : NULL;
     portEXIT_CRITICAL(&s_slots_mux);
     if (!async_req) {
