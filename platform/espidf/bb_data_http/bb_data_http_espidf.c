@@ -217,10 +217,15 @@ static bb_err_t espidf_generation_fn(const char *key, uint32_t *out_gen, void *c
 // the handle -- bb_data_http_client_t is shared with this platform backend
 // via bb_data_http_internal.h) replaces the old is_ws seam parameter
 // (B1-1123 PR-1); the transport-neutral seam no longer carries it.
-static bb_err_t espidf_send_fn(const bb_data_http_client_t *client,
+//
+// `key` (B1-1123 PR-2) is unused here -- the SSE framing below is `data:
+// <payload>\n\n` only, with no event name; an `event: <key>` line is a
+// tracked, out-of-scope wire-format change for a later PR.
+static bb_err_t espidf_send_fn(const char *key, const bb_data_http_client_t *client,
                                 const void *bytes, size_t len, void *ctx)
 {
     (void)ctx;
+    (void)key;
     if (!client) {
         return BB_ERR_INVALID_ARG;
     }

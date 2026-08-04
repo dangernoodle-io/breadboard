@@ -422,6 +422,42 @@ static bool client_outbound_has_room(const bb_data_http_client_t *c, size_t len)
     return bb_queue_bytes_used(c->outbound) + len <= c->outbound_max_bytes;
 }
 
+// Sentinel id for the drop-marker's own bb_queue_push() below (B1-1123 PR-2).
+// Legit ids pushed elsewhere in this file are attach-table indices
+// 0..BB_DATA_HTTP_MAX_ATTACH-1 (bb_queue's id field is uint32_t throughout
+// push/peek/peek_at -- no narrowing anywhere -- so this high sentinel is safe
+// with zero type changes); the marker previously reused literal `0`, which
+// collided with the real attach index 0.
+#define BB_DATA_HTTP_DROP_MARKER_ID ((uint32_t)UINT32_MAX)
+
+// Reserved key literal resolved for the drop-marker frame at the flush site
+// (see resolve_outbound_key() below) instead of a real attach-table key.
+// Never NULL: bb_data_http_send_fn's contract (bb_data_http.h) is that `key`
+// is always a valid, NUL-terminated string -- NULL would be a per-consumer
+// crash trap for every future send_fn (e.g. a naive MQTT topic lookup); this
+// literal also doubles as a candidate SSE event-name for the marker in a
+// later PR (out of scope here -- see bb_data_http.h's send_fn doc).
+#define BB_DATA_HTTP_DROP_MARKER_KEY "dropped"
+
+// Resolves the attach-table key for a queued outbound entry's `id` -- every
+// real STATE/EVENT push's id is an attach-table index (see the STATE drain
+// and EVENT ring-feed pushes below); the drop-marker sentinel
+// (BB_DATA_HTTP_DROP_MARKER_ID) is checked FIRST, before the registry
+// lookup, so the hot (real-frame) path pays only the one sentinel
+// comparison -- never a range check folded into the registry lookup itself.
+static const char *resolve_outbound_key(uint32_t id)
+{
+    if (id == BB_DATA_HTTP_DROP_MARKER_ID) return BB_DATA_HTTP_DROP_MARKER_KEY;
+
+    bb_registry_entry_t e;
+    if (bb_registry_get_by_index(&s_attach_registry, (uint16_t)id, &e) != BB_OK) {  // LCOV_EXCL_BR_LINE -- id always names a still-registered attach index (the attach table never shrinks, mirrors drain_client_events()'s identical rationale); unreachable in practice.
+        // LCOV_EXCL_START
+        return BB_DATA_HTTP_DROP_MARKER_KEY;
+        // LCOV_EXCL_STOP
+    }
+    return ((attach_slot_t *)e.value)->key;
+}
+
 // Attempts to flush client `c`'s pending "{"dropped":N}" marker (queued as a
 // JSON object, matching the shape of every other frame this queue carries --
 // a client that JSON-parses every frame must never see a bare non-JSON
@@ -442,7 +478,7 @@ static void try_flush_event_drop_marker(bb_data_http_client_t *c)
     if (n < 0 || (size_t)n >= sizeof(marker)) return;  // LCOV_EXCL_LINE -- uint32_t max always fits this buffer
     if (!client_outbound_has_room(c, (size_t)n)) return;
 
-    bb_queue_push(c->outbound, marker, (size_t)n, 0, 0);
+    bb_queue_push(c->outbound, marker, (size_t)n, 0, BB_DATA_HTTP_DROP_MARKER_ID);
     c->event_drop_marker_pending = false;
 }
 
@@ -654,7 +690,7 @@ void bb_data_http_sweep_step(void)
         int64_t ts        = 0;
         uint32_t id        = 0;
         while (bb_queue_peek_oldest(c->outbound, frame, sizeof(frame), &frame_len, &ts, &id) == BB_OK) {
-            s_send_fn(c, frame, frame_len, s_send_ctx);
+            s_send_fn(resolve_outbound_key(id), c, frame, frame_len, s_send_ctx);
             bb_queue_pop_oldest(c->outbound);
         }
     }

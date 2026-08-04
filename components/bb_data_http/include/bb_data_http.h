@@ -121,7 +121,16 @@ typedef bb_err_t (*bb_data_http_generation_fn)(const char *key, uint32_t *out_ge
 // every call, not per-client. The real backend wraps a socket write (or
 // bb_ws_server send); host tests supply a capture stub
 // (platform/host/bb_data_http/bb_data_http_host.h).
-typedef bb_err_t (*bb_data_http_send_fn)(const bb_data_http_client_t *client,
+//
+// `key` (B1-1123 PR-2) answers "what is being written", complementing
+// `client`/`ctx`'s "who to write to" -- a future MQTT consumer needs it to
+// pick a topic; it is orthogonal to the client-identity question and does
+// NOT replace it (SSE still needs `client` to pick a socket). `key` is
+// ALWAYS a valid, non-NULL, NUL-terminated string, even for the internal
+// drop-marker frame (bb_data_http_sweep_step()'s EVENT drop-marker doc),
+// which uses a reserved literal rather than NULL -- so a consumer can always
+// treat `key` as a plain C string with no NULL-check.
+typedef bb_err_t (*bb_data_http_send_fn)(const char *key, const bb_data_http_client_t *client,
                                           const void *bytes, size_t len, void *ctx);
 
 // Install/replace the render seam. Passing fn=NULL disables rendering (dirty

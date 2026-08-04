@@ -633,6 +633,12 @@ void test_bb_data_http_sweep_step_renders_dirty_state_key(void)
     TEST_ASSERT_FALSE(is_ws);
     buf[len] = '\0';
     TEST_ASSERT_EQUAL_STRING("{\"key\":\"k1\",\"gen\":5}", buf);
+
+    // B1-1123 PR-2: send_fn's `key` argument resolves to the STATE key that
+    // was actually rendered.
+    char resolved_key[BB_DATA_HTTP_KEY_MAX];
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_key_at(0, resolved_key, sizeof(resolved_key)));
+    TEST_ASSERT_EQUAL_STRING("k1", resolved_key);
 }
 
 void test_bb_data_http_sweep_step_coalesces_multiple_bumps_into_one_render(void)
@@ -676,6 +682,16 @@ void test_bb_data_http_sweep_step_multiple_dirty_keys_all_rendered(void)
     bb_data_http_sweep_step();
 
     TEST_ASSERT_EQUAL_UINT(2, bb_data_http_host_frame_count());
+
+    // B1-1123 PR-2: each frame's `key` resolves to its OWN attach-table
+    // entry, not e.g. always the first/last attached key -- exercises
+    // resolve_outbound_key() across more than one attach index.
+    char key0[BB_DATA_HTTP_KEY_MAX];
+    char key1[BB_DATA_HTTP_KEY_MAX];
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_key_at(0, key0, sizeof(key0)));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_key_at(1, key1, sizeof(key1)));
+    TEST_ASSERT_EQUAL_STRING("k1", key0);
+    TEST_ASSERT_EQUAL_STRING("k2", key1);
 }
 
 // EVENT-kind keys no longer skip the sweep entirely (B1-1033 PR-3): a
@@ -937,6 +953,17 @@ void test_bb_data_http_event_ring_wrap_drops_evicted_gap_with_marker(void)
     bb_data_http_host_frame_at(2, NULL, NULL, buf, sizeof(buf), &len);
     buf[len] = '\0';
     TEST_ASSERT_EQUAL_STRING("{\"key\":\"ev3\",\"gen\":1}", buf);
+
+    // B1-1123 PR-2: send_fn's `key` argument -- the drop-marker frame (0)
+    // resolves to the reserved literal, never a real attach-table key; the
+    // surviving EVENT frames (1, 2) resolve to their own bb_data key.
+    char key[BB_DATA_HTTP_KEY_MAX];
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_key_at(0, key, sizeof(key)));
+    TEST_ASSERT_EQUAL_STRING("dropped", key);
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_key_at(1, key, sizeof(key)));
+    TEST_ASSERT_EQUAL_STRING("ev2", key);
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_key_at(2, key, sizeof(key)));
+    TEST_ASSERT_EQUAL_STRING("ev3", key);
 }
 
 // Backpressure: a client's own outbound queue filling up (independent of
@@ -1339,6 +1366,28 @@ void test_bb_data_http_sweep_step_render_failure_log_rate_limit_both_outcomes(vo
     TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_dirty_mask_for_test(c));  // still retrying
 }
 
+// Same rate-limit-both-outcomes coverage as the STATE test above, but for
+// the EVENT-kind ring-feed's own (separate source line) render-fail
+// rate-limit check -- gcov's per-line branch identity means STATE's 32-sweep
+// drive above does NOT also exercise this line.
+void test_bb_data_http_sweep_step_event_render_failure_log_rate_limit_both_outcomes(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(failing_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+
+    for (int i = 0; i < 32; i++) {
+        fake_gen_bump("ev1");
+        bb_data_http_sweep_step();
+    }
+
+    TEST_ASSERT_EQUAL_UINT(32, bb_data_http_render_fail_count());
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());  // every attempt failed -- nothing ever sent
+}
+
 // ---------------------------------------------------------------------------
 // Test-hook defensive guards: every _for_test() getter tolerates a NULL
 // client (returns its zero value) and bb_data_http_client_seen_gen_for_test()
@@ -1449,6 +1498,37 @@ void test_bb_data_http_host_frame_at_null_out_params_are_optional(void)
     // zero-capacity buffer.
     char zero_cap_buf[1];
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(0, NULL, NULL, zero_cap_buf, 0, NULL));
+}
+
+void test_bb_data_http_host_frame_key_at_out_of_range_returns_not_found(void)
+{
+    reset_all();
+    bb_data_http_host_install_send();
+
+    char buf[BB_DATA_HTTP_KEY_MAX];
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_data_http_host_frame_key_at(0, buf, sizeof(buf)));
+}
+
+void test_bb_data_http_host_frame_key_at_null_buf_is_optional(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach("k1", "topic.a");
+    fake_gen_set("k1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&c, 1, false);
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    // buf==NULL and buf_cap==0 must both skip the copy without crashing --
+    // mirrors bb_data_http_host_frame_at()'s own NULL-optional contract.
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_key_at(0, NULL, sizeof(char) * BB_DATA_HTTP_KEY_MAX));
+    char zero_cap_buf[1];
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_key_at(0, zero_cap_buf, 0));
 }
 
 // ---------------------------------------------------------------------------
