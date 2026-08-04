@@ -206,13 +206,31 @@ static int s_log_vprintf(const char *fmt, va_list args)
     if (n <= 0) return 0;
     msg.len = (n < (int)sizeof(msg.line)) ? (size_t)n : sizeof(msg.line) - 1;
 
-    /* 1. Enqueue for console writer — non-blocking, drop on full */
+    /* 1. Enqueue for console writer — non-blocking, drop on full. Console
+     *    output is unaffected by TELEM routing: every line always reaches
+     *    it, regardless of the check below. */
     if (s_writer_q && xQueueSend(s_writer_q, &msg, 0) != pdTRUE) {
         s_writer_dropped++;
     }
 
+    /* B1-831 PR-3: should this line also reach the wide sinks (ring, the
+     * bb_log_event forwarder queue, and the optional UDP mirror), or stay
+     * console-only? Gated by its own #if CONFIG_BB_LOG_TELEM_ROUTING --
+     * bb_log_telem_route.c (and therefore bb_log_telem_should_route_wide) is
+     * compiled OUT of the SRCS list entirely when the knob is off
+     * (components/bb_log/CMakeLists.txt), so an unguarded call here would
+     * fail to link on a board that disables it. When the gate is compiled
+     * out, routing is unconditionally wide -- identical to pre-B1-831
+     * behavior. The console writer (step 1) and the bb_diag tap (step 3) are
+     * NEVER gated -- every line always reaches them regardless of route_wide. */
+#if CONFIG_BB_LOG_TELEM_ROUTING
+    bool route_wide = bb_log_telem_should_route_wide(msg.line, msg.len);
+#else
+    bool route_wide = true;
+#endif
+
     /* 2. Push to ringbuf for SSE consumers */
-    if (s_rb) {
+    if (route_wide && s_rb) {
         if (xRingbufferSend(s_rb, msg.line, msg.len + 1, 0) != pdTRUE) {
             for (int i = 0; i < 8; i++) {
                 s_drop_oldest();
@@ -222,7 +240,8 @@ static int s_log_vprintf(const char *fmt, va_list args)
         }
     }
 
-    /* 3. Notify the optional tap (e.g. bb_diag panic mirror) */
+    /* 3. Notify the optional tap (e.g. bb_diag panic mirror) — unaffected by
+     *    TELEM routing, same as the console writer. */
     bb_log_stream_tap_fn tap = atomic_load(&s_tap);
     if (tap) tap(msg.line, msg.len);
 
@@ -230,14 +249,16 @@ static int s_log_vprintf(const char *fmt, va_list args)
      *    s_event_q is NULL until bb_log_event_set_queue() is called, so this
      *    step is free until the forwarder is initialized. */
     QueueHandle_t eq = s_event_q;
-    if (eq && xQueueSend(eq, &msg, 0) != pdTRUE) {
+    if (route_wide && eq && xQueueSend(eq, &msg, 0) != pdTRUE) {
         s_event_dropped++;
     }
 
 #if CONFIG_BB_LOG_UDP_SINK
     /* 5. Enqueue for the UDP mirror — non-blocking, drop on full. sendto runs
-     *    on s_udp_task, never here inside the IDF log mutex. */
-    if (s_udp_enabled && s_udp_q && xQueueSend(s_udp_q, &msg, 0) != pdTRUE) {
+     *    on s_udp_task, never here inside the IDF log mutex. Gated by
+     *    route_wide same as steps 2/4: a TELEM line kept console-only must
+     *    not leak over the network either. */
+    if (route_wide && s_udp_enabled && s_udp_q && xQueueSend(s_udp_q, &msg, 0) != pdTRUE) {
         s_udp_dropped++;
     }
 #endif

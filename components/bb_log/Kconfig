@@ -72,17 +72,17 @@ config BB_LOG_TELEM_ROUTING
     default y
     help
         Compiles in the pure decision core (bb_log_telem_route_wide(),
-        components/bb_log/src/bb_log_telem_route.c) used to gate whether a
-        TELEM-tagged log line also fans out to the wide sinks (bb_log_event
-        forwarder queue, UDP mirror) in addition to the console. Disable to
-        compile the source file out entirely (components/bb_log/CMakeLists.txt
-        only adds it to SRCS when this is enabled) on boards that never carry
-        a TELEM producer. Default y.
-        NOTE (B1-831 PR-2): the s_log_vprintf routing call site (which will
-        need its own matching #if CONFIG_BB_LOG_TELEM_ROUTING guard) lands in
-        a later PR -- disabling this knob today only shrinks the binary by
-        the decision function itself, it does not yet change routing
-        behavior anywhere.
+        components/bb_log/src/bb_log_telem_route.c) plus its s_log_vprintf
+        call site (platform/espidf/bb_log/bb_log.c), used to gate whether a
+        TELEM-tagged log line also fans out to the wide sinks -- the ring
+        buffer, the bb_log_event forwarder queue, and the optional UDP
+        mirror (CONFIG_BB_LOG_UDP_SINK) -- in addition to the console. The
+        console writer and the optional bb_diag tap are NEVER gated by this
+        knob; every line always reaches them. Disable to compile the source
+        file out entirely (components/bb_log/CMakeLists.txt only adds it to
+        SRCS when this is enabled) on boards that never carry a TELEM
+        producer -- the call site falls back to always routing wide,
+        identical to the knob never having existed. Default y.
 
 config BB_LOG_TELEM_TAG
     string "Log tag treated as TELEM for wide-routing purposes"
@@ -92,7 +92,11 @@ config BB_LOG_TELEM_TAG
         The exact tag (case-sensitive, exact match -- "TELEMETRY" is a
         different tag) bb_log_telem_route_wide() compares against. Inert
         when BB_LOG_TELEM_ROUTING is disabled (the function that reads it is
-        compiled out).
+        compiled out). Must be 47 characters or fewer -- the call site parses
+        the tag into a fixed BB_LOG_TELEM_TAG_PARSE_CAP-byte buffer
+        (components/bb_log/src/bb_log_internal.h); a longer value fails the
+        build via a _Static_assert in bb_log_telem_route.c rather than
+        silently truncating and going inert at runtime.
 
 config BB_LOG_TELEM_ROUTE_EVENTS
     bool "Route TELEM-tagged log lines to the wide sinks by default"
@@ -100,11 +104,14 @@ config BB_LOG_TELEM_ROUTE_EVENTS
     depends on BB_LOG_TELEM_ROUTING
     help
         When disabled (default), a TELEM-tagged line stays console-only --
-        it does not also fan out to the bb_log_event forwarder queue / UDP
-        mirror. When enabled, TELEM-tagged lines are routed exactly like any
-        other tag. Non-TELEM tags are never affected by this knob. Inert
-        when BB_LOG_TELEM_ROUTING is disabled. NOTE (B1-831 PR-2): not yet
-        consumed by any call site.
+        it does not also fan out to the ring, the bb_log_event forwarder
+        queue, or the optional UDP mirror (CONFIG_BB_LOG_UDP_SINK). When
+        enabled, TELEM-tagged lines are routed exactly like any other tag.
+        Non-TELEM tags are never affected by this knob. Inert when
+        BB_LOG_TELEM_ROUTING is disabled. This is only the boot-time default
+        -- bb_log_telem_route_set() can override it at runtime, but no
+        production consumer calls that setter yet; today it is reachable
+        only from host tests.
 
 config BB_LOG_WRITER_TASK_STACK
     int "bb_log console-writer task stack size (bytes)"
