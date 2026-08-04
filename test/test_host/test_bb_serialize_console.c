@@ -114,9 +114,250 @@ void test_bb_serialize_console_nested_obj_no_crash(void)
     bb_err_t rc = bb_serialize_console_render(&s_console_obj_desc, &snap, buf, sizeof(buf), &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
-    // No nesting-aware key qualification -- the child's own key is emitted
-    // flat (no parent-key prefix, no brackets).
-    TEST_ASSERT_EQUAL_STRING("n=5", buf);
+    // Nesting-aware key qualification (B1-1416): the child's key is
+    // prefixed with its parent's key, dotted -- no brackets. THIS IS
+    // LOAD-BEARING: a path-stack mechanism that pushes/pops but is never
+    // read at emit time reproduces the old flat "n=5" output, and only
+    // this assertion catches that.
+    TEST_ASSERT_EQUAL_STRING("o.n=5", buf);
+}
+
+// ---------------------------------------------------------------------------
+// Nested-key qualification (B1-1416) -- multi-level joining, sibling
+// disambiguation, depth-cap, and truncation interaction.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    int64_t c;
+} console_abc_level_c_t;
+
+typedef struct {
+    console_abc_level_c_t b;
+} console_abc_level_b_t;
+
+typedef struct {
+    console_abc_level_b_t a;
+} console_abc_snap_t;
+
+static const bb_serialize_field_t s_console_abc_c_fields[] = {
+    { .key = "c", .type = BB_TYPE_I64, .offset = offsetof(console_abc_level_c_t, c) },
+};
+static const bb_serialize_field_t s_console_abc_b_fields[] = {
+    { .key = "b", .type = BB_TYPE_OBJ, .offset = offsetof(console_abc_level_b_t, b),
+      .children = s_console_abc_c_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_console_abc_a_fields[] = {
+    { .key = "a", .type = BB_TYPE_OBJ, .offset = offsetof(console_abc_snap_t, a),
+      .children = s_console_abc_b_fields, .n_children = 1 },
+};
+static const bb_serialize_desc_t s_console_abc_desc = {
+    .type_name = "console_abc_snap_t",
+    .fields = s_console_abc_a_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(console_abc_snap_t),
+};
+
+void test_bb_serialize_console_two_level_nesting_joins_full_path(void)
+{
+    console_abc_snap_t snap = { .a = { .b = { .c = 1 } } };
+    char buf[64];
+    size_t out_len = 0;
+
+    bb_err_t rc = bb_serialize_console_render(&s_console_abc_desc, &snap, buf, sizeof(buf), &out_len);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL_STRING("a.b.c=1", buf);
+}
+
+typedef struct {
+    int64_t free;
+} console_region_t;
+
+typedef struct {
+    console_region_t r1;
+    console_region_t r2;
+} console_regions_snap_t;
+
+static const bb_serialize_field_t s_console_region_fields[] = {
+    { .key = "free", .type = BB_TYPE_I64, .offset = offsetof(console_region_t, free) },
+};
+static const bb_serialize_field_t s_console_regions_fields[] = {
+    { .key = "r1", .type = BB_TYPE_OBJ, .offset = offsetof(console_regions_snap_t, r1),
+      .children = s_console_region_fields, .n_children = 1 },
+    { .key = "r2", .type = BB_TYPE_OBJ, .offset = offsetof(console_regions_snap_t, r2),
+      .children = s_console_region_fields, .n_children = 1 },
+};
+static const bb_serialize_desc_t s_console_regions_desc = {
+    .type_name = "console_regions_snap_t",
+    .fields = s_console_regions_fields,
+    .n_fields = 2,
+    .snap_size = sizeof(console_regions_snap_t),
+};
+
+// THE MOTIVATING CASE: two sibling BB_TYPE_OBJ children sharing an
+// identical child key ("free") render as distinct, disambiguated tokens
+// rather than colliding on one line (the bug this ticket fixes -- see
+// bb_meminfo_heap_snap_desc's per-region objects, the real-world trigger).
+void test_bb_serialize_console_sibling_objects_disambiguate_shared_child_key(void)
+{
+    console_regions_snap_t snap = { .r1 = { .free = 1 }, .r2 = { .free = 2 } };
+    char buf[64];
+    size_t out_len = 0;
+
+    bb_err_t rc = bb_serialize_console_render(&s_console_regions_desc, &snap, buf, sizeof(buf), &out_len);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL_STRING("r1.free=1 r2.free=2", buf);
+}
+
+// Depth-cap defensive case: an 8-level-deep nested descriptor (matching
+// BB_SERIALIZE_MAX_DEPTH exactly) proves the path stack tracks the
+// walker's own recursion cap without corrupting path[] -- the walker
+// itself refuses to recurse past this depth (bb_serialize_walk.c), so this
+// exercises the boundary the path stack must never exceed.
+typedef struct { int64_t v; } console_deep8_t;
+typedef struct { console_deep8_t l8; } console_deep7_t;
+typedef struct { console_deep7_t l7; } console_deep6_t;
+typedef struct { console_deep6_t l6; } console_deep5_t;
+typedef struct { console_deep5_t l5; } console_deep4_t;
+typedef struct { console_deep4_t l4; } console_deep3_t;
+typedef struct { console_deep3_t l3; } console_deep2_t;
+typedef struct { console_deep2_t l2; } console_deep1_snap_t;
+
+static const bb_serialize_field_t s_console_deep8_fields[] = {
+    { .key = "v", .type = BB_TYPE_I64, .offset = offsetof(console_deep8_t, v) },
+};
+static const bb_serialize_field_t s_console_deep7_fields[] = {
+    { .key = "l8", .type = BB_TYPE_OBJ, .offset = offsetof(console_deep7_t, l8),
+      .children = s_console_deep8_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_console_deep6_fields[] = {
+    { .key = "l7", .type = BB_TYPE_OBJ, .offset = offsetof(console_deep6_t, l7),
+      .children = s_console_deep7_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_console_deep5_fields[] = {
+    { .key = "l6", .type = BB_TYPE_OBJ, .offset = offsetof(console_deep5_t, l6),
+      .children = s_console_deep6_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_console_deep4_fields[] = {
+    { .key = "l5", .type = BB_TYPE_OBJ, .offset = offsetof(console_deep4_t, l5),
+      .children = s_console_deep5_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_console_deep3_fields[] = {
+    { .key = "l4", .type = BB_TYPE_OBJ, .offset = offsetof(console_deep3_t, l4),
+      .children = s_console_deep4_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_console_deep2_fields[] = {
+    { .key = "l3", .type = BB_TYPE_OBJ, .offset = offsetof(console_deep2_t, l3),
+      .children = s_console_deep3_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_console_deep1_fields[] = {
+    { .key = "l2", .type = BB_TYPE_OBJ, .offset = offsetof(console_deep1_snap_t, l2),
+      .children = s_console_deep2_fields, .n_children = 1 },
+};
+static const bb_serialize_desc_t s_console_deep1_desc = {
+    .type_name = "console_deep1_snap_t",
+    .fields = s_console_deep1_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(console_deep1_snap_t),
+};
+
+// Nests 7 levels deep (l2..l8), so path_depth reaches 7 -- one short of
+// BB_SERIALIZE_MAX_DEPTH (8) -- and joins the full dotted path cleanly.
+// This proves deep nesting UNDER the cap, not AT or past it: the
+// push-skip-on-cap guard's true arm in bb_console_push_path() is
+// unreachable from outside the walker by construction, since
+// bb_serialize_walk.c's own `depth >= BB_SERIALIZE_MAX_DEPTH` check (see
+// bb_serialize_walk.c) breaks BEFORE ever calling begin_obj at depth 8 --
+// there is no legitimate walk that can drive this backend's guard to its
+// true arm (see that guard's LCOV_EXCL_LINE in bb_serialize_console.c).
+void test_bb_serialize_console_deep_nesting_under_cap_joins_full_path(void)
+{
+    console_deep1_snap_t snap = { .l2 = { .l3 = { .l4 = { .l5 = { .l6 = { .l7 = { .l8 = { .v = 42 } } } } } } } };
+    char buf[128];
+    size_t out_len = 0;
+
+    bb_err_t rc = bb_serialize_console_render(&s_console_deep1_desc, &snap, buf, sizeof(buf), &out_len);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL_STRING("l2.l3.l4.l5.l6.l7.l8.v=42", buf);
+}
+
+// Truncation interaction: a qualified line overflowing cap still truncates
+// cleanly and stays NUL-terminated -- the same snprintf-style contract as
+// every other emit path in this backend, now exercised through the
+// path-join loop in bb_console_pre_value() rather than a single key write.
+void test_bb_serialize_console_nested_key_truncates_cleanly(void)
+{
+    console_regions_snap_t snap = { .r1 = { .free = 1 }, .r2 = { .free = 2 } };
+    char buf[10];  // "r1.free=1" is 9 chars + NUL == exactly 10; cap below forces a clip
+    size_t out_len = 0;
+
+    bb_err_t rc = bb_serialize_console_render(&s_console_regions_desc, &snap, buf, 6, &out_len);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    // Pins the exact clip point, not just structural NUL-termination: the
+    // untruncated line is "r1.free=1", cap 6 leaves room for "r1." (3) plus
+    // a clipped "fr" (2, one shy of the NUL) from the "free=" key -- the
+    // value digit never gets written. Truncating mid-key like this yields
+    // an ambiguous half-key rather than a truncated value, but that's
+    // pre-existing truncate-don't-fail backend behaviour (applied
+    // consistently across every emit path in this file), not something
+    // B1-1416 introduced -- not changed here.
+    TEST_ASSERT_EQUAL_STRING("r1.fr", buf);
+    TEST_ASSERT_EQUAL('\0', buf[5]);
+    TEST_ASSERT_TRUE(out_len < 6);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), out_len);
+}
+
+// Array-of-obj elements are begin_obj'd with key == NULL (see
+// bb_serialize_walk.c) -- pushed onto the path stack like any other OBJ
+// (balanced push/pop) but skipped when joining a qualified key, so a
+// scalar OBJ-nested *inside* an array-of-obj row still qualifies against
+// its own ancestor keys, just without an array-row segment prefixed.
+// Exercises bb_console_pre_value()'s `if (ctx->path[i])` skip-NULL branch.
+typedef struct {
+    int64_t v;
+} console_arr_row_inner_t;
+
+typedef struct {
+    console_arr_row_inner_t inner;
+} console_arr_row_t;
+
+typedef struct {
+    bb_serialize_arr_t rows;
+} console_arr_of_obj_snap_t;
+
+static const bb_serialize_field_t s_console_arr_row_inner_fields[] = {
+    { .key = "v", .type = BB_TYPE_I64, .offset = offsetof(console_arr_row_inner_t, v) },
+};
+static const bb_serialize_field_t s_console_arr_row_fields[] = {
+    { .key = "inner", .type = BB_TYPE_OBJ, .offset = offsetof(console_arr_row_t, inner),
+      .children = s_console_arr_row_inner_fields, .n_children = 1 },
+};
+static const bb_serialize_field_t s_console_arr_of_obj_fields[] = {
+    { .key = "rows", .type = BB_TYPE_ARR, .offset = offsetof(console_arr_of_obj_snap_t, rows),
+      .elem_type = BB_TYPE_OBJ, .elem_size = sizeof(console_arr_row_t), .max_items = 4,
+      .children = s_console_arr_row_fields, .n_children = 1 },
+};
+static const bb_serialize_desc_t s_console_arr_of_obj_desc = {
+    .type_name = "console_arr_of_obj_snap_t",
+    .fields = s_console_arr_of_obj_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(console_arr_of_obj_snap_t),
+};
+
+void test_bb_serialize_console_array_of_obj_row_qualifies_without_row_key(void)
+{
+    console_arr_row_t rows[1] = { { .inner = { .v = 1 } } };
+    console_arr_of_obj_snap_t snap = { .rows = { .items = rows, .count = 1 } };
+    char buf[64];
+    size_t out_len = 0;
+
+    bb_err_t rc = bb_serialize_console_render(&s_console_arr_of_obj_desc, &snap, buf, sizeof(buf), &out_len);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL_STRING("inner.v=1", buf);
 }
 
 typedef struct {
