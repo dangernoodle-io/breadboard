@@ -76,6 +76,13 @@ size_t bb_data_http_client_outbound_count_for_test(const bb_data_http_client_t *
 // Returns client `c`'s current event_cursor (next undrained EVENT global
 // sequence number). Returns 0 if `c` is NULL.
 uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *c);
+
+// Returns client `c`'s is_ws flag, as recorded by
+// bb_data_http_client_acquire_ex()'s `is_ws` argument (B1-1050 PR-1: WS
+// egress wiring -- the espidf backend's WS acquire/release path relies on
+// this flag being correctly threaded through by the pure core, so it needs
+// a host-testable seam of its own). Returns false if `c` is NULL.
+bool bb_data_http_client_is_ws_for_test(const bb_data_http_client_t *c);
 #endif
 
 // GET /api/events route descriptor (B1-1215): schema-only (.handler == NULL)

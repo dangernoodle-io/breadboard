@@ -26,6 +26,7 @@ Public symbols use the `bb_` prefix.
 | `bb_registry` | private | — | [bb_registry](../README.md) |
 | `bb_str` | private | Portable string-safety helpers: strlcpy/field-fill semantics, key=value parsing, and hex<->bytes codec. | [bb_str](../bb_str/README.md) |
 | `bb_task` | private | — | [bb_task](../README.md) |
+| `bb_ws_server` | private | — | [bb_ws_server](../README.md) |
 | `freertos` | private | — | freertos |
 | `lwip` | private | — | lwip |
 <!-- END bbtool:deps -->

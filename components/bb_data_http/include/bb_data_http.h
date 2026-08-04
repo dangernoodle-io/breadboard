@@ -399,6 +399,27 @@ bb_err_t bb_data_http_espidf_client_connect(bb_http_request_t *req,
 // bb_http_handle_t opaque handle (bb_core.h, already included above) -- no
 // platform type leaks through this declaration.
 bb_err_t bb_data_http_espidf_routes_init(bb_http_handle_t server);
+
+// Registers the WS egress endpoint GET /ws/events on `server` (B1-1050
+// PR-1): installs bb_ws_server's process-global connect/disconnect
+// callbacks (acquiring/releasing a bb_data_http client with is_ws=true per
+// WS session -- see bb_ws_server_set_connect_cb/set_disconnect_cb's own
+// "one registration per process" contract) and registers the endpoint
+// itself via bb_ws_server_register_endpoint(). Inbound DATA frames on this
+// endpoint are explicitly discarded (bb_data_http has no recv concept; see
+// the platform/espidf/bb_data_http/bb_data_http_espidf.c handler's own
+// comment -- WS ingress is a separate, tracked design, epic B1-828).
+//
+// Topic filtering is NOT available on this path (B1-1423, tracked
+// follow-up): every WS client acquired here subscribes to all attached
+// topics, unlike GET /api/events' `?topic=` query param -- bb_ws_server's
+// connect callback carries no request handle to parse one from.
+//
+// bb_data_http_espidf_start() should be called first so the sweep task is
+// already running when a client connects, same as bb_data_http_espidf_
+// routes_init() above. bb_http_handle_t opaque handle (bb_core.h, already
+// included above) -- no platform type leaks through this declaration.
+bb_err_t bb_data_http_espidf_ws_routes_init(bb_http_handle_t server);
 #endif
 
 #ifdef __cplusplus
