@@ -9,7 +9,6 @@
 #include "bb_http_section_priv.h"
 
 #include <stdbool.h>
-#include <stdio.h>
 #include <string.h>
 
 typedef struct {
@@ -59,7 +58,17 @@ bb_err_t bb_http_section_register_ns(const bb_http_section_ns_t *ns)
     bb_http_section_slot_t *slot = &s_slots[s_count];
     strncpy(slot->prefix, ns->prefix, sizeof(slot->prefix) - 1);
     slot->prefix[sizeof(slot->prefix) - 1] = '\0';
-    snprintf(slot->wildcard, sizeof(slot->wildcard), "%s*", slot->prefix);
+    // -Wrestrict false positive: `prefix`/`wildcard` are disjoint members of
+    // the same struct, so they cannot alias -- confirmed not reproducible on
+    // host gcc at any -O level. Bounds: prefix_len <= BB_HTTP_SECTION_PREFIX_
+    // MAX-1 (enforced by both the strlen() >= BB_HTTP_SECTION_PREFIX_MAX
+    // rejection above and the strncpy cap here), and wildcard's capacity is
+    // BB_HTTP_SECTION_PREFIX_MAX+1, so prefix_len + '*' + '\0' <=
+    // (PREFIX_MAX-1) + 2 == PREFIX_MAX+1 -- fits exactly, never overruns.
+    size_t prefix_len = strlen(slot->prefix);
+    memcpy(slot->wildcard, slot->prefix, prefix_len);
+    slot->wildcard[prefix_len]     = '*';
+    slot->wildcard[prefix_len + 1] = '\0';
     slot->ns        = *ns;
     slot->ns.prefix = slot->prefix;
     slot->in_use    = true;
@@ -90,7 +99,15 @@ const bb_http_section_ns_t *bb_http_section_find(const char *uri, char *out, siz
     for (size_t i = 0; i < s_count; i++) {
         const bb_http_section_slot_t *slot = &s_slots[i];
         size_t                        len  = strlen(slot->prefix);
-        if (len <= best_len) continue;  // only a strictly-longer match can win
+        // Strictly `<` (not `<=`): an equal-length candidate can never
+        // legitimately displace `best` anyway -- register_ns()'s duplicate-
+        // prefix guard (strcmp on the full prefix string) means two
+        // DISTINCT registered prefixes of the same length can never both
+        // strncmp-match the same `len` leading bytes of `uri` (that would
+        // require their content to be byte-identical, which the guard
+        // forbids), so the `<=` this replaced was dead: mutation-tested
+        // (changed to `<`, full host suite still 100% pass) before landing.
+        if (len < best_len) continue;
         if (strncmp(uri, slot->prefix, len) != 0) continue;
         best     = slot;
         best_len = len;

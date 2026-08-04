@@ -262,7 +262,12 @@ static void bb_json_write_f64_shortest(bb_serialize_json_ctx_t *ctx, double v)
     char buf[32];
     int  n;
     if (v == (double)vi) {
-        n = snprintf(buf, sizeof(buf), "%d", vi);
+        // int32_t is `long int` on xtensa -- "%d" is a format-type mismatch
+        // there (UB, -Werror=format= build-breaker), invisible on host where
+        // int32_t is a plain int. Route through the shared decimal helper
+        // (see the "Number formatting" block above) instead of re-hand-
+        // rolling a second snprintf-based integer formatter in this file.
+        n = (int)bb_num_i64_to_dec(buf, sizeof(buf), (int64_t)vi);
     } else {
         n = snprintf(buf, sizeof(buf), "%.15g", v);
         double reparse = strtod(buf, NULL);
