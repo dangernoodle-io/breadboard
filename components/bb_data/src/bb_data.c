@@ -18,14 +18,15 @@
 // the bb_registry entry -- the registry only borrows `name`, it never copies
 // it).
 typedef struct {
-    bool                       in_use;
-    char                       key[BB_DATA_KEY_MAX];
-    const bb_serialize_desc_t *desc;
-    bb_data_gather_fn          gather;
-    bb_data_apply_fn           apply;
-    void                      *ctx;
-    bb_data_replay_kind_t      replay_kind;
-    _Atomic uint32_t           generation;
+    bool                          in_use;
+    char                          key[BB_DATA_KEY_MAX];
+    const bb_serialize_desc_t    *desc;
+    bb_data_gather_fn             gather;
+    bb_data_apply_fn              apply;
+    void                         *ctx;
+    bb_data_replay_kind_t         replay_kind;
+    const bb_data_row_binding_t  *rows;
+    _Atomic uint32_t              generation;
 } bb_data_slot_t;
 
 static bb_data_slot_t s_slots[BB_DATA_MAX_BINDINGS];
@@ -48,6 +49,10 @@ bb_err_t bb_data_bind(const bb_data_binding_t *binding)
 {
     if (!binding || !binding->key || !binding->desc || !binding->gather) return BB_ERR_INVALID_ARG;
     if (strlen(binding->key) >= BB_DATA_KEY_MAX) return BB_ERR_INVALID_ARG;
+    if (binding->rows) {
+        if (!binding->rows->row_desc || !binding->rows->row_gather) return BB_ERR_INVALID_ARG;
+        if (binding->rows->row_size != binding->rows->row_desc->snap_size) return BB_ERR_INVALID_ARG;
+    }
 
     bb_data_slot_t *slot = (bb_data_slot_t *)bb_registry_lookup(&s_bb_data_registry, binding->key);
     if (!slot) {
@@ -67,6 +72,7 @@ bb_err_t bb_data_bind(const bb_data_binding_t *binding)
     slot->apply       = binding->apply;
     slot->ctx         = binding->ctx;
     slot->replay_kind = binding->replay_kind;
+    slot->rows        = binding->rows;
 
     return BB_OK;
 }
@@ -88,6 +94,61 @@ bb_err_t bb_data_render(const bb_data_render_req_t *req)
     if (rc != BB_OK) return rc;
 
     return render(slot->desc, req->scratch, req->buf, req->buf_cap, req->out_len);
+}
+
+// Bounded, on-stack per-row line buffer -- an internal rendering scratch,
+// not a caller-tunable knob (no Kconfig bridge, per B1-1414's design:
+// row_scratch/max_rows sizing stays entirely caller-owned). 160 is an
+// independent, bb_data-owned bound -- it deliberately does NOT bridge
+// bb_serialize_console's CONFIG_BB_SERIALIZE_CONSOLE_LINE_MAX_BYTES (it
+// only happens to match that component's own default today): bb_data must
+// stay format-neutral, and bb_data_render_rows() dispatches through the
+// generic bb_serialize_render_fn seam, so taking a compile-time dependency
+// on one specific format component's Kconfig would be a layering
+// violation. A rendered row that exceeds this bound is silently truncated
+// (still NUL-terminated) by the underlying render fn -- see
+// bb_serialize_console_render()'s own "truncated-but-NUL-terminated is a
+// success, not an error" contract -- `emit_row` still fires for that row,
+// with `len` reflecting the truncated length, not the full content.
+#define BB_DATA_ROW_LINE_MAX_BYTES 160
+
+bb_err_t bb_data_render_rows(const bb_data_render_rows_req_t *req)
+{
+    if (!req || !req->key || !req->row_scratch || !req->emit_row) return BB_ERR_INVALID_ARG;
+
+    bb_data_slot_t *slot = (bb_data_slot_t *)bb_registry_lookup(&s_bb_data_registry, req->key);
+    if (!slot) return BB_ERR_NOT_FOUND;
+
+    // Table rendering is console-only -- N JSON fragments would not be a
+    // valid array (see bb_data_render_rows_req_t's own doc comment).
+    if (req->fmt != BB_FORMAT_CONSOLE) return BB_ERR_UNSUPPORTED;
+
+    if (!slot->rows) return BB_ERR_UNSUPPORTED;
+
+    bb_serialize_render_fn render = bb_serialize_format_get_render(BB_FORMAT_CONSOLE);
+    if (!render) return BB_ERR_UNSUPPORTED;
+
+    bb_data_gather_args_t args = { .ctx = slot->ctx, .query = req->query };
+    size_t n = slot->rows->row_gather(req->row_scratch, req->max_rows, &args);
+    // Clamps the reported row count for THIS render loop only -- it does NOT
+    // protect req->row_scratch from a row_gather that already wrote past
+    // max_rows before returning (see bb_data_row_gather_fn's own MUST-NOT
+    // doc comment in bb_data.h: that buffer-safety obligation is entirely
+    // the hook's, not something this clamp can retroactively provide).
+    if (n > req->max_rows) n = req->max_rows;
+
+    const uint8_t *rows = (const uint8_t *)req->row_scratch;
+    for (size_t i = 0; i < n; i++) {
+        char   line[BB_DATA_ROW_LINE_MAX_BYTES];
+        size_t out_len = 0;
+        bb_err_t rc = render(slot->rows->row_desc, rows + (i * slot->rows->row_size),
+                              line, sizeof(line), &out_len);
+        if (rc != BB_OK) return rc;
+
+        req->emit_row(line, out_len, i, req->emit_ctx);
+    }
+
+    return BB_OK;
 }
 
 bb_err_t bb_data_parse(const bb_data_parse_req_t *req, bb_data_parsed_t *out_parsed)

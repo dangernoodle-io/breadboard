@@ -248,6 +248,25 @@ void test_bb_data_scratch_acquire_reentrant_returns_invalid_state(void);
 void test_bb_data_scratch_release_without_acquire_is_noop(void);
 void test_bb_data_scratch_test_reset_forces_released_state(void);
 
+// Forward declarations from test_bb_data_rows.c
+void test_bb_data_bind_row_size_mismatch_rejected(void);
+void test_bb_data_bind_rows_null_row_desc_rejected(void);
+void test_bb_data_bind_rows_null_row_gather_rejected(void);
+void test_bb_data_bind_rows_valid_accepted(void);
+void test_bb_data_bind_rows_omitted_defaults_null(void);
+void test_bb_data_render_rows_emits_content_per_row_in_order(void);
+void test_bb_data_render_rows_zero_rows_emits_nothing(void);
+void test_bb_data_render_rows_max_rows_below_available_truncates(void);
+void test_bb_data_render_rows_binding_without_rows_returns_unsupported(void);
+void test_bb_data_render_rows_unbound_key_returns_not_found(void);
+void test_bb_data_render_rows_non_console_format_returns_unsupported(void);
+void test_bb_data_render_rows_console_format_not_registered_returns_unsupported(void);
+void test_bb_data_render_rows_null_args_return_invalid_arg(void);
+void test_bb_data_render_rows_forwards_query_to_row_gather(void);
+void test_bb_data_render_rows_row_gather_overreport_clamps_to_max_rows(void);
+void test_bb_data_render_rows_row_exceeding_line_bound_truncates_silently(void);
+void test_bb_data_render_rows_row_render_failure_propagates(void);
+
 // Forward declarations from test_bb_diag_section.c
 void test_bb_diag_register_section_success(void);
 void test_bb_diag_register_section_null_section_returns_invalid_arg(void);
@@ -11897,6 +11916,24 @@ int main(void) {
     RUN_TEST(test_bb_data_scratch_acquire_reentrant_returns_invalid_state);
     RUN_TEST(test_bb_data_scratch_release_without_acquire_is_noop);
     RUN_TEST(test_bb_data_scratch_test_reset_forces_released_state);
+
+    RUN_TEST(test_bb_data_bind_row_size_mismatch_rejected);
+    RUN_TEST(test_bb_data_bind_rows_null_row_desc_rejected);
+    RUN_TEST(test_bb_data_bind_rows_null_row_gather_rejected);
+    RUN_TEST(test_bb_data_bind_rows_valid_accepted);
+    RUN_TEST(test_bb_data_bind_rows_omitted_defaults_null);
+    RUN_TEST(test_bb_data_render_rows_emits_content_per_row_in_order);
+    RUN_TEST(test_bb_data_render_rows_zero_rows_emits_nothing);
+    RUN_TEST(test_bb_data_render_rows_max_rows_below_available_truncates);
+    RUN_TEST(test_bb_data_render_rows_binding_without_rows_returns_unsupported);
+    RUN_TEST(test_bb_data_render_rows_unbound_key_returns_not_found);
+    RUN_TEST(test_bb_data_render_rows_non_console_format_returns_unsupported);
+    RUN_TEST(test_bb_data_render_rows_console_format_not_registered_returns_unsupported);
+    RUN_TEST(test_bb_data_render_rows_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_data_render_rows_forwards_query_to_row_gather);
+    RUN_TEST(test_bb_data_render_rows_row_gather_overreport_clamps_to_max_rows);
+    RUN_TEST(test_bb_data_render_rows_row_exceeding_line_bound_truncates_silently);
+    RUN_TEST(test_bb_data_render_rows_row_render_failure_propagates);
 
     RUN_TEST(test_wifi_creds_apply_post_mode_does_not_reuse_stale_pending_password);
     RUN_TEST(test_wifi_creds_apply_patch_mode_would_reuse_stale_pending_password);
