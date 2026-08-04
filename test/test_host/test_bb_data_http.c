@@ -523,6 +523,37 @@ void test_bb_data_http_client_acquire_outbound_alloc_failure_returns_error(void)
     TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
 }
 
+// B1-1050 PR-1: the espidf WS backend acquires with is_ws=true (mirroring
+// the SSE path's is_ws=false) so its send_fn can branch on client->is_ws --
+// pin that the pure core actually records and returns the flag it was given
+// rather than silently defaulting/ignoring it (the espidf side table is not
+// host-testable, so this is the seam that IS).
+void test_bb_data_http_client_acquire_is_ws_true_sets_is_ws_flag(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&c, 1, true));
+    TEST_ASSERT_TRUE(bb_data_http_client_is_ws_for_test(c));
+}
+
+void test_bb_data_http_client_acquire_is_ws_false_clears_is_ws_flag(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&c, 1, false));
+    TEST_ASSERT_FALSE(bb_data_http_client_is_ws_for_test(c));
+}
+
+void test_bb_data_http_client_is_ws_for_test_null_client_returns_false(void)
+{
+    reset_all();
+    TEST_ASSERT_FALSE(bb_data_http_client_is_ws_for_test(NULL));
+}
+
 // ---------------------------------------------------------------------------
 // topic_filter matching -- NULL/"" == all attached keys; otherwise exact
 // match only. Both proven via the fresh-render-on-connect dirty bits an

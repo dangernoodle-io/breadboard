@@ -752,6 +752,11 @@ uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *
 {
     return c ? c->event_cursor : 0;
 }
+
+bool bb_data_http_client_is_ws_for_test(const bb_data_http_client_t *c)
+{
+    return c ? c->is_ws : false;
+}
 #endif
 
 // ---------------------------------------------------------------------------

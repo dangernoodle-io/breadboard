@@ -25,6 +25,7 @@
 #include "bb_http_server.h"
 #include "bb_task.h"
 #include "bb_log.h"
+#include "bb_ws_server.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -178,6 +179,72 @@ static void slot_free_locked(bb_data_http_espidf_slot_t *slot)
 }
 
 // ---------------------------------------------------------------------------
+// WS fd -> (server, client) side table (B1-1050 PR-1). Same locking
+// discipline as s_slots/s_slots_mux above -- a separate table + spinlock
+// rather than reusing the SSE one because a WS slot carries no async_req
+// (bb_ws_server has no async-handoff concept; sends go through
+// bb_ws_server_broadcast_frame_async(server, fd, ...) instead) and the two
+// tables are populated/consumed from different callback paths (bb_ws_server's
+// global connect/disconnect callbacks vs the SSE route handler + broadcaster
+// pre-pass). Sized the same as s_slots -- both draw client slots from the
+// same shared bb_data_http_client_t pool (CONFIG_BB_DATA_HTTP_MAX_CLIENTS),
+// so neither table can ever hold more entries than that pool allows.
+// Same invariant as s_slots_mux: nothing that can block runs while held.
+// ---------------------------------------------------------------------------
+typedef struct {
+    bool                    in_use;
+    int                     fd;
+    bb_http_handle_t        server;
+    bb_data_http_client_t  *client;
+} bb_data_http_espidf_ws_slot_t;
+
+static bb_data_http_espidf_ws_slot_t s_ws_slots[BB_DATA_HTTP_ESPIDF_MAX_CLIENTS];
+static portMUX_TYPE s_ws_slots_mux = portMUX_INITIALIZER_UNLOCKED;
+
+// Caller must hold s_ws_slots_mux.
+static bb_data_http_espidf_ws_slot_t *ws_slot_find_by_client_locked(const bb_data_http_client_t *client)
+{
+    for (size_t i = 0; i < BB_DATA_HTTP_ESPIDF_MAX_CLIENTS; i++) {
+        if (s_ws_slots[i].in_use && s_ws_slots[i].client == client) {
+            return &s_ws_slots[i];
+        }
+    }
+    return NULL;
+}
+
+// Caller must hold s_ws_slots_mux. Used by the disconnect callback, which
+// only carries an fd (bb_ws_server_disconnect_cb_t has no client handle).
+static bb_data_http_espidf_ws_slot_t *ws_slot_find_by_fd_locked(int fd)
+{
+    for (size_t i = 0; i < BB_DATA_HTTP_ESPIDF_MAX_CLIENTS; i++) {
+        if (s_ws_slots[i].in_use && s_ws_slots[i].fd == fd) {
+            return &s_ws_slots[i];
+        }
+    }
+    return NULL;
+}
+
+// Caller must hold s_ws_slots_mux.
+static bb_data_http_espidf_ws_slot_t *ws_slot_alloc_locked(void)
+{
+    for (size_t i = 0; i < BB_DATA_HTTP_ESPIDF_MAX_CLIENTS; i++) {
+        if (!s_ws_slots[i].in_use) {
+            return &s_ws_slots[i];
+        }
+    }
+    return NULL;
+}
+
+// Caller must hold s_ws_slots_mux.
+static void ws_slot_free_locked(bb_data_http_espidf_ws_slot_t *slot)
+{
+    slot->in_use = false;
+    slot->fd     = -1;
+    slot->server = NULL;
+    slot->client = NULL;
+}
+
+// ---------------------------------------------------------------------------
 // Injected seams
 // ---------------------------------------------------------------------------
 
@@ -210,16 +277,14 @@ static bb_err_t espidf_generation_fn(const char *key, uint32_t *out_gen, void *c
     return bb_data_generation(key, out_gen);
 }
 
-// SSE-only (fork #4: WS deferred to the cutover). A WS client should never
-// reach this seam -- bb_data_http_espidf_client_connect() only ever
-// acquires with is_ws=false -- but a defensive reject beats silently
-// mis-framing WS bytes as an SSE comment. `client->is_ws` (read directly off
-// the handle -- bb_data_http_client_t is shared with this platform backend
-// via bb_data_http_internal.h) replaces the old is_ws seam parameter
-// (B1-1123 PR-1); the transport-neutral seam no longer carries it.
+// `client->is_ws` (read directly off the handle -- bb_data_http_client_t is
+// shared with this platform backend via bb_data_http_internal.h) selects
+// SSE vs WS framing; it replaces the old is_ws seam parameter (B1-1123
+// PR-1), which the transport-neutral seam no longer carries.
 //
-// `key` (B1-1123 PR-2) is unused here -- the SSE framing below is `data:
-// <payload>\n\n` only, with no event name; an `event: <key>` line is a
+// `key` (B1-1123 PR-2) is unused here -- both the SSE framing below (`data:
+// <payload>\n\n`) and the WS framing (a single raw text frame) carry no
+// event name; an `event: <key>` line / topic-qualified WS frame is a
 // tracked, out-of-scope wire-format change for a later PR.
 static bb_err_t espidf_send_fn(const char *key, const bb_data_http_client_t *client,
                                 const void *bytes, size_t len, void *ctx)
@@ -229,9 +294,37 @@ static bb_err_t espidf_send_fn(const char *key, const bb_data_http_client_t *cli
     if (!client) {
         return BB_ERR_INVALID_ARG;
     }
+
     if (client->is_ws) {
-        bb_log_w(TAG, "send_fn: WS framing unsupported (SSE-only de-risk)");
-        return BB_ERR_UNSUPPORTED;
+        portENTER_CRITICAL(&s_ws_slots_mux);
+        bb_data_http_espidf_ws_slot_t *ws_slot = ws_slot_find_by_client_locked(client);
+        bb_http_handle_t ws_server = ws_slot ? ws_slot->server : NULL;
+        int              ws_fd     = ws_slot ? ws_slot->fd     : -1;
+        portEXIT_CRITICAL(&s_ws_slots_mux);
+        if (!ws_slot) {
+            return BB_ERR_NOT_FOUND;
+        }
+
+        bb_ws_server_frame_t frame = {
+            .final   = true,
+            .type    = BB_WS_TYPE_TEXT,
+            .payload = (uint8_t *)bytes,
+            .len     = len,
+        };
+        // B1-1424 (known, deliberately unfixed here): httpd_ws_send_frame_
+        // async is fire-and-forget -- the real send outcome only surfaces
+        // later, on httpd's own async worker task, via the (here-unused) cb
+        // parameter. What this call's return value actually reflects is
+        // "successfully queued the work item", NOT "the client received the
+        // bytes". Note bb_data_http_sweep_step()'s drain loop does not even
+        // consult this return today -- it unconditionally pops the outbound
+        // queue entry regardless of what send_fn returns, identically for
+        // SSE and WS (see bb_data_http_common.c's drain loop). So there is
+        // no accounting mechanism here to mislead yet, for either transport
+        // -- but returning the real (queued-only) result rather than
+        // synthesizing BB_OK keeps this call site honest for when B1-1424
+        // wires a real accounting consumer for both transports.
+        return bb_ws_server_broadcast_frame_async(ws_server, ws_fd, &frame, NULL, NULL);
     }
 
     portENTER_CRITICAL(&s_slots_mux);
@@ -446,4 +539,111 @@ bb_err_t bb_data_http_espidf_routes_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
 
     return bb_http_register_route_descriptor_only(bb_data_http_events_route());
+}
+
+// ---------------------------------------------------------------------------
+// WS egress (B1-1050 PR-1): connect/disconnect callbacks + route
+// registration. bb_ws_server does the handshake/framing/close work already
+// (bb_ws_server_register_endpoint, its connect/disconnect notification
+// hooks, httpd_ws_send_frame_async via bb_ws_server_broadcast_frame_async)
+// -- this is only the glue that acquires/releases a bb_data_http client slot
+// per WS session and records the fd -> (server, client) mapping espidf_
+// send_fn's WS branch (above) looks up.
+// ---------------------------------------------------------------------------
+
+// Topic filter (B1-1423, tracked follow-up, not this PR's scope):
+// bb_ws_server_connect_cb_t is (server, fd, ctx) with no request handle, so
+// there is no hook here to read a `?topic=` query param the way
+// events_get_handler above does for SSE. Every WS client acquired via this
+// callback subscribes to all attached topics (topic_filter=NULL) until
+// B1-1423 extends bb_ws_server's connect callback (or an equivalent) with
+// enough context to parse one.
+static void ws_connect_cb(bb_http_handle_t server, int fd, void *ctx)
+{
+    (void)ctx;
+
+    bb_data_http_client_t *client = NULL;
+    bb_err_t err = bb_data_http_client_acquire_ex(&client, fd, NULL, true);
+    if (err != BB_OK) {
+        // The WS handshake has already completed by the time this callback
+        // fires (see bb_ws_server_set_connect_cb's doc) -- there is no way
+        // to refuse the connection from here. The client stays connected at
+        // the WS-protocol level but never receives bb_data_http egress
+        // (no slot is recorded below), which is the best available fallback
+        // for a full client pool / acquire failure.
+        bb_log_w(TAG, "ws client fd=%d acquire failed (%d), no egress for it", fd, (int)err);
+        return;
+    }
+
+    portENTER_CRITICAL(&s_ws_slots_mux);
+    bb_data_http_espidf_ws_slot_t *slot = ws_slot_alloc_locked();
+    if (slot) {
+        slot->fd     = fd;
+        slot->server = server;
+        slot->client = client;
+        slot->in_use = true;
+    }
+    portEXIT_CRITICAL(&s_ws_slots_mux);
+    if (!slot) {
+        // Side table full even though the shared client pool had room --
+        // release the just-acquired slot rather than leak it silently.
+        bb_data_http_client_release(client);
+        bb_log_w(TAG, "ws client fd=%d: side table full, no egress for it", fd);
+        return;
+    }
+
+    bb_log_i(TAG, "ws client fd=%d connected (topic_filter=*)", fd);
+}
+
+static void ws_disconnect_cb(int fd, void *ctx)
+{
+    (void)ctx;
+
+    portENTER_CRITICAL(&s_ws_slots_mux);
+    bb_data_http_espidf_ws_slot_t *slot = ws_slot_find_by_fd_locked(fd);
+    bb_data_http_client_t *client = slot ? slot->client : NULL;
+    if (slot) {
+        ws_slot_free_locked(slot);
+    }
+    portEXIT_CRITICAL(&s_ws_slots_mux);
+
+    // NULL-safe (see bb_data_http_client_release's doc) -- a disconnect for
+    // an fd that was never successfully acquired (ws_connect_cb's acquire-
+    // failure branch above) is a legitimate no-op here, not a bug.
+    bb_data_http_client_release(client);
+}
+
+// Inbound WS DATA frame handler for the /ws/events egress endpoint.
+// bb_data_http has no recv concept -- its three injected seams are render/
+// generation/send only (see bb_data_http_internal.h's file header) -- so
+// every inbound frame is explicitly discarded here. This is deliberate, not
+// a stub left empty by accident: a WS ingress path is a separate, tracked
+// design (epic B1-828's ingress axis), and silently doing nothing here
+// would risk this handler becoming a de facto (unreviewed) ingress path by
+// accident later.
+static bb_err_t ws_events_discard_handler(bb_http_request_t *req,
+                                          const bb_ws_server_frame_t *frame)
+{
+    (void)req;
+    (void)frame;
+    return BB_OK;
+}
+
+bb_err_t bb_data_http_espidf_ws_routes_init(bb_http_handle_t server)
+{
+    if (!server) return BB_ERR_INVALID_ARG;
+
+    // bb_ws_server_set_connect_cb/set_disconnect_cb are process-global --
+    // one registration each, a later caller's registration replaces this
+    // one (see bb_ws_server.h's doc on both setters). This component owns
+    // exactly one WS egress endpoint, so that is fine for bb_data_http
+    // itself, but a composition root that also wires its OWN WS endpoint
+    // with its own connect/disconnect callbacks (e.g. examples/smoke's /ws
+    // echo demo) must be aware whichever of the two calls this or its own
+    // setter LAST wins process-wide -- bb_ws_server has no per-endpoint
+    // callback registration to avoid this.
+    bb_ws_server_set_connect_cb(ws_connect_cb, NULL);
+    bb_ws_server_set_disconnect_cb(ws_disconnect_cb, NULL);
+
+    return bb_ws_server_register_endpoint(server, "/ws/events", ws_events_discard_handler);
 }

@@ -18,10 +18,17 @@
 # from /api/openapi.json. Direct-use dependency, not transitive padding on
 # bb_http_server's own bb_http edge (same posture bb_diag/bb_sensor_http use
 # for their own PRIV_REQUIRES bb_http).
+#
+# bb_ws_server (B1-1050 PR-1): the espidf backend's WS egress branch
+# (espidf_send_fn's is_ws path, ws_connect_cb/ws_disconnect_cb, GET
+# /ws/events) wraps bb_ws_server_broadcast_frame_async/register_endpoint/
+# set_connect_cb/set_disconnect_cb directly -- same PRIV_REQUIRES posture as
+# bb_http_server above (backend-internal, never in the pure core's public
+# header).
 idf_component_register(
     SRCS "src/bb_data_http_common.c"
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_data_http/bb_data_http_espidf.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES bb_queue bb_core
-    PRIV_REQUIRES bb_log bb_registry bb_str bb_data bb_http bb_http_server bb_task lwip freertos)
+    PRIV_REQUIRES bb_log bb_registry bb_str bb_data bb_http bb_http_server bb_ws_server bb_task lwip freertos)
