@@ -28,3 +28,12 @@ CONFIG_BB_CACHE_SWEEP_PERIOD_MS=5000
 # platform/espidf/bb_task_registry/bb_task_registry_base_scan.c. Smoke-only:
 # examples/floor deliberately stays minimal (B1-1296).
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+
+# B1-1275: disable WPA2/WPA3-Enterprise WiFi -- the enterprise (802.1X/EAP)
+# connection path is unused (no esp_wifi_sta_enterprise_*/esp_eap_client_*
+# call sites); this shrinks compiled-in attack surface, not flash --
+# linker --gc-sections was already stripping most of the dead code, so the
+# measured delta is negligible either way (esp32 +168B, esp32c3 -722B).
+# TLS, the mbedTLS cert bundle, and WPA3-Personal/SAE
+# (CONFIG_ESP_WIFI_ENABLE_WPA3_SAE) are untouched.
+CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n

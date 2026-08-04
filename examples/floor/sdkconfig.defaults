@@ -41,3 +41,12 @@ CONFIG_BB_HTTP_TASK_STACK_SIZE=16384
 # POST /api/diag/factory-reset route (default n) so floor's bench board
 # can validate the full diag/storage HTTP surface end to end.
 CONFIG_BB_STORAGE_HTTP_FACTORY_RESET=y
+
+# B1-1275: disable WPA2/WPA3-Enterprise WiFi -- the enterprise (802.1X/EAP)
+# connection path is unused (no esp_wifi_sta_enterprise_*/esp_eap_client_*
+# call sites); this shrinks compiled-in attack surface, not flash --
+# linker --gc-sections was already stripping most of the dead code, so the
+# measured delta is negligible either way (esp32 +168B, esp32c3 -722B).
+# TLS, the mbedTLS cert bundle, and WPA3-Personal/SAE
+# (CONFIG_ESP_WIFI_ENABLE_WPA3_SAE) are untouched.
+CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n

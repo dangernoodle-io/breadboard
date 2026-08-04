@@ -19,3 +19,12 @@ CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
 CONFIG_BB_LOG_ROUTES=y
 CONFIG_BB_OTA_PULL_AUTOREGISTER=y
 CONFIG_BB_FAN_AUTOFAN=y
+
+# B1-1275: disable WPA2/WPA3-Enterprise WiFi -- the enterprise (802.1X/EAP)
+# connection path is unused (no esp_wifi_sta_enterprise_*/esp_eap_client_*
+# call sites); this shrinks compiled-in attack surface, not flash --
+# linker --gc-sections was already stripping most of the dead code, so the
+# measured delta is negligible either way (esp32 +168B, esp32c3 -722B).
+# TLS, the mbedTLS cert bundle, and WPA3-Personal/SAE
+# (CONFIG_ESP_WIFI_ENABLE_WPA3_SAE) are untouched.
+CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n

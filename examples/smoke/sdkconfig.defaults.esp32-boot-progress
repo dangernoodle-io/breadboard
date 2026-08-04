@@ -17,3 +17,19 @@ CONFIG_BB_LOG_ROUTES=y
 CONFIG_BB_OTA_STRATEGY_BOOT=y
 # Enable the gated boot-progress HTTP + mDNS feature under test
 CONFIG_BB_OTA_BOOT_PROGRESS_HTTP=y
+CONFIG_BB_BOARD_AUTOREGISTER=y
+CONFIG_BB_MANIFEST_AUTOREGISTER=y
+CONFIG_BB_OTA_VALIDATOR_AUTOREGISTER=y
+CONFIG_BB_WIFI_ROUTES_AUTOREGISTER=y
+CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER=y
+CONFIG_BB_OPENAPI_AUTOREGISTER=y
+CONFIG_BB_MDNS_AUTOREGISTER=y
+
+# B1-1275: disable WPA2/WPA3-Enterprise WiFi -- the enterprise (802.1X/EAP)
+# connection path is unused (no esp_wifi_sta_enterprise_*/esp_eap_client_*
+# call sites); this shrinks compiled-in attack surface, not flash --
+# linker --gc-sections was already stripping most of the dead code, so the
+# measured delta is negligible either way (esp32 +168B, esp32c3 -722B).
+# TLS, the mbedTLS cert bundle, and WPA3-Personal/SAE
+# (CONFIG_ESP_WIFI_ENABLE_WPA3_SAE) are untouched.
+CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
