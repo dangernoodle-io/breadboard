@@ -373,6 +373,14 @@ void bb_data_http_reset_for_test(void);
 // NOTE: there is deliberately no matching stop()/teardown entry point in
 // this de-risk -- the example's "http" service is start-once for its
 // lifetime. Full lifecycle teardown is deferred to the B1-1045 cutover.
+// PREREQUISITE (review fix, B1-1425): bb_data_http_init() must have been
+// called first -- this function does NOT call it internally. Skipping it
+// is not immediately visible here: the broadcaster task still starts and
+// sweeps without error, but every client connect through either
+// routes-registering entry point below fails downstream, since
+// bb_data_http_client_acquire_ex() (components/bb_data_http/src/
+// bb_data_http_common.c) gates on bb_data_http_init() having run and
+// returns BB_ERR_INVALID_STATE otherwise.
 bb_err_t bb_data_http_espidf_start(void);
 
 // Handles one SSE connect on the calling (httpd) task: sets socket
@@ -395,7 +403,12 @@ bb_err_t bb_data_http_espidf_client_connect(bb_http_request_t *req,
 // (B1-1215: previously the composition root wired the handler directly and
 // no descriptor was ever registered, so /api/events was absent from
 // /api/openapi.json on every board). bb_data_http_espidf_start() should be
-// called first so the sweep task is already running when a client connects.
+// called first so the sweep task is already running when a client connects,
+// and bb_data_http_init() before that (see its PREREQUISITE note above) --
+// a connect through this route with bb_data_http_init() never called fails
+// with BB_ERR_INVALID_STATE (bb_data_http_client_acquire_ex()). A connect
+// before any key is attached (bb_data_http_attach()/_attach_ex()/
+// _attach_sized()) still succeeds but streams nothing for that topic.
 // bb_http_handle_t opaque handle (bb_core.h, already included above) -- no
 // platform type leaks through this declaration.
 bb_err_t bb_data_http_espidf_routes_init(bb_http_handle_t server);
@@ -416,9 +429,12 @@ bb_err_t bb_data_http_espidf_routes_init(bb_http_handle_t server);
 // connect callback carries no request handle to parse one from.
 //
 // bb_data_http_espidf_start() should be called first so the sweep task is
-// already running when a client connects, same as bb_data_http_espidf_
-// routes_init() above. bb_http_handle_t opaque handle (bb_core.h, already
-// included above) -- no platform type leaks through this declaration.
+// already running when a client connects, and bb_data_http_init() before
+// that, same as bb_data_http_espidf_routes_init() above -- see its doc
+// (and bb_data_http_espidf_start()'s PREREQUISITE note) for the exact
+// failure/degradation each missing prerequisite produces. bb_http_handle_t
+// opaque handle (bb_core.h, already included above) -- no platform type
+// leaks through this declaration.
 bb_err_t bb_data_http_espidf_ws_routes_init(bb_http_handle_t server);
 #endif
 

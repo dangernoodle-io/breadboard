@@ -71,6 +71,9 @@
 #include "bb_sensor_http.h"
 #include "bb_mdns.h"
 #include "bb_log_event.h"
+#include "bb_log_event_wire.h"
+#include "bb_data.h"
+#include "bb_data_http.h"
 #include "smoke_core_claim.h"
 
 // bbtool:init tier=early fn=bb_lifecycle_register out=s_smoke_wifi_svc:bb_lifecycle_svc_t args=&(bb_lifecycle_config_t){.name="wifi"},&s_smoke_wifi_svc
@@ -221,6 +224,83 @@
 // bbtool:init tier=regular fn=bb_mdns_registry_init server=true component=bb_mdns
 
 // bbtool:init tier=regular fn=bb_log_event_init server=true component=bb_log_event
+
+// B1-1425: link bb_data_http's ESP-IDF backend into smoke -- previously
+// compiled (components/bb_data_http/CMakeLists.txt folds
+// platform/espidf/bb_data_http/bb_data_http_espidf.c straight into the
+// component's own SRCS, backend-dispatch style) but never called anywhere
+// under examples/, so ESP-IDF's `-ffunction-sections`/`--gc-sections` build
+// dropped every bb_data_http_espidf_* symbol from firmware.elf on all nine
+// CI boards. bb_data_http itself is already reachable here (bb_diag_http's
+// own PRIV_REQUIRES pulls it into BB_AUTOWIRE_REQUIRES's closure, which is
+// how entry_espidf.c's existing bb_data_http_describe_foreach() call
+// already links) -- but per the SAME B1-1315/B1-1316 rationale as the
+// bb_diag_http/bb_wifi_http/bb_sensor_http route markers above, a component
+// being composed for one reason (here, bb_data_http's describe-table seam)
+// must not silently expose its full HTTP surface as a side effect;
+// registering GET /api/events and GET /ws/events is this file's explicit
+// opt-in, mirroring examples/floor/main/floor_app.c's http_lifecycle_
+// observer (bb_data_http_espidf_start() then _routes_init()) as manifest
+// entries instead of a lifecycle-observer callback, since smoke starts its
+// HTTP server via the plain `provides=http_server` pre_http entry
+// (bb_http_autostart_init, components/bb_http_server/include/
+// bb_http_server.h) rather than floor's handwired lifecycle-observer start/
+// stop pair.
+//
+// bb_data_http_espidf_ws_routes_init: smoke's esp32 sdkconfig carries
+// CONFIG_HTTPD_WS_SUPPORT=y (examples/smoke/sdkconfig.esp32), unlike
+// examples/floor which has it off -- so this is the one example where the
+// WS egress route genuinely links (and can be exercised), not merely
+// compiles.
+//
+// REAL prerequisite chain (review fix -- link-exercised alone left every
+// endpoint dead on arrival, since bb_data_http_client_acquire_ex()
+// (components/bb_data_http/src/bb_data_http_common.c) gates on
+// bb_data_http_init() having run and returns BB_ERR_INVALID_STATE
+// otherwise, and neither espidf_start() nor either routes_init() calls it):
+//
+//   bb_data_http_init(NULL)  -- provides=data_http_init. cfg=NULL (Kconfig
+//     defaults, CONFIG_BB_DATA_HTTP_MAX_CLIENTS/_EVENT_RING_CAPACITY) --
+//     mirrors examples/floor/main/floor_app.c's own bb_data_http_init(NULL)
+//     call; smoke has no board-specific reason to size differently from
+//     what the same Kconfig already governs per-board.
+//   bb_data_bind("log", ...)  -- provides=data_log_bound. Binds the "log"
+//     dissolved-bb_event producer key into bb_data (same key/desc/gather
+//     shape as floor_app.c's producers[] loop, smoke_log_fill_ctx defined
+//     in smoke_app.c/declared in smoke_routes.h) -- independent of
+//     bb_data_http entirely, so no requires= on data_http_init.
+//   bb_data_http_espidf_start()  -- requires=data_http_init ONLY (review fix:
+//     bb_data_http_client_acquire_ex(), components/bb_data_http/src/
+//     bb_data_http_common.c, gates solely on s_cfg.initialized, set by
+//     bb_data_http_init() -- no bound key is a real prerequisite for
+//     starting the broadcaster task. requires=data_log_bound here would be
+//     a stylistic "bind-before-start" nicety at best today, but with a
+//     second attached key it would be an actual bug: one failed
+//     bb_data_bind() would wrongly skip starting the broadcaster for every
+//     OTHER already-attached key too). provides=data_http_started.
+//   bb_data_http_attach_sized("log", ...)  -- requires=data_http_init,
+//     data_log_bound (attaches "log" into bb_data_http's OWN topic table
+//     so /api/events?topic=log and /ws/events actually stream it -- without
+//     this, both endpoints would link and accept connections but carry
+//     zero traffic, the same defect in a new place). provides=
+//     data_log_attached.
+//   bb_data_http_espidf_routes_init(server) / _ws_routes_init(server)  --
+//     requires=data_http_started,data_log_attached. Registering GET
+//     /api/events / GET /ws/events before the broadcaster task exists
+//     (data_http_started) or before any key is attached (data_log_attached)
+//     would accept connections that stream nothing forever.
+
+// bbtool:init tier=regular fn=bb_data_http_init component=bb_data_http args=NULL provides=data_http_init
+
+// bbtool:init tier=regular fn=bb_data_bind component=bb_data provides=data_log_bound args=&(bb_data_binding_t){.key="log",.desc=&bb_log_event_wire_desc,.gather=bb_data_gather_plain,.ctx=(void*)&smoke_log_fill_ctx}
+
+// bbtool:init tier=regular fn=bb_data_http_espidf_start component=bb_data_http requires=data_http_init provides=data_http_started
+
+// bbtool:init tier=regular fn=bb_data_http_attach_sized component=bb_data_http requires=data_http_init,data_log_bound provides=data_log_attached args="log","log",BB_DATA_HTTP_STATE,bb_log_event_wire_desc.snap_size
+
+// bbtool:init tier=regular fn=bb_data_http_espidf_routes_init server=true component=bb_data_http requires=data_http_started,data_log_attached
+
+// bbtool:init tier=regular fn=bb_data_http_espidf_ws_routes_init server=true component=bb_data_http requires=data_http_started,data_log_attached
 
 // B1-1274-adjacent: GET /ping, GET /ws, and POST /api/wsbcast are smoke's
 // own app-level routes (examples/smoke/main/smoke_app.c), not a component
