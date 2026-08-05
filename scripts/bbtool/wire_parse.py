@@ -520,3 +520,81 @@ def parse_provides_markers(header_text: str, src_file: str = "<string>") -> List
         if stripped.startswith(_PROVIDES_PREFIX):
             entries.append(_parse_provides_marker_line(line, lineno, src_file))
     return entries
+
+
+@dataclass(frozen=True)
+class IndirectBind:
+    """One entry in `INDIRECT_BB_DATA_BINDS` (B1-1428): documents a real
+    `bb_data_bind()` call this text-only tooling cannot discover on its own
+    -- the call lives inside `wrapper_fn`, reached only through indirection
+    this repo's own compositions can't see just from `binds_data=` markers.
+    Exactly ONE of `trigger_fn`/`trigger_component` is set, naming the two
+    shapes this indirection takes:
+
+      - `trigger_fn`: a `// bbtool:init fn=<trigger_fn>` marker calls
+        `wrapper_fn` through a same-tree helper defined in a DIFFERENT
+        component's tree (e.g. `bb_diag_routes_init` (component
+        bb_diag_http) calling `bb_diag_boot_bind()` (component bb_diag),
+        which itself calls `bb_data_bind()`). `commands.wire.
+        check_binds_data_cap` counts this key whenever `trigger_fn` is
+        present among the resolved composition's marker `fn=` names.
+      - `trigger_component`: the bind is reached only through a HANDWIRED
+        entry point (an example's `app_main()`, never a marker) whose call
+        is itself conditional on `trigger_component` being part of the
+        board's resolved component set (e.g. `bb_display_register_info()`,
+        called from `examples/smoke/main/entry_espidf.c`'s `app_main()`
+        behind `#if __has_include("bb_display_info.h")`, which is only true
+        when board.<name>'s `add_components` includes `bb_display`).
+        `check_binds_data_cap` counts this key whenever `trigger_component`
+        is present in the `components` set resolved for that specific
+        board's REQUIRES closure -- NOT the (board-invariant) marker/wire
+        composition, since a handwired call's presence tracks what's
+        actually LINKED for that board, not what markers were resolved.
+
+    Neither `check_binds_data_cap` (which only sees `binds_data=` key
+    lists) nor the `binds-data-mismatch` lint (which only scans the
+    DECLARING marker's own owning component's tree) can follow either shape
+    of indirection on their own -- see `components/bb_data/include/
+    bb_data.h`'s `BB_DATA_MAX_BINDINGS` comment for the outage a
+    `trigger_fn`-shaped gap caused (the cap check reported 8/8 declared
+    keys "fits" while the real runtime table took a 9th, undeclared bind)."""
+    wrapper_fn: str                          # the function whose body contains the literal bb_data_bind() call
+    key: str                                 # the bb_data key that call binds
+    trigger_fn: "str | None" = None          # a // bbtool:init fn= that (indirectly) triggers this bind
+    trigger_component: "str | None" = None   # a component whose presence in a board's resolved set triggers this bind (handwired-only binds)
+
+
+# B1-1428: every KNOWN indirect bind in-tree today. `commands.wire.
+# check_binds_data_cap` folds each entry's `key` into its distinct-key count
+# whenever its trigger is present (see `IndirectBind`'s docstring for the two
+# trigger shapes), so the cap check counts the REAL number of bindings a
+# composition makes, not just the ones a `binds_data=` marker declares. The
+# `binds-data-hidden-bind` lint rule (`commands.lint`) is this table's
+# completeness gate: it scans every `.c` file under `components/`/
+# `platform/` PLUS every example's hand-wired entry point for a literal
+# `bb_data_bind(` call and hard-fails the moment it finds one reachable from
+# a real composition root (a marker OR an in-tree `app_main()`) whose
+# enclosing function is neither (a) itself some marker's `fn=` (a DIRECT
+# bind, already covered by `binds_data=`/`binds-data-mismatch`) nor (b)
+# listed here as a `wrapper_fn` -- so an undocumented indirect bind cannot
+# silently reintroduce this defect class; it is a hard build failure naming
+# the function/key/file:line, the same "never a silent skip" posture as
+# every other guard in this file. Both consumers import this ONE table
+# rather than keeping two hand-written lists that could drift apart.
+INDIRECT_BB_DATA_BINDS: Tuple[IndirectBind, ...] = (
+    IndirectBind(
+        trigger_fn="bb_diag_routes_init",
+        wrapper_fn="bb_diag_boot_bind",
+        key="diag.boot",
+    ),
+    IndirectBind(
+        trigger_fn="bb_ota_check_register_init",
+        wrapper_fn="bb_ota_check_config_bind",
+        key="ota_check_config",
+    ),
+    IndirectBind(
+        trigger_component="bb_display",
+        wrapper_fn="bb_display_info_bind",
+        key="health.display",
+    ),
+)

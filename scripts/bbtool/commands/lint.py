@@ -24,7 +24,7 @@ from cmake_parse import (
 from boards import discover_components, ManifestError
 from composition import resolve_composition
 from discovery import build_index, normalize_roots, PLATFORMS
-from wire_parse import parse_markers, ParseError as WireParseError
+from wire_parse import INDIRECT_BB_DATA_BINDS, parse_markers, ParseError as WireParseError
 
 NAME = "lint"
 HELP = "Run source lint checks"
@@ -3046,8 +3046,14 @@ def _resolve_key_literal(raw: str, macros: dict) -> Optional[str]:
 def _collect_bb_data_bindings(ctx: Context, index, name: str):
     """Returns `(bound, unresolved)` for every PRODUCTION `bb_data_bind()`
     call found in component `name`'s own `.c` files
-    (`_component_source_dirs`): `bound` is `{key: (path, line)}` (first call
-    site seen per key); `unresolved` is `[(path, line, detail)]` for a call
+    (`_component_source_dirs`): `bound` is `{key: (path, line, fn_name)}`
+    (first call site seen per key; `fn_name` is the nearest enclosing
+    function's name, `None` if it could not be resolved -- consumed by the
+    `binds-data-hidden-bind` rule (B1-1428) to tell a DIRECT bind (`fn_name`
+    equals some `// bbtool:init fn=`, already covered by `binds_data=`) from
+    an INDIRECT one (`fn_name` is a different function altogether, callable
+    only by naming it in `wire_parse.INDIRECT_BB_DATA_BINDS`) -- see that
+    rule's docstring); `unresolved` is `[(path, line, detail)]` for a call
     site this text-only checker could not read the key of -- an
     unresolvable `.key=` macro (`_resolve_key_literal` returned `None`), or
     a `bb_data_bind(&var)` whose `var`'s nearest PRECEDING `bb_data_binding_t
@@ -3097,7 +3103,8 @@ def _collect_bb_data_bindings(ctx: Context, index, name: str):
             decls.setdefault(m.group(1), []).append((m.start(), m.group(2)))
 
         for m in _BB_DATA_BIND_INLINE_CALL_RE.finditer(stripped):
-            if _is_test_only_fn_name(_enclosing_fn_name(headers, m.start())):
+            fn_name = _enclosing_fn_name(headers, m.start())
+            if _is_test_only_fn_name(fn_name):
                 continue
             line = _line_of(stripped, m.start())
             key_m = _KEY_FIELD_RE.search(m.group(1))
@@ -3111,10 +3118,11 @@ def _collect_bb_data_bindings(ctx: Context, index, name: str):
                     f"bb_data_bind()'s .key macro '{key_m.group(1).strip()}'"
                     f" has no resolvable #define in this component's tree"))
                 continue
-            bound.setdefault(value, (p, line))
+            bound.setdefault(value, (p, line, fn_name))
 
         for m in _BB_DATA_BIND_VAR_CALL_RE.finditer(stripped):
-            if _is_test_only_fn_name(_enclosing_fn_name(headers, m.start())):
+            fn_name = _enclosing_fn_name(headers, m.start())
+            if _is_test_only_fn_name(fn_name):
                 continue
             var = m.group(1)
             call_pos = m.start()
@@ -3140,7 +3148,7 @@ def _collect_bb_data_bindings(ctx: Context, index, name: str):
                     f" '{key_m.group(1).strip()}' has no resolvable #define"
                     f" in this component's tree"))
                 continue
-            bound.setdefault(value, (p, line))
+            bound.setdefault(value, (p, line, fn_name))
 
     return bound, unresolved
 
@@ -3290,6 +3298,392 @@ def _check_binds_data_mismatch(ctx: Context) -> list:
             f" undercounts it (the exact defect the cap check exists to"
             f" catch, one level up); fix the 'binds_data=' list on this"
             f" marker to match",
+        ))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Rule: binds-data-hidden-bind (B1-1428)
+# ---------------------------------------------------------------------------
+
+# Identifier-then-open-paren: the same coarse "is this a function call"
+# signal `_FN_HEADER_RE`'s sibling checks use elsewhere in this file, applied
+# here to build a CALL graph rather than find definitions. `_C_CALL_KEYWORDS`
+# excludes C keywords/operators that share this exact `name(` shape but are
+# never a function call (`if (`, `for (`, `sizeof(`, ...) -- a false-negative
+# here (a real function name that happens to collide with a keyword) is
+# impossible in C; a false-positive (treating a macro invocation as a call
+# edge) is harmless, since it only ever ADDS a reachability edge nothing
+# downstream depends on unless that "callee" name also happens to be a real
+# `bb_data_bind()`-calling function -- vanishingly unlikely, and even then
+# only widens what this checker treats as reachable, never narrows it (the
+# safe direction: this checker's whole purpose is to never silently miss a
+# real hidden bind).
+_CALL_TOKEN_RE = re.compile(r'\b([A-Za-z_]\w*)\s*\(')
+_C_CALL_KEYWORDS = frozenset({
+    "if", "for", "while", "switch", "return", "sizeof", "defined",
+    "do", "else", "goto", "typedef", "struct", "union", "enum",
+    "__attribute__", "static_assert", "_Static_assert",
+})
+
+
+# Every example's HAND-AUTHORED entry-point source (one level under
+# `examples/<name>/main/`, never `generated/` -- that subdir is a gitignored
+# codegen artifact, decision #725 -- and never a further-nested asset dir
+# like `demo_site/`, which carries no `.c` at all): the real composition
+# roots for the HANDWIRE path (`app_main()` in `entry_espidf.c`/
+# `floor_app.c`), scanned into the SAME call graph as every component's own
+# `.c` files so a handwired call chain (e.g. `app_main()` ->
+# `bb_display_register_info()` -> `bb_display_info_bind()` ->
+# `bb_data_bind()`) is exactly as visible to `_reachable_from_composition_
+# roots` as a marker-driven one.
+_EXAMPLE_ENTRY_GLOBS = ("examples/*/main/*.c",)
+
+# `app_main` is the composition root ESP-IDF itself calls (both
+# `entry_espidf.c` and `floor_app.c` define it); `main` covers a
+# host-platform example's C entry point (the POSIX/libc convention) -- both
+# are HARD-CODED here, not discovered, because there is no marker-like
+# textual signal naming "the" entry point the way `// bbtool:init fn=` does
+# for markers. Seeding BFS from either means every other hand-authored
+# entry-point function (`smoke_app_setup()`, `bb_display_register_info()`,
+# ...) is discovered transitively through the call graph rather than
+# needing its own hardcoded seed name.
+#
+# THIS SET MUST STAY CURRENT: a future example whose entry point is named
+# something else entirely (neither `app_main` nor `main`) is silently
+# treated as unreachable -- reproducing the exact blind spot this table
+# closes, with no test to catch it, since an unrecognized entry-point name
+# looks IDENTICAL to "no handwire at all" from this scan's point of view.
+# `_build_call_graph_edges` below defends against that going unnoticed: it
+# also reports every `examples/*/main/` directory it scanned that defines
+# NO function matching this set at all -- a directory shaped like a
+# handwire entry point (it lives under `examples/*/main/`) but with no
+# recognized entry symbol is exactly where a future new entry-point name
+# would hide, so `_check_binds_data_hidden_bind` hard-fails on it rather
+# than silently scanning it for nothing. See also `scripts/bbtool/
+# README.md`'s "Scope limit" section, which carries the same note.
+_HANDWIRE_ENTRY_FNS = frozenset({"app_main", "main"})
+
+
+def _build_call_graph_edges(ctx: Context, index):
+    """Builds `(edges, defined_fns, examples_missing_entry)` over EVERY
+    component's own `.c` files (`_component_source_dirs`, same discovered
+    tree `_collect_bb_data_bindings` scans) PLUS every example's
+    hand-authored entry-point `.c` files (`_EXAMPLE_ENTRY_GLOBS`) -- a
+    coarse, text-only, ONE-PASS-PER-FILE call graph (no preprocessor, no
+    brace-balanced body extraction, same known-limitation posture as the
+    rest of this file). `edges` is `{caller_fn: {callee_name, ...}}`: every
+    `name(`-shaped token found anywhere in a function's body is recorded as
+    an edge from that function (`_enclosing_fn_name`, the same
+    nearest-preceding-header technique used throughout this file) to
+    `name`, whether `name` turns out to be a real function, a macro, or a
+    keyword that slipped past `_C_CALL_KEYWORDS`. `defined_fns` is the set
+    of every function NAME this scan found an actual `_FN_HEADER_RE`
+    definition for -- used by `_check_binds_data_hidden_bind`'s
+    manifest-staleness check to tell "this `wrapper_fn` genuinely no longer
+    binds this key anywhere" from "this root's tree doesn't even contain
+    `wrapper_fn`'s component (or example) at all" (e.g. a synthetic
+    single-component test fixture) -- only the former is a real staleness
+    defect.
+
+    `examples_missing_entry` is a sorted list of every distinct
+    `examples/*/main/` directory this scan saw AT LEAST ONE `.c` file
+    under, but found NO function matching `_HANDWIRE_ENTRY_FNS` in ANY of
+    them -- the loud failure mode `_HANDWIRE_ENTRY_FNS`'s own comment
+    promises: a handwired composition root with an unrecognized entry-point
+    name is indistinguishable, from this scan's point of view, from "no
+    handwire here at all", so `_check_binds_data_hidden_bind` hard-fails on
+    it instead of silently treating every bind reachable only through that
+    unrecognized entry point as out of scope.
+
+    This is deliberately NOT a full call-graph/AST walk (out of scope for
+    this text-only tool) -- it is precise enough to answer the one question
+    `_check_binds_data_hidden_bind` needs: is a given `bb_data_bind()`-
+    calling function reachable, by ANY number of hops, from a REAL
+    composition root -- either a `// bbtool:init fn=` marker's own function
+    body, or a hand-wired entry point's (`_reachable_from_composition_roots`
+    below does the BFS over both)."""
+    edges: dict = {}
+    defined_fns: set = set()
+    component_files = [f for name in sorted(index.names())
+                        for d in _component_source_dirs(index, name)
+                        for f in sorted(d.rglob("*.c"))]
+    example_files = sorted(ctx.files(_EXAMPLE_ENTRY_GLOBS, exclude_dirs=[".pio", ".claude"]))
+    example_file_set = set(example_files)
+    example_dir_has_entry: dict = {}  # example main/ dir -> bool
+    for p in component_files + example_files:
+        stripped = _strip_c_comments_keep_strings(ctx.read(p))
+        headers = [(m.start(), m.group(1))
+                   for m in _FN_HEADER_RE.finditer(stripped)]
+        defined_fns.update(hname for _, hname in headers)
+        if p in example_file_set:
+            d = p.parent
+            found_entry = any(hname in _HANDWIRE_ENTRY_FNS for _, hname in headers)
+            example_dir_has_entry[d] = example_dir_has_entry.get(d, False) or found_entry
+        for m in _CALL_TOKEN_RE.finditer(stripped):
+            callee = m.group(1)
+            if callee in _C_CALL_KEYWORDS:
+                continue
+            caller = _enclosing_fn_name(headers, m.start())
+            if caller is None or caller == callee:
+                continue
+            edges.setdefault(caller, set()).add(callee)
+    examples_missing_entry = sorted(
+        str(d) for d, has_entry in example_dir_has_entry.items() if not has_entry
+    )
+    return edges, defined_fns, examples_missing_entry
+
+
+def _bfs_reachable(edges: dict, seeds) -> set:
+    """Plain BFS over `_build_call_graph_edges`'s edge map from `seeds` --
+    the set of every function name (transitively) callable starting from
+    one of them. A function absent from the result has NO discoverable path
+    from any of `seeds` through this repo's coarse call graph."""
+    seen = set(seeds)
+    queue = list(seen)
+    while queue:
+        cur = queue.pop()
+        for callee in edges.get(cur, ()):
+            if callee not in seen:
+                seen.add(callee)
+                queue.append(callee)
+    return seen
+
+
+def _reachable_from_composition_roots(edges: dict, marker_fns):
+    """Returns `(reachable, from_markers, from_handwire)`: `_bfs_reachable`
+    run separately from every composition marker's own `fn=`
+    (`from_markers`) and from every hand-wired entry point
+    (`from_handwire`, `_HANDWIRE_ENTRY_FNS`, e.g. `app_main`), plus their
+    union (`reachable`) -- the set of every function name (transitively)
+    callable starting from EITHER a real composition root this repo can
+    see: a `// bbtool:init` marker's function body, or an example's actual
+    `app_main()`. Both paths matter: a marker-only seed set would miss a
+    real bind reached purely through handwire (the exact
+    `bb_display_info_bind()` blind spot this seed addition closes -- its
+    only in-tree caller, `bb_display_register_info()`, is invoked directly
+    from `examples/smoke/main/entry_espidf.c`'s `app_main()`, never named by
+    any marker). The two are kept SEPARATE (not just unioned) so
+    `_check_binds_data_hidden_bind` can point at the RIGHT kind of
+    `IndirectBind` trigger (`trigger_fn` vs `trigger_component`) in its
+    violation message, rather than a guess. A function absent from
+    `reachable` has NO discoverable path from ANY real composition root in
+    this repo -- e.g. `bb_ota_check_register_init()`, called only by an
+    out-of-tree consumer's own `app_main` per its own component's
+    composition-root convention -- the same "invisible to codegen" scope
+    limit `scripts/bbtool/README.md`'s handwire carve-out already documents
+    for `check_binds_data_cap`/`binds-data-mismatch`, extended to cover
+    IN-tree handwire too rather than silently flagging code this repo has
+    no way to know is ever actually composed."""
+    from_markers = _bfs_reachable(edges, marker_fns)
+    from_handwire = _bfs_reachable(edges, _HANDWIRE_ENTRY_FNS)
+    return from_markers | from_handwire, from_markers, from_handwire
+
+
+def _declared_binds_data_keys_by_component(ctx: Context, index) -> dict:
+    """`{component_name: {declared key, ...}}` -- the UNION of every
+    marker's `binds_data=` list, grouped by `binds-data-mismatch`'s own
+    owning-component resolution (`entry.component` or
+    `index.owner_of_path(entry.src_file)`). An entry whose owner can't be
+    resolved is skipped here (already a hard violation on its own, raised by
+    `binds-data-mismatch`) -- this function only needs to know what's
+    ALREADY validly declared, not re-flag what isn't."""
+    declared: dict = {}
+    for entry in _collect_init_markers(ctx):
+        if not entry.binds_data:
+            continue
+        owner = entry.component or index.owner_of_path(entry.src_file)
+        if owner is None:
+            continue
+        declared.setdefault(owner, set()).update(entry.binds_data)
+    return declared
+
+
+def _check_binds_data_hidden_bind(ctx: Context) -> list:
+    """Rule: binds-data-hidden-bind (B1-1428) -- completeness gate for
+    `wire_parse.INDIRECT_BB_DATA_BINDS`, the manifest `commands.wire.
+    check_binds_data_cap` consults to fold an INDIRECT `bb_data_bind()` call
+    into its distinct-key count (see that table's docstring for the outage
+    this closes: `bb_diag_routes_init()` calling `bb_diag_boot_bind()`,
+    defined in a DIFFERENT component's tree, which then calls
+    `bb_data_bind()` -- invisible to both the cap check's `binds_data=` union
+    and `binds-data-mismatch`'s per-declaring-component scan, since neither
+    ever looks at `bb_diag_boot_bind()`'s own enclosing function).
+
+    THE GAP THIS CLOSES: `binds-data-mismatch` only verifies a marker's
+    declared keys against call sites found by scanning the DECLARING
+    marker's own owning component -- a real `bb_data_bind()` call whose
+    enclosing function is never named by ANY marker at all is invisible to
+    it. This rule scans EVERY discovered component's own tree (not just
+    components with a declaring marker) for real `bb_data_bind()` call
+    sites (`_collect_bb_data_bindings`, reused as-is), then classifies each
+    site's key/enclosing-function pair:
+
+      - Already covered by a component-wide `binds_data=` declaration
+        (`_declared_binds_data_keys_by_component`) -- `binds-data-mismatch`'s
+        job, not this rule's; skipped.
+      - The enclosing function is ITSELF some marker's `fn=` -- a DIRECT
+        bind; also `binds-data-mismatch`'s job (or, for a component with no
+        declaring marker at all, a pre-existing gap this ticket does not
+        extend to -- see the module-level B1-1428 note); skipped.
+      - The enclosing function is a `wrapper_fn` in `wire_parse.
+        INDIRECT_BB_DATA_BINDS` whose `key` matches -- an ACCOUNTED indirect
+        bind, already counted by `check_binds_data_cap`; skipped (and
+        recorded as a manifest "hit" regardless of reachability below, so a
+        real, still-correct manifest entry for code this repo's own markers
+        don't currently reach -- e.g. `bb_ota_check_config_bind()`, reached
+        only by an out-of-tree consumer's composition root -- is never
+        misreported as stale).
+      - Otherwise: UNDOCUMENTED. Flagged if the enclosing function is
+        REACHABLE from a REAL composition root
+        (`_reachable_from_composition_roots`) -- either a marker's own `fn=`
+        body, or an in-tree example's hand-wired `app_main()` (and anything
+        `app_main()` transitively calls, e.g.
+        `bb_display_register_info()` -> `bb_display_info_bind()`) -- a real
+        call chain THIS repo can see all of, all the way from a composition
+        root to an unaccounted `bb_data_bind()`. An unreachable site (no
+        marker AND no in-tree `app_main()` calls it, even transitively --
+        e.g. code only ever invoked by an OUT-OF-TREE consumer's own
+        `app_main`) is the same "invisible to codegen" scope limit
+        `scripts/bbtool/README.md` already documents for handwired boards
+        outside this repo, never for handwire IN this repo (that path is
+        now covered by the `app_main()` seed).
+
+    The manifest is also checked for STALENESS in the other direction: a
+    `wire_parse.IndirectBind` record whose `(wrapper_fn, key)` pair matches
+    NO real call site found anywhere in the scanned tree (regardless of
+    reachability) is flagged -- it inflates `check_binds_data_cap`'s count
+    for no real capacity use, mirroring `binds-data-mismatch`'s
+    "declared but not bound" direction. Gated on `wrapper_fn` actually being
+    DEFINED somewhere in this root's tree (`defined_fns`, from
+    `_build_call_graph_edges`): a root that doesn't contain `wrapper_fn`'s
+    owning component at all (e.g. a synthetic single-component test
+    fixture) says nothing about whether the manifest entry is stale in the
+    real breadboard tree it describes, so it is never flagged there --
+    only "this root defines the function but it no longer binds this key"
+    is a real staleness defect.
+
+    A call site this checker cannot read the key of at all
+    (`_collect_bb_data_bindings`'s `unresolved` list) is already surfaced by
+    `binds-data-mismatch` for any component carrying a declaring marker; not
+    duplicated here.
+
+    UNRECOGNIZED-ENTRY-POINT GUARD (`examples_missing_entry`, from
+    `_build_call_graph_edges`): `_HANDWIRE_ENTRY_FNS` is a hardcoded, finite
+    set of known entry-point NAMES (`app_main`, `main`) -- there is no
+    textual marker for "this is the composition root" the way `//
+    bbtool:init fn=` is for a marker, so a future example whose entry point
+    is named something else would be silently, permanently treated as
+    unreachable (reproducing this exact rule's own blind spot). Rather than
+    trust that silently, this rule hard-fails the moment it finds an
+    `examples/*/main/` directory with `.c` files but NO function matching
+    `_HANDWIRE_ENTRY_FNS` anywhere in them -- loud, not a guess about
+    whether that directory happens to matter yet."""
+    violations = []
+    root = Path(ctx.root)
+    root_resolved = root.resolve()
+    index = build_index(normalize_roots(str(root)))
+
+    marker_fns = {e.fn for e in _collect_init_markers(ctx)}
+    declared_by_component = _declared_binds_data_keys_by_component(ctx, index)
+    edges, defined_fns, examples_missing_entry = _build_call_graph_edges(ctx, index)
+    reachable, reachable_from_markers, reachable_from_handwire = (
+        _reachable_from_composition_roots(edges, marker_fns))
+
+    for example_dir in examples_missing_entry:
+        rel = _rel_to_root(Path(example_dir), root_resolved)
+        violations.append(ctx.violation(
+            rel, 0,
+            f"{rel} contains hand-authored .c file(s) but none define a"
+            f" recognized hand-wired entry point"
+            f" ({'/'.join(sorted(_HANDWIRE_ENTRY_FNS))}) -- a real bind"
+            f" reached only through an entry point under a DIFFERENT name"
+            f" would be silently treated as unreachable (indistinguishable"
+            f" from 'no handwire here at all'), the exact blind spot this"
+            f" rule exists to close; if this directory really does compose"
+            f" via a differently-named entry point, add that name to"
+            f" commands.lint._HANDWIRE_ENTRY_FNS (and its"
+            f" scripts/bbtool/README.md note)",
+        ))
+
+    manifest_by_wrapper = {}
+    for ib in INDIRECT_BB_DATA_BINDS:
+        manifest_by_wrapper.setdefault(ib.wrapper_fn, []).append(ib)
+    manifest_hits = set()  # (wrapper_fn, key) pairs matched to a real call site
+
+    for name in sorted(index.names()):
+        bound, _unresolved = _collect_bb_data_bindings(ctx, index, name)
+        declared = declared_by_component.get(name, set())
+        for key, (path, line, fn_name) in bound.items():
+            if fn_name is None or key in declared or fn_name in marker_fns:
+                continue
+            candidates = manifest_by_wrapper.get(fn_name, [])
+            match = next((ib for ib in candidates if ib.key == key), None)
+            if match is not None:
+                manifest_hits.add((fn_name, key))
+                continue
+            if fn_name not in reachable:
+                continue
+            # Point at the RIGHT IndirectBind shape: a fn_name reachable
+            # via a marker gets a trigger_fn suggestion (the common case,
+            # e.g. bb_diag_boot_bind); one reachable ONLY through the
+            # handwire seed (e.g. bb_display_info_bind, via app_main()) gets
+            # a trigger_component suggestion instead, naming this bind's OWN
+            # owning component `name` -- the component whose presence in a
+            # board's resolved set is what actually gates the handwired call.
+            if fn_name in reachable_from_markers:
+                suggestion = (
+                    "add IndirectBind(trigger_fn=<the marker fn= that"
+                    f" reaches {fn_name}()>, wrapper_fn='{fn_name}',"
+                    f" key='{key}') to wire_parse.INDIRECT_BB_DATA_BINDS"
+                )
+            else:
+                suggestion = (
+                    f"add IndirectBind(trigger_component='{name}',"
+                    f" wrapper_fn='{fn_name}', key='{key}') to"
+                    f" wire_parse.INDIRECT_BB_DATA_BINDS -- {fn_name}() is"
+                    f" reached only through a hand-wired entry point"
+                    f" (app_main()), never a marker, so its trigger must"
+                    f" name the component that gates that call, not a fn="
+                )
+            rel = _rel_to_root(path, root_resolved)
+            violations.append(ctx.violation(
+                rel, line,
+                f"component '{name}': {fn_name}() calls bb_data_bind() for"
+                f" key '{key}', reachable from a real composition root, but"
+                f" {fn_name} is neither a '// bbtool:init fn=' marker"
+                f" itself (a direct bind) nor a wrapper_fn listed in"
+                f" wire_parse.INDIRECT_BB_DATA_BINDS for key '{key}' (an"
+                f" accounted indirect bind) -- this bind is invisible to"
+                f" commands.wire.check_binds_data_cap's count, so the cap"
+                f" check can report a composition 'fits' when the real"
+                f" runtime bb_data table doesn't; either declare"
+                f" 'binds_data={key}' on the composition marker that"
+                f" reaches {fn_name}() directly (if it is one), or {suggestion}",
+            ))
+
+    for ib in INDIRECT_BB_DATA_BINDS:
+        if (ib.wrapper_fn, ib.key) in manifest_hits:
+            continue
+        if ib.wrapper_fn not in defined_fns:
+            # This root's tree doesn't define wrapper_fn at all (its owning
+            # component isn't present here, e.g. a synthetic test fixture)
+            # -- nothing to say about staleness one way or the other.
+            continue
+        trigger_desc = (
+            f"fn='{ib.trigger_fn}'" if ib.trigger_fn is not None
+            else f"component='{ib.trigger_component}'"
+        )
+        violations.append(ctx.violation(
+            root / "scripts" / "bbtool" / "wire_parse.py", 0,
+            f"wire_parse.INDIRECT_BB_DATA_BINDS names wrapper_fn="
+            f"'{ib.wrapper_fn}' key='{ib.key}' (triggered by"
+            f" {trigger_desc}) but no real bb_data_bind() call site for"
+            f" that (function, key) pair was found anywhere in the tree --"
+            f" this stale entry inflates check_binds_data_cap's"
+            f" distinct-key count for no real capacity use; remove it or"
+            f" fix it to match {ib.wrapper_fn}()'s real bb_data_bind() call",
         ))
 
     return violations
@@ -3902,6 +4296,20 @@ def _register_lint_rules() -> None:
                  " bb_data_bind() call sites (B1-1376) -- a declared but"
                  " unbound key inflates check_binds_data_cap's count, a"
                  " bound but undeclared key undercounts it",
+        ),
+        Rule(
+            id="binds-data-hidden-bind",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_binds_data_hidden_bind,
+            hint="a real bb_data_bind() call reached only through a"
+                 " same-tree helper in a DIFFERENT component than the"
+                 " composing marker, or only through a hand-wired entry"
+                 " point, must be named in wire_parse.INDIRECT_BB_DATA_BINDS"
+                 " so check_binds_data_cap counts it -- an undocumented"
+                 " indirect bind is invisible to the cap check, which can"
+                 " then report a composition 'fits' when the real runtime"
+                 " bb_data table doesn't",
         ),
         Rule(
             id="kconfig-inert-symbol",

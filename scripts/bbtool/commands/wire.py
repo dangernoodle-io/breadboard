@@ -129,10 +129,17 @@ automatically; a lint rule that validates marker hygiene.
 from __future__ import annotations
 import glob
 import os
+import re
 from typing import Dict, List, Tuple
 
 from discovery import build_index, normalize_roots
-from wire_parse import InitEntry, ProvidesEntry, parse_markers, parse_provides_markers
+from wire_parse import (
+    InitEntry,
+    INDIRECT_BB_DATA_BINDS,
+    ProvidesEntry,
+    parse_markers,
+    parse_provides_markers,
+)
 
 DEFAULT_OUT_REL = os.path.join("main", "generated", "bb_app_init.c")
 
@@ -215,8 +222,134 @@ class WireError(Exception):
 # rebind the SAME key (a false positive that would hard-fail a build that
 # actually fits) -- see check_binds_data_cap's docstring below for why that
 # is a real, intentional case, not a defect.
+#
+# B1-1428: the union above is STILL not the real count, because a real
+# `bb_data_bind()` call can be reached from a composition marker's `fn=`
+# through a helper call in ANOTHER component's tree with no `binds_data=`
+# naming it anywhere, OR reached only through a HANDWIRED entry point
+# (an example's `app_main()`) that is itself conditional on a component
+# being part of that board's resolved set (see
+# `wire_parse.INDIRECT_BB_DATA_BINDS`'s docstring for both shapes and the
+# outage the first one caused). `check_binds_data_cap` folds that table's
+# keys into the union too, gated on the resolved composition actually
+# containing the record's `trigger_fn`, OR (for a handwire-triggered record)
+# the caller-supplied `components` set actually containing
+# `trigger_component` -- never unconditionally, which would inflate the
+# count for a composition that never pulls the triggering component in at
+# all.
+#
+# B1-1428: a THIRD accounting shape neither `binds_data=` nor
+# `INDIRECT_BB_DATA_BINDS` covers -- a manifest marker whose `fn=` is the
+# REAL `bb_data_bind()` library function itself, called via `args=` (e.g.
+# examples/smoke/main/bb_wire.h's `fn=bb_data_bind component=bb_data
+# args=&(bb_data_binding_t){.key="log",...}`, binding the "log" key). This
+# is neither a self-bind inside some OTHER component's tree (what
+# `binds_data=` exists to opt into) nor a same-tree helper call
+# `INDIRECT_BB_DATA_BINDS` can name a `wrapper_fn` for (there is no
+# wrapper -- `bb_data_bind` IS the function being called, directly, by
+# codegen's generated call). Declaring `binds_data=log` on THIS marker
+# would not even pass `binds-data-mismatch`: that rule resolves the
+# marker's owner as `component=bb_data` and scans BB_DATA'S OWN tree for a
+# matching call site -- but `bb_data_bind()`'s implementation obviously
+# never calls itself, so bb_data's own tree has zero call sites, tripping
+# the "zero-call-site" branch that says to DROP `binds_data=`, not add it.
+# `_direct_bb_data_bind_keys` below is the real fix: it reads the key
+# straight out of such a marker's own `args=` text -- the SAME text codegen
+# splices verbatim into the generated call -- so this accounting needs no
+# new marker field and cannot drift from what actually gets compiled in.
+_DIRECT_BB_DATA_BIND_FN = "bb_data_bind"
+_ARGS_KEY_LITERAL_RE = re.compile(r'\.key\s*=\s*"([^"]*)"')
+
+
+def _direct_bb_data_bind_keys(ordered: List[InitEntry]) -> Dict[str, InitEntry]:
+    """Returns `{key: entry}` (first entry seen per key) for every resolved
+    entry whose `fn=` is literally `bb_data_bind` (see the module comment
+    above `_BB_DATA_HEADER_REL`) -- extracted by regex from that entry's own
+    `args=` text, the exact raw C `bb_data_bind()` call codegen emits.
+    Raises WireError, naming the offending entry's `file:line`, for an
+    entry shaped this way whose key this text-only extraction cannot read
+    -- no `args=` at all (structurally impossible for a real
+    `fn=bb_data_bind` call to work, but never assumed), an `args=` whose
+    `.key=` is not a plain quoted string literal (e.g. a macro identifier,
+    which this extraction -- unlike `commands.lint`'s `_resolve_key_literal`
+    -- does not attempt to resolve against `#define`s, since `check_binds_
+    data_cap` has no component-tree file access, only marker text), or an
+    `args=` whose `.key=` is ADJACENT STRING-LITERAL CONCATENATION (e.g.
+    `.key="log""suffix"` -- valid, whitespace-free C that the C compiler
+    concatenates into a single "logsuffix" string literal, satisfying
+    `args=`'s own no-embedded-whitespace grammar constraint just as easily
+    as a single literal does): `_ARGS_KEY_LITERAL_RE` only ever matches the
+    FIRST quoted run, so an unguarded `.group(1)` would silently return
+    `"log"` -- the WRONG key -- rather than the real, concatenated one.
+    Detected (never resolved -- concatenating the segments back together
+    correctly is out of scope for a single-pass regex) by checking whether
+    another `"` immediately follows the first match's closing quote; if so,
+    this raises the same way every other unreadable shape here does. No
+    in-tree marker uses this shape today -- this guard exists so the
+    "never silent, always hard-error on unparseable" property this whole
+    function is trusted for stays true even for a shape nobody has hit yet,
+    never a silent skip that would undercount the real key total this
+    check exists to get right."""
+    keys: Dict[str, InitEntry] = {}
+    for e in ordered:
+        if e.fn != _DIRECT_BB_DATA_BIND_FN:
+            continue
+        if e.args is None:
+            raise WireError(
+                f"{e.src_file}:{e.src_line}: fn={_DIRECT_BB_DATA_BIND_FN} "
+                f"has no 'args=' -- a direct call to the real bb_data_bind() "
+                f"library function needs its binding literal supplied via "
+                f"args=, and this checker needs that text to read the key "
+                f"it binds; refusing to silently skip this entry's count"
+            )
+        match = _ARGS_KEY_LITERAL_RE.search(e.args)
+        if match is None:
+            raise WireError(
+                f"{e.src_file}:{e.src_line}: fn={_DIRECT_BB_DATA_BIND_FN}'s "
+                f"args='{e.args}' has no plain quoted '.key=\"...\"' literal "
+                f"this checker can extract -- reduce the .key= expression to "
+                f"a plain string literal, or this entry's real key can never "
+                f"be counted (refusing to silently skip it)"
+            )
+        if match.end() < len(e.args) and e.args[match.end()] == '"':
+            raise WireError(
+                f"{e.src_file}:{e.src_line}: fn={_DIRECT_BB_DATA_BIND_FN}'s "
+                f"args='{e.args}' has adjacent string-literal concatenation "
+                f"right after '.key=\"{match.group(1)}\"' -- valid, "
+                f"whitespace-free C (e.g. \"a\"\"b\" compiles to the single "
+                f"literal \"ab\"), but this checker only ever reads the "
+                f"FIRST quoted segment, which would silently return the "
+                f"WRONG key; reduce .key= to a single plain string literal "
+                f"(refusing to guess at the concatenated value)"
+            )
+        keys.setdefault(match.group(1), e)
+    return keys
+
+
 _BB_DATA_HEADER_REL = os.path.join("components", "bb_data", "include", "bb_data.h")
 _BB_DATA_MAX_BINDINGS_DEFINE = "BB_DATA_MAX_BINDINGS"
+
+# B1-1428: this ticket exists because a composition SHIPPED at the cap with
+# nobody warned first -- `check_binds_data_cap` only ever hard-failed at
+# strict overflow (`total > cap`), so the first sign of trouble was a build
+# break with zero lead time to plan a fix (raise the cap, drop a key, or add
+# a missing INDIRECT_BB_DATA_BINDS entry). `_BB_DATA_CAP_WARN_SLACK` is how
+# many FREE slots remain (`cap - total`) at which point `check_binds_data_
+# cap` starts warning instead of staying silent. Set to 2 -- one slot wider
+# than `bb_registry`'s own runtime high-water-mark warning (components/
+# bb_registry/include/bb_registry.h: "Emits a one-time HWM bb_log_w when
+# count transitions to capacity-1", i.e. 1 free slot -- the "7/8" line from
+# the B1-1427 incident, back when the cap was 8), because a BUILD-time
+# warning's whole point is to give a human strictly MORE lead time than a
+# RUNTIME one: matching the runtime's threshold exactly would only ever
+# warn at codegen the same moment (or later, if a board never runs) the
+# device itself already would have. 2 is also not arbitrary against today's
+# real numbers: a display-capable board (elecrow_p4_hmi7,
+# lilygo_t_dongle_s3) sits at 10 keys against a cap of 12 RIGHT NOW (see
+# `test_wire.py`'s `TestBindsDataCapApproachingWarning`) -- exactly 2 free
+# slots, i.e. this is the threshold that would have caught today's real
+# margin, not a hypothetical one.
+_BB_DATA_CAP_WARN_SLACK = 2
 
 
 def _find_bb_data_max_bindings(roots) -> int:
@@ -303,10 +436,37 @@ def _find_bb_data_max_bindings(roots) -> int:
     )
 
 
-def check_binds_data_cap(ordered: List[InitEntry], roots) -> None:
+def check_binds_data_cap(ordered: List[InitEntry], roots, components=None) -> "str | None":
     """Hard-errors if the number of DISTINCT bb_data keys named across every
     resolved, topo-sorted entry's `binds_data=` list exceeds bb_data's
-    BB_DATA_MAX_BINDINGS cap.
+    BB_DATA_MAX_BINDINGS cap. Returns a non-fatal WARNING STRING (never
+    raises) when the count is under the cap but within
+    `_BB_DATA_CAP_WARN_SLACK` free slots of it (see that constant's own
+    comment for the threshold's justification) -- the proactive check this
+    ticket's own incident shows was missing: a composition that "fits"
+    today but has almost no room left before the NEXT undeclared/indirect
+    bind (the exact defect class this whole check exists to catch)
+    silently repeats the incident. Returns `None` when there's nothing to
+    say (comfortably under the cap, or genuinely inert -- see below). The
+    caller (`commands.codegen.run`/`pio_main`) prints this the same way it
+    already prints `composition.check_format_registry_backends`'s warning
+    -- unconditional `print()`/`print(..., file=sys.stderr)`, NOT gated
+    behind a verbose flag, since a warning nobody sees in normal output is
+    exactly the failure mode being fixed here.
+
+    `components` (optional) is the board-specific resolved component-name
+    set (the same one used for the REQUIRES/CMake fragment, e.g.
+    `commands.codegen.run`'s `components`) -- distinct from `ordered`'s
+    marker-derived composition, which for smoke stays board-INVARIANT
+    (`--wire-board smoke_wire_baseline`). It is consulted ONLY for a
+    `wire_parse.IndirectBind` record whose trigger is `trigger_component`
+    (a handwire-only bind, e.g. `bb_display_info_bind()`, reached solely
+    through a board-conditional `app_main()` call, never a marker); omitting
+    it (the default) simply means no `trigger_component`-shaped record can
+    ever be counted for that call -- a caller with no per-board component
+    set to pass gets the same marker-driven-only behavior this function had
+    before `trigger_component` existed, never a crash or a silent miscount
+    in the other direction.
 
     Counts the size of the UNION of every carrying entry's key list --
     `len({k for e in binders for k in e.binds_data})` -- never `len(binders)`
@@ -322,39 +482,105 @@ def check_binds_data_cap(ordered: List[InitEntry], roots) -> None:
     mirror-image false positive of the entry-counting undercount this check
     was rewritten to fix).
 
-    Deliberately INERT until at least one entry actually declares
-    `binds_data=`: with zero such entries this returns immediately and never
-    even attempts the `bb_data.h` lookup, so a tree with no bb_data component
-    (or one whose header can't be found under the given roots) costs a
-    composition nothing unless it actually opts in.
+    B1-1428: the union also picks up every `wire_parse.INDIRECT_BB_DATA_BINDS`
+    record whose trigger is present -- either `trigger_fn` in `ordered`'s
+    marker `fn=` names, or `trigger_component` in `components` -- a KNOWN
+    real `bb_data_bind()` call this text-only tooling cannot discover from
+    `binds_data=` markers alone, because it happens behind a same-tree
+    helper call into a DIFFERENT component, or behind a handwired,
+    board-conditional entry-point call (see that table's docstring for both
+    shapes). Gating on trigger presence (never unconditional) means a
+    composition that never pulls the triggering marker/component in at all
+    pays nothing for a bind it could never actually make.
 
-    Two different entries naming the SAME key are NOT flagged as a
-    collision here -- `bb_data_bind()` documents rebinding an existing key as
-    a supported override (see `components/bb_data/include/bb_data.h`'s
-    module docstring and its callers' "re-binding an already-bound key
-    overrides it in place" comments), so it is a legitimate composition this
-    grep-time tool cannot distinguish from a mistake; only a key repeated
-    WITHIN one marker is rejected, at parse time (`wire_parse.
-    _split_binds_data_keys`). This is also exactly WHY the cap check must
-    dedupe: a shared key is real capacity-sharing, not two units of demand.
+    Deliberately INERT until at least one entry actually declares
+    `binds_data=`, OR at least one indirect-bind trigger is present, OR at
+    least one direct `fn=bb_data_bind` entry is present: with none of the
+    three, this returns immediately and never even attempts the `bb_data.h`
+    lookup, so a tree with no bb_data component (or one whose header can't
+    be found under the given roots) costs a composition nothing unless it
+    actually opts in.
+
+    Two different entries (declared or indirect) naming the SAME key are NOT
+    flagged as a collision here -- `bb_data_bind()` documents rebinding an
+    existing key as a supported override (see
+    `components/bb_data/include/bb_data.h`'s module docstring and its
+    callers' "re-binding an already-bound key overrides it in place"
+    comments), so it is a legitimate composition this grep-time tool cannot
+    distinguish from a mistake; only a key repeated WITHIN one marker is
+    rejected, at parse time (`wire_parse._split_binds_data_keys`). This is
+    also exactly WHY the cap check must dedupe: a shared key is real
+    capacity-sharing, not two units of demand.
+
+    B1-1428: a THIRD counting source, `_direct_bb_data_bind_keys` -- a
+    marker whose `fn=` is the real `bb_data_bind()` library function itself
+    (called via `args=`, e.g. examples/smoke's "log" key), extracted from
+    that marker's own `args=` text (see that function's docstring for why
+    `binds_data=`/`INDIRECT_BB_DATA_BINDS` cannot express this shape).
+    Validated UNCONDITIONALLY (before the inertness check below), since an
+    unparseable `args=` must fail loudly regardless of whether the cap is
+    currently exceeded.
 
     Raises WireError naming every offending entry's file:line (plus the keys
-    it names), the full sorted distinct-key list, and the distinct-key
-    count vs. the cap, when the count exceeds the cap -- a reader can verify
-    the count by hand against the listed keys, unlike a raw total that no
-    longer matches anything countable in the message. Also raises WireError
-    (via `_find_bb_data_max_bindings`) if the cap itself cannot be
-    determined -- never a silent skip."""
+    it names), every triggered indirect bind (key, wrapper_fn, trigger),
+    every direct fn=bb_data_bind bind (key, file:line, args=), the full
+    sorted distinct-key list, and the distinct-key count vs. the cap, when
+    the count exceeds the cap -- a reader can verify the count by hand
+    against the listed keys, unlike a raw total that no longer matches
+    anything countable in the message. Also raises WireError (via
+    `_find_bb_data_max_bindings`) if the cap itself cannot be determined --
+    never a silent skip."""
     binders = [e for e in ordered if e.binds_data]
-    if not binders:
-        return
+    trigger_fns = {e.fn for e in ordered}
+    resolved_components = set(components) if components is not None else set()
+    indirect = [
+        ib for ib in INDIRECT_BB_DATA_BINDS
+        if (ib.trigger_fn is not None and ib.trigger_fn in trigger_fns)
+        or (ib.trigger_component is not None and ib.trigger_component in resolved_components)
+    ]
+    # Computed (and validated -- see its own docstring for the WireErrors it
+    # can raise) UNCONDITIONALLY, before the inertness early-return below: an
+    # unparseable fn=bb_data_bind args= must fail loudly regardless of
+    # whether the OTHER counting sources happen to total under the cap --
+    # never a silent skip just because this function would otherwise have
+    # nothing else to say.
+    direct = _direct_bb_data_bind_keys(ordered)
+    if not binders and not indirect and not direct:
+        return None
     distinct_keys = {k for e in binders for k in e.binds_data}
+    distinct_keys.update(ib.key for ib in indirect)
+    distinct_keys.update(direct.keys())
     total = len(distinct_keys)
     cap = _find_bb_data_max_bindings(roots)
     if total > cap:
         offenders = ", ".join(
             f"fn={e.fn} ({e.src_file}:{e.src_line}, keys={','.join(e.binds_data)})"
             for e in binders
+        )
+
+        def _trigger_desc(ib):
+            if ib.trigger_fn is not None:
+                return f"triggered by fn={ib.trigger_fn}"
+            return f"triggered by component={ib.trigger_component}"
+
+        indirect_str = ", ".join(
+            f"key={ib.key} (via {ib.wrapper_fn}(), {_trigger_desc(ib)})"
+            for ib in indirect
+        )
+        indirect_note = (
+            f"; plus {len(indirect)} indirect bind(s) not carried by any "
+            f"'binds_data=' marker: {indirect_str}"
+            if indirect else ""
+        )
+        direct_str = ", ".join(
+            f"key={key} ({e.src_file}:{e.src_line}, fn={_DIRECT_BB_DATA_BIND_FN}"
+            f" args={e.args})"
+            for key, e in direct.items()
+        )
+        direct_note = (
+            f"; plus {len(direct)} direct fn={_DIRECT_BB_DATA_BIND_FN} "
+            f"bind(s) not carried by any 'binds_data=' marker: {direct_str}"
+            if direct else ""
         )
         raise WireError(
             f"{total} distinct bb_data key(s) are bound across {len(binders)} "
@@ -363,8 +589,24 @@ def check_binds_data_cap(ordered: List[InitEntry], roots) -> None:
             f"and a bind past the cap fails at runtime; reduce the distinct "
             f"key count or raise {_BB_DATA_MAX_BINDINGS_DEFINE} in "
             f"{_BB_DATA_HEADER_REL}; distinct keys="
-            f"{','.join(sorted(distinct_keys))} ({offenders})"
+            f"{','.join(sorted(distinct_keys))} ({offenders}){indirect_note}{direct_note}"
         )
+
+    free = cap - total
+    if free <= _BB_DATA_CAP_WARN_SLACK:
+        return (
+            f"bbtool codegen: warning: {total} distinct bb_data key(s) "
+            f"bound against {_BB_DATA_MAX_BINDINGS_DEFINE}={cap} -- only "
+            f"{free} free slot(s) left; the next undeclared binds_data= "
+            f"key, INDIRECT_BB_DATA_BINDS entry, or fn=bb_data_bind args= "
+            f"bind will hard-fail this check (or, worse, silently exceed "
+            f"the runtime table if it isn't accounted for at all yet -- "
+            f"the exact defect class this check exists to catch); raise "
+            f"{_BB_DATA_MAX_BINDINGS_DEFINE} in {_BB_DATA_HEADER_REL} "
+            f"proactively, or reduce the distinct key count; distinct "
+            f"keys={','.join(sorted(distinct_keys))}"
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------

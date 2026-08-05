@@ -82,19 +82,31 @@ extern "C" {
 // PR #1227 (bind data-http's "log" key into examples/smoke) hit this cap on
 // bench hardware (BB_ERR_NO_SPACE) even though check_binds_data_cap's
 // codegen-time gate reported the composition as fitting: examples/smoke's
-// `binds_data=` markers only declare 8 distinct keys (reboot, factory_reset,
-// storage_delete, wifi, fan, power, thermal, log), but
-// bb_diag_routes_init() (platform/espidf/bb_diag_http/bb_diag_http_routes.c)
-// ALSO self-binds a 9th key, "diag.boot", as an internal side effect with no
-// `binds_data=` annotation naming it -- invisible to both the cap check and
-// the binds-data-mismatch lint (bb_diag_http_routes.c calls the wrapper
-// bb_diag_boot_bind(), never bb_data_bind() directly; the real call lives in
-// a DIFFERENT component, components/bb_diag/bb_diag_boot_wire.c, which
-// neither text-only checker follows through the indirection). Default 12
-// covers the real 9-key requirement with headroom for that kind of
-// undercounted self-bind. examples/floor (handwire, not codegen -- entirely
-// outside both checkers' reach per scripts/bbtool/README.md's "Scope limit")
-// needs only 5 (log, tasks, diag.boot, storage_delete, factory_reset).
+// `binds_data=` markers only declared 7 distinct keys (reboot, factory_reset,
+// storage_delete, wifi, fan, power, thermal), but real bindings ran 2 higher
+// -- "diag.boot", bound by bb_diag_boot_bind() (components/bb_diag/
+// bb_diag_boot_wire.c) behind a same-tree helper call from
+// bb_diag_routes_init() (a DIFFERENT component,
+// platform/espidf/bb_diag_http/bb_diag_http_routes.c), and "log", bound by
+// the real bb_data_bind() library call itself via a marker's `args=`
+// (examples/smoke/main/bb_wire.h) rather than any self-bind a
+// `binds_data=` declaration could opt into -- both invisible to the
+// original cap check and the binds-data-mismatch lint. `check_binds_data_
+// cap` (scripts/bbtool/commands/wire.py) now closes both gaps: an explicit
+// `wire_parse.INDIRECT_BB_DATA_BINDS` manifest accounts for the
+// "diag.boot"-shaped indirection (its completeness gated by the
+// binds-data-hidden-bind lint rule), and a THIRD counting source reads a
+// literal `fn=bb_data_bind ... args=` marker's own `.key=` text directly.
+// Default 12 covers the real 9-key requirement (7 declared + diag.boot +
+// log) with headroom. examples/floor (handwire, not codegen -- entirely
+// outside check_binds_data_cap's `ordered`-derived reach per scripts/
+// bbtool/README.md's "Scope limit") needs only 5 (log, tasks, diag.boot,
+// storage_delete, factory_reset). A display-capable board (e.g.
+// elecrow_p4_hmi7, lilygo_t_dongle_s3) adds a 10th key, "health.display",
+// bound by bb_display_info_bind() only when reached through a hand-wired
+// `app_main()` call gated on that board's `bb_display` component --
+// accounted for via `wire_parse.IndirectBind(trigger_component="bb_display",
+// ...)`, since no marker names that call chain at all.
 #define BB_DATA_MAX_BINDINGS 12
 
 // Max length (including the terminating NUL) of a binding key -- a short

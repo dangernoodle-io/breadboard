@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 # Make bbtool package importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -35,6 +36,7 @@ from commands.lint import (
     _check_prov_default_form_internal_ref,
     _check_init_marker_gated_srcs,
     _check_binds_data_mismatch,
+    _check_binds_data_hidden_bind,
     _check_kconfig_inert_symbol,
     _join_preproc_continuations,
     _strip_noise,
@@ -3044,6 +3046,381 @@ class TestBindsDataMismatch(unittest.TestCase):
                 rc, 1,
                 "bbtool lint's real run() entry point must surface a"
                 " binds-data-mismatch violation as a non-zero exit")
+
+
+class TestBindsDataHiddenBind(unittest.TestCase):
+    """B1-1428: a real bb_data_bind() call reached only through a same-tree
+    helper in a DIFFERENT component than the composing marker must be named
+    in wire_parse.INDIRECT_BB_DATA_BINDS so check_binds_data_cap counts it."""
+
+    def _write(self, tmpdir: str, relpath: str, content: str) -> None:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    def _make_component(self, tmpdir: str, name: str, header_marker: str,
+                         c_body: str) -> None:
+        self._write(
+            tmpdir, f"components/{name}/CMakeLists.txt",
+            f'idf_component_register(SRCS "{name}.c" INCLUDE_DIRS "include")\n')
+        self._write(
+            tmpdir, f"components/{name}/include/{name}.h",
+            "#pragma once\n" + header_marker + f"bb_err_t {name}_init(void);\n")
+        self._write(tmpdir, f"components/{name}/{name}.c", c_body)
+
+    def _make_indirect_fixture(self, td: str) -> None:
+        """Two components mirroring the real diag.boot shape: bb_fake_a's
+        marker fn calls bb_fake_b_wrapper(), defined in a DIFFERENT
+        component (bb_fake_b), which itself calls bb_data_bind() for key
+        'hidden.key' -- invisible to binds_data=/binds-data-mismatch since
+        neither marker names bb_fake_b_wrapper directly."""
+        self._make_component(
+            td, "bb_fake_a",
+            "// bbtool:init tier=regular fn=bb_fake_a_init\n",
+            "bb_err_t bb_fake_a_init(void) {\n"
+            "    return bb_fake_b_wrapper();\n"
+            "}\n")
+        self._make_component(
+            td, "bb_fake_b",
+            "",
+            "bb_err_t bb_fake_b_wrapper(void) {\n"
+            "    bb_data_binding_t hidden_binding = {\n"
+            "        .key = \"hidden.key\", .desc = &d, .gather = g,\n"
+            "    };\n"
+            "    return bb_data_bind(&hidden_binding);\n"
+            "}\n")
+
+    def test_reachable_undocumented_indirect_bind_fires(self):
+        """No manifest entry at all for bb_fake_b_wrapper -- the exact
+        B1-1427 shape (reachable from a marker, no way for
+        check_binds_data_cap to ever count it) -- must be a hard
+        violation naming the function, key, and file:line."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_indirect_fixture(td)
+            with mock.patch("commands.lint.INDIRECT_BB_DATA_BINDS", ()):
+                violations = _check_binds_data_hidden_bind(make_ctx(td))
+            self.assertTrue(violations, "an undocumented reachable indirect bind must fire")
+            detail = violations[-1]["detail"]
+            self.assertIn("bb_fake_b_wrapper", detail)
+            self.assertIn("hidden.key", detail)
+
+    def test_reachable_accounted_indirect_bind_passes(self):
+        """The manifest names bb_fake_b_wrapper/hidden.key, triggered by
+        bb_fake_a_init -- check_binds_data_cap can now count it, so this
+        rule must stay silent."""
+        from wire_parse import IndirectBind
+        manifest = (
+            IndirectBind(trigger_fn="bb_fake_a_init",
+                         wrapper_fn="bb_fake_b_wrapper", key="hidden.key"),
+        )
+        with tempfile.TemporaryDirectory() as td:
+            self._make_indirect_fixture(td)
+            with mock.patch("commands.lint.INDIRECT_BB_DATA_BINDS", manifest):
+                violations = _check_binds_data_hidden_bind(make_ctx(td))
+            self.assertFalse(violations, violations)
+
+    def test_manifest_wrapper_present_but_key_mismatch_fires(self):
+        """The manifest names bb_fake_b_wrapper but for a DIFFERENT key than
+        the one it actually binds -- a stale/wrong manifest key must still
+        surface as an undocumented bind for the REAL key (never silently
+        treated as covered just because the wrapper name matches)."""
+        from wire_parse import IndirectBind
+        manifest = (
+            IndirectBind(trigger_fn="bb_fake_a_init",
+                         wrapper_fn="bb_fake_b_wrapper", key="wrong.key"),
+        )
+        with tempfile.TemporaryDirectory() as td:
+            self._make_indirect_fixture(td)
+            with mock.patch("commands.lint.INDIRECT_BB_DATA_BINDS", manifest):
+                violations = _check_binds_data_hidden_bind(make_ctx(td))
+            self.assertTrue(violations, "a wrapper-matched but key-mismatched manifest entry must still fire")
+            hidden_bind_violations = [v for v in violations if "hidden.key" in v["detail"]]
+            self.assertTrue(hidden_bind_violations, violations)
+
+    def test_unreachable_indirect_bind_not_flagged(self):
+        """bb_fake_b_wrapper() is never called by anything reachable from a
+        marker OR from a hand-wired `app_main()` (it's only invoked by a
+        plain, non-marker, non-entry-point helper, and this synthetic
+        fixture defines no `examples/*/main/*.c` at all, so the handwire
+        seed has nothing to reach through either) -- the same 'invisible to
+        codegen' scope limit real OUT-OF-TREE-only code has today (e.g.
+        `bb_ota_check_register_init()`, called only by an out-of-tree
+        consumer's own `app_main`, never by anything in THIS repo -- see
+        `wire_parse.INDIRECT_BB_DATA_BINDS`'s `bb_ota_check_config_bind`
+        entry). Must NOT be flagged, since neither check_binds_data_cap nor
+        binds-data-mismatch could ever see it either.
+
+        NOTE (B1-1428 review): this must NOT be read as claiming
+        `bb_display_info_bind()` is an example of unreachable code --
+        that WAS true before `_build_call_graph_edges` started scanning
+        examples/*/main/*.c and seeding BFS from `app_main()`
+        (`_HANDWIRE_ENTRY_FNS`); it is real, in-tree-reachable, hand-wired
+        code today (`examples/smoke/main/entry_espidf.c`'s `app_main()` ->
+        `bb_display_register_info()` -> `bb_display_info_bind()`), covered
+        by its own `IndirectBind(trigger_component='bb_display', ...)`
+        entry and exercised by `test_reachable_undocumented_indirect_bind_
+        fires`-style coverage against the real tree (see also
+        `TestBindsDataCapIndirect` in test_wire.py)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(
+                td, "bb_fake_a",
+                "// bbtool:init tier=regular fn=bb_fake_a_init\n",
+                "bb_err_t bb_fake_a_init(void) {\n"
+                "    return BB_OK;\n"
+                "}\n"
+                "bb_err_t bb_fake_a_unwired(void) {\n"
+                "    return bb_fake_b_wrapper();\n"
+                "}\n")
+            self._make_component(
+                td, "bb_fake_b",
+                "",
+                "bb_err_t bb_fake_b_wrapper(void) {\n"
+                "    bb_data_binding_t hidden_binding = {\n"
+                "        .key = \"hidden.key\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    return bb_data_bind(&hidden_binding);\n"
+                "}\n")
+            with mock.patch("commands.lint.INDIRECT_BB_DATA_BINDS", ()):
+                violations = _check_binds_data_hidden_bind(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "an indirect bind unreachable from any marker OR any"
+                " in-tree app_main() must not fire: " + str(violations))
+
+    def test_handwire_only_reachable_indirect_bind_fires(self):
+        """The B1-1428 review finding, reproduced directly: a bind reached
+        ONLY through a hand-wired `app_main()` (never a marker) must still
+        fire -- `_reachable_from_composition_roots`' handwire seed
+        (`_HANDWIRE_ENTRY_FNS`) closes exactly the blind spot
+        `test_unreachable_indirect_bind_not_flagged` used to (incorrectly)
+        codify as permanent. Mirrors the real `bb_display_info_bind()`
+        shape: `app_main()` (examples/<x>/main/entry.c) calls a plain
+        registration helper (never a marker), which calls the real
+        bb_data_bind()-calling wrapper, in a DIFFERENT component."""
+        with tempfile.TemporaryDirectory() as td:
+            self._write(
+                td, "examples/fake/main/entry.c",
+                "void app_main(void) {\n"
+                "    bb_fake_a_register();\n"
+                "}\n")
+            self._make_component(
+                td, "bb_fake_a",
+                "",
+                "void bb_fake_a_register(void) {\n"
+                "    bb_fake_b_wrapper();\n"
+                "}\n")
+            self._make_component(
+                td, "bb_fake_b",
+                "",
+                "bb_err_t bb_fake_b_wrapper(void) {\n"
+                "    bb_data_binding_t hidden_binding = {\n"
+                "        .key = \"hidden.key\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    return bb_data_bind(&hidden_binding);\n"
+                "}\n")
+            with mock.patch("commands.lint.INDIRECT_BB_DATA_BINDS", ()):
+                violations = _check_binds_data_hidden_bind(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "a bind reachable only through a hand-wired app_main() must"
+                " still fire")
+            detail = violations[-1]["detail"]
+            self.assertIn("bb_fake_b_wrapper", detail)
+            self.assertIn("hidden.key", detail)
+            self.assertIn("trigger_component", detail)
+
+    def test_unrecognized_entry_point_name_hard_fails(self):
+        """B1-1428 review LOW 1: an examples/*/main/ directory that defines
+        .c files but NO function matching _HANDWIRE_ENTRY_FNS at all (e.g.
+        a hypothetical future example whose entry point is named something
+        other than app_main/main) must hard-fail LOUDLY, naming the
+        directory -- silently scanning it and finding nothing would
+        reproduce this rule's own blind spot for that example."""
+        with tempfile.TemporaryDirectory() as td:
+            self._write(
+                td, "examples/fake/main/entry.c",
+                "void bb_fake_custom_entry(void) {\n"
+                "    bb_fake_a_register();\n"
+                "}\n")
+            self._make_component(
+                td, "bb_fake_a",
+                "// bbtool:init tier=regular fn=bb_fake_a_init\n",
+                "bb_err_t bb_fake_a_init(void) { return BB_OK; }\n")
+            violations = _check_binds_data_hidden_bind(make_ctx(td))
+            self.assertTrue(
+                violations,
+                "an examples/*/main/ dir with no recognized entry point"
+                " must fire")
+            details = " ".join(v["detail"] for v in violations)
+            self.assertIn("examples", details)
+            self.assertIn("fake", details)
+            self.assertIn("main", details)
+            self.assertIn("_HANDWIRE_ENTRY_FNS", details)
+
+    def test_recognized_entry_point_name_not_flagged(self):
+        """The normal case (app_main present) must NOT trip the
+        unrecognized-entry-point guard -- a negative-path sibling to
+        test_unrecognized_entry_point_name_hard_fails."""
+        with tempfile.TemporaryDirectory() as td:
+            self._write(
+                td, "examples/fake/main/entry.c",
+                "void app_main(void) {\n"
+                "    bb_fake_a_init();\n"
+                "}\n")
+            self._make_component(
+                td, "bb_fake_a",
+                "// bbtool:init tier=regular fn=bb_fake_a_init\n",
+                "bb_err_t bb_fake_a_init(void) { return BB_OK; }\n")
+            violations = _check_binds_data_hidden_bind(make_ctx(td))
+            self.assertFalse(violations, violations)
+
+    def test_host_main_entry_point_recognized(self):
+        """A host-platform example's C entry point (`main`, the POSIX/libc
+        convention) must ALSO be recognized, not just `app_main` -- proves
+        FIX 1's addition to _HANDWIRE_ENTRY_FNS, and that a bind reachable
+        only through it is caught."""
+        with tempfile.TemporaryDirectory() as td:
+            self._write(
+                td, "examples/fake/main/entry.c",
+                "int main(void) {\n"
+                "    bb_fake_a_register();\n"
+                "    return 0;\n"
+                "}\n")
+            self._make_component(
+                td, "bb_fake_a",
+                "",
+                "void bb_fake_a_register(void) {\n"
+                "    bb_fake_b_wrapper();\n"
+                "}\n")
+            self._make_component(
+                td, "bb_fake_b",
+                "",
+                "bb_err_t bb_fake_b_wrapper(void) {\n"
+                "    bb_data_binding_t hidden_binding = {\n"
+                "        .key = \"hidden.key\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    return bb_data_bind(&hidden_binding);\n"
+                "}\n")
+            with mock.patch("commands.lint.INDIRECT_BB_DATA_BINDS", ()):
+                violations = _check_binds_data_hidden_bind(make_ctx(td))
+            detail = " ".join(v["detail"] for v in violations)
+            self.assertIn("bb_fake_b_wrapper", detail)
+            self.assertIn("hidden.key", detail)
+
+    def test_component_wide_declared_key_exempts_indirect_helper(self):
+        """bb_fake_a's marker declares binds_data=hidden.key even though
+        the real bb_data_bind() call lives inside a SIBLING helper
+        (bb_fake_a_bind_helper), not the marker's own fn -- mirrors the
+        real bb_sensor_http shape (bb_sensor_http_init declares
+        fan/power/thermal, bb_sensor_http_bind_and_register() is the real
+        call site). Already covered component-wide by binds_data=/
+        binds-data-mismatch; must not ALSO be flagged here as an
+        undocumented indirect bind."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(
+                td, "bb_fake_a",
+                "// bbtool:init tier=regular fn=bb_fake_a_init"
+                " binds_data=hidden.key\n",
+                "bb_err_t bb_fake_a_init(void) {\n"
+                "    return bb_fake_a_bind_helper();\n"
+                "}\n"
+                "bb_err_t bb_fake_a_bind_helper(void) {\n"
+                "    bb_data_binding_t hidden_binding = {\n"
+                "        .key = \"hidden.key\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    return bb_data_bind(&hidden_binding);\n"
+                "}\n")
+            with mock.patch("commands.lint.INDIRECT_BB_DATA_BINDS", ()):
+                violations = _check_binds_data_hidden_bind(make_ctx(td))
+            self.assertFalse(violations, violations)
+
+    def test_direct_marker_fn_bind_not_flagged(self):
+        """The bb_data_bind() call's enclosing function IS itself a
+        marker's fn= (a DIRECT bind) -- binds-data-mismatch's job, not this
+        rule's, even when the component carries no declaring marker at
+        all (a pre-existing, documented scope limit this ticket does not
+        extend)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(
+                td, "bb_fake_a",
+                "// bbtool:init tier=regular fn=bb_fake_a_init\n",
+                "bb_err_t bb_fake_a_init(void) {\n"
+                "    bb_data_binding_t hidden_binding = {\n"
+                "        .key = \"hidden.key\", .desc = &d, .gather = g,\n"
+                "    };\n"
+                "    return bb_data_bind(&hidden_binding);\n"
+                "}\n")
+            with mock.patch("commands.lint.INDIRECT_BB_DATA_BINDS", ()):
+                violations = _check_binds_data_hidden_bind(make_ctx(td))
+            self.assertFalse(violations, violations)
+
+    def test_stale_manifest_entry_fires(self):
+        """The manifest names bb_fake_b_wrapper/stale.key, but this tree's
+        bb_fake_b_wrapper() (a REAL, defined function in this root) binds a
+        different key -- the stale manifest entry inflates
+        check_binds_data_cap's count for no real capacity use and must be
+        flagged."""
+        from wire_parse import IndirectBind
+        manifest = (
+            IndirectBind(trigger_fn="bb_fake_a_init",
+                         wrapper_fn="bb_fake_b_wrapper", key="stale.key"),
+        )
+        with tempfile.TemporaryDirectory() as td:
+            self._make_indirect_fixture(td)
+            with mock.patch("commands.lint.INDIRECT_BB_DATA_BINDS", manifest):
+                violations = _check_binds_data_hidden_bind(make_ctx(td))
+            stale = [v for v in violations if "stale entry" in v["detail"]]
+            self.assertTrue(stale, violations)
+            self.assertIn("bb_fake_b_wrapper", stale[0]["detail"])
+            self.assertIn("stale.key", stale[0]["detail"])
+
+    def test_manifest_entry_for_absent_component_not_flagged_stale(self):
+        """The manifest names a wrapper_fn this root's tree never defines
+        at all (its owning component simply isn't present here, e.g. a
+        synthetic single-component test fixture) -- must NOT be reported as
+        stale, since an absent component says nothing about whether the
+        entry is stale in the real tree it actually describes."""
+        from wire_parse import IndirectBind
+        manifest = (
+            IndirectBind(trigger_fn="some_other_marker_fn",
+                         wrapper_fn="bb_totally_unrelated_wrapper",
+                         key="unrelated.key"),
+        )
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(
+                td, "bb_fake_a",
+                "// bbtool:init tier=regular fn=bb_fake_a_init\n",
+                "bb_err_t bb_fake_a_init(void) {\n"
+                "    return BB_OK;\n"
+                "}\n")
+            with mock.patch("commands.lint.INDIRECT_BB_DATA_BINDS", manifest):
+                violations = _check_binds_data_hidden_bind(make_ctx(td))
+            self.assertFalse(
+                violations,
+                "a manifest entry for a component absent from this root"
+                " must not be flagged stale: " + str(violations))
+
+    def test_wired_into_lint_run_entry_point(self):
+        """Proof this rule actually runs through the real `bbtool lint`
+        entry point (`run()`), not merely reachable if called directly.
+        Filters to just this rule id and asserts a non-zero exit over a
+        tree with a genuine undocumented reachable indirect bind."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_indirect_fixture(td)
+            with mock.patch("commands.lint.INDIRECT_BB_DATA_BINDS", ()):
+                args = argparse.Namespace(
+                    root=td,
+                    profile=None,
+                    rules=["binds-data-hidden-bind"],
+                    list=False,
+                    _config_dict={},
+                    _root_abs=td,
+                )
+                rc = lint_run(args)
+            self.assertEqual(
+                rc, 1,
+                "bbtool lint's real run() entry point must surface a"
+                " binds-data-hidden-bind violation as a non-zero exit")
 
 
 class TestKconfigInertSymbol(unittest.TestCase):
