@@ -32,6 +32,18 @@ typedef struct {
 static capture_frame_t s_frames[BB_DATA_HTTP_HOST_CAPTURE_MAX];
 static size_t          s_frame_count;
 
+// B1-1424: fail-injection knob for the flush phase's retriable/fatal
+// send-retry contract host tests -- see bb_data_http_host_fail_next()'s
+// doc. s_fail_remaining == 0 means "no injected failure, capture normally".
+static bb_err_t s_fail_rc;
+static size_t   s_fail_remaining;
+
+// B1-1424/B1-1429: last client passed to the installed abort_fn (see
+// bb_data_http_host_install_abort()) -- host tests read this to assert a
+// fatal send_fn failure actually reached the abort seam. NULL after
+// bb_data_http_host_reset() or when no abort_fn call has happened yet.
+static bb_data_http_client_t *s_last_aborted_client;
+
 // B1-1123 PR-2: send_fn now also carries `key` -- captured here so host
 // tests can assert the resolved key alongside the existing fd/is_ws/bytes
 // fields (see bb_data_http_host_frame_key_at()).
@@ -39,6 +51,10 @@ static bb_err_t host_send(const char *key, const bb_data_http_client_t *client,
                           const void *bytes, size_t len, void *ctx)
 {
     (void)ctx;
+    if (s_fail_remaining > 0) {
+        s_fail_remaining--;
+        return s_fail_rc;
+    }
     if (s_frame_count >= BB_DATA_HTTP_HOST_CAPTURE_MAX) return BB_ERR_NO_SPACE;
 
     capture_frame_t *f = &s_frames[s_frame_count];
@@ -63,10 +79,43 @@ void bb_data_http_host_install_send(void)
     bb_data_http_set_send_fn(host_send, NULL);
 }
 
+// B1-1424/B1-1429: records `client` into s_last_aborted_client -- host tests
+// assert on bb_data_http_host_last_aborted_client() after injecting a fatal
+// send_fn failure. Deliberately does NOT call bb_data_http_client_release()
+// itself: that is the core's own no-abort-fn fallback (see
+// bb_data_http_set_abort_fn()'s doc, bb_data_http.h) -- installing this stub
+// exercises the "abort_fn IS installed" branch instead, so tests can tell
+// the two apart.
+static void host_abort(bb_data_http_client_t *client, void *ctx)
+{
+    (void)ctx;
+    s_last_aborted_client = client;
+    bb_data_http_client_release(client);
+}
+
+void bb_data_http_host_install_abort(void)
+{
+    bb_data_http_set_abort_fn(host_abort, NULL);
+}
+
+bb_data_http_client_t *bb_data_http_host_last_aborted_client(void)
+{
+    return s_last_aborted_client;
+}
+
+void bb_data_http_host_fail_next(bb_err_t rc, size_t count)
+{
+    s_fail_rc        = rc;
+    s_fail_remaining = count;
+}
+
 void bb_data_http_host_reset(void)
 {
     s_frame_count = 0;
     memset(s_frames, 0, sizeof(s_frames));
+    s_fail_rc              = BB_OK;
+    s_fail_remaining       = 0;
+    s_last_aborted_client  = NULL;
 }
 
 size_t bb_data_http_host_frame_count(void)

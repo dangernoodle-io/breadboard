@@ -48,19 +48,79 @@ config BB_DATA_HTTP_EVENT_RING_CAPACITY
         bb_data_http_client_dropped_count()). bb_data_http_cfg_t may only
         shrink this at runtime, never grow it.
 
+config BB_DATA_HTTP_SEND_FAIL_MAX
+    int "Consecutive RETRIABLE send failures before a client's head-of-queue frame is dropped"
+    default 3
+    range 1 32
+    help
+        B1-1424/B1-1429: bb_data_http_sweep_step()'s flush phase retries a
+        RETRIABLE (BB_ERR_TIMEOUT) send_fn failure on the client's own
+        outbound queue on the NEXT sweep (never in a loop within the same
+        sweep -- see bb_data_http_send_fn's doc, bb_data_http.h) rather
+        than discarding the frame -- but the retry is bounded per client,
+        not unlimited:
+        once this many CONSECUTIVE retriable failures land on the same
+        head-of-queue frame, that one frame is dropped and the counter
+        resets, so one client with a wedged transport cannot fill its own
+        outbound queue and permanently stop receiving anything else. A
+        FATAL (any other non-BB_OK) send_fn failure never consults this
+        bound -- the client is torn down immediately instead. See the
+        flush phase's doc comment in bb_data_http_common.c for the full
+        rationale.
+
 # ESP-IDF backend (B1-1033 first bench-flash de-risk, design KB 1447):
 # platform/espidf/bb_data_http/bb_data_http_espidf.c only -- no effect on
 # the pure core or any other platform.
 
 config BB_DATA_HTTP_SEND_TIMEOUT_MS
-    int "SSE client send timeout (ms)"
+    int "SSE client steady-state send timeout (ms)"
     default 20
     range 1 1000
     help
-        SO_SNDTIMEO set on a client's socket at connect. Deliberately short:
-        the ONE shared broadcaster task pays this timeout per stalled client
-        per sweep, so BB_DATA_HTTP_MAX_CLIENTS * this value must stay well
-        under BB_DATA_HTTP_SWEEP_INTERVAL_MS (default 2*20ms=40ms < 50ms).
+        SO_SNDTIMEO set on a client's socket at connect, and restored to
+        after its first frame (see BB_DATA_HTTP_FIRST_FRAME_TIMEOUT_MS
+        below). Deliberately short: BB_DATA_HTTP_MAX_CLIENTS * this value
+        must stay under BB_DATA_HTTP_SWEEP_INTERVAL_MS (enforced at compile
+        time; default 2*20ms=40ms < 50ms) -- but that check bounds only the
+        RETRIABLE-failure sub-case of the broadcaster's per-sweep flush
+        cost, not a general worst case: a client whose socket stays
+        congested but keeps completing writes just under this timeout can
+        still cost up to BB_DATA_HTTP_OUTBOUND_CAPACITY * this value in a
+        single sweep (default 8*20=160ms) -- see the compile-time check's
+        own comment in platform/espidf/bb_data_http/bb_data_http_espidf.c
+        for the full arithmetic and why that pathological case is left
+        unbounded rather than capped.
+
+config BB_DATA_HTTP_FIRST_FRAME_TIMEOUT_MS
+    int "SSE client first-frame send timeout (ms)"
+    default 120
+    range 20 5000
+    help
+        B1-1424 review item 4 / B1-1033's curl -N closure criterion: a
+        cold, freshly-accepted socket's FIRST real send can pay TCP
+        slow-start latency well past BB_DATA_HTTP_SEND_TIMEOUT_MS
+        (observed ~65ms on hardware against the 20ms default) -- SSE send
+        failures are fatal (no retry is ever safe, see
+        bb_data_http_send_fn's return contract), and a fatal failure on a
+        client's very first frame is a total, permanent loss for any
+        client without its own reconnect logic (curl -N does not
+        reconnect, unlike a browser's EventSource -- this is what B1-1033
+        actually closes on).
+        Applied ONLY to each client's first send attempt (see
+        bb_data_http_espidf_slot_t's `warmed` field), then reverts to
+        BB_DATA_HTTP_SEND_TIMEOUT_MS unconditionally -- steady-state
+        delivery never pays this cost. Further bounded to at most ONE
+        cold-start client per sweep_step() call (see
+        s_cold_start_available's doc, bb_data_http_espidf.c) so the worst-
+        case extra cost any one sweep pays is (BB_DATA_HTTP_MAX_CLIENTS-1)
+        * BB_DATA_HTTP_SEND_TIMEOUT_MS + this value, not
+        BB_DATA_HTTP_MAX_CLIENTS * this value -- default (2-1)*20+120=140ms.
+        That figure DOES still exceed the 50ms default
+        BB_DATA_HTTP_SWEEP_INTERVAL_MS -- accepted, not hidden, because it
+        is a one-time-per-client cost (never a recurring per-sweep one,
+        unlike BB_DATA_HTTP_SEND_TIMEOUT_MS's own bound above), self-
+        limiting once a client's first attempt is over. Default 120ms
+        gives ~85% margin over the observed 65ms.
 
 config BB_DATA_HTTP_RECV_TIMEOUT_MS
     int "SSE client receive timeout (ms)"

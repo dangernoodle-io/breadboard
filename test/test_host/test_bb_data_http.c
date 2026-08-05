@@ -120,6 +120,25 @@ static bb_err_t empty_render_fn(const char *key, char *buf, size_t cap, size_t *
     return BB_OK;
 }
 
+// B1-1424 HIGH fix: simulates a foreign task's disconnect callback racing
+// IN THE MIDDLE of a sweep_step() call already in progress for this same
+// client -- the exact hazard bb_data_http_client_request_release() closes
+// (see its doc, bb_data_http.h). Real hardware can't be forced into that
+// window from a host test (no threads here), so this fakes the same
+// SEQUENCING instead: a render_fn that calls
+// bb_data_http_client_request_release() on a client captured via `ctx`
+// partway through the CURRENT sweep_step() call's own drain-phase work for
+// that client, then still returns a valid rendered value -- exactly as if
+// the request had raced in from another task moments earlier and this
+// task's in-flight render call simply hadn't observed it yet at the top of
+// the loop.
+static bb_err_t mid_sweep_release_render_fn(const char *key, char *buf, size_t cap,
+                                            size_t *out_len, void *ctx)
+{
+    bb_data_http_client_request_release((bb_data_http_client_t *)ctx);
+    return fake_render_fn(key, buf, cap, out_len, NULL);
+}
+
 static void *failing_calloc(size_t n, size_t sz)
 {
     (void)n;
@@ -293,6 +312,21 @@ void test_bb_data_http_attach_sized_oversized_snap_size_returns_no_space_and_doe
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
                       bb_data_http_attach_sized("oversized", "t", BB_DATA_HTTP_STATE, 257));
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_attach_count());
+}
+
+// Branch coverage for the loud-reject log line's `key ? key : "(null)"`
+// argument with a `key ? key : "(null)"` ternary (bb_data_http_common.c) --
+// bb_data_http_attach_sized() checks snap_size BEFORE ever validating `key`
+// (that validation lives in bb_data_http_attach_ex(), never reached on this
+// early-reject path), so a NULL key reaching this guard is a real,
+// reachable case, not a defensive no-op. Exercises the ternary's NULL arm.
+void test_bb_data_http_attach_sized_oversized_snap_size_null_key_does_not_crash(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
+                      bb_data_http_attach_sized(NULL, "t", BB_DATA_HTTP_STATE, 257));
 }
 
 // The "log" key's actual wire size (220 bytes, BB_LOG_EVENT_LOG_TEXT_MAX)
@@ -1228,6 +1262,308 @@ void test_bb_data_http_sweep_step_push_without_send_fn_leaves_outbound_queued(vo
 }
 
 // ---------------------------------------------------------------------------
+// B1-1424/B1-1429: the flush phase's retriable-vs-fatal send-retry contract
+// (distinct from the render-retry contract above). send_fn's return decides
+// whether a failure is safe to retry (BB_ERR_TIMEOUT -- nothing was
+// transmitted) or must abort the connection immediately (anything else --
+// bb_data_http_send_fn's doc, bb_data_http.h). Mutation-tested per test (see
+// each test's comment).
+// ---------------------------------------------------------------------------
+
+// Mutation evidence: reverting the flush loop to its pre-fix shape (pop
+// unconditionally regardless of send_rc) makes this FAIL -- outbound_count
+// would read 0 and send_fail_count 0 after the first (failing) sweep,
+// because the frame was discarded instead of retried.
+void test_bb_data_http_sweep_step_send_failure_retriable_leaves_frame_queued_and_retries_next_sweep(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach("k1", "topic.a");
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&c, 1, false);  // fresh-render-on-connect dirties k1
+
+    bb_data_http_host_fail_next(BB_ERR_TIMEOUT, 1);
+
+    bb_data_http_sweep_step();  // render succeeds (bit clears, frame queued); send fails (retriable)
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());  // never delivered
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_client_outbound_count_for_test(c));  // still queued
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_send_fail_count_for_test(c));
+
+    // No further failure injected -- the SAME frame, untouched since sweep
+    // 1, must now go out.
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());  // retried and delivered
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_client_outbound_count_for_test(c));
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_send_fail_count_for_test(c));  // reset on success
+}
+
+// Two dirty STATE keys render into the SAME client's outbound queue in one
+// sweep; the first one's send fails retriably. Proves the flush loop stops
+// for this client for the rest of THIS sweep_step() call rather than
+// skipping ahead to the second (already-queued) frame -- both preserving
+// delivery order and keeping a stalled client's per-sweep work bounded (see
+// bb_data_http_sweep_step()'s flush doc). Mutation evidence: changing the
+// loop's `break` (on retriable send_rc, below bound) to `continue` makes
+// this FAIL -- frame_count would read 1 (k2 sent out of order, ahead of the
+// still-queued k1) instead of 0.
+void test_bb_data_http_sweep_step_send_failure_retriable_does_not_retry_within_same_sweep(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach("k2", "topic.a");
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&c, 1, false);  // fresh-render-on-connect dirties both k1 and k2
+
+    // Only ONE failure injected: if k2's send were ever attempted this
+    // sweep, the injected failure would already be spent on k1 and k2's
+    // send would succeed (getting captured) -- so a captured frame here
+    // would prove k2 WAS attempted, contradicting the no-loop-within-a-
+    // sweep contract.
+    bb_data_http_host_fail_next(BB_ERR_TIMEOUT, 1);
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());  // neither frame reached send_fn's capture
+    TEST_ASSERT_EQUAL_UINT(2, bb_data_http_client_outbound_count_for_test(c));  // both still queued, untouched
+}
+
+// Exceeding CONFIG_BB_DATA_HTTP_SEND_FAIL_MAX (default 3, no Kconfig on
+// host so the host build always sees the C default) consecutive RETRIABLE
+// failures on the SAME head-of-queue frame drops that one frame and resets
+// the counter, so a permanently-wedged transport cannot fill this client's
+// outbound queue and stall it forever (see bb_data_http_sweep_step()'s
+// flush doc). Mutation evidence: removing the
+// `>= CONFIG_BB_DATA_HTTP_SEND_FAIL_MAX` drop branch (i.e. always `break`,
+// unconditionally) makes this FAIL -- outbound_count would still read 1
+// after the 3rd failing sweep instead of 0, and frame_count would never
+// move off 0 for k1 either since the permanently-wedged head frame would
+// never leave the queue.
+void test_bb_data_http_sweep_step_send_failure_retriable_bound_exceeded_drops_frame(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach("k1", "topic.a");
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&c, 1, false);  // fresh-render-on-connect dirties k1
+
+    bb_data_http_host_fail_next(BB_ERR_TIMEOUT, 3);
+
+    bb_data_http_sweep_step();  // failure 1/3 -- still under bound, frame stays queued
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_client_outbound_count_for_test(c));
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_send_fail_count_for_test(c));
+
+    bb_data_http_sweep_step();  // failure 2/3 -- still under bound, frame stays queued
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_client_outbound_count_for_test(c));
+    TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_client_send_fail_count_for_test(c));
+
+    bb_data_http_sweep_step();  // failure 3/3 -- bound reached, frame dropped
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_client_outbound_count_for_test(c));  // dropped, not stuck
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_send_fail_count_for_test(c));  // counter reset
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());  // never actually delivered
+
+    // The queue is unblocked: a fresh update for the same key now sends
+    // normally, proving this client did not stall permanently.
+    fake_gen_bump("k1");
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_client_outbound_count_for_test(c));
+}
+
+// B1-1424 review MEDIUM fix: a bound-exceeded drop must NOT immediately
+// attempt the next queued frame within the same sweep_step() call -- the
+// doc previously overstated the per-sweep budget guarantee (KB gap: no
+// existing test attached more than one key on this path, so it was
+// unexercised). k1 (head) trips the bound and is dropped on the 3rd sweep;
+// k2 (already queued behind it) must stay untouched THIS sweep and only go
+// out on the NEXT one. Mutation evidence: reverting the bound-exceeded
+// branch's `break` back to `continue` (i.e. immediately attempting k2 in
+// the same call after dropping k1) makes this FAIL -- frame_count would
+// read 1 (k2 delivered on the same sweep as k1's drop) instead of 0, and
+// outbound_count would read 0 instead of 1.
+void test_bb_data_http_sweep_step_send_failure_retriable_bound_exceeded_does_not_attempt_next_frame_same_sweep(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach("k2", "topic.a");
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&c, 1, false);  // fresh-render-on-connect dirties both k1 and k2
+
+    bb_data_http_host_fail_next(BB_ERR_TIMEOUT, 3);
+
+    bb_data_http_sweep_step();  // k1 failure 1/3
+    bb_data_http_sweep_step();  // k1 failure 2/3
+    bb_data_http_sweep_step();  // k1 failure 3/3 -- bound reached, k1 dropped
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_client_outbound_count_for_test(c));  // k2 still queued, untouched
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());  // k2 never attempted this sweep either
+
+    // Next sweep, no injected failure: k2 goes out normally.
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_client_outbound_count_for_test(c));
+
+    char key0[BB_DATA_HTTP_KEY_MAX];
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_key_at(0, key0, sizeof(key0)));
+    TEST_ASSERT_EQUAL_STRING("k2", key0);
+}
+
+// A FATAL (non-BB_ERR_TIMEOUT) send_fn failure never touches
+// send_fail_count -- it tears the client down immediately via the
+// installed abort_fn instead. Mutation evidence: routing a fatal send_rc
+// through the retriable branch (i.e. treating every non-BB_OK code as
+// BB_ERR_TIMEOUT) makes this FAIL -- the abort_fn would never fire,
+// bb_data_http_host_last_aborted_client() would stay NULL, and the client
+// would remain active (queued for a next-sweep retry) instead of torn down.
+void test_bb_data_http_sweep_step_send_failure_fatal_invokes_abort_fn(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_host_install_abort();
+    bb_data_http_attach("k1", "topic.a");
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&c, 1, false);  // fresh-render-on-connect dirties k1
+
+    bb_data_http_host_fail_next(BB_ERR_INVALID_ARG, 1);  // non-BB_ERR_TIMEOUT == fatal
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_PTR(c, bb_data_http_host_last_aborted_client());
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());  // never delivered
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_send_fail_count_for_test(NULL));  // counter untouched (client gone)
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_active_client_count());  // torn down, not left active
+}
+
+// With NO abort_fn installed, a fatal send_fn failure degrades to the
+// core's own bb_data_http_client_release() fallback (see
+// bb_data_http_set_abort_fn()'s doc) -- the client is still torn down, just
+// without a backend-specific teardown callback. Mutation evidence: removing
+// the `else bb_data_http_client_release(c)` fallback branch makes this FAIL
+// -- active_client_count() would still read 1 (the client leaked, queued
+// forever with no send_fn ever able to reach it again since the frame stays
+// at the head of a queue nothing drains).
+void test_bb_data_http_sweep_step_send_failure_fatal_without_abort_fn_releases_client(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    // no abort_fn installed
+    bb_data_http_attach("k1", "topic.a");
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&c, 1, false);  // fresh-render-on-connect dirties k1
+    (void)c;
+
+    bb_data_http_host_fail_next(BB_ERR_INVALID_ARG, 1);  // fatal
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_active_client_count());
+}
+
+// ---------------------------------------------------------------------------
+// B1-1424 HIGH fix: deferred reap. bb_data_http_client_release() is NOT
+// cross-task-safe (see its doc) -- a foreign task (e.g. the espidf
+// backend's ws_disconnect_cb, which fires on bb_ws_server's own worker
+// task, never the broadcaster) must use
+// bb_data_http_client_request_release() instead, which only flips an
+// atomic flag; the actual bb_data_http_client_release() call happens on
+// the OWNING task's next sweep_step() call, never mid-sweep and never from
+// any other task -- see bb_data_http_client_t's TASK OWNERSHIP doc.
+// ---------------------------------------------------------------------------
+
+// The basic contract in isolation, no sweep in flight: requesting release
+// does not itself release the client (still active, still counted) -- only
+// the NEXT sweep_step() call does. Mutation evidence: removing the
+// pending_release reap check from sweep_step()'s per-client loop makes
+// this FAIL -- active_client_count() would still read 1 after the
+// sweep_step() call instead of 0.
+void test_bb_data_http_client_request_release_defers_actual_release_to_next_sweep(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&c, 1, false);
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
+    TEST_ASSERT_FALSE(bb_data_http_client_pending_release_for_test(c));
+
+    bb_data_http_client_request_release(c);
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());  // NOT yet released
+    TEST_ASSERT_TRUE(bb_data_http_client_pending_release_for_test(c));
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_active_client_count());  // reaped now
+}
+
+// The concurrent-disconnect-during-drain scenario itself (see
+// mid_sweep_release_render_fn()'s own doc above): a request-release call
+// that lands PARTWAY THROUGH a sweep_step() call already in progress for
+// this client must not corrupt or truncate that in-progress pass -- the
+// frame already being rendered this sweep still reaches the wire normally
+// (proving the mid-sweep flag flip did not touch anything render_fn/
+// send_fn were already using), and the client is reaped -- released,
+// uncounted, no crash -- only on the FOLLOWING sweep_step() call, never the
+// one the request raced into. Mutation evidence: reaping eagerly WITHIN
+// the same sweep_step() call the request lands in (instead of deferring to
+// the next one) makes this FAIL -- frame_count would read 0 instead of 1
+// (the in-flight render/send for k1 would never complete).
+void test_bb_data_http_sweep_step_reaps_client_only_on_sweep_after_mid_sweep_release_request(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach("k1", "topic.a");
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&c, 1, false);  // fresh-render-on-connect dirties k1
+
+    // ctx == c: mid_sweep_release_render_fn() requests release on THIS
+    // client from inside its own render call, simulating a concurrent
+    // disconnect landing mid-sweep.
+    bb_data_http_set_render_fn(mid_sweep_release_render_fn, c);
+
+    bb_data_http_sweep_step();  // the sweep the request races into
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());  // in-flight render/send for k1 completed normally
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());  // NOT reaped yet -- deferred
+    TEST_ASSERT_TRUE(bb_data_http_client_pending_release_for_test(c));
+
+    bb_data_http_sweep_step();  // the NEXT sweep -- reaps it
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_active_client_count());
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());  // unchanged -- nothing else was ever sent
+}
+
+// ---------------------------------------------------------------------------
 // THE render-failure-retry test (KB 1443, the drain-phase's genuinely
 // load-bearing invariant): the dirty bit is cleared ONLY on render success,
 // never unconditionally. This is DISCRIMINATING by construction: if the
@@ -1433,6 +1769,8 @@ void test_bb_data_http_for_test_helpers_defend_against_null_and_out_of_range(voi
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_client_outbound_count_for_test(NULL));
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dropped_count(NULL));
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_event_cursor_for_test(NULL));
+    TEST_ASSERT_FALSE(bb_data_http_client_pending_release_for_test(NULL));
+    bb_data_http_client_request_release(NULL);  // no-op, must not crash
 
     bb_data_http_init(NULL);
     bb_data_http_client_t *c = NULL;
