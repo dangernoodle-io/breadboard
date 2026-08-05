@@ -5,6 +5,7 @@
 #include "bb_http.h"
 #include "bb_queue.h"
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -43,18 +44,60 @@ extern "C" {
 // query, so the EVENT drain path (which must NOT rely on outbound's
 // BB_QUEUE_EVICT_OLDEST auto-eviction -- see the drop-not-evict rationale
 // above) keeps its own copy to pre-check room before pushing.
+//
+// send_fail_count (B1-1424/B1-1429) is the bounded send-retry contract's
+// per-client consecutive-failure counter -- see bb_data_http_sweep_step()'s
+// flush-contract doc (bb_data_http.h) for the full design. Reset to 0 on
+// every successful send_fn call (and on acquire); incremented on every
+// RETRIABLE (BB_ERR_TIMEOUT) failure only -- a FATAL failure tears the
+// client down immediately instead of touching this counter. It is a 4-byte
+// cost per client slot (CONFIG_BB_DATA_HTTP_MAX_CLIENTS * 4 bytes total BSS,
+// e.g. 8 bytes at the default cap of 2) -- deliberately per-CLIENT, not
+// per-frame: bb_queue's entries carry no spare per-entry field to hang a
+// counter off of, and a wedged transport (the failure mode this bounds)
+// fails every frame it is asked to send, not just one particular frame, so
+// a single client-wide counter observes the same signal a per-frame counter
+// would, for a quarter the state and no bb_queue changes.
+//
+// TASK OWNERSHIP (B1-1424 HIGH fix, deferred reap): every field below is
+// created by whichever task calls bb_data_http_client_acquire[_ex]()
+// (fully populated, then PUBLISHED via `in_use = true` as the last store --
+// see bb_data_http_client_acquire_ex(), bb_data_http_common.c), then
+// EXCLUSIVELY owned and mutated by the single task that calls
+// bb_data_http_sweep_step() (the espidf backend's broadcaster task; the
+// test-runner thread on host) for the rest of the client's lifetime,
+// INCLUDING the eventual bb_data_http_client_release() call itself --
+// bb_data_http_client_release() is NOT cross-task-safe and must only ever
+// be called from that one owning task (see its doc, bb_data_http.h). The
+// ONE exception is `pending_release`: any task may SET it (via
+// bb_data_http_client_request_release()) to ask the owning task to release
+// this client on its next bb_data_http_sweep_step() call, but only the
+// owning task ever READS or CLEARS it (bb_data_http_client_release() resets
+// it back to false as part of a normal release, and
+// bb_data_http_client_acquire_ex() resets it again on reuse). This is why
+// pending_release is atomic_bool and every other field is a plain type --
+// it is the ONLY field a foreign task ever touches, which is what lets the
+// rest of this struct stay lock-free and single-task-owned without the
+// core growing a platform mutex of its own. A real hazard this closes: the
+// espidf backend's WS disconnect callback fires on bb_ws_server's own
+// worker task, not the broadcaster -- calling
+// bb_data_http_client_release() directly from there (destroying `outbound`,
+// clearing `in_use`) could race the broadcaster's own in-flight read/write
+// of this SAME client inside bb_data_http_sweep_step() on another core.
 struct bb_data_http_client {
-    bool       in_use;
-    int        fd;
-    bool       is_ws;
-    char       topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
-    uint32_t   event_cursor;
-    uint32_t   event_dropped;
-    bool       event_drop_marker_pending;
-    uint32_t   state_dirty_mask;
-    uint32_t   state_seen_gen[BB_DATA_HTTP_MAX_ATTACH];
-    bb_queue_t outbound;
-    size_t     outbound_max_bytes;
+    bool         in_use;
+    int          fd;
+    bool         is_ws;
+    char         topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
+    uint32_t     event_cursor;
+    uint32_t     event_dropped;
+    bool         event_drop_marker_pending;
+    uint32_t     state_dirty_mask;
+    uint32_t     state_seen_gen[BB_DATA_HTTP_MAX_ATTACH];
+    bb_queue_t   outbound;
+    size_t       outbound_max_bytes;
+    uint32_t     send_fail_count;
+    atomic_bool  pending_release;
 };
 
 #ifdef BB_DATA_HTTP_TESTING
@@ -73,9 +116,19 @@ uint32_t bb_data_http_client_seen_gen_for_test(const bb_data_http_client_t *c, s
 // bb_queue. Returns 0 if `c` is NULL.
 size_t bb_data_http_client_outbound_count_for_test(const bb_data_http_client_t *c);
 
+// Returns client `c`'s current consecutive RETRIABLE send_fn failure count
+// (see bb_data_http_client_t's send_fail_count doc). Returns 0 if `c` is
+// NULL.
+uint32_t bb_data_http_client_send_fail_count_for_test(const bb_data_http_client_t *c);
+
 // Returns client `c`'s current event_cursor (next undrained EVENT global
 // sequence number). Returns 0 if `c` is NULL.
 uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *c);
+
+// Returns client `c`'s current pending_release flag (see
+// bb_data_http_client_t's TASK OWNERSHIP doc). Returns false if `c` is
+// NULL.
+bool bb_data_http_client_pending_release_for_test(const bb_data_http_client_t *c);
 
 // Returns client `c`'s is_ws flag, as recorded by
 // bb_data_http_client_acquire_ex()'s `is_ws` argument (B1-1050 PR-1: WS

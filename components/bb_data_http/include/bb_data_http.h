@@ -130,8 +130,64 @@ typedef bb_err_t (*bb_data_http_generation_fn)(const char *key, uint32_t *out_ge
 // drop-marker frame (bb_data_http_sweep_step()'s EVENT drop-marker doc),
 // which uses a reserved literal rather than NULL -- so a consumer can always
 // treat `key` as a plain C string with no NULL-check.
+//
+// Return contract (B1-1424/B1-1429): the return value is not just
+// success/failure -- it tells the core's flush loop (bb_data_http_sweep_step())
+// whether a retry is SAFE, and the core cannot infer that on its own (it has
+// no socket/transport knowledge of its own). Exactly two classes:
+//
+//   - BB_OK: delivered (a synchronous transport like SSE) or successfully
+//     handed off (an async-enqueue transport like WS -- see
+//     bb_data_http_espidf.c's espidf_send_fn WS branch doc for what BB_OK
+//     does and doesn't guarantee there).
+//   - BB_ERR_TIMEOUT: RETRIABLE -- send_fn is certifying that NOTHING was
+//     transmitted for this call (a pure enqueue/would-block failure with no
+//     partial bytes on the wire, e.g. a WS async broadcast that failed to
+//     queue). The core leaves the frame at the head of the queue and retries
+//     it on the next sweep_step() call, bounded by
+//     CONFIG_BB_DATA_HTTP_SEND_FAIL_MAX consecutive failures (see
+//     bb_data_http_sweep_step()'s flush doc).
+//   - Any other non-BB_OK code: FATAL -- send_fn cannot rule out that some
+//     bytes already reached the peer with no way to resync (e.g. a chunked-
+//     HTTP write that fails partway through a multi-write header/body
+//     sequence, where the underlying framing protocol has no resync token --
+//     see B1-1429's SSE preamble post-mortem). The core does NOT retry a
+//     fatal failure and does NOT keep draining this client's queue -- it
+//     tears the client down immediately via the installed abort_fn (see
+//     bb_data_http_set_abort_fn() below), the same teardown a dead-peer
+//     liveness probe would perform. Retrying at any position after a fatal
+//     failure risks re-sending already-transmitted bytes on top of what is
+//     already on the wire, corrupting the stream for the rest of the
+//     connection's life.
+//
+// A transport that cannot tell "nothing transmitted" apart from "some bytes
+// transmitted" for a given failure MUST treat it as fatal (the default,
+// non-BB_ERR_TIMEOUT case) -- guessing retriable when unsure is the unsafe
+// direction.
 typedef bb_err_t (*bb_data_http_send_fn)(const char *key, const bb_data_http_client_t *client,
                                           const void *bytes, size_t len, void *ctx);
+
+// Notifies the backend that `client` must be torn down immediately following
+// a FATAL send_fn failure (see bb_data_http_send_fn's return contract above)
+// -- called at most once per client per bb_data_http_sweep_step() call, from
+// the flush loop, never from any other context. `ctx` is the opaque pointer
+// passed to bb_data_http_set_abort_fn().
+//
+// Implementations own the FULL teardown: transport-specific side-table
+// cleanup (e.g. the espidf backend's fd/async_req slot) plus the underlying
+// connection abort, THEN bb_data_http_client_release(client) -- mirroring
+// exactly what a dead-peer liveness probe already does (see
+// bb_data_http_espidf.c's peer_liveness_prepass()/teardown_client()). The
+// core deliberately does NOT call bb_data_http_client_release() itself
+// before invoking this seam: releasing the client_t slot here first (while
+// a backend's own side table still points at it) would let a NEW connection
+// reuse the same slot while the old backend-side-table entry is still live,
+// aliasing two unrelated connections onto one bb_data_http_client_t.
+//
+// Missing (fn=NULL -- e.g. a host test exercising only send_fn with no real
+// transport) degrades gracefully: the core calls
+// bb_data_http_client_release(client) itself instead.
+typedef void (*bb_data_http_abort_fn)(bb_data_http_client_t *client, void *ctx);
 
 // Install/replace the render seam. Passing fn=NULL disables rendering (dirty
 // keys are silently skipped -- see bb_data_http_sweep_step()).
@@ -144,6 +200,11 @@ void bb_data_http_set_generation_fn(bb_data_http_generation_fn fn, void *ctx);
 // Install/replace the send seam. Passing fn=NULL disables draining (rendered
 // bytes accumulate in the per-client outbound queue until a send_fn is set).
 void bb_data_http_set_send_fn(bb_data_http_send_fn fn, void *ctx);
+
+// Install/replace the fatal-abort seam (see bb_data_http_abort_fn's doc
+// above). Passing fn=NULL reverts to the core's own
+// bb_data_http_client_release()-only fallback.
+void bb_data_http_set_abort_fn(bb_data_http_abort_fn fn, void *ctx);
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -271,9 +332,41 @@ bb_err_t bb_data_http_client_acquire(bb_data_http_client_t **out, int fd, bool i
 
 // Release a client slot: destroys its outbound queue and frees the slot.
 // Safe to call with NULL (no-op).
+//
+// NOT CROSS-TASK-SAFE (B1-1424 HIGH fix): must only ever be called from the
+// single task that also calls bb_data_http_sweep_step() (see
+// bb_data_http_client_t's TASK OWNERSHIP doc, bb_data_http_internal.h) --
+// every field it touches (destroying `outbound`, clearing `in_use`) is
+// exclusively owned by that one task, with no lock protecting it, so a
+// second task calling this concurrently on the SAME client races the
+// owning task's own in-flight sweep_step() work on it. A foreign task that
+// needs a client released (e.g. an async transport's own disconnect
+// callback, which typically fires on a different task than the one driving
+// sweep_step()) MUST call bb_data_http_client_request_release() instead --
+// see its doc immediately below.
 void bb_data_http_client_release(bb_data_http_client_t *c);
 
-// Diagnostics: number of client slots currently in use.
+// Cross-task-safe alternative to bb_data_http_client_release() above: marks
+// `c` for release on the OWNING task's next bb_data_http_sweep_step() call
+// (a deferred reap, not an immediate release) instead of mutating any of
+// `c`'s other fields itself. Safe to call from ANY task, including one
+// other than the task that owns sweep_step() -- this is the one operation
+// on a bb_data_http_client_t explicitly designed to be cross-task-safe (see
+// bb_data_http_client_t's TASK OWNERSHIP doc). Safe to call with NULL
+// (no-op). Idempotent -- calling this more than once on the same client
+// before it is reaped has no additional effect.
+//
+// A client marked this way stays fully valid (still counted by
+// bb_data_http_active_client_count(), still drained by
+// bb_data_http_sweep_step() for whatever remains of the CURRENT call in
+// progress, if any) until the owning task's NEXT sweep_step() call, which
+// reaps it (calls bb_data_http_client_release() itself, single-task) before
+// doing any other work for that client that sweep.
+void bb_data_http_client_request_release(bb_data_http_client_t *c);
+
+// Diagnostics: number of client slots currently in use. A client with
+// pending_release set (bb_data_http_client_request_release()) still counts
+// here until the owning task's next bb_data_http_sweep_step() reaps it.
 size_t bb_data_http_active_client_count(void);
 
 // ---------------------------------------------------------------------------
@@ -292,7 +385,11 @@ size_t bb_data_http_active_client_count(void);
 //      (below) is invisible to this detect step (state_seen_gen already
 //      captured the pre-render value), so it is correctly re-detected on
 //      the NEXT sweep_step() call rather than silently absorbed.
-//   2. Drain: for each client, for each dirty bit (in ascending attach-index
+//   2. Drain: for each client -- FIRST reaping (bb_data_http_client_release())
+//      any client with pending_release set (bb_data_http_client_request_release(),
+//      the cross-task-safe deferred-release request -- see its doc) and
+//      skipping the rest of this loop body for it, before touching any of
+//      its other state -- then, for each dirty bit (in ascending attach-index
 //      order): call render_fn, and clear the bit ONLY if render_fn succeeds,
 //      THEN push the rendered bytes into that client's outbound bb_queue. A
 //      missing render_fn (see the setter above) clears the bit unconditionally
@@ -301,7 +398,8 @@ size_t bb_data_http_active_client_count(void);
 //      than silently dropped; each such failure increments the counter read
 //      by bb_data_http_render_fail_count() and is logged at a rate-limited
 //      cadence. Once every dirty key has been drained into the queue, the
-//      queue is flushed via send_fn.
+//      queue is flushed via send_fn -- see the flush contract below
+//      (B1-1424/B1-1429).
 //
 // EVENT-kind attached keys follow a separate, append-only path within the
 // same sweep_step() call:
@@ -325,6 +423,45 @@ size_t bb_data_http_active_client_count(void);
 //      dropped for that client only, its dropped counter increments, and a
 //      "dropped:N" marker frame is queued for it once outbound has room
 //      again (see bb_data_http_client_dropped_count()).
+//
+// Flush (B1-1424/B1-1429): each client's outbound queue is drained
+// oldest-first, one send_fn call per queued frame, for as long as each call
+// keeps succeeding -- a client with several frames queued can still catch
+// up within a single sweep_step() call. send_fn's return (see
+// bb_data_http_send_fn's own doc, bb_data_http.h) drives one of three
+// outcomes:
+//
+//   - BB_OK: the head-of-queue frame is popped, send_fail_count resets to
+//     0, and the NEXT queued frame (if any) is attempted immediately,
+//     within the same sweep_step() call.
+//   - BB_ERR_TIMEOUT (retriable): the frame stays at the head of the queue
+//     (never popped) for a retry on the NEXT sweep_step() call, and
+//     send_fail_count increments; this client's flush STOPS for the rest
+//     of THIS sweep_step() call (never looped on immediately), which
+//     preserves delivery order (a later frame must never reach the wire
+//     ahead of one still queued in front of it) and bounds one stalled
+//     client's per-sweep cost. Bounded per client: once
+//     CONFIG_BB_DATA_HTTP_SEND_FAIL_MAX consecutive retriable failures land
+//     on the SAME head-of-queue frame, that one frame is dropped (popped
+//     without a further attempt) and send_fail_count resets to 0 -- but
+//     the flush STILL stops for this sweep rather than immediately
+//     attempting the newly-head frame right here (a worst case of at most
+//     one drop-then-stop per client per sweep_step() call, not a
+//     queue-depth-many cascade of attempts).
+//   - Any other non-BB_OK code (fatal): the frame is left untouched (not
+//     popped -- irrelevant, since the client is about to be torn down),
+//     this client's flush stops, and the client is released immediately
+//     via the installed abort_fn (see bb_data_http_set_abort_fn()), or
+//     bb_data_http_client_release() directly if no abort_fn is installed.
+//     No retry, no further send_fn calls for this client this sweep or
+//     ever again on this connection -- see bb_data_http_send_fn's doc for
+//     why a fatal failure can never be safely retried at any position.
+//
+// What a BB_OK send_fn return means is transport-defined: a synchronous
+// backend (e.g. SSE) reports a real delivery verdict, while an async-enqueue
+// backend (e.g. WS) only reports "the write was queued", not "the peer
+// received it" -- see bb_data_http_send_fn's own doc and
+// platform/espidf/bb_data_http/bb_data_http_espidf.c's espidf_send_fn.
 //
 // A missing render_fn/generation_fn/send_fn degrades gracefully (see the
 // setters above) rather than crashing -- useful for host tests exercising

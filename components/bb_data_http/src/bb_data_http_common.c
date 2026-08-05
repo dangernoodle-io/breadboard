@@ -41,6 +41,9 @@ static const char *TAG = "bb_data_http";
 #ifndef CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES
 #define CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES 256
 #endif
+#ifndef CONFIG_BB_DATA_HTTP_SEND_FAIL_MAX
+#define CONFIG_BB_DATA_HTTP_SEND_FAIL_MAX 3
+#endif
 
 // ---------------------------------------------------------------------------
 // Attach table (composition-root owned). Name-keyed small lookup table --
@@ -211,6 +214,8 @@ static bb_data_http_generation_fn s_gen_fn     = NULL;
 static void                      *s_gen_ctx    = NULL;
 static bb_data_http_send_fn       s_send_fn    = NULL;
 static void                      *s_send_ctx   = NULL;
+static bb_data_http_abort_fn      s_abort_fn   = NULL;
+static void                      *s_abort_ctx  = NULL;
 
 // Cumulative render_fn failure count (bb_data_http_render_fail_count()) plus
 // the cadence at which a failure is actually logged -- every failure still
@@ -258,6 +263,12 @@ void bb_data_http_set_send_fn(bb_data_http_send_fn fn, void *ctx)
 {
     s_send_fn  = fn;
     s_send_ctx = ctx;
+}
+
+void bb_data_http_set_abort_fn(bb_data_http_abort_fn fn, void *ctx)
+{
+    s_abort_fn  = fn;
+    s_abort_ctx = ctx;
 }
 
 // ---------------------------------------------------------------------------
@@ -347,6 +358,8 @@ bb_err_t bb_data_http_client_acquire_ex(bb_data_http_client_t **out, int fd,
         c->event_drop_marker_pending = false;
         c->state_dirty_mask          = 0;
         memset(c->state_seen_gen, 0, sizeof(c->state_seen_gen));
+        c->send_fail_count           = 0;
+        atomic_store(&c->pending_release, false);
 
         c->outbound_max_bytes = CONFIG_BB_DATA_HTTP_OUTBOUND_MAX_BYTES;
         bb_queue_cfg_t qcfg = {
@@ -397,6 +410,18 @@ void bb_data_http_client_release(bb_data_http_client_t *c)
     bb_queue_destroy(c->outbound);
     c->outbound = NULL;
     c->in_use   = false;
+    atomic_store(&c->pending_release, false);
+}
+
+void bb_data_http_client_request_release(bb_data_http_client_t *c)
+{
+    if (!c) return;
+    // The ONE field a foreign task may touch on a bb_data_http_client_t --
+    // see its TASK OWNERSHIP doc (bb_data_http_internal.h) and this
+    // function's own doc (bb_data_http.h). Every other field stays
+    // exclusively owned by the task that calls bb_data_http_sweep_step();
+    // this atomic store is what lets that stay true without a mutex.
+    atomic_store(&c->pending_release, true);
 }
 
 size_t bb_data_http_active_client_count(void)
@@ -630,6 +655,20 @@ void bb_data_http_sweep_step(void)
         bb_data_http_client_t *c = &s_clients[i];
         if (!c->in_use) continue;
 
+        // Deferred-reap (B1-1424 HIGH fix): a foreign task (e.g. an async
+        // transport's own disconnect callback) may have called
+        // bb_data_http_client_request_release() on `c` since this task's
+        // last sweep_step() call -- reap it FIRST, before touching any
+        // other field, so nothing below this point ever operates on a
+        // client mid-teardown. bb_data_http_client_release() is safe to
+        // call here specifically because reaping only ever happens on the
+        // single task that owns sweep_step() -- see
+        // bb_data_http_client_t's TASK OWNERSHIP doc.
+        if (atomic_load(&c->pending_release)) {
+            bb_data_http_client_release(c);
+            continue;
+        }
+
         if (c->state_dirty_mask != 0) {
             for (uint16_t k = 0; k < attach_count; k++) {
                 uint32_t bit = (1u << k);
@@ -685,13 +724,74 @@ void bb_data_http_sweep_step(void)
 
         if (!s_send_fn) continue;
 
+        // Flush phase (B1-1424/B1-1429): drains c->outbound oldest-first,
+        // one send_fn call per queued frame, for as long as each call
+        // succeeds -- see bb_data_http_sweep_step()'s flush-contract doc
+        // (bb_data_http.h) for the full rationale. send_rc drives one of
+        // three outcomes:
+        //
+        //   - BB_OK: pop and continue to the next queued frame (a client
+        //     with several frames queued still catches up within one sweep
+        //     as long as every send succeeds).
+        //   - BB_ERR_TIMEOUT (retriable, nothing transmitted): the frame
+        //     stays at the head of the queue for a retry next
+        //     sweep_step() call, and this client's flush STOPS for the
+        //     rest of THIS call (`break`, never `continue`) -- both to
+        //     preserve delivery order (a later frame must never reach the
+        //     wire ahead of one still queued in front of it) and to keep
+        //     one stalled client's per-sweep cost bounded. Once
+        //     CONFIG_BB_DATA_HTTP_SEND_FAIL_MAX consecutive retriable
+        //     failures land on the SAME head-of-queue frame, that frame is
+        //     dropped (popped without a further attempt) and the counter
+        //     resets -- but the flush STILL stops for this sweep rather
+        //     than immediately attempting the next queued frame: a
+        //     bound-exceeded drop is exactly as terminal for this sweep as
+        //     an under-bound failure is, it just also advances the queue.
+        //   - Any other non-BB_OK code (fatal): the client is released
+        //     immediately via the installed abort_fn (or
+        //     bb_data_http_client_release() directly if none is installed)
+        //     and the flush stops -- there is no client left to flush for.
         char    frame[CONFIG_BB_DATA_HTTP_OUTBOUND_ENTRY_MAX];
         size_t  frame_len = 0;
         int64_t ts        = 0;
-        uint32_t id        = 0;
+        uint32_t id       = 0;
         while (bb_queue_peek_oldest(c->outbound, frame, sizeof(frame), &frame_len, &ts, &id) == BB_OK) {
-            s_send_fn(resolve_outbound_key(id), c, frame, frame_len, s_send_ctx);
-            bb_queue_pop_oldest(c->outbound);
+            bb_err_t send_rc = s_send_fn(resolve_outbound_key(id), c, frame, frame_len, s_send_ctx);
+            if (send_rc == BB_OK) {
+                c->send_fail_count = 0;
+                bb_queue_pop_oldest(c->outbound);
+                continue;
+            }
+
+            if (send_rc == BB_ERR_TIMEOUT) {
+                c->send_fail_count++;
+                if (c->send_fail_count < CONFIG_BB_DATA_HTTP_SEND_FAIL_MAX) {
+                    break;  // retry this same frame next sweep_step() -- never loop within this sweep
+                }
+                bb_log_w(TAG, "send failed %" PRIu32 " consecutive times for key '%s' (fd=%d), dropping frame",
+                        c->send_fail_count, resolve_outbound_key(id), c->fd);
+                bb_queue_pop_oldest(c->outbound);
+                c->send_fail_count = 0;
+                // Bound exceeded on this frame only -- but still stop for
+                // THIS sweep (see the doc above) rather than immediately
+                // attempting the next queued frame; it is picked up on the
+                // next sweep_step() call instead.
+                break;
+            }
+
+            // Fatal: send_fn cannot rule out that some bytes already
+            // reached the peer with no way to resync -- see
+            // bb_data_http_send_fn's return contract. Never retried; the
+            // frame is left in the queue (irrelevant -- the client is
+            // about to be released, which destroys the queue too).
+            bb_log_w(TAG, "send failed fatally for key '%s' (fd=%d): %d, aborting client",
+                    resolve_outbound_key(id), c->fd, (int)send_rc);
+            if (s_abort_fn) {
+                s_abort_fn(c, s_abort_ctx);
+            } else {
+                bb_data_http_client_release(c);
+            }
+            break;
         }
     }
 }
@@ -724,6 +824,7 @@ void bb_data_http_reset_for_test(void)
     s_render_fn = NULL; s_render_ctx = NULL;
     s_gen_fn    = NULL; s_gen_ctx    = NULL;
     s_send_fn   = NULL; s_send_ctx   = NULL;
+    s_abort_fn  = NULL; s_abort_ctx  = NULL;
     s_render_fail_count = 0;
 
     bb_queue_destroy(s_event_ring);
@@ -748,6 +849,11 @@ size_t bb_data_http_client_outbound_count_for_test(const bb_data_http_client_t *
     return c ? bb_queue_count(c->outbound) : 0;
 }
 
+uint32_t bb_data_http_client_send_fail_count_for_test(const bb_data_http_client_t *c)
+{
+    return c ? c->send_fail_count : 0;
+}
+
 uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *c)
 {
     return c ? c->event_cursor : 0;
@@ -756,6 +862,11 @@ uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *
 bool bb_data_http_client_is_ws_for_test(const bb_data_http_client_t *c)
 {
     return c ? c->is_ws : false;
+}
+
+bool bb_data_http_client_pending_release_for_test(const bb_data_http_client_t *c)
+{
+    return c ? atomic_load(&c->pending_release) : false;
 }
 #endif
 
