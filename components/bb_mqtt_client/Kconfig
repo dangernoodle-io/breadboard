@@ -45,19 +45,43 @@ config BB_MQTT_CLIENT_TX_BUFFER_BYTES
         Transmit buffer (maps to esp_mqtt_client_config_t.buffer.out_size);
         1024 fits typical JSON telemetry.
 
+config BB_MQTT_CLIENT_OUTBOX_LIMIT_BYTES
+    int "MQTT outbox size limit (bytes)"
+    default 4096
+    range 0 65536
+    help
+        Maps to esp_mqtt_client_config_t.outbox.limit. esp-mqtt's outbox
+        holds queued/unacknowledged messages (including bb_mqtt_client_enqueue()
+        traffic) and is unbounded by default (0 = no limit), which risks
+        unbounded heap growth on no-PSRAM targets under sustained publish
+        pressure. A non-zero limit makes the header's documented
+        BB_ERR_NO_SPACE retry contract (see bb_mqtt_client_enqueue()) actually
+        reachable: esp_mqtt_client_enqueue() returns -2 (mapped to
+        BB_ERR_NO_SPACE) once the outbox would exceed this many bytes.
+
+        This is ONE client-wide limit, not enqueue()-only: esp-mqtt applies
+        the SAME check to bb_mqtt_client_publish() calls with qos>0 (qos=0
+        publishes are fire-and-forget and never enter the outbox). Existing
+        qos>0 publish() callers therefore also newly see BB_ERR_NO_SPACE
+        back-pressure under this default, not just enqueue() callers.
+
+        Set to 0 to restore esp-mqtt's unbounded default.
+
 config BB_MQTT_CLIENT_SUSPEND_STOP_ONLY
     bool "Suspend uses stop-only (keeps client resident, no destroy/recreate)"
     default n
     help
         When y, bb_mqtt_client_suspend_default() calls esp_mqtt_client_stop() only
-        (keeps client handle, buffers, and task resident, ~11 KB) and
-        bb_mqtt_client_resume_default() calls esp_mqtt_client_start() only — no
-        destroy, no realloc, no NVS reload.
+        (keeps client handle, buffers, and task resident, ~11 KB -- plus up
+        to BB_MQTT_CLIENT_OUTBOX_LIMIT_BYTES more if the outbox is occupied
+        at suspend time) and bb_mqtt_client_resume_default() calls
+        esp_mqtt_client_start() only — no destroy, no realloc, no NVS reload.
 
         ONLY safe when bb_mem_arena_tls covers the TLS handshake that follows
-        the suspend window.  The ~11 KB residency means the largest_free_block
-        improvement is smaller than the full destroy path; use this mode only
-        when the arena already reserves enough headroom.
+        the suspend window.  The ~11 KB (+ outbox) residency means the
+        largest_free_block improvement is smaller than the full destroy
+        path; use this mode only when the arena already reserves enough
+        headroom.
 
         Default n = full destroy+recreate (original behavior): suspend calls
         bb_mqtt_client_stop() which destroys the client and frees all buffers; resume

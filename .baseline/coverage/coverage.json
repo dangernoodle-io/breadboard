@@ -1,16 +1,6 @@
 {
   "entries": [
     {
-      "id": "123",
-      "path": "components/bb_data_http/src/bb_data_http_common.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "558",
-      "path": "components/bb_data_http/src/bb_data_http_common.c",
-      "type": "uncovered_branch"
-    },
-    {
       "id": "217",
       "path": "components/bb_diag/bb_diag_section.c",
       "type": "uncovered_branch"
@@ -43,11 +33,6 @@
     {
       "id": "110",
       "path": "components/bb_health/bb_health_section.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "93",
-      "path": "components/bb_http_server/src/bb_http_section.c",
       "type": "uncovered_branch"
     },
     {
@@ -126,11 +111,6 @@
       "type": "uncovered_branch"
     },
     {
-      "id": "48",
-      "path": "components/bb_log/src/bb_log_line_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
       "id": "49",
       "path": "components/bb_log/src/bb_log_line_parse.c",
       "type": "uncovered_branch"
@@ -167,11 +147,6 @@
     },
     {
       "id": "85",
-      "path": "components/bb_log/src/bb_log_line_parse.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "93",
       "path": "components/bb_log/src/bb_log_line_parse.c",
       "type": "uncovered_branch"
     },
@@ -1763,91 +1738,6 @@
     {
       "id": "96",
       "path": "platform/host/bb_mem_arena_tls/bb_mem_arena_tls.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "104",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "106",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "137",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "139",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "156",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "268",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "291",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "328",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "336",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "342",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "348",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "354",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "460",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "462",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "480",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "74",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
-      "type": "uncovered_branch"
-    },
-    {
-      "id": "91",
-      "path": "platform/host/bb_mqtt_client/bb_mqtt_client.c",
       "type": "uncovered_branch"
     },
     {
