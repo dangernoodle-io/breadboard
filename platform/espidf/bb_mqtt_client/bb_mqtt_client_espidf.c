@@ -434,6 +434,15 @@ bb_err_t bb_mqtt_client_init(const bb_mqtt_client_cfg_t *cfg, bb_mqtt_client_t *
             .size     = CONFIG_BB_MQTT_CLIENT_RX_BUFFER_BYTES,
             .out_size = CONFIG_BB_MQTT_CLIENT_TX_BUFFER_BYTES,
         },
+        // B1-834 review CRITICAL-2: esp-mqtt defaults outbox.limit to 0
+        // (unbounded), which silently skips the outbox-full check in
+        // esp_mqtt_client_enqueue() (mqtt_client.c: "if (client->config->
+        // outbox_limit > 0)") -- leaving outbox growth unbounded on
+        // no-PSRAM targets and making bb_mqtt_client_enqueue()'s documented
+        // BB_ERR_NO_SPACE retry contract (bb_mqtt_client.h) unreachable.
+        .outbox = {
+            .limit = CONFIG_BB_MQTT_CLIENT_OUTBOX_LIMIT_BYTES,
+        },
     };
 
     // Broker TLS verification certificate.
@@ -565,9 +574,64 @@ bb_err_t bb_mqtt_client_publish(bb_mqtt_client_t handle, const char *topic,
 
     int msg_id = esp_mqtt_client_publish(client, topic,
                                           payload, len, qos, (int)retain);
+    // B1-834 review HIGH-2: esp_mqtt_client_publish() applies the SAME
+    // outbox_limit check as esp_mqtt_client_enqueue() for qos>0 messages
+    // (mqtt_client.c:2181-2186: "if (client->config->outbox_limit > 0 &&
+    // qos > 0) { ... return -2; }") -- outbox.limit is one client-wide
+    // config shared by both calls, so CONFIG_BB_MQTT_CLIENT_OUTBOX_LIMIT_BYTES
+    // (set in bb_mqtt_client_init above) makes -2 reachable here too, not
+    // just from bb_mqtt_client_enqueue(). Map it to BB_ERR_NO_SPACE (a
+    // retriable "back off" verdict) rather than folding it into the generic
+    // BB_ERR_INVALID_STATE below, which reads as "reinit the client".
+    if (msg_id == -2) {
+        bb_log_w(TAG, "publish rejected: outbox full, topic=%s", topic);
+        return BB_ERR_NO_SPACE;
+    }
     if (msg_id < 0) {
         bb_log_w(TAG, "publish failed: topic=%s", topic);
         return BB_ERR_INVALID_STATE;
+    }
+    return BB_OK;
+}
+
+// B1-834 PR-1: esp_mqtt_client_enqueue() is the non-blocking sibling of
+// esp_mqtt_client_publish() -- its accept/reject verdict is synchronous
+// (returns a msg_id, or -1/-2); only delivery confirmation is async. See
+// bb_mqtt_client_enqueue()'s doc comment (bb_mqtt_client.h) for the full
+// retriable-semantics contract a later sweep-loop caller depends on.
+bb_err_t bb_mqtt_client_enqueue(bb_mqtt_client_t handle, const char *topic,
+                          const char *payload, int len, int qos, bool retain)
+{
+    if (!handle || !topic) return BB_ERR_INVALID_ARG;
+    bb_mqtt_client_handle_t *h = (bb_mqtt_client_handle_t *)handle;
+
+    // Same defense-in-depth as bb_mqtt_client_publish (B1-296): capture the
+    // client pointer under the lock, release before calling into esp-mqtt.
+    esp_mqtt_client_handle_t client;
+    if (!mqtt_acquire_client(h, &client)) {
+        bb_log_w(TAG, "enqueue skipped: handle destroyed or client NULL");
+        return BB_ERR_INVALID_STATE;
+    }
+
+    // store=true (B1-834 review CRITICAL-1): esp-mqtt's esp_mqtt_client_enqueue()
+    // forces a -1 return for qos=0 messages when store=false, EVEN when the
+    // message was actually accepted into the outbox (mqtt_client.c ~line 2299:
+    // "messages with qos=0 are not enqueued if not overridden by store_in_outbox
+    // -> indicate as error"). store=false only matters for a caller that wants
+    // qos=0 semantics identical to the old fire-and-forget publish (no outbox
+    // retention); this component's documented contract (bb_mqtt_client.h) is
+    // "accepted into the outbox", so store must be true for that contract to
+    // hold for qos=0 traffic -- without it, bb_mqtt_client_enqueue() always
+    // returns BB_ERR_VALIDATION for qos=0 on real hardware even on success.
+    int msg_id = esp_mqtt_client_enqueue(client, topic,
+                                          payload, len, qos, (int)retain, true);
+    if (msg_id == -2) {
+        bb_log_w(TAG, "enqueue rejected: outbox full, topic=%s", topic);
+        return BB_ERR_NO_SPACE;
+    }
+    if (msg_id < 0) {
+        bb_log_w(TAG, "enqueue rejected: topic=%s", topic);
+        return BB_ERR_VALIDATION;
     }
     return BB_OK;
 }
@@ -733,8 +797,10 @@ bb_err_t bb_mqtt_client_stop(bb_mqtt_client_t *handle_p)
 //
 // HANDLE STABILITY: s_auto_client is a bb_mqtt_client_t (void *) whose VALUE changes
 // across suspend/resume — suspend destroys the heap-allocated handle object
-// (frees task + buffers + struct, ~11 KB) and resume recreates it at a NEW
-// address.  Any sink that captured the old pointer value holds a use-after-free
+// (frees task + buffers + struct, ~11 KB -- plus up to
+// CONFIG_BB_MQTT_CLIENT_OUTBOX_LIMIT_BYTES more if the outbox was occupied
+// at suspend time, B1-834) and resume recreates it at a NEW address.  Any
+// sink that captured the old pointer value holds a use-after-free
 // reference after suspend (B1-296).
 //
 // Callers SHOULD resolve bb_mqtt_client_default() fresh on every publish
@@ -897,15 +963,17 @@ bb_err_t bb_mqtt_client_stop_default(void)
 //
 //   STOP-ONLY (CONFIG_BB_MQTT_CLIENT_SUSPEND_STOP_ONLY=y):
 //     Calls esp_mqtt_client_stop() only.  Keeps the client handle, task, and
-//     buffers resident (~11 KB).  Resume calls esp_mqtt_client_start() on the
-//     same handle — no destroy, no realloc, no NVS reload.
-//     s_auto_client remains NON-NULL during the suspend window.
+//     buffers resident (~11 KB, plus up to CONFIG_BB_MQTT_CLIENT_OUTBOX_LIMIT_BYTES
+//     more if the outbox is occupied at suspend time, B1-834).  Resume calls
+//     esp_mqtt_client_start() on the same handle — no destroy, no realloc,
+//     no NVS reload.  s_auto_client remains NON-NULL during the suspend window.
 //     ONLY safe when bb_mem_arena_tls already reserves enough headroom for the
-//     TLS handshake without the full 11 KB free.
+//     TLS handshake without the full ~11 KB (+ outbox) free.
 //
 //   FULL RELEASE (CONFIG_BB_MQTT_CLIENT_SUSPEND_STOP_ONLY=n, default):
 //     Calls bb_mqtt_client_stop(&s_auto_client) which stops + DESTROYS the client
-//     and NULLs the handle.  Frees the entire ~11 KB budget.
+//     and NULLs the handle.  Frees the entire ~11 KB budget, plus up to
+//     CONFIG_BB_MQTT_CLIENT_OUTBOX_LIMIT_BYTES more if the outbox was occupied.
 //
 // Contrast with bb_mqtt_client_stop_default() which is a permanent disable (never
 // resumed).  suspend/resume is a transient bracket.

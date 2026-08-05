@@ -194,6 +194,534 @@ void test_bb_mqtt_init_client_id_empty_broker_assigned(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_mqtt_client_enqueue tests (B1-834 PR-1)
+//
+// Mapping under test (bb_mqtt_client.h doc comment):
+//   msg_id >= 0            -> BB_OK
+//   msg_id == -2 (outbox)  -> BB_ERR_NO_SPACE
+//   msg_id == -1 (generic) -> BB_ERR_VALIDATION
+//   handle destroyed / client not present (mqtt_acquire_client on the espidf
+//   backend) -> BB_ERR_INVALID_STATE. NOTE (B1-834 review HIGH-1): there is
+//   NO "not connected" precondition -- verified against the pinned esp-mqtt
+//   source (mqtt_client.c ~2263-2302), esp_mqtt_client_enqueue() has no
+//   connection-state check at all; queueing while disconnected (then
+//   draining on reconnect) is this API's whole documented purpose.
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_enqueue_null_handle_returns_invalid_arg(void)
+{
+    // Mutation check: drop the `!handle` half of the guard -> this call
+    // would instead crash dereferencing a NULL handle. TEST_ASSERT catches
+    // a wrong-but-non-crashing return; the crash itself would fail the run.
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_mqtt_client_enqueue(NULL, "t", "v", -1, 0, false));
+}
+
+void test_bb_mqtt_enqueue_null_topic_returns_invalid_arg(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    // Mutation check: drop the `!topic` half of the guard -> falls through
+    // to bb_strlcpy(p->topic, NULL, ...) and crashes instead of returning
+    // BB_ERR_INVALID_ARG.
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_mqtt_client_enqueue(h, NULL, "v", -1, 0, false));
+    bb_mqtt_client_destroy(h);
+}
+
+// B1-834 review HIGH-1: enqueue-while-disconnected must ACCEPT and queue
+// the message (drained on reconnect), not reject -- the pinned esp-mqtt
+// source (mqtt_client.c ~2263-2302) has no connection-state check in
+// esp_mqtt_client_enqueue(). This replaces a prior (incorrect) test that
+// asserted the opposite by reusing the general `connected` flag as a
+// stand-in for the espidf backend's actual "handle destroyed" guard.
+void test_bb_mqtt_enqueue_while_disconnected_still_accepted(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_connected(h, false);
+    // Mutation check: reintroduce a `!h->connected` early-return -> this
+    // assertion flips to BB_ERR_INVALID_STATE and fails.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", "v", -1, 0, false));
+    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_client_host_enqueue_count(h));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_enqueue_accepted_returns_ok_and_records_pub(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    // Default forced msg_id is 0 (accepted) — no hook call needed.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "test/topic", "hello", -1, 0, false));
+    const bb_mqtt_client_host_pub_t *p = bb_mqtt_client_host_last_pub(h);
+    // Mutation check: skip the record-on-accept block -> p becomes NULL and
+    // the topic assertion below fails to compile-time-safe NULL deref guard
+    // (TEST_ASSERT_NOT_NULL catches it first).
+    TEST_ASSERT_NOT_NULL(p);
+    TEST_ASSERT_EQUAL_STRING("test/topic", p->topic);
+    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_client_host_enqueue_count(h));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_enqueue_outbox_full_returns_no_space(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_enqueue_msg_id(h, -2);
+    // Mutation check: swap the -2/-1 branch bodies -> this returns
+    // BB_ERR_VALIDATION instead and the assertion fails.
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, bb_mqtt_client_enqueue(h, "t", "v", -1, 0, false));
+    // A rejected enqueue must not be recorded as accepted.
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_client_host_enqueue_count(h));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_enqueue_generic_reject_returns_validation(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_enqueue_msg_id(h, -1);
+    // Mutation check: change `msg_id == -1` to `msg_id < 0` before the -2
+    // check (reordering the branches) -> -1 would be caught by a combined
+    // `< 0` first and misreport BB_ERR_NO_SPACE instead of BB_ERR_VALIDATION.
+    TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION, bb_mqtt_client_enqueue(h, "t", "v", -1, 0, false));
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_client_host_enqueue_count(h));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_enqueue_msg_id_hook_is_sticky(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_enqueue_msg_id(h, -2);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, bb_mqtt_client_enqueue(h, "t", "v", -1, 0, false));
+    // Mutation check: reset test_enqueue_msg_id to 0 after one use (a
+    // one-shot instead of sticky hook) -> the second call below would
+    // unexpectedly return BB_OK.
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, bb_mqtt_client_enqueue(h, "t2", "v2", -1, 0, false));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_enqueue_count_null_handle_returns_zero(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_client_host_enqueue_count(NULL));
+}
+
+void test_bb_mqtt_enqueue_set_msg_id_null_handle_is_safe(void)
+{
+    // Must not crash on NULL handle.
+    bb_mqtt_client_host_set_enqueue_msg_id(NULL, -1);
+}
+
+void test_bb_mqtt_enqueue_ring_overflow_evicts_oldest(void)
+{
+    // Mirrors test_bb_mqtt_publish_ring_overflow_evicts_oldest -- proves
+    // bb_mqtt_client_enqueue()'s accepted-path ring bookkeeping (shared with
+    // publish) also evicts the oldest entry once the ring is full.
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+
+    char topic[32];
+    char payload[32];
+    for (int i = 0; i < 33; i++) {
+        snprintf(topic,   sizeof(topic),   "t/%d", i);
+        snprintf(payload, sizeof(payload), "p%d",  i);
+        TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, topic, payload, -1, 0, false));
+    }
+
+    TEST_ASSERT_EQUAL_INT(32, bb_mqtt_client_host_pub_count(h));
+    const bb_mqtt_client_host_pub_t *last = bb_mqtt_client_host_last_pub(h);
+    TEST_ASSERT_NOT_NULL(last);
+    TEST_ASSERT_EQUAL_STRING("t/32", last->topic);
+
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_enqueue_null_payload_is_safe(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", NULL, 0, 0, false));
+    const bb_mqtt_client_host_pub_t *p = bb_mqtt_client_host_last_pub(h);
+    TEST_ASSERT_NOT_NULL(p);
+    TEST_ASSERT_EQUAL_STRING("", p->payload);
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_enqueue_explicit_len(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", "hello world", 5, 0, false));
+    const bb_mqtt_client_host_pub_t *p = bb_mqtt_client_host_last_pub(h);
+    TEST_ASSERT_NOT_NULL(p);
+    TEST_ASSERT_EQUAL_INT(0, strncmp("hello", p->payload, 5));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_enqueue_truncates_oversized_payload(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    static char big[600];
+    memset(big, 'a', sizeof(big));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", big, (int)sizeof(big), 0, false));
+    const bb_mqtt_client_host_pub_t *p = bb_mqtt_client_host_last_pub(h);
+    TEST_ASSERT_NOT_NULL(p);
+    // p->payload is 512 bytes; a 600-byte payload must be truncated to fit
+    // (511 chars + NUL), not overrun the buffer.
+    TEST_ASSERT_EQUAL_INT(511, (int)strlen(p->payload));
+    bb_mqtt_client_destroy(h);
+}
+
+// B1-834 review CRITICAL-1: proves the host stub models esp-mqtt's real
+// store/qos quirk (mqtt_client.c ~line 2299: an accepted qos=0 message is
+// still reported as a generic reject when store=false) -- this is exactly
+// the divergence that let bb_mqtt_client_enqueue() silently always fail on
+// hardware while every (qos=0) host test passed, before the espidf backend
+// was fixed to pass store=true.
+void test_bb_mqtt_enqueue_qos0_store_false_returns_validation(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_enqueue_store(h, false);
+    // Mutation check: drop the `qos == 0 && !h->store` condition (or invert
+    // it) -> this would return BB_OK instead, masking the real hardware bug
+    // the same way the pre-fix host tests did.
+    TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION, bb_mqtt_client_enqueue(h, "t", "v", -1, 0, false));
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_client_host_enqueue_count(h));
+    bb_mqtt_client_destroy(h);
+}
+
+// Same quirk does NOT apply to qos>0 (esp-mqtt always enqueues qos>0
+// messages regardless of store) or when store=true (the default, matching
+// the espidf backend's actual call site).
+void test_bb_mqtt_enqueue_qos1_store_false_still_accepted(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_enqueue_store(h, false);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", "v", -1, 1, false));
+    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_client_host_enqueue_count(h));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_enqueue_qos0_store_true_is_accepted(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    // store defaults to true -- no setup call needed. Regression guard for
+    // the default itself (matches the espidf backend's fixed call site).
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", "v", -1, 0, false));
+    bb_mqtt_client_destroy(h);
+}
+
+// Branch-coverage completion for the `qos == 0 && !h->store && msg_id == 0`
+// guard: an outbox-full msg_id (-2) with qos=0/store=false must still take
+// the msg_id!=0 path (the store/qos quirk does NOT override an explicit
+// reject hook) and report BB_ERR_NO_SPACE, not BB_ERR_VALIDATION.
+void test_bb_mqtt_enqueue_qos0_store_false_outbox_full_hook_still_no_space(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_enqueue_store(h, false);
+    bb_mqtt_client_host_set_enqueue_msg_id(h, -2);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, bb_mqtt_client_enqueue(h, "t", "v", -1, 0, false));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_enqueue_set_store_null_handle_is_safe(void)
+{
+    // Must not crash on NULL handle.
+    bb_mqtt_client_host_set_enqueue_store(NULL, false);
+}
+
+void test_bb_mqtt_enqueue_set_outbox_limit_null_handle_is_safe(void)
+{
+    // Must not crash on NULL handle.
+    bb_mqtt_client_host_set_outbox_limit(NULL, 8);
+}
+
+// B1-834 review CRITICAL-2: proves BB_ERR_NO_SPACE is actually reachable at
+// a configured outbox cap, mirroring esp-mqtt's own outbox-limit gate
+// (mqtt_client.c ~line 2280) that the espidf backend now wires up via
+// CONFIG_BB_MQTT_CLIENT_OUTBOX_LIMIT_BYTES (esp_mqtt_client_config_t.outbox.limit).
+void test_bb_mqtt_enqueue_outbox_limit_reached_returns_no_space(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_outbox_limit(h, 8);  // bytes
+
+    // "hello" is 5 bytes -- fits under the 8-byte cap.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", "hello", -1, 0, false));
+    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_client_host_enqueue_count(h));
+
+    // A second 5-byte message pushes cumulative size to 10 > 8 -> rejected.
+    // Mutation check: drop the outbox_limit check entirely (or invert the
+    // comparison) -> this would return BB_OK, masking the unbounded-growth
+    // bug the Kconfig cap exists to prevent.
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, bb_mqtt_client_enqueue(h, "t", "world", -1, 0, false));
+    // A rejected enqueue must not be recorded as accepted.
+    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_client_host_enqueue_count(h));
+
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_enqueue_outbox_limit_zero_is_unbounded(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    // Default (no bb_mqtt_client_host_set_outbox_limit call) is 0 =
+    // unbounded, matching esp-mqtt's own default -- a large payload must
+    // still be accepted.
+    static char big[4096];
+    memset(big, 'a', sizeof(big));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", big, (int)sizeof(big), 0, false));
+    bb_mqtt_client_destroy(h);
+}
+
+// B1-834 review MEDIUM: proves BB_ERR_NO_SPACE is recoverable -- once the
+// simulated outbox drains (mirroring esp-mqtt's own outbox shrinking as
+// queued messages are sent/ACKed), an enqueue that would otherwise still be
+// rejected succeeds again, matching the header's documented "retriable,
+// back off and retry next tick" contract.
+void test_bb_mqtt_enqueue_outbox_limit_reachable_again_after_drain(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_outbox_limit(h, 10);  // bytes
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", "hello", -1, 0, false));  // 5 bytes -> 5
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", "world", -1, 0, false));  // 5 bytes -> 10
+    // A third message pushes cumulative size to 11 > 10 -> rejected.
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, bb_mqtt_client_enqueue(h, "t", "x", -1, 0, false));
+
+    // Partial drain (3 of the 10 outstanding bytes) -- cumulative size drops
+    // to 7, leaving exactly 3 bytes of headroom under the 10-byte cap. This
+    // exercises the drain-helper's "still some outstanding" branch (bytes <
+    // h->outbox_bytes), distinct from the full/over-drain branch covered by
+    // test_bb_mqtt_enqueue_drain_outbox_floors_at_zero.
+    bb_mqtt_client_host_drain_outbox(h, 3);
+
+    // Mutation check: no-op the drain (or make it not decrement) -> this
+    // would still return BB_ERR_NO_SPACE and the assertion fails.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", "abc", -1, 0, false));  // 3 bytes -> 10
+    TEST_ASSERT_EQUAL_INT(3, bb_mqtt_client_host_enqueue_count(h));
+
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_enqueue_drain_outbox_floors_at_zero(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_outbox_limit(h, 4);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", "ab", -1, 0, false));  // 2 bytes
+    // Draining more than outstanding must floor at 0, not underflow.
+    bb_mqtt_client_host_drain_outbox(h, 999);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", "abcd", -1, 0, false));  // 4 bytes
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_enqueue_drain_outbox_null_handle_is_safe(void)
+{
+    // Must not crash on NULL handle.
+    bb_mqtt_client_host_drain_outbox(NULL, 5);
+}
+
+// ---------------------------------------------------------------------------
+// bb_mqtt_client_publish outbox tests (B1-834 review HIGH-2)
+//
+// esp_mqtt_client_publish() applies the SAME outbox_limit check as
+// esp_mqtt_client_enqueue(), but gated on qos>0 (mqtt_client.c ~2181:
+// "if (client->config->outbox_limit > 0 && qos > 0)"). CONFIG_BB_MQTT_CLIENT_
+// OUTBOX_LIMIT_BYTES therefore makes -2/BB_ERR_NO_SPACE reachable from
+// publish() too, not just enqueue().
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_publish_qos1_outbox_limit_reached_returns_no_space(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_outbox_limit(h, 8);  // bytes
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_publish(h, "t", "hello", -1, 1, false));  // 5 bytes, qos=1
+    // Mutation check: drop the `qos > 0` gate or the outbox check entirely
+    // -> this would return BB_OK, masking the newly-reachable -2 path.
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, bb_mqtt_client_publish(h, "t", "world", -1, 1, false));  // 5 bytes, qos=1
+
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_publish_qos0_ignores_outbox_limit(void)
+{
+    // qos=0 publishes never enter esp-mqtt's outbox (store=false in the
+    // underlying mqtt_client_enqueue_publish() call) -- the outbox_limit
+    // check is gated on qos>0 only, so a qos=0 publish must succeed even
+    // when it would exceed the cap.
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_outbox_limit(h, 4);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_publish(h, "t", "hello world", -1, 0, false));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_publish_null_payload_qos1_is_safe(void)
+{
+    // Branch-coverage completion for the payload_len ternary the HIGH-2
+    // outbox check reads (a NULL payload -> 0-byte contribution). qos=1 so
+    // the outbox-limit path is actually exercised, not just skipped.
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_publish(h, "t", NULL, 0, 1, false));
+    bb_mqtt_client_destroy(h);
+}
+
+// B1-834 review MEDIUM-2: proves len=0 with a non-NULL payload measures via
+// strlen() -- matching esp-mqtt's own normalization ("if (len <= 0 && data
+// != NULL) len = strlen(data)", mqtt_client.c:2177/2276) -- rather than
+// contributing 0 bytes to the outbox boundary check. A prior version only
+// auto-measured on len<0, so len=0 host-side undercounted vs hardware.
+void test_bb_mqtt_enqueue_len_zero_measures_via_strlen_against_outbox_limit(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_outbox_limit(h, 4);  // "abcd" is 4 bytes -- exactly fits.
+    // Mutation check: revert the `<= 0` normalization back to `< 0` -> len=0
+    // would contribute 0 bytes instead of 4, and the second call below
+    // (which must be rejected) would wrongly succeed instead.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", "abcd", 0, 0, false));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, bb_mqtt_client_enqueue(h, "t", "x", 0, 0, false));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_publish_len_zero_measures_via_strlen_against_outbox_limit(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_outbox_limit(h, 4);  // "abcd" is 4 bytes -- exactly fits.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_publish(h, "t", "abcd", 0, 1, false));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, bb_mqtt_client_publish(h, "t", "x", 0, 1, false));
+    bb_mqtt_client_destroy(h);
+}
+
+// B1-834 review MEDIUM-3: proves the outbox counter is genuinely SHARED
+// client-wide between publish() and enqueue() on one handle, as the code
+// comments assert (bb_mqtt_client.c ~155-171, bb_mqtt_client.h ~404-417) --
+// not two independent counters that happen to pass isolated per-API tests.
+// Exercises both directions: enqueue() pushing publish() over the cap, and
+// the reverse.
+void test_bb_mqtt_enqueue_then_publish_share_outbox_limit(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_outbox_limit(h, 8);  // bytes
+
+    // enqueue() (any qos) occupies 5 of the 8-byte cap.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_enqueue(h, "t", "hello", -1, 0, false));
+    // Mutation check: give enqueue() and publish() independent counters ->
+    // this qos>0 publish() would see an empty outbox and wrongly succeed.
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, bb_mqtt_client_publish(h, "t", "world", -1, 1, false));
+
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_publish_then_enqueue_share_outbox_limit(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_host_set_outbox_limit(h, 8);  // bytes
+
+    // publish(qos>0) occupies 5 of the 8-byte cap.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_publish(h, "t", "hello", -1, 1, false));
+    // Mutation check: give enqueue() and publish() independent counters ->
+    // this enqueue() would see an empty outbox and wrongly succeed.
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, bb_mqtt_client_enqueue(h, "t", "world", -1, 0, false));
+
+    bb_mqtt_client_destroy(h);
+}
+
+// ---------------------------------------------------------------------------
+// B1-834 PR-1: pre-existing branch-coverage gaps closed while touching this
+// file (coverage_baseline shrink-only ratchet -- "touch it, bring it to
+// 100", scripts/coverage_baseline.py). None of these exercise NEW behavior
+// added by this PR; they close branches in bb_mqtt_client_init/publish/
+// get_stats/suspend_default/resume_default and the host test hooks that
+// predate B1-834 but were never independently covered.
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_init_null_uri_is_safe(void)
+{
+    // cfg->uri is optional at the host-stub layer (defensively guarded);
+    // init must still succeed and leave the observability uri[] empty.
+    bb_mqtt_client_cfg_t cfg = { .uri = NULL };
+    bb_mqtt_client_t h = NULL;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_init(&cfg, &h));
+    TEST_ASSERT_EQUAL_STRING("", bb_mqtt_client_host_last_uri(h));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_publish_null_topic_returns_invalid_arg(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_mqtt_client_publish(h, NULL, "v", -1, 0, false));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_publish_truncates_oversized_payload(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    static char big[600];
+    memset(big, 'a', sizeof(big));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_publish(h, "t", big, (int)sizeof(big), 0, false));
+    const bb_mqtt_client_host_pub_t *p = bb_mqtt_client_host_last_pub(h);
+    TEST_ASSERT_NOT_NULL(p);
+    TEST_ASSERT_EQUAL_INT(511, (int)strlen(p->payload));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_get_stats_null_handle_returns_invalid_arg(void)
+{
+    bb_mqtt_client_stats_t stats;
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_mqtt_client_get_stats(NULL, &stats));
+}
+
+void test_bb_mqtt_get_stats_null_out_returns_invalid_arg(void)
+{
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_mqtt_client_get_stats(h, NULL));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_suspend_default_stop_only_no_handle_is_safe(void)
+{
+    // stop-only mode, no default handle set -- suspend must not crash and
+    // must still flip the suspended flag.
+    bb_mqtt_client_default_set(NULL);
+    bb_mqtt_client_host_set_stop_only(true);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_suspend_default());
+    TEST_ASSERT_TRUE(bb_mqtt_client_host_is_suspended_default());
+    // Cleanup.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_resume_default());
+    bb_mqtt_client_host_set_stop_only(false);
+}
+
+void test_bb_mqtt_resume_default_stop_only_no_handle_is_safe(void)
+{
+    // stop-only mode, suspended with no default handle -- resume must not
+    // crash and must clear the suspended flag.
+    bb_mqtt_client_default_set(NULL);
+    bb_mqtt_client_host_set_stop_only(true);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_suspend_default());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_resume_default());
+    TEST_ASSERT_FALSE(bb_mqtt_client_host_is_suspended_default());
+    bb_mqtt_client_host_set_stop_only(false);
+}
+
+void test_bb_mqtt_host_last_pub_null_handle_returns_null(void)
+{
+    TEST_ASSERT_NULL(bb_mqtt_client_host_last_pub(NULL));
+}
+
+void test_bb_mqtt_host_pub_count_null_handle_returns_zero(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_client_host_pub_count(NULL));
+}
+
+void test_bb_mqtt_host_last_uri_null_handle_returns_empty(void)
+{
+    TEST_ASSERT_EQUAL_STRING("", bb_mqtt_client_host_last_uri(NULL));
+}
+
+void test_bb_mqtt_host_set_connected_null_handle_is_safe(void)
+{
+    bb_mqtt_client_host_set_connected(NULL, true);
+}
+
+void test_bb_mqtt_host_reset_null_handle_is_safe(void)
+{
+    bb_mqtt_client_host_reset(NULL);
+}
+
+void test_bb_mqtt_host_set_subscribe_fail_null_handle_is_safe(void)
+{
+    bb_mqtt_client_host_set_subscribe_fail(NULL, true);
+}
+
+// ---------------------------------------------------------------------------
 // is_connected flag tests
 // ---------------------------------------------------------------------------
 

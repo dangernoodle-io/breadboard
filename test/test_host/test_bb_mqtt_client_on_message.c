@@ -128,6 +128,67 @@ void test_bb_mqtt_on_message_null_handle_returns_invalid_arg(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_mqtt_client_on_message(NULL, capture_cb, NULL));
 }
 
+// B1-834 PR-1: pre-existing branch-coverage gap closed while touching
+// bb_mqtt_client.c (coverage_baseline shrink-only ratchet) -- registering a
+// SECOND non-NULL callback on a handle that already allocated its rx buffer
+// must skip the (re)allocation branch, not just the first-registration path
+// already covered above.
+void test_bb_mqtt_on_message_second_registration_reuses_existing_buffer(void)
+{
+    reset_capture();
+    bb_mqtt_client_t h = make_handle();
+    TEST_ASSERT_EQUAL(BB_OK, bb_mqtt_client_on_message(h, capture_cb, NULL));
+
+    int marker = 7;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mqtt_client_on_message(h, capture_cb, &marker));
+
+    bb_mqtt_client_host_inject_message(h, "t", "v", 1);
+    TEST_ASSERT_EQUAL_INT(1, s_calls);
+    TEST_ASSERT_EQUAL_PTR(&marker, s_last_ctx);
+
+    bb_mqtt_client_destroy(h);
+}
+
+// B1-834 PR-1: pre-existing gap -- the lazy rx-buffer calloc failure path
+// (bb_mqtt_client_on_message returning BB_ERR_NO_SPACE) was never exercised.
+static void *on_message_failing_calloc(size_t n, size_t sz)
+{
+    (void)n; (void)sz;
+    return NULL;
+}
+
+void test_bb_mqtt_on_message_alloc_failure_returns_no_space(void)
+{
+    bb_mqtt_client_t h = make_handle();
+    bb_mqtt_client_set_calloc(on_message_failing_calloc);
+    bb_err_t rc = bb_mqtt_client_on_message(h, capture_cb, NULL);
+    bb_mqtt_client_set_calloc(NULL);   // restore before any allocating call
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+
+    bb_mqtt_client_destroy(h);
+}
+
+// B1-834 PR-1: pre-existing gaps -- bb_mqtt_client_host_inject_fragment's
+// NULL-handle and NULL-topic guards were only ever exercised indirectly
+// (always called with valid arguments by every other test in this file).
+void test_bb_mqtt_inject_fragment_null_handle_is_safe(void)
+{
+    // Must not crash.
+    bb_mqtt_client_host_inject_fragment(NULL, "t", 1, 0, "v", 1);
+}
+
+void test_bb_mqtt_inject_fragment_null_topic_is_safe(void)
+{
+    bb_mqtt_client_t h = make_handle();
+    bb_mqtt_client_on_message(h, capture_cb, NULL);
+    reset_capture();
+    // Must not crash; topic==NULL short-circuits before touching h->msg_cb.
+    bb_mqtt_client_host_inject_fragment(h, NULL, 1, 0, "v", 1);
+    TEST_ASSERT_EQUAL_INT(0, s_calls);
+    bb_mqtt_client_destroy(h);
+}
+
 // Per-handle capture context for the interleaved cross-talk test below —
 // distinct from the shared s_* globals used by the other tests in this file.
 typedef struct {

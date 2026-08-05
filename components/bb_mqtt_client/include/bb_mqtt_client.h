@@ -1,5 +1,10 @@
 // bb_mqtt_client — portable MQTT client component.
 //
+/**
+ * @brief Portable MQTT client — publish/enqueue/subscribe over esp-mqtt on
+ * ESP-IDF, with an in-memory stub on host for testing.
+ */
+//
 // Wraps esp-mqtt on ESP-IDF; in-memory stub on host for testing.
 // Public header is free of esp_*.h, mqtt_client.h, cJSON, and freertos/*.h
 // so the same header compiles unchanged on all backends.
@@ -126,12 +131,66 @@ bb_err_t bb_mqtt_client_init(const bb_mqtt_client_cfg_t *cfg, bb_mqtt_client_t *
  * @param h       Handle from bb_mqtt_client_init
  * @param topic   Topic string
  * @param payload Message payload (may be NULL for zero-length message)
- * @param len     Payload length; pass -1 to measure via strlen(payload)
+ * @param len     Payload length. Any value <= 0 (both -1 AND 0) with a
+ *                non-NULL payload measures via strlen(payload) -- matches
+ *                esp-mqtt's own normalization (mqtt_client.c: "if (len <= 0
+ *                && data != NULL) len = strlen(data)"). To send a genuine
+ *                zero-length payload, pass payload=NULL (len is then
+ *                ignored) rather than len=0 with a non-NULL payload.
  * @param qos     QoS level (0, 1, or 2)
  * @param retain  Retain flag
- * @return BB_OK on success; BB_ERR_INVALID_STATE if not connected.
+ * @return BB_OK on success; BB_ERR_INVALID_STATE if not connected;
+ *         BB_ERR_NO_SPACE if qos>0 and the shared outbox is full (esp-mqtt
+ *         applies the same outbox_limit check bb_mqtt_client_enqueue() uses
+ *         -- see CONFIG_BB_MQTT_CLIENT_OUTBOX_LIMIT_BYTES -- to qos>0
+ *         publish() calls too; retriable, back off and retry).
  */
 bb_err_t bb_mqtt_client_publish(bb_mqtt_client_t h, const char *topic, const char *payload,
+                          int len, int qos, bool retain);
+
+/**
+ * Enqueue a message for the broker without blocking (B1-834 PR-1).
+ *
+ * Unlike bb_mqtt_client_publish() (which wraps the blocking
+ * esp_mqtt_client_publish()), this wraps esp_mqtt_client_enqueue(): the
+ * accept/reject verdict below is synchronous and reflects only whether the
+ * message was accepted into esp-mqtt's outbox, NOT that it reached the
+ * broker -- delivery confirmation (MQTT_EVENT_PUBLISHED for qos>0) is async
+ * and outside this call's return value. The outbox is heap-bounded, not
+ * buffer.out_size-bounded, which matters on the no-PSRAM boards this repo
+ * targets.
+ *
+ * Retriable semantics (a sweep-loop caller depends on this contract):
+ *   BB_OK                 -- accepted into the outbox; do not retry.
+ *   BB_ERR_INVALID_STATE  -- handle destroyed or client not present (mirrors
+ *                            bb_mqtt_client_publish()'s pre-check); retriable
+ *                            once the client is reinitialised, not on the
+ *                            same handle.
+ *   BB_ERR_NO_SPACE       -- outbox full (esp_mqtt_client_enqueue == -2);
+ *                            EXPECTED under load -- retriable, back off and
+ *                            retry next tick.
+ *   BB_ERR_VALIDATION     -- generic reject (esp_mqtt_client_enqueue == -1);
+ *                            LESS understood than outbox-full and may
+ *                            indicate a real caller bug (oversized topic,
+ *                            non-NULL len with NULL payload, etc) -- NOT
+ *                            generally safe to retry unmodified.
+ *
+ * @param h       Handle from bb_mqtt_client_init
+ * @param topic   Topic string
+ * @param payload Message payload (may be NULL for zero-length message)
+ * @param len     Payload length. Any value <= 0 (both -1 AND 0) with a
+ *                non-NULL payload measures via strlen(payload) -- matches
+ *                esp-mqtt's own normalization (mqtt_client.c: "if (len <= 0
+ *                && data != NULL) len = strlen(data)"). To send a genuine
+ *                zero-length payload, pass payload=NULL (len is then
+ *                ignored) rather than len=0 with a non-NULL payload.
+ * @param qos     QoS level (0, 1, or 2)
+ * @param retain  Retain flag
+ * @return BB_OK, BB_ERR_INVALID_STATE, BB_ERR_NO_SPACE, or BB_ERR_VALIDATION
+ *         -- see retriable semantics above. BB_ERR_INVALID_ARG if h or topic
+ *         is NULL.
+ */
+bb_err_t bb_mqtt_client_enqueue(bb_mqtt_client_t h, const char *topic, const char *payload,
                           int len, int qos, bool retain);
 
 /**
@@ -285,12 +344,17 @@ bb_err_t bb_mqtt_client_stop_default(void);
  *
  *   Default (CONFIG_BB_MQTT_CLIENT_SUSPEND_STOP_ONLY=n):
  *     Full release — calls esp_mqtt_client_stop() + esp_mqtt_client_destroy(),
- *     frees TLS credentials, and NULLs the auto-client pointer (~11 KB freed).
+ *     frees TLS credentials, and NULLs the auto-client pointer (~11 KB freed,
+ *     plus up to CONFIG_BB_MQTT_CLIENT_OUTBOX_LIMIT_BYTES more if the outbox
+ *     was occupied at suspend time -- B1-834 added the outbox cap after this
+ *     figure was first measured).
  *     Resume recreates from NVS via auto_client_create_from_nvs().
  *
  *   Stop-only (CONFIG_BB_MQTT_CLIENT_SUSPEND_STOP_ONLY=y):
  *     Calls esp_mqtt_client_stop() only.  Keeps the client handle, task, and
- *     buffers resident (~11 KB residency).  The auto-client pointer remains
+ *     buffers resident (~11 KB residency, plus up to
+ *     CONFIG_BB_MQTT_CLIENT_OUTBOX_LIMIT_BYTES more under outbox load -- see
+ *     above).  The auto-client pointer remains
  *     NON-NULL.  Resume calls esp_mqtt_client_start() on the same handle —
  *     no destroy, no realloc, no NVS reload.  ONLY safe when bb_mem_arena_tls
  *     already reserves enough headroom for the TLS handshake.
@@ -461,6 +525,59 @@ const bb_mqtt_client_host_pub_t *bb_mqtt_client_host_last_pub(bb_mqtt_client_t h
 
 /** Number of publish calls since init or last reset. */
 int bb_mqtt_client_host_pub_count(bb_mqtt_client_t h);
+
+/**
+ * Force the msg_id bb_mqtt_client_enqueue()'s host stub reports on its next
+ * call(s) on this handle, mirroring esp_mqtt_client_enqueue()'s three
+ * outcomes (B1-834 PR-1):
+ *   msg_id >= 0  -- accepted (default: 0)
+ *   msg_id == -2 -- outbox full  -> BB_ERR_NO_SPACE
+ *   msg_id == -1 -- generic reject -> BB_ERR_VALIDATION
+ * Sticky until changed. Does not affect bb_mqtt_client_publish() (unrelated
+ * host stub, always BB_OK).
+ */
+void bb_mqtt_client_host_set_enqueue_msg_id(bb_mqtt_client_t h, int msg_id);
+
+/** Number of enqueue calls accepted (msg_id >= 0) since init or last reset. */
+int bb_mqtt_client_host_enqueue_count(bb_mqtt_client_t h);
+
+/**
+ * Sets the simulated esp_mqtt_client_enqueue() `store` argument used by the
+ * host model of esp-mqtt's qos=0/store quirk (B1-834 review CRITICAL-1):
+ * esp-mqtt forces a generic-reject return for an otherwise-accepted qos=0
+ * message when store is false, even though the message really was accepted
+ * (mqtt_client.c ~line 2299). Defaults to true, matching the espidf
+ * backend's actual call site -- set to false only to exercise/prove this
+ * quirk in a test. Reset to true by bb_mqtt_client_host_reset().
+ */
+void bb_mqtt_client_host_set_enqueue_store(bb_mqtt_client_t h, bool store);
+
+/**
+ * Sets a simulated outbox byte-size cap (B1-834 review CRITICAL-2/HIGH-2),
+ * mirroring esp_mqtt_client_config_t.outbox.limit: once the cumulative
+ * payload size of accepted bb_mqtt_client_enqueue() calls (any qos) or
+ * qos>0 bb_mqtt_client_publish() calls on this handle would exceed
+ * limit_bytes, further such calls return BB_ERR_NO_SPACE -- the same
+ * cumulative-bytes boundary check esp-mqtt applies before enqueuing
+ * (mqtt_client.c ~line 2280 for enqueue, ~line 2181 for publish/qos>0).
+ * This models only that boundary check, NOT esp-mqtt's outbox
+ * drain/eviction as messages are sent and ACKed -- use
+ * bb_mqtt_client_host_drain_outbox() to simulate that recovery. Pass 0
+ * (the default) to disable the check (esp-mqtt's own unbounded default).
+ * Reset to 0 by bb_mqtt_client_host_reset().
+ */
+void bb_mqtt_client_host_set_outbox_limit(bb_mqtt_client_t h, size_t limit_bytes);
+
+/**
+ * Simulates the outbox draining by `bytes` (B1-834 review MEDIUM), mirroring
+ * how esp-mqtt's outbox_get_size() shrinks as queued messages are sent and
+ * ACKed/freed. Without this hook, the host model's outbox_bytes counter is
+ * otherwise monotonic and BB_ERR_NO_SPACE would be permanent once reached --
+ * this lets a test prove bb_mqtt_client_enqueue()'s documented "retriable,
+ * back off and retry next tick" contract actually holds. Floors at 0 (does
+ * not underflow). No-op if h is NULL.
+ */
+void bb_mqtt_client_host_drain_outbox(bb_mqtt_client_t h, size_t bytes);
 
 /**
  * Returns the URI this handle was created with (B1-756 byte-compat test
