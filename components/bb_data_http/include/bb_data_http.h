@@ -32,9 +32,10 @@
  * Composition-root-owned attach table: bb_data_http_attach() maps a bb_data
  * key to a topic name. bb_data itself stays topic-agnostic -- the key<->topic
  * mapping lives entirely here. A client's topic_filter (see
- * bb_data_http_client_acquire_ex) selects which attached keys it receives:
- * NULL/"" subscribes to every attached key; a non-empty filter subscribes
- * only to keys attached under that exact topic name.
+ * bb_data_http_client_acquire's bb_data_http_client_cfg_t) selects which
+ * attached keys it receives: NULL/"" subscribes to every attached key; a
+ * non-empty filter subscribes only to keys attached under that exact topic
+ * name.
  *
  * HARD INVARIANT (the STATE lost-wakeup guarantee, KB 1443): the sweep-step's
  * detect phase writes every dirty client's state_seen_gen to the generation
@@ -108,7 +109,7 @@ typedef bb_err_t (*bb_data_http_render_fn)(const char *key, char *buf, size_t ca
 typedef bb_err_t (*bb_data_http_generation_fn)(const char *key, uint32_t *out_gen, void *ctx);
 
 // Sends `len` already-rendered bytes to `client` (the same handle returned
-// by bb_data_http_client_acquire[_ex]()). Transport-neutral by design (B1-1123
+// by bb_data_http_client_acquire()). Transport-neutral by design (B1-1123
 // PR-1): the seam carries no fd/is_ws -- those were HTTP-specific and meant
 // nothing to a future MQTT/UDP backend. A backend that needs socket/framing
 // detail (e.g. the ESP-IDF SSE backend) resolves it itself, either from its
@@ -118,8 +119,10 @@ typedef bb_err_t (*bb_data_http_generation_fn)(const char *key, uint32_t *out_ge
 // platform/espidf/bb_data_http/bb_data_http_espidf.c's espidf_send_fn and
 // platform/host/bb_data_http/bb_data_http_host.c's host_send). `ctx` is the
 // opaque pointer passed to bb_data_http_set_send_fn() -- one shared value for
-// every call, not per-client. The real backend wraps a socket write (or
-// bb_ws_server send); host tests supply a capture stub
+// every call installed this way, but see the PER-CONSUMER SEAMS doc below:
+// a client acquired with its own send_fn/send_ctx (bb_data_http_client_cfg_t)
+// uses THAT ctx instead, never this module-wide one. The real backend wraps
+// a socket write (or bb_ws_server send); host tests supply a capture stub
 // (platform/host/bb_data_http/bb_data_http_host.h).
 //
 // `key` (B1-1123 PR-2) answers "what is being written", complementing
@@ -171,7 +174,9 @@ typedef bb_err_t (*bb_data_http_send_fn)(const char *key, const bb_data_http_cli
 // a FATAL send_fn failure (see bb_data_http_send_fn's return contract above)
 // -- called at most once per client per bb_data_http_sweep_step() call, from
 // the flush loop, never from any other context. `ctx` is the opaque pointer
-// passed to bb_data_http_set_abort_fn().
+// passed to bb_data_http_set_abort_fn(), unless `client` was acquired with
+// its own abort_fn/abort_ctx (bb_data_http_client_cfg_t), which takes
+// precedence -- see the PER-CONSUMER SEAMS doc below.
 //
 // Implementations own the FULL teardown: transport-specific side-table
 // cleanup (e.g. the espidf backend's fd/async_req slot) plus the underlying
@@ -197,14 +202,76 @@ void bb_data_http_set_render_fn(bb_data_http_render_fn fn, void *ctx);
 // dirty-detection entirely (no key is ever marked dirty).
 void bb_data_http_set_generation_fn(bb_data_http_generation_fn fn, void *ctx);
 
-// Install/replace the send seam. Passing fn=NULL disables draining (rendered
-// bytes accumulate in the per-client outbound queue until a send_fn is set).
+// Install/replace the MODULE-WIDE default send seam. Passing fn=NULL
+// disables draining for every client that has no per-client override (see
+// bb_data_http_client_cfg_t below) -- rendered bytes accumulate in the
+// per-client outbound queue until a send_fn resolves for it.
 void bb_data_http_set_send_fn(bb_data_http_send_fn fn, void *ctx);
 
-// Install/replace the fatal-abort seam (see bb_data_http_abort_fn's doc
-// above). Passing fn=NULL reverts to the core's own
-// bb_data_http_client_release()-only fallback.
+// Install/replace the MODULE-WIDE default fatal-abort seam (see
+// bb_data_http_abort_fn's doc above). Passing fn=NULL reverts to the core's
+// own bb_data_http_client_release()-only fallback for every client that has
+// no per-client override (see bb_data_http_client_cfg_t below).
 void bb_data_http_set_abort_fn(bb_data_http_abort_fn fn, void *ctx);
+
+// ---------------------------------------------------------------------------
+// PER-CONSUMER SEAMS (B1-1123 PR-1). render_fn/generation_fn above stay
+// module-wide singletons -- both are pure bb_data accessors (key -> bytes,
+// key -> generation) with no transport identity, so every consumer wants the
+// identical answer for a given key. send_fn/abort_fn are different: they ARE
+// transport identity (a socket write, an MQTT publish, a UDP send), so a
+// second consumer installing its own send_fn via bb_data_http_set_send_fn()
+// would silently evict the first module-wide one -- the singleton bug this
+// PR fixes. Each client slot now carries its OWN optional send_fn/send_ctx/
+// abort_fn/abort_ctx, set once at bb_data_http_client_acquire() time via
+// bb_data_http_client_cfg_t below and resolved by the flush loop as
+// `c->send_fn ? c->send_fn : (module-wide s_send_fn)` (and likewise for
+// abort_fn) -- a client with no override transparently falls back to
+// whatever bb_data_http_set_send_fn()/bb_data_http_set_abort_fn() installed,
+// so existing HTTP callers (which never set these cfg fields) are unchanged.
+// The attach table, describe table, and shared EVENT ring stay global too --
+// none carries transport identity; key->topic is a bb_data concept, not a
+// per-consumer one.
+// ---------------------------------------------------------------------------
+
+// Sentinel for bb_data_http_client_cfg_t's `fd` field: a socketless consumer
+// (e.g. a future MQTT/UDP client acquired via B1-1126/B1-1127) has no fd to
+// carry. Deliberately negative -- fd=0 is a VALID file descriptor (stdin),
+// not "unset", so acquire() must reject any fd that is neither this sentinel
+// nor a plausible non-negative descriptor rather than silently defaulting a
+// cfg that omitted it (see bb_data_http_client_acquire()'s doc below for the
+// exact rule).
+#define BB_DATA_HTTP_NO_FD (-1)
+
+// Config struct for bb_data_http_client_acquire() -- the single-params-struct
+// convention (never `_ex`/`_named`): this REPLACES the old
+// bb_data_http_client_acquire()/bb_data_http_client_acquire_ex() pair rather
+// than adding a third entry point.
+//
+// fd: BB_DATA_HTTP_NO_FD for a socketless consumer; otherwise the caller's
+// socket descriptor (see acquire()'s validation rule below -- 0 is valid).
+// topic_filter: NULL/"" subscribes to every attached key; a non-empty filter
+// subscribes only to keys attached under that exact topic name
+// (bb_data_http_attach()'s `topic` argument). Zero-default (NULL) is safe --
+// "subscribe to everything" is the same behavior an omitted field already
+// had under the old convenience wrapper.
+// is_ws: selects the framing a backend's send_fn applies. Zero-default
+// (false) is safe -- matches the old convenience wrapper's default.
+// send_fn/send_ctx: per-client send seam (see the PER-CONSUMER SEAMS doc
+// above). NULL means "use the module-wide default installed via
+// bb_data_http_set_send_fn()" -- the safe zero-default every existing HTTP
+// call site relies on.
+// abort_fn/abort_ctx: per-client fatal-abort seam, same NULL-means-
+// module-wide-default rule as send_fn/send_ctx above.
+typedef struct {
+    int                    fd;
+    const char            *topic_filter;
+    bool                   is_ws;
+    bb_data_http_send_fn   send_fn;
+    void                  *send_ctx;
+    bb_data_http_abort_fn  abort_fn;
+    void                  *abort_ctx;
+} bb_data_http_client_cfg_t;
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -309,26 +376,26 @@ void bb_data_http_describe_foreach(bb_data_http_describe_cb_t cb, void *ctx);
 // Client lifecycle
 // ---------------------------------------------------------------------------
 
-// Acquire a client slot for socket `fd`. `topic_filter` selects which
-// attached keys this client receives: NULL/"" subscribes to every attached
-// key; a non-empty filter subscribes only to keys attached under that exact
-// topic name (bb_data_http_attach's `topic` argument). `is_ws` selects the
-// framing send_fn applies. Every STATE key the client is subscribed to is
-// marked dirty immediately (fresh-render-on-connect) so the first
-// bb_data_http_sweep_step() call after acquire renders and sends it.
+// Acquire a client slot per `cfg` (see bb_data_http_client_cfg_t's own doc
+// above for each field's meaning and zero-default safety). Every STATE key
+// the client is subscribed to is marked dirty immediately
+// (fresh-render-on-connect) so the first bb_data_http_sweep_step() call
+// after acquire renders and sends it.
 //
-// Returns BB_ERR_INVALID_ARG if `out` is NULL, or `topic_filter` is
-// non-NULL/non-empty and its length (excluding NUL) is >=
-// BB_DATA_HTTP_TOPIC_MAX -- mirrors bb_data_http_attach_ex()'s own topic
-// bound so an over-length filter is rejected rather than silently truncated
-// (a truncated filter can mis-subscribe a client to the wrong topic).
+// Returns BB_ERR_INVALID_ARG if `cfg` or `out` is NULL; if `cfg->fd` is
+// neither BB_DATA_HTTP_NO_FD nor a non-negative descriptor (the KB 619
+// default-change trap: fd=0 is a valid descriptor, so an omitted/zeroed `fd`
+// field is REJECTED rather than silently treated as "unset" -- callers that
+// have no real fd must pass BB_DATA_HTTP_NO_FD explicitly); or if
+// `cfg->topic_filter` is non-NULL/non-empty and its length (excluding NUL)
+// is >= BB_DATA_HTTP_TOPIC_MAX -- mirrors bb_data_http_attach_ex()'s own
+// topic bound so an over-length filter is rejected rather than silently
+// truncated (a truncated filter can mis-subscribe a client to the wrong
+// topic).
 // Returns BB_ERR_INVALID_STATE if bb_data_http_init() has not been called.
 // Returns BB_ERR_NO_SPACE if every client slot is in use.
-bb_err_t bb_data_http_client_acquire_ex(bb_data_http_client_t **out, int fd,
-                                        const char *topic_filter, bool is_ws);
-
-// Convenience wrapper: bb_data_http_client_acquire_ex(out, fd, NULL, is_ws).
-bb_err_t bb_data_http_client_acquire(bb_data_http_client_t **out, int fd, bool is_ws);
+bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
+                                     bb_data_http_client_t **out);
 
 // Release a client slot: destroys its outbound queue and frees the slot.
 // Safe to call with NULL (no-op).
@@ -515,7 +582,7 @@ void bb_data_http_reset_for_test(void);
 // is not immediately visible here: the broadcaster task still starts and
 // sweeps without error, but every client connect through either
 // routes-registering entry point below fails downstream, since
-// bb_data_http_client_acquire_ex() (components/bb_data_http/src/
+// bb_data_http_client_acquire() (components/bb_data_http/src/
 // bb_data_http_common.c) gates on bb_data_http_init() having run and
 // returns BB_ERR_INVALID_STATE otherwise.
 bb_err_t bb_data_http_espidf_start(void);
@@ -543,7 +610,7 @@ bb_err_t bb_data_http_espidf_client_connect(bb_http_request_t *req,
 // called first so the sweep task is already running when a client connects,
 // and bb_data_http_init() before that (see its PREREQUISITE note above) --
 // a connect through this route with bb_data_http_init() never called fails
-// with BB_ERR_INVALID_STATE (bb_data_http_client_acquire_ex()). A connect
+// with BB_ERR_INVALID_STATE (bb_data_http_client_acquire()). A connect
 // before any key is attached (bb_data_http_attach()/_attach_ex()/
 // _attach_sized()) still succeeds but streams nothing for that topic.
 // bb_http_handle_t opaque handle (bb_core.h, already included above) -- no
