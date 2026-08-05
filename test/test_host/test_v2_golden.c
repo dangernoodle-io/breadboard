@@ -65,7 +65,7 @@ void test_v2_golden_widget_fixture_populated(void)
 {
     test_fixture_widget_t snap;
     memset(&snap, 0, sizeof(snap));
-    strncpy(snap.serial, "widget-serial-001", sizeof(snap.serial) - 1);
+    strncpy(snap.serial, "widget-serial-001", sizeof(snap.serial));
     snap.calibrated        = true;
     snap.armed              = true;
     snap.installed_epoch_s  = 1704067200;
@@ -163,7 +163,7 @@ void test_v2_golden_health_root_slice_populated(void)
     memset(&snap, 0, sizeof(snap));
     snap.ok        = true;
     strncpy(snap.network.ssid, "testnet", sizeof(snap.network.ssid) - 1);
-    strncpy(snap.network.bssid, "aa:bb:cc:dd:ee:ff", sizeof(snap.network.bssid) - 1);
+    strncpy(snap.network.bssid, "aa:bb:cc:dd:ee:ff", sizeof(snap.network.bssid));
     strncpy(snap.network.ip, "192.168.1.50", sizeof(snap.network.ip) - 1);
     snap.network.connected = true;
     snap.network.mdns = (bb_serialize_str_n_t){ .ptr = "bb-test", .len = 7 };
@@ -178,7 +178,7 @@ void test_v2_golden_health_root_slice_disconnected(void)
 {
     bb_health_wire_t snap;
     memset(&snap, 0, sizeof(snap));
-    strncpy(snap.network.bssid, "00:00:00:00:00:00", sizeof(snap.network.bssid) - 1);
+    strncpy(snap.network.bssid, "00:00:00:00:00:00", sizeof(snap.network.bssid));
     strncpy(snap.network.ip, "0.0.0.0", sizeof(snap.network.ip) - 1);
     snap.network.mdns = (bb_serialize_str_n_t){ .ptr = NULL, .len = 0 };
 
@@ -223,7 +223,7 @@ void test_v2_golden_health_full_document(void)
     memset(&root, 0, sizeof(root));
     root.ok        = true;
     strncpy(root.network.ssid, "testnet", sizeof(root.network.ssid) - 1);
-    strncpy(root.network.bssid, "aa:bb:cc:dd:ee:ff", sizeof(root.network.bssid) - 1);
+    strncpy(root.network.bssid, "aa:bb:cc:dd:ee:ff", sizeof(root.network.bssid));
     strncpy(root.network.ip, "192.168.1.50", sizeof(root.network.ip) - 1);
     root.network.connected = true;
     root.network.mdns = (bb_serialize_str_n_t){ .ptr = "bb-test", .len = 7 };

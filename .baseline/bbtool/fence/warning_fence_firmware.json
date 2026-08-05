@@ -1,0 +1,79 @@
+{
+  "entries": [
+    {
+      "id": "\"/*\" within comment",
+      "path": "components/bb_wifi_prov/include/bb_wifi_prov.h",
+      "type": "comment"
+    },
+    {
+      "id": "bb_openapi_schemas_union_count: missing braces around initializer",
+      "path": "components/bb_openapi/src/bb_openapi_emit_shared.c",
+      "type": "missing-braces"
+    },
+    {
+      "id": "build_sse_oneof_fragment: missing braces around initializer",
+      "path": "components/bb_openapi/src/bb_openapi_emit_shared.c",
+      "type": "missing-braces"
+    },
+    {
+      "id": "emit_external_schemas: missing braces around initializer",
+      "path": "components/bb_openapi/src/bb_openapi_emit_shared.c",
+      "type": "missing-braces"
+    },
+    {
+      "id": "sse_schema_count: missing braces around initializer",
+      "path": "components/bb_openapi/src/bb_openapi_emit_shared.c",
+      "type": "missing-braces"
+    },
+    {
+      "id": "'ota_fetch_manifest' defined but not used",
+      "path": "platform/espidf/bb_ota_pull/bb_ota_pull.c",
+      "type": "unused-function"
+    },
+    {
+      "id": "'TAG' defined but not used",
+      "path": "components/bb_diag/bb_diag_meminfo.c",
+      "type": "unused-variable"
+    },
+    {
+      "id": "'TAG' defined but not used",
+      "path": "components/bb_diag/bb_diag_storage_nvs.c",
+      "type": "unused-variable"
+    },
+    {
+      "id": "'TAG' defined but not used",
+      "path": "components/bb_diag/bb_diag_storage_partitions.c",
+      "type": "unused-variable"
+    },
+    {
+      "id": "'TAG' defined but not used",
+      "path": "components/bb_ring_diag/bb_ring_diag.c",
+      "type": "unused-variable"
+    },
+    {
+      "id": "'TAG' defined but not used",
+      "path": "components/bb_sensor_http/bb_sensor_http_wire.c",
+      "type": "unused-variable"
+    },
+    {
+      "id": "'TAG' defined but not used",
+      "path": "components/bb_wifi_http/bb_wifi_http_diag.c",
+      "type": "unused-variable"
+    },
+    {
+      "id": "'TAG' defined but not used",
+      "path": "components/bb_ws_server/bb_ws_server_diag.c",
+      "type": "unused-variable"
+    },
+    {
+      "id": "ota_resolve_redirect: unused variable 'use_url'",
+      "path": "platform/espidf/bb_ota_pull/bb_ota_pull.c",
+      "type": "unused-variable"
+    },
+    {
+      "id": "'TAG' defined but not used",
+      "path": "platform/host/bb_fan/bb_fan.c",
+      "type": "unused-variable"
+    }
+  ]
+}

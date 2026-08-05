@@ -15,7 +15,7 @@ import json
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, NamedTuple, Set
+from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Set
 
 # Directory names skipped everywhere a family walks the tree (build
 # artifacts, tooling caches, test fixtures — never source of truth for a
@@ -156,12 +156,27 @@ def baseline_path(root: str, family: str) -> Path:
     return Path(root) / ".baseline" / "bbtool" / "fence" / f"{family}.json"
 
 
-def load_baseline(root: str, family: str) -> Set[Marker]:
+def load_baseline(
+    root: str, family: str, normalize_id: Optional[Callable[[str], str]] = None,
+) -> Set[Marker]:
+    """`normalize_id`, when given, is applied to each stored entry's `id`
+    as the Marker is constructed -- e.g. `warning_fence_{host,firmware}`'s
+    quote-glyph folding (see `fence/_gcc_warnings.py::normalize_quote_glyphs`),
+    so a baseline entry seeded under a different gcc/locale/quote-style
+    compares canonical-vs-canonical against a freshly normalized scan,
+    with no baseline file rewrite here -- the committed JSON on disk is
+    read as-is; only the in-memory Marker this function returns carries
+    the normalized id. A family opts in via `fence_cmd.py` looking up its
+    own `normalize_id` module hook (mirrors `scan_is_trustworthy`); every
+    other family gets the default `None` (no-op), unchanged behavior."""
     path = baseline_path(root, family)
     if not path.is_file():
         return set()
     data = json.loads(path.read_text(encoding="utf-8"))
-    return {Marker(e["type"], e["path"], e["id"]) for e in data.get("entries", [])}
+    return {
+        Marker(e["type"], e["path"], normalize_id(e["id"]) if normalize_id else e["id"])
+        for e in data.get("entries", [])
+    }
 
 
 def write_baseline(root: str, family: str, markers: Set[Marker]) -> Path:

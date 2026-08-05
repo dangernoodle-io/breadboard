@@ -54,7 +54,18 @@ jobs:
       # unaffected and still gates CI. This runs in the SAME job as (and
       # before) the "Test and coverage" step below, via $GITHUB_ENV, so no
       # change to the shared pio-test.yml workflow is needed.
-      pre-build-script: echo "COVERAGE_GATE_LINES_ONLY=1" >> "$GITHUB_ENV"
+      #
+      # warning_fence_host (B1-1420 PR2): this job already builds the host
+      # env with a genuine-GNU gcc for coverage -- scripts/warn_scan.sh
+      # captures a real `-Wall -Wno-error` build's diagnostics into a live,
+      # uncommitted report, then the fence check reads it and fails the
+      # step (hence the job) on any net-new warning. warn_scan.sh cleans
+      # its own build dir afterward so the real -Werror + --coverage build
+      # below starts fresh, untouched by the scan.
+      pre-build-script: |
+        echo "COVERAGE_GATE_LINES_ONLY=1" >> "$GITHUB_ENV"
+        scripts/warn_scan.sh host
+        BB_WARNING_FENCE_STRICT=1 python3 scripts/bbtool.py fence --root . --family warning_fence_host
     secrets: inherit
   py-tests:
     needs: changes
@@ -97,6 +108,11 @@ jobs:
         run: pip install platformio
       - name: Examples smoke build
         run: make smoke-${{ matrix.example }}
+      - name: warning_fence_firmware -- capture + fence a real -Wall esp32 build (B1-1420 PR2)
+        if: matrix.example == 'esp32'
+        run: |
+          scripts/warn_scan.sh firmware
+          BB_WARNING_FENCE_STRICT=1 python3 scripts/bbtool.py fence --root . --family warning_fence_firmware
   summary:
     if: always()
     needs: [check, test, smoke, py-tests, changes]
