@@ -26,6 +26,11 @@ gcovr-detail.json
 *.elf
 *.map
 
+# warning_fence_{host,firmware} live build-artifact reports (B1-1420 PR2) --
+# scripts/warn_scan.sh writes these fresh every run (locally or in CI);
+# only the shrink-only baseline JSONs under .baseline/ are committed.
+/.baseline/bbtool/fence/warning_fence_reports/
+
 # bbtool codegen output (decision #725 — generated code is a build
 # artifact, never committed)
 **/main/generated/

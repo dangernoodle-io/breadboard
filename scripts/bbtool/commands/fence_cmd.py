@@ -210,13 +210,38 @@ def _report_owner_fallback(family: str) -> None:
         )
 
 
+def _scan_is_trustworthy(module, root: str) -> bool:
+    """A family may define `scan_is_trustworthy(root) -> bool` (today only
+    `warning_fence_host`/`warning_fence_firmware`, B1-1420 PR2 review) to
+    flag a scan that legitimately returns an empty set for a reason OTHER
+    than "genuinely found nothing" -- e.g. their live-report SKIP mode.
+    `--update-baseline`'s generic prune path cannot tell "current found
+    fewer markers than baseline" (genuine shrinkage, safe to prune) apart
+    from "current didn't actually scan anything" (SKIP, must NOT be read as
+    shrinkage) without this hook. Absent for every family except those two;
+    a family without it is always trustworthy (the pre-existing behavior,
+    unchanged)."""
+    hook = getattr(module, "scan_is_trustworthy", None)
+    if hook is None:
+        return True
+    return hook(root)
+
+
 def _update_baseline(root: str, family: str) -> int:
     module = fence_pkg.FAMILIES[family]
     identity_fn = fence_pkg.identity_fn_for(module)
     fence_pkg.reset_owner_fallback_count(family)
     current = fence_pkg.scan_all(module, root)
     _report_owner_fallback(family)
-    baseline = fence_pkg.load_baseline(root, family)
+    if not _scan_is_trustworthy(module, root):
+        print(
+            f"bbtool fence[{family}]: skipping --update-baseline -- this"
+            " run's scan did not actually run here (SKIP mode; see the SKIP"
+            " line above), so its empty result cannot be trusted as genuine"
+            " shrinkage; baseline left untouched"
+        )
+        return 0
+    baseline = fence_pkg.load_baseline(root, family, normalize_id=getattr(module, "normalize_id", None))
     if not baseline and not fence_pkg.baseline_path(root, family).is_file():
         print(
             f"bbtool fence[{family}]: no baseline yet — use --seed {family} first",
@@ -251,12 +276,26 @@ def _check(root: str, family: str) -> bool:
     fence_pkg.reset_owner_fallback_count(family)
     current = fence_pkg.scan_all(module, root)
     _report_owner_fallback(family)
-    baseline = fence_pkg.load_baseline(root, family)
+    baseline = fence_pkg.load_baseline(root, family, normalize_id=getattr(module, "normalize_id", None))
     new, removed = fence_pkg.diff(current, baseline, identity_fn)
     new, removed = _apply_rename_pairs(module, family, new, removed)
 
-    for m in removed:
-        print(f"INFO [fence:{family}]: candidate to prune from baseline: {m.path}:{m.id} ({m.type})")
+    # An untrustworthy (SKIP-mode) scan's `current` is empty for a reason
+    # OTHER than "genuinely found nothing" -- every baseline entry then
+    # shows up as a "candidate to prune", which is real noise (49 lines
+    # every `make check` for warning_fence_{host,firmware} alone) rather
+    # than a genuine prune signal; `new` is always empty in this case too
+    # (an empty `current` can never produce a `new` marker), so PASS below
+    # is unaffected -- this only changes what gets printed.
+    if removed and not _scan_is_trustworthy(module, root):
+        print(
+            f"INFO [fence:{family}]: {len(removed)} baseline entries look"
+            " prunable but the scan that produced this result was a SKIP"
+            " (not enforced here) -- not real prune candidates, suppressed"
+        )
+    else:
+        for m in removed:
+            print(f"INFO [fence:{family}]: candidate to prune from baseline: {m.path}:{m.id} ({m.type})")
 
     if new:
         for m in new:
