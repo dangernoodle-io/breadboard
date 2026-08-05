@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
@@ -15,6 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 from commands.wire import (
     WireError,
     _component_headers,
+    _direct_bb_data_bind_keys,
     check_binds_data_cap,
     collect_entries,
     collect_manifest_entries,
@@ -22,6 +24,7 @@ from commands.wire import (
     render_source,
 )
 from wire_graph import MissingProviderError, topo_sort
+from wire_parse import IndirectBind, InitEntry
 
 
 def _write(path: Path, content: str = "") -> None:
@@ -2024,6 +2027,382 @@ class TestBindsDataCap(unittest.TestCase):
             message = str(ctx.exception)
             self.assertIn("0x8", message)
             self.assertIn("not an integer", message)
+
+
+class TestBindsDataCapIndirect(unittest.TestCase):
+    """B1-1428: check_binds_data_cap must fold wire_parse.
+    INDIRECT_BB_DATA_BINDS's keys into its distinct-key count whenever the
+    record's trigger_fn is present in the resolved composition -- the real
+    accounting fix for the B1-1427 outage (cap said 'fits' at 8/8 declared
+    while the real runtime table took a 9th, undeclared bind)."""
+
+    def _entry(self, fn: str, binds_data=()) -> InitEntry:
+        return InitEntry(tier="regular", fn=fn, binds_data=tuple(binds_data),
+                          src_file="fake.h", src_line=1)
+
+    def test_indirect_key_counted_when_trigger_present(self):
+        """A composition with 0 declared binds_data= keys but ONE resolved
+        entry whose fn= matches an INDIRECT_BB_DATA_BINDS trigger_fn must
+        still be treated as carrying 1 real binding -- never inert."""
+        ordered = [self._entry("bb_diag_routes_init")]
+        manifest = (
+            IndirectBind(trigger_fn="bb_diag_routes_init",
+                         wrapper_fn="bb_diag_boot_bind", key="diag.boot"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=1)
+            with mock.patch("commands.wire.INDIRECT_BB_DATA_BINDS", manifest):
+                check_binds_data_cap(ordered, [str(root)])  # must not raise (1 == cap)
+
+    def test_indirect_key_pushes_composition_over_cap(self):
+        """THE B1-1427 shape: declared keys alone fit the cap, but the
+        indirect key pushes the REAL total over it -- must hard-error,
+        naming the indirect bind."""
+        ordered = [
+            self._entry("bb_system_routes_init", binds_data=["reboot"]),
+            self._entry("bb_diag_routes_init"),
+        ]
+        manifest = (
+            IndirectBind(trigger_fn="bb_diag_routes_init",
+                         wrapper_fn="bb_diag_boot_bind", key="diag.boot"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=1)
+            with mock.patch("commands.wire.INDIRECT_BB_DATA_BINDS", manifest):
+                with self.assertRaises(WireError) as ctx:
+                    check_binds_data_cap(ordered, [str(root)])
+            message = str(ctx.exception)
+            self.assertIn("2 distinct bb_data key(s)", message)
+            self.assertIn("diag.boot", message)
+            self.assertIn("bb_diag_boot_bind()", message)
+            self.assertIn("triggered by fn=bb_diag_routes_init", message)
+            self.assertIn("indirect bind(s) not carried by any", message)
+
+    def test_indirect_key_not_counted_when_trigger_absent(self):
+        """The composition never resolves bb_diag_routes_init at all -- the
+        indirect manifest entry must NOT inflate the count for a
+        composition that could never actually make that call."""
+        ordered = [self._entry("bb_system_routes_init", binds_data=["reboot"])]
+        manifest = (
+            IndirectBind(trigger_fn="bb_diag_routes_init",
+                         wrapper_fn="bb_diag_boot_bind", key="diag.boot"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=1)
+            with mock.patch("commands.wire.INDIRECT_BB_DATA_BINDS", manifest):
+                check_binds_data_cap(ordered, [str(root)])  # must not raise
+
+    def test_no_binders_and_no_indirect_trigger_stays_inert(self):
+        """Deliberately inert posture preserved: zero binds_data= entries
+        and zero indirect triggers present must never even attempt the
+        bb_data.h lookup (no header written here at all)."""
+        ordered = [self._entry("bb_unrelated_init")]
+        manifest = (
+            IndirectBind(trigger_fn="bb_diag_routes_init",
+                         wrapper_fn="bb_diag_boot_bind", key="diag.boot"),
+        )
+        with mock.patch("commands.wire.INDIRECT_BB_DATA_BINDS", manifest):
+            check_binds_data_cap(ordered, ["/nonexistent/root"])  # must not raise
+
+    def test_shared_key_between_declared_and_indirect_not_double_counted(self):
+        """An indirect record naming the SAME key a declared marker already
+        carries must not be double-counted -- the union, not the sum."""
+        ordered = [
+            self._entry("bb_system_routes_init", binds_data=["diag.boot"]),
+            self._entry("bb_diag_routes_init"),
+        ]
+        manifest = (
+            IndirectBind(trigger_fn="bb_diag_routes_init",
+                         wrapper_fn="bb_diag_boot_bind", key="diag.boot"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=1)
+            with mock.patch("commands.wire.INDIRECT_BB_DATA_BINDS", manifest):
+                check_binds_data_cap(ordered, [str(root)])  # must not raise (1 distinct key)
+
+    def test_trigger_component_key_counted_when_component_resolved(self):
+        """A handwire-only IndirectBind (trigger_component=, e.g. the real
+        bb_display_info_bind() shape -- reached only through app_main(),
+        never a marker) must be counted when the caller passes a resolved
+        `components` set containing that trigger_component -- board-specific
+        REQUIRES, distinct from `ordered`'s marker-derived, board-invariant
+        composition."""
+        ordered = [self._entry("bb_unrelated_marker_fn")]
+        manifest = (
+            IndirectBind(trigger_component="bb_display",
+                         wrapper_fn="bb_display_info_bind", key="health.display"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=1)
+            with mock.patch("commands.wire.INDIRECT_BB_DATA_BINDS", manifest):
+                check_binds_data_cap(
+                    ordered, [str(root)], components=["bb_display", "bb_core"]
+                )  # must not raise (1 == cap)
+
+    def test_trigger_component_key_not_counted_when_component_absent(self):
+        """The board's resolved `components` set does NOT include
+        trigger_component -- the handwired call this record documents can
+        never actually run for this board, so it must not inflate the
+        count."""
+        ordered = [self._entry("bb_unrelated_marker_fn")]
+        manifest = (
+            IndirectBind(trigger_component="bb_display",
+                         wrapper_fn="bb_display_info_bind", key="health.display"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=1)
+            with mock.patch("commands.wire.INDIRECT_BB_DATA_BINDS", manifest):
+                check_binds_data_cap(
+                    ordered, [str(root)], components=["bb_core"]
+                )  # must not raise
+
+    def test_trigger_component_key_not_counted_when_components_omitted(self):
+        """Omitting `components` entirely (the default) must behave exactly
+        like the pre-trigger_component signature -- never a crash, never a
+        silent over-count from treating an unspecified board as 'has
+        everything'."""
+        ordered = [self._entry("bb_unrelated_marker_fn")]
+        manifest = (
+            IndirectBind(trigger_component="bb_display",
+                         wrapper_fn="bb_display_info_bind", key="health.display"),
+        )
+        with mock.patch("commands.wire.INDIRECT_BB_DATA_BINDS", manifest):
+            check_binds_data_cap(ordered, ["/nonexistent/root"])  # must not raise
+
+    def test_trigger_component_pushes_composition_over_cap(self):
+        """The elecrow-board shape: declared + trigger_fn indirect keys fit
+        the cap, but the trigger_component-gated key pushes the REAL total
+        over it -- must hard-error naming the component trigger."""
+        ordered = [
+            self._entry("bb_system_routes_init", binds_data=["reboot"]),
+        ]
+        manifest = (
+            IndirectBind(trigger_component="bb_display",
+                         wrapper_fn="bb_display_info_bind", key="health.display"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=1)
+            with mock.patch("commands.wire.INDIRECT_BB_DATA_BINDS", manifest):
+                with self.assertRaises(WireError) as ctx:
+                    check_binds_data_cap(ordered, [str(root)], components=["bb_display"])
+            message = str(ctx.exception)
+            self.assertIn("2 distinct bb_data key(s)", message)
+            self.assertIn("health.display", message)
+            self.assertIn("bb_display_info_bind()", message)
+            self.assertIn("triggered by component=bb_display", message)
+
+
+class TestDirectBbDataBindKeys(unittest.TestCase):
+    """B1-1428 review fix: a marker whose fn= is the real bb_data_bind()
+    library function itself (called via args=, e.g. examples/smoke's "log"
+    key) is a THIRD accounting shape neither binds_data= nor
+    INDIRECT_BB_DATA_BINDS can express -- the key must be extracted from
+    that marker's own args= text instead."""
+
+    def _entry(self, fn: str, args=None, binds_data=()) -> InitEntry:
+        return InitEntry(tier="regular", fn=fn, args=args,
+                          binds_data=tuple(binds_data),
+                          src_file="fake.h", src_line=1)
+
+    def test_extracts_key_from_args_literal(self):
+        entry = self._entry(
+            "bb_data_bind",
+            args='&(bb_data_binding_t){.key="log",.desc=&d,.gather=g}',
+        )
+        keys = _direct_bb_data_bind_keys([entry])
+        self.assertEqual(set(keys.keys()), {"log"})
+        self.assertIs(keys["log"], entry)
+
+    def test_non_bb_data_bind_fn_ignored(self):
+        entry = self._entry("bb_system_routes_init")
+        self.assertEqual(_direct_bb_data_bind_keys([entry]), {})
+
+    def test_first_entry_wins_on_duplicate_key(self):
+        first = self._entry("bb_data_bind", args='&(bb_data_binding_t){.key="log"}')
+        second = self._entry("bb_data_bind", args='&(bb_data_binding_t){.key="log"}')
+        keys = _direct_bb_data_bind_keys([first, second])
+        self.assertIs(keys["log"], first)
+
+    def test_missing_args_raises_loudly(self):
+        entry = self._entry("bb_data_bind", args=None)
+        with self.assertRaises(WireError) as ctx:
+            _direct_bb_data_bind_keys([entry])
+        message = str(ctx.exception)
+        self.assertIn("fake.h:1", message)
+        self.assertIn("no 'args='", message)
+
+    def test_unparseable_key_raises_loudly(self):
+        """A `.key=` that isn't a plain quoted string (e.g. a bare macro
+        identifier) is a KNOWN limitation this checker never silently
+        miscounts past -- hard error, naming the offending args= text."""
+        entry = self._entry(
+            "bb_data_bind",
+            args='&(bb_data_binding_t){.key=BB_SOME_TOPIC,.desc=&d}',
+        )
+        with self.assertRaises(WireError) as ctx:
+            _direct_bb_data_bind_keys([entry])
+        message = str(ctx.exception)
+        self.assertIn("fake.h:1", message)
+        self.assertIn("BB_SOME_TOPIC", message)
+        self.assertIn("no plain quoted", message)
+
+    def test_adjacent_string_concatenation_raises_loudly(self):
+        """`.key="log""suffix"` is valid, whitespace-free C (adjacent
+        string-literal concatenation -> "logsuffix") that would otherwise
+        silently extract only the FIRST segment ("log") -- the WRONG key.
+        Must hard-error naming the offending args= text, never silently
+        return the truncated value."""
+        entry = self._entry(
+            "bb_data_bind",
+            args='&(bb_data_binding_t){.key="log""suffix",.desc=&d}',
+        )
+        with self.assertRaises(WireError) as ctx:
+            _direct_bb_data_bind_keys([entry])
+        message = str(ctx.exception)
+        self.assertIn("fake.h:1", message)
+        self.assertIn("adjacent string-literal concatenation", message)
+        self.assertIn('.key="log"', message)
+
+    def test_plain_quoted_key_followed_by_comma_not_flagged_as_concatenation(self):
+        """The NORMAL case -- a single quoted `.key=` immediately followed
+        by a comma (the next struct field), never a second quote -- must
+        NOT be misidentified as concatenation."""
+        entry = self._entry(
+            "bb_data_bind",
+            args='&(bb_data_binding_t){.key="log",.desc=&d}',
+        )
+        keys = _direct_bb_data_bind_keys([entry])
+        self.assertEqual(set(keys.keys()), {"log"})
+
+    def test_wired_into_check_binds_data_cap_smoke_shape(self):
+        """Reproduces the real smoke shape end to end through
+        check_binds_data_cap: 7 declared keys + 1 direct fn=bb_data_bind
+        key ("log") = 8 -- must fit a cap of 8, and the direct key alone
+        (zero binders, zero indirect) must still be enough to make this
+        function NOT return early/inert."""
+        direct_entry = self._entry(
+            "bb_data_bind",
+            args='&(bb_data_binding_t){.key="log",.desc=&d,.gather=g}',
+        )
+        ordered = [direct_entry]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=1)
+            check_binds_data_cap(ordered, [str(root)])  # must not raise (1 == cap)
+
+    def test_direct_key_pushes_composition_over_cap(self):
+        ordered = [
+            InitEntry(tier="regular", fn="bb_system_routes_init",
+                      binds_data=("reboot",), src_file="fake.h", src_line=1),
+            self._entry(
+                "bb_data_bind",
+                args='&(bb_data_binding_t){.key="log",.desc=&d,.gather=g}',
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=1)
+            with self.assertRaises(WireError) as ctx:
+                check_binds_data_cap(ordered, [str(root)])
+            message = str(ctx.exception)
+            self.assertIn("2 distinct bb_data key(s)", message)
+            self.assertIn("log", message)
+            self.assertIn("direct fn=bb_data_bind bind(s)", message)
+
+
+class TestBindsDataCapApproachingWarning(unittest.TestCase):
+    """B1-1428 review fix: check_binds_data_cap must WARN (not just
+    hard-fail at strict overflow) once a composition is within
+    _BB_DATA_CAP_WARN_SLACK free slots of the cap -- the proactive check
+    missing at the time of the incident this whole ticket exists to close."""
+
+    def _entry(self, fn: str, binds_data=()) -> InitEntry:
+        return InitEntry(tier="regular", fn=fn, binds_data=tuple(binds_data),
+                          src_file="fake.h", src_line=1)
+
+    def test_comfortably_under_cap_returns_none(self):
+        ordered = [self._entry("bb_system_routes_init", binds_data=["reboot"])]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=10)
+            self.assertIsNone(check_binds_data_cap(ordered, [str(root)]))
+
+    def test_within_slack_of_cap_warns_naming_count_cap_and_keys(self):
+        """1 key bound, cap=3 -> 2 free slots == the slack threshold ->
+        must warn, never raise, and must name the count, the cap, and the
+        distinct keys (so a reader can act on it without re-deriving)."""
+        ordered = [self._entry("bb_system_routes_init", binds_data=["reboot"])]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=3)
+            warning = check_binds_data_cap(ordered, [str(root)])
+        self.assertIsNotNone(warning)
+        self.assertIn("1 distinct bb_data key(s)", warning)
+        self.assertIn("BB_DATA_MAX_BINDINGS=3", warning)
+        self.assertIn("2 free slot(s)", warning)
+        self.assertIn("reboot", warning)
+        self.assertIn("warning", warning)
+
+    def test_exactly_at_cap_warns_not_raises(self):
+        """0 free slots -- fits exactly -- must still warn (not raise): the
+        cap check's hard-fail branch is strictly total > cap, never >=."""
+        ordered = [self._entry("bb_system_routes_init", binds_data=["reboot"])]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=1)
+            warning = check_binds_data_cap(ordered, [str(root)])
+        self.assertIsNotNone(warning)
+        self.assertIn("0 free slot(s)", warning)
+
+    def test_elecrow_shape_10_of_12_warns(self):
+        """Reproduces the real elecrow_p4_hmi7/lilygo_t_dongle_s3 shape: 7
+        declared + diag.boot (indirect) + log (direct) + health.display
+        (indirect, trigger_component) = 10 distinct keys against a cap of
+        12 -- exactly 2 free slots, the slack threshold -- must warn."""
+        ordered = [
+            self._entry("bb_system_routes_init", binds_data=["reboot"]),
+            self._entry("bb_storage_http_routes_init",
+                        binds_data=["factory_reset", "storage_delete"]),
+            self._entry("bb_wifi_routes_init", binds_data=["wifi"]),
+            self._entry("bb_sensor_http_init", binds_data=["fan", "power", "thermal"]),
+            self._entry("bb_diag_routes_init"),
+            InitEntry(tier="regular", fn="bb_data_bind",
+                      args='&(bb_data_binding_t){.key="log",.desc=&d}',
+                      src_file="fake.h", src_line=1),
+        ]
+        manifest = (
+            IndirectBind(trigger_fn="bb_diag_routes_init",
+                         wrapper_fn="bb_diag_boot_bind", key="diag.boot"),
+            IndirectBind(trigger_component="bb_display",
+                         wrapper_fn="bb_display_info_bind", key="health.display"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=12)
+            with mock.patch("commands.wire.INDIRECT_BB_DATA_BINDS", manifest):
+                warning = check_binds_data_cap(
+                    ordered, [str(root)], components=["bb_display"]
+                )
+        self.assertIsNotNone(warning, "the elecrow-board shape (10/12) must warn")
+        self.assertIn("10 distinct bb_data key(s)", warning)
+        self.assertIn("BB_DATA_MAX_BINDINGS=12", warning)
+        self.assertIn("2 free slot(s)", warning)
+
+    def test_just_outside_slack_does_not_warn(self):
+        """3 free slots (one more than the slack) must stay silent --
+        proves the threshold is exact, not 'anything under the cap'."""
+        ordered = [self._entry("bb_system_routes_init", binds_data=["reboot"])]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_bb_data_header(root, max_bindings=4)
+            self.assertIsNone(check_binds_data_cap(ordered, [str(root)]))
 
 
 if __name__ == "__main__":

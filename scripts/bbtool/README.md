@@ -974,11 +974,33 @@ example: its only `bb_data_bind()` call lives in
 `bb_log_event`'s own tree), so `bb_log_event`'s marker carries no
 `binds_data=` field.
 
-**Scope limit.** Both `check_binds_data_cap` and `binds-data-mismatch` only
-see `bbtool codegen` output — a board composed via **handwire** instead of
+**Scope limit.** `check_binds_data_cap` and `binds-data-mismatch` only see
+`bbtool codegen` output — a board composed via **handwire** instead of
 codegen (e.g. `examples/floor`, per decision #724) is invisible to both
 checks entirely, even though its handwired `bb_data_bind()` calls consume
 the same finite, shared `BB_DATA_MAX_BINDINGS` table.
+
+`binds-data-hidden-bind` (B1-1428) closes part of that gap: it also scans
+every `examples/*/main/*.c` file and seeds its reachability BFS from a
+hardcoded set of known entry-point functions (`commands.lint.
+_HANDWIRE_ENTRY_FNS`, today `app_main`/`main`), so a `bb_data_bind()` call
+reached only through an IN-TREE handwired composition root (e.g.
+`bb_display_info_bind()`, reached from `examples/smoke/main/entry_espidf.c`'s
+`app_main()`) IS caught by this rule, and can be accounted for via a
+`wire_parse.IndirectBind(trigger_component=<component>, ...)` entry so
+`check_binds_data_cap` counts it whenever a board's resolved component set
+contains that trigger. Two residual scope limits remain, both intentional:
+(1) an OUT-OF-TREE consumer's own composition root (its own `app_main` this
+repo never sees at all, e.g. `bb_ota_check_register_init()` today) is still
+invisible — there is no text for this tool to scan; (2) `_HANDWIRE_ENTRY_FNS`
+is a **hardcoded, finite name list**, not something discovered from a
+marker-like textual signal — a NEW example whose entry point is named
+something other than `app_main`/`main` needs that name added there (and to
+this note) or its handwired binds silently look identical to "no handwire
+here at all" to this rule. `binds-data-hidden-bind` defends against that
+going unnoticed at least partially: it hard-fails on any
+`examples/*/main/` directory it scans that defines `.c` files but no
+function matching `_HANDWIRE_ENTRY_FNS` at all.
 
 ### Unsatisfiable `requires=` on a hoisted provider key (B1-1396)
 
