@@ -758,7 +758,12 @@ bb_err_t bb_data_http_espidf_client_connect(bb_http_request_t *req,
     // body byte.
 
     bb_data_http_client_t *client = NULL;
-    err = bb_data_http_client_acquire_ex(&client, fd, topic_filter, false);
+    // fd is a real socket descriptor here -- never BB_DATA_HTTP_NO_FD (see
+    // bb_data_http_client_cfg_t's doc, bb_data_http.h). send_fn/abort_fn are
+    // left unset (NULL): this SSE client rides the module-wide default seams
+    // installed by bb_data_http_espidf_start(), same as before this PR.
+    bb_data_http_client_cfg_t cfg = { .fd = fd, .topic_filter = topic_filter, .is_ws = false };
+    err = bb_data_http_client_acquire(&cfg, &client);
     if (err != BB_OK) {
         bb_http_req_async_abort(async_req);
         return err;
@@ -835,7 +840,11 @@ static void ws_connect_cb(bb_http_handle_t server, int fd, void *ctx)
     (void)ctx;
 
     bb_data_http_client_t *client = NULL;
-    bb_err_t err = bb_data_http_client_acquire_ex(&client, fd, NULL, true);
+    // Same rationale as the SSE acquire above: fd is real, topic filtering
+    // is not yet available on this path (B1-1423), and send_fn/abort_fn stay
+    // unset -- this WS client also rides the module-wide default seams.
+    bb_data_http_client_cfg_t cfg = { .fd = fd, .is_ws = true };
+    bb_err_t err = bb_data_http_client_acquire(&cfg, &client);
     if (err != BB_OK) {
         // The WS handshake has already completed by the time this callback
         // fires (see bb_ws_server_set_connect_cb's doc) -- there is no way

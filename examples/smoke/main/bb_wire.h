@@ -254,7 +254,7 @@
 // compiles.
 //
 // REAL prerequisite chain (review fix -- link-exercised alone left every
-// endpoint dead on arrival, since bb_data_http_client_acquire_ex()
+// endpoint dead on arrival, since bb_data_http_client_acquire()
 // (components/bb_data_http/src/bb_data_http_common.c) gates on
 // bb_data_http_init() having run and returns BB_ERR_INVALID_STATE
 // otherwise, and neither espidf_start() nor either routes_init() calls it):
@@ -270,7 +270,7 @@
 //     in smoke_app.c/declared in smoke_routes.h) -- independent of
 //     bb_data_http entirely, so no requires= on data_http_init.
 //   bb_data_http_espidf_start()  -- requires=data_http_init ONLY (review fix:
-//     bb_data_http_client_acquire_ex(), components/bb_data_http/src/
+//     bb_data_http_client_acquire(), components/bb_data_http/src/
 //     bb_data_http_common.c, gates solely on s_cfg.initialized, set by
 //     bb_data_http_init() -- no bound key is a real prerequisite for
 //     starting the broadcaster task. requires=data_log_bound here would be

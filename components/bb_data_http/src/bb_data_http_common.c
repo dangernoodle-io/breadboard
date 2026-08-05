@@ -327,25 +327,30 @@ bb_err_t bb_data_http_init(const bb_data_http_cfg_t *cfg)
 // Client lifecycle
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_data_http_client_acquire_ex(bb_data_http_client_t **out, int fd,
-                                        const char *topic_filter, bool is_ws)
+bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
+                                     bb_data_http_client_t **out)
 {
-    if (!out) return BB_ERR_INVALID_ARG;
+    if (!cfg || !out) return BB_ERR_INVALID_ARG;
     if (!s_cfg.initialized) return BB_ERR_INVALID_STATE;
+    // KB 619 default-change trap: fd=0 is a VALID descriptor, not "unset" --
+    // a cfg whose fd is neither the explicit BB_DATA_HTTP_NO_FD sentinel nor
+    // a plausible non-negative descriptor is REJECTED rather than silently
+    // defaulted (see bb_data_http_client_cfg_t's doc, bb_data_http.h).
+    if (cfg->fd != BB_DATA_HTTP_NO_FD && cfg->fd < 0) return BB_ERR_INVALID_ARG;
     // Mirrors bb_data_http_attach_ex()'s own topic-length bound: an
     // over-length filter must be REJECTED, never silently truncated by the
     // bb_strlcpy below (a truncated filter can mis-subscribe a client to a
     // topic it never asked for).
-    if (topic_filter && strlen(topic_filter) >= BB_DATA_HTTP_TOPIC_MAX) return BB_ERR_INVALID_ARG;
+    if (cfg->topic_filter && strlen(cfg->topic_filter) >= BB_DATA_HTTP_TOPIC_MAX) return BB_ERR_INVALID_ARG;
 
     for (size_t i = 0; i < s_cfg.max_clients; i++) {
         bb_data_http_client_t *c = &s_clients[i];
         if (c->in_use) continue;
 
-        c->fd     = fd;
-        c->is_ws  = is_ws;
-        if (topic_filter) {
-            bb_strlcpy(c->topic_filter, topic_filter, sizeof(c->topic_filter));
+        c->fd     = cfg->fd;
+        c->is_ws  = cfg->is_ws;
+        if (cfg->topic_filter) {
+            bb_strlcpy(c->topic_filter, cfg->topic_filter, sizeof(c->topic_filter));
         } else {
             c->topic_filter[0] = '\0';
         }
@@ -360,6 +365,10 @@ bb_err_t bb_data_http_client_acquire_ex(bb_data_http_client_t **out, int fd,
         memset(c->state_seen_gen, 0, sizeof(c->state_seen_gen));
         c->send_fail_count           = 0;
         atomic_store(&c->pending_release, false);
+        c->send_fn   = cfg->send_fn;
+        c->send_ctx  = cfg->send_ctx;
+        c->abort_fn  = cfg->abort_fn;
+        c->abort_ctx = cfg->abort_ctx;
 
         c->outbound_max_bytes = CONFIG_BB_DATA_HTTP_OUTBOUND_MAX_BYTES;
         bb_queue_cfg_t qcfg = {
@@ -397,11 +406,6 @@ bb_err_t bb_data_http_client_acquire_ex(bb_data_http_client_t **out, int fd,
         return BB_OK;
     }
     return BB_ERR_NO_SPACE;
-}
-
-bb_err_t bb_data_http_client_acquire(bb_data_http_client_t **out, int fd, bool is_ws)
-{
-    return bb_data_http_client_acquire_ex(out, fd, NULL, is_ws);
 }
 
 void bb_data_http_client_release(bb_data_http_client_t *c)
@@ -722,7 +726,16 @@ void bb_data_http_sweep_step(void)
 
         drain_client_events(c);
 
-        if (!s_send_fn) continue;
+        // Per-client-then-global resolution (B1-1123 PR-1, see
+        // bb_data_http.h's PER-CONSUMER SEAMS doc): a client acquired with
+        // its own send_fn/abort_fn (bb_data_http_client_cfg_t) uses that
+        // seam; otherwise it falls back to the module-wide default installed
+        // via bb_data_http_set_send_fn()/bb_data_http_set_abort_fn() -- the
+        // same fallback every existing HTTP client (which never sets the
+        // per-client override) already relied on before this PR.
+        bb_data_http_send_fn  send_fn  = c->send_fn  ? c->send_fn  : s_send_fn;
+        void                 *send_ctx = c->send_fn  ? c->send_ctx : s_send_ctx;
+        if (!send_fn) continue;
 
         // Flush phase (B1-1424/B1-1429): drains c->outbound oldest-first,
         // one send_fn call per queued frame, for as long as each call
@@ -756,7 +769,7 @@ void bb_data_http_sweep_step(void)
         int64_t ts        = 0;
         uint32_t id       = 0;
         while (bb_queue_peek_oldest(c->outbound, frame, sizeof(frame), &frame_len, &ts, &id) == BB_OK) {
-            bb_err_t send_rc = s_send_fn(resolve_outbound_key(id), c, frame, frame_len, s_send_ctx);
+            bb_err_t send_rc = send_fn(resolve_outbound_key(id), c, frame, frame_len, send_ctx);
             if (send_rc == BB_OK) {
                 c->send_fail_count = 0;
                 bb_queue_pop_oldest(c->outbound);
@@ -786,8 +799,10 @@ void bb_data_http_sweep_step(void)
             // about to be released, which destroys the queue too).
             bb_log_w(TAG, "send failed fatally for key '%s' (fd=%d): %d, aborting client",
                     resolve_outbound_key(id), c->fd, (int)send_rc);
-            if (s_abort_fn) {
-                s_abort_fn(c, s_abort_ctx);
+            bb_data_http_abort_fn abort_fn  = c->abort_fn  ? c->abort_fn  : s_abort_fn;
+            void                 *abort_ctx = c->abort_fn  ? c->abort_ctx : s_abort_ctx;
+            if (abort_fn) {
+                abort_fn(c, abort_ctx);
             } else {
                 bb_data_http_client_release(c);
             }

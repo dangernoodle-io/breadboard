@@ -59,10 +59,21 @@ extern "C" {
 // a single client-wide counter observes the same signal a per-frame counter
 // would, for a quarter the state and no bb_queue changes.
 //
+// send_fn/send_ctx/abort_fn/abort_ctx (B1-1123 PR-1) are the PER-CONSUMER
+// seam override -- see bb_data_http.h's PER-CONSUMER SEAMS doc for the full
+// rationale. NULL (the zero-default -- every existing HTTP call site leaves
+// these unset) means "fall back to the module-wide default installed via
+// bb_data_http_set_send_fn()/bb_data_http_set_abort_fn()"; the flush loop
+// (bb_data_http_common.c) resolves `c->send_fn ? c->send_fn : s_send_fn`
+// (and likewise for abort_fn) on every call. Written once by the acquiring
+// task at acquire time, then read-only for the rest of this client's
+// lifetime by the single task that owns bb_data_http_sweep_step() -- same
+// discipline as every other field below except pending_release.
+//
 // TASK OWNERSHIP (B1-1424 HIGH fix, deferred reap): every field below is
-// created by whichever task calls bb_data_http_client_acquire[_ex]()
+// created by whichever task calls bb_data_http_client_acquire()
 // (fully populated, then PUBLISHED via `in_use = true` as the last store --
-// see bb_data_http_client_acquire_ex(), bb_data_http_common.c), then
+// see bb_data_http_client_acquire(), bb_data_http_common.c), then
 // EXCLUSIVELY owned and mutated by the single task that calls
 // bb_data_http_sweep_step() (the espidf backend's broadcaster task; the
 // test-runner thread on host) for the rest of the client's lifetime,
@@ -74,7 +85,7 @@ extern "C" {
 // this client on its next bb_data_http_sweep_step() call, but only the
 // owning task ever READS or CLEARS it (bb_data_http_client_release() resets
 // it back to false as part of a normal release, and
-// bb_data_http_client_acquire_ex() resets it again on reuse). This is why
+// bb_data_http_client_acquire() resets it again on reuse). This is why
 // pending_release is atomic_bool and every other field is a plain type --
 // it is the ONLY field a foreign task ever touches, which is what lets the
 // rest of this struct stay lock-free and single-task-owned without the
@@ -85,19 +96,23 @@ extern "C" {
 // clearing `in_use`) could race the broadcaster's own in-flight read/write
 // of this SAME client inside bb_data_http_sweep_step() on another core.
 struct bb_data_http_client {
-    bool         in_use;
-    int          fd;
-    bool         is_ws;
-    char         topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
-    uint32_t     event_cursor;
-    uint32_t     event_dropped;
-    bool         event_drop_marker_pending;
-    uint32_t     state_dirty_mask;
-    uint32_t     state_seen_gen[BB_DATA_HTTP_MAX_ATTACH];
-    bb_queue_t   outbound;
-    size_t       outbound_max_bytes;
-    uint32_t     send_fail_count;
-    atomic_bool  pending_release;
+    bool                   in_use;
+    int                    fd;
+    bool                   is_ws;
+    char                   topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
+    uint32_t               event_cursor;
+    uint32_t               event_dropped;
+    bool                   event_drop_marker_pending;
+    uint32_t               state_dirty_mask;
+    uint32_t               state_seen_gen[BB_DATA_HTTP_MAX_ATTACH];
+    bb_queue_t             outbound;
+    size_t                 outbound_max_bytes;
+    uint32_t               send_fail_count;
+    atomic_bool            pending_release;
+    bb_data_http_send_fn   send_fn;   // NULL -> module-wide default (s_send_fn)
+    void                  *send_ctx;
+    bb_data_http_abort_fn  abort_fn;  // NULL -> module-wide default (s_abort_fn)
+    void                  *abort_ctx;
 };
 
 #ifdef BB_DATA_HTTP_TESTING
@@ -131,7 +146,7 @@ uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *
 bool bb_data_http_client_pending_release_for_test(const bb_data_http_client_t *c);
 
 // Returns client `c`'s is_ws flag, as recorded by
-// bb_data_http_client_acquire_ex()'s `is_ws` argument (B1-1050 PR-1: WS
+// bb_data_http_client_acquire()'s `is_ws` argument (B1-1050 PR-1: WS
 // egress wiring -- the espidf backend's WS acquire/release path relies on
 // this flag being correctly threaded through by the pure core, so it needs
 // a host-testable seam of its own). Returns false if `c` is NULL.
