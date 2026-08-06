@@ -153,7 +153,7 @@
 // PER-CLIENT cost (see BB_DATA_HTTP_FIRST_FRAME_TIMEOUT_MS's doc), not a
 // recurring per-sweep one, so it is not held to the same "never reach the
 // sweep cadence" bar. It IS bounded, though, via s_cold_start_available
-// (this file's broadcaster_task()/espidf_send_fn): at most ONE client may
+// (this file's broadcaster_task()/espidf_sse_send_fn): at most ONE client may
 // use the widened timeout per sweep_step() call, so the worst-case extra
 // cost any single sweep_step() call pays is (MAX_CLIENTS-1) *
 // SEND_TIMEOUT_MS [every OTHER active client failing fast, the
@@ -194,11 +194,11 @@ static const char *TAG = "bb_data_http_espidf";
 // a reader never observes in_use=true with stale/NULL fd or async_req.
 // ---------------------------------------------------------------------------
 // `warmed` (B1-1424 review item 4): false until this client's first
-// espidf_send_fn call attempt completes (success or failure alike -- see
-// espidf_send_fn's SSE branch); gates the one-shot widened first-frame
+// espidf_sse_send_fn call attempt completes (success or failure alike -- see
+// espidf_sse_send_fn's SSE branch); gates the one-shot widened first-frame
 // SO_SNDTIMEO (BB_DATA_HTTP_FIRST_FRAME_TIMEOUT_MS). Set at connect time
 // (bb_data_http_espidf_client_connect()) and read/written ONLY by
-// espidf_send_fn on the broadcaster task thereafter -- same set-once-at-
+// espidf_sse_send_fn on the broadcaster task thereafter -- same set-once-at-
 // connect-then-broadcaster-owned pattern as fd/async_req/client below, no
 // separate lock needed for it.
 typedef struct {
@@ -334,7 +334,7 @@ static uint8_t s_render_scratch[BB_DATA_HTTP_RENDER_SCRATCH_BYTES];
 // arithmetic above) -- this flag is that one-per-sweep allowance. Reset
 // true at the top of each broadcaster_task() loop iteration (below,
 // BEFORE bb_data_http_sweep_step() is called), consumed (set false) by
-// espidf_send_fn's SSE branch -- both only ever run on the single
+// espidf_sse_send_fn's SSE branch -- both only ever run on the single
 // broadcaster task, so this needs no lock, same as s_render_scratch above.
 static bool s_cold_start_available;
 
@@ -357,75 +357,24 @@ static bb_err_t espidf_generation_fn(const char *key, uint32_t *out_gen, void *c
     return bb_data_generation(key, out_gen);
 }
 
-// `client->is_ws` (read directly off the handle -- bb_data_http_client_t is
-// shared with this platform backend via bb_data_http_internal.h) selects
-// SSE vs WS framing; it replaces the old is_ws seam parameter (B1-1123
-// PR-1), which the transport-neutral seam no longer carries.
+// SSE send_fn (B1-1448, epic B1-1123): installed PER-CLIENT at the SSE
+// connect site (bb_data_http_espidf_client_connect(), below) via
+// bb_data_http_client_cfg_t.send_fn -- never module-wide, and never branches
+// on an `is_ws` flag (that field, and the fd it used to carry, no longer
+// exist on bb_data_http_client_t -- this seam's own installation site is now
+// what tells it "this client is SSE", not a runtime check). WS gets its own
+// espidf_ws_send_fn below, installed at ws_connect_cb() instead.
 //
-// `key` (B1-1123 PR-2) is unused here -- both the SSE framing below (`data:
-// <payload>\n\n`) and the WS framing (a single raw text frame) carry no
-// event name; an `event: <key>` line / topic-qualified WS frame is a
+// `key` (B1-1123 PR-2) is unused here -- the SSE framing below (`data:
+// <payload>\n\n`) carries no event name; an `event: <key>` line is a
 // tracked, out-of-scope wire-format change for a later PR.
-static bb_err_t espidf_send_fn(const char *key, const bb_data_http_client_t *client,
-                                const void *bytes, size_t len, void *ctx)
+static bb_err_t espidf_sse_send_fn(const char *key, const bb_data_http_client_t *client,
+                                   const void *bytes, size_t len, void *ctx)
 {
     (void)ctx;
     (void)key;
     if (!client) {
         return BB_ERR_INVALID_ARG;
-    }
-
-    if (client->is_ws) {
-        portENTER_CRITICAL(&s_ws_slots_mux);
-        bb_data_http_espidf_ws_slot_t *ws_slot = ws_slot_find_by_client_locked(client);
-        bb_http_handle_t ws_server = ws_slot ? ws_slot->server : NULL;
-        int              ws_fd     = ws_slot ? ws_slot->fd     : -1;
-        portEXIT_CRITICAL(&s_ws_slots_mux);
-        if (!ws_slot) {
-            // B1-1424 HIGH fix (deferred reap): a client whose ws-slot has
-            // already been torn down by a concurrent ws_disconnect_cb()
-            // (which now only calls bb_data_http_client_request_release(),
-            // never bb_data_http_client_release() directly -- see its own
-            // doc) is a client already scheduled for release on the
-            // broadcaster's OWN next sweep_step() call. RETRIABLE, not
-            // fatal: nothing was ever sent (there was no slot to send
-            // through), and routing this into espidf_abort_fn would call
-            // bb_data_http_client_release() a SECOND time on a client the
-            // pending-release reap is about to release anyway -- a
-            // duplicate release this deferred-reap design exists
-            // specifically to prevent. Leaving the frame queued costs
-            // nothing: the pending-release reap at the top of
-            // sweep_step()'s per-client loop discards the whole client
-            // (queue included) before send_fn is ever called on it again.
-            return BB_ERR_TIMEOUT;
-        }
-
-        bb_ws_server_frame_t frame = {
-            .final   = true,
-            .type    = BB_WS_TYPE_TEXT,
-            .payload = (uint8_t *)bytes,
-            .len     = len,
-        };
-        // B1-1424/B1-1429: httpd_ws_send_frame_async is fire-and-forget --
-        // the real send outcome only surfaces later, on httpd's own async
-        // worker task, via the (here-unused) cb parameter. What this call's
-        // return value actually reflects is "successfully queued the work
-        // item", NOT "the client received the bytes" -- so a failure here
-        // means NOTHING was transmitted (the enqueue itself never
-        // happened), unlike SSE's synchronous httpd_send_all() below, which
-        // can fail with bytes already on the wire. That is exactly
-        // bb_data_http_send_fn's RETRIABLE case (bb_data_http.h) -- map an
-        // enqueue failure to BB_ERR_TIMEOUT so the core's flush loop
-        // retries it on the next sweep instead of tearing the connection
-        // down. A frame that enqueues successfully here and then fails to
-        // actually reach the peer is retried by neither this contract nor
-        // anything else today -- that asymmetry is real and not fully
-        // closeable from this call site (see bb_data_http_send_fn's own
-        // doc).
-        if (bb_ws_server_broadcast_frame_async(ws_server, ws_fd, &frame, NULL, NULL) != BB_OK) {
-            return BB_ERR_TIMEOUT;
-        }
-        return BB_OK;
     }
 
     portENTER_CRITICAL(&s_slots_mux);
@@ -491,7 +440,7 @@ static bb_err_t espidf_send_fn(const char *key, const bb_data_http_client_t *cli
     // never ESP_ERR_TIMEOUT, so that collision does not occur in practice.
     // This is still a setsockopt/send on the SWEEP task (whichever task
     // called bb_data_http_sweep_step(), i.e. the broadcaster task), never
-    // the httpd task -- espidf_send_fn is only ever reached from inside
+    // the httpd task -- espidf_sse_send_fn is only ever reached from inside
     // bb_data_http_sweep_step()'s own flush loop.
     bb_err_t send_rc = bb_http_resp_send_chunk(async_req, s_frame_buf, n);
 
@@ -524,6 +473,73 @@ static bb_err_t espidf_send_fn(const char *key, const bb_data_http_client_t *cli
     return send_rc;
 }
 
+// WS send_fn (B1-1448, epic B1-1123): installed PER-CLIENT at the WS connect
+// site (ws_connect_cb(), below) via bb_data_http_client_cfg_t.send_fn --
+// mirrors espidf_sse_send_fn's split above, own function rather than an
+// `is_ws` branch inside a shared one.
+//
+// `key` is unused here -- a single raw WS text frame carries no event name;
+// a topic-qualified frame is a tracked, out-of-scope wire-format change for
+// a later PR (mirrors espidf_sse_send_fn's identical `key` doc).
+static bb_err_t espidf_ws_send_fn(const char *key, const bb_data_http_client_t *client,
+                                  const void *bytes, size_t len, void *ctx)
+{
+    (void)ctx;
+    (void)key;
+    if (!client) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    portENTER_CRITICAL(&s_ws_slots_mux);
+    bb_data_http_espidf_ws_slot_t *ws_slot = ws_slot_find_by_client_locked(client);
+    bb_http_handle_t ws_server = ws_slot ? ws_slot->server : NULL;
+    int              ws_fd     = ws_slot ? ws_slot->fd     : -1;
+    portEXIT_CRITICAL(&s_ws_slots_mux);
+    if (!ws_slot) {
+        // B1-1424 HIGH fix (deferred reap): a client whose ws-slot has
+        // already been torn down by a concurrent ws_disconnect_cb() (which
+        // now only calls bb_data_http_client_request_release(), never
+        // bb_data_http_client_release() directly -- see its own doc) is a
+        // client already scheduled for release on the broadcaster's OWN
+        // next sweep_step() call. RETRIABLE, not fatal: nothing was ever
+        // sent (there was no slot to send through), and routing this into
+        // espidf_ws_abort_fn would call bb_data_http_client_release() a
+        // SECOND time on a client the pending-release reap is about to
+        // release anyway -- a duplicate release this deferred-reap design
+        // exists specifically to prevent. Leaving the frame queued costs
+        // nothing: the pending-release reap at the top of sweep_step()'s
+        // per-client loop discards the whole client (queue included)
+        // before send_fn is ever called on it again.
+        return BB_ERR_TIMEOUT;
+    }
+
+    bb_ws_server_frame_t frame = {
+        .final   = true,
+        .type    = BB_WS_TYPE_TEXT,
+        .payload = (uint8_t *)bytes,
+        .len     = len,
+    };
+    // B1-1424/B1-1429: httpd_ws_send_frame_async is fire-and-forget -- the
+    // real send outcome only surfaces later, on httpd's own async worker
+    // task, via the (here-unused) cb parameter. What this call's return
+    // value actually reflects is "successfully queued the work item", NOT
+    // "the client received the bytes" -- so a failure here means NOTHING
+    // was transmitted (the enqueue itself never happened), unlike SSE's
+    // synchronous httpd_send_all() (espidf_sse_send_fn above), which can
+    // fail with bytes already on the wire. That is exactly
+    // bb_data_http_send_fn's RETRIABLE case (bb_data_http.h) -- map an
+    // enqueue failure to BB_ERR_TIMEOUT so the core's flush loop retries it
+    // on the next sweep instead of tearing the connection down. A frame
+    // that enqueues successfully here and then fails to actually reach the
+    // peer is retried by neither this contract nor anything else today --
+    // that asymmetry is real and not fully closeable from this call site
+    // (see bb_data_http_send_fn's own doc).
+    if (bb_ws_server_broadcast_frame_async(ws_server, ws_fd, &frame, NULL, NULL) != BB_OK) {
+        return BB_ERR_TIMEOUT;
+    }
+    return BB_OK;
+}
+
 // ---------------------------------------------------------------------------
 // Broadcaster task (KB 1447: ONE task, bb_task_create BB_TASK_BACKING_DYNAMIC,
 // process-lifetime -- the B1-484/492 per-client TCB-reuse hazard bb_sse_writer/
@@ -539,53 +555,25 @@ static void teardown_client(bb_data_http_client_t *client, bb_http_request_t *as
     bb_http_req_async_abort(async_req);
 }
 
-// Fatal-abort seam (B1-1429, installed via bb_data_http_set_abort_fn() in
-// bb_data_http_espidf_start()) -- invoked by the core's flush loop (see
-// bb_data_http_sweep_step()'s flush-contract doc, bb_data_http.h) whenever
-// espidf_send_fn signals a non-retriable failure. Mirrors
-// peer_liveness_prepass()'s own teardown exactly: this backend's own
-// slot-table cleanup (SSE: async abort via teardown_client(); WS:
-// bb_ws_server_close_client()) THEN bb_data_http_client_release() -- the
-// core deliberately never calls client_release() itself before invoking
-// this seam, so a backend's side-table entry is always cleared BEFORE the
-// client_t slot the core owns can be reused by a new connection (see
-// bb_data_http_abort_fn's doc). This bb_data_http_client_release() call is
-// exactly the single-task-owning one the deferred-reap design (see
-// bb_data_http_client_t's TASK OWNERSHIP doc) requires -- this seam is
-// only ever invoked from inside bb_data_http_sweep_step()'s own flush loop
-// on the broadcaster task, never from ws_disconnect_cb or any other
-// foreign-task context.
-//
-// The is_ws branch below is defensive/unreachable under espidf_send_fn's
-// CURRENT failure mapping (B1-1424 review fix): every WS failure path --
-// enqueue failure AND "no ws-slot found" -- now returns BB_ERR_TIMEOUT
-// (retriable), never fatal (see espidf_send_fn's WS branch doc above), so
-// this seam is never actually reached for an is_ws client today. Kept for
-// API completeness (send_fn's contract allows ANY non-BB_OK/non-
-// BB_ERR_TIMEOUT return, and a future WS failure classification could
-// legitimately need a fatal path) rather than asserting it can't happen.
-static void espidf_abort_fn(bb_data_http_client_t *client, void *ctx)
+// SSE fatal-abort seam (B1-1429, installed PER-CLIENT at the SSE connect
+// site, mirrors espidf_sse_send_fn's split above) -- invoked by the core's
+// flush loop (see bb_data_http_sweep_step()'s flush-contract doc,
+// bb_data_http.h) whenever espidf_sse_send_fn signals a non-retriable
+// failure. Mirrors peer_liveness_prepass()'s own teardown exactly: this
+// backend's own slot-table cleanup (async abort via teardown_client()) THEN
+// bb_data_http_client_release() -- the core deliberately never calls
+// client_release() itself before invoking this seam, so a backend's
+// side-table entry is always cleared BEFORE the client_t slot the core owns
+// can be reused by a new connection (see bb_data_http_abort_fn's doc). This
+// bb_data_http_client_release() call is exactly the single-task-owning one
+// the deferred-reap design (see bb_data_http_client_t's TASK OWNERSHIP doc)
+// requires -- this seam is only ever invoked from inside
+// bb_data_http_sweep_step()'s own flush loop on the broadcaster task, never
+// from ws_disconnect_cb or any other foreign-task context.
+static void espidf_sse_abort_fn(bb_data_http_client_t *client, void *ctx)
 {
     (void)ctx;
     if (!client) return;  // LCOV_EXCL_BR_LINE -- the core's flush loop only ever calls this with the live client `c` it is currently draining; never NULL.
-
-    if (client->is_ws) {  // LCOV_EXCL_BR_LINE -- unreachable under espidf_send_fn's current WS mapping (always retriable, never fatal) -- see this function's own doc above.
-        // LCOV_EXCL_START
-        portENTER_CRITICAL(&s_ws_slots_mux);
-        bb_data_http_espidf_ws_slot_t *slot = ws_slot_find_by_client_locked(client);
-        bb_http_handle_t server = slot ? slot->server : NULL;
-        int              fd     = slot ? slot->fd     : -1;
-        if (slot) ws_slot_free_locked(slot);
-        portEXIT_CRITICAL(&s_ws_slots_mux);
-
-        if (server) {
-            bb_ws_server_close_client(server, fd);
-        }
-        bb_log_i(TAG, "ws client fd=%d aborted after fatal send failure", fd);
-        bb_data_http_client_release(client);
-        return;
-        // LCOV_EXCL_STOP
-    }
 
     portENTER_CRITICAL(&s_slots_mux);
     bb_data_http_espidf_slot_t *slot = slot_find_by_client_locked(client);
@@ -596,6 +584,38 @@ static void espidf_abort_fn(bb_data_http_client_t *client, void *ctx)
 
     bb_log_i(TAG, "client fd=%d aborted after fatal send failure", fd);
     teardown_client(client, async_req);
+}
+
+// WS fatal-abort seam (mirrors espidf_sse_abort_fn's split above, installed
+// PER-CLIENT at the WS connect site, ws_connect_cb() below). Defensive/
+// unreachable in practice under espidf_ws_send_fn's CURRENT failure mapping
+// (B1-1424 review fix): every WS failure path -- enqueue failure AND "no
+// ws-slot found" -- now returns BB_ERR_TIMEOUT (retriable), never fatal (see
+// espidf_ws_send_fn's own doc above), so this seam is never actually reached
+// today. Kept for API completeness (send_fn's contract allows ANY non-BB_OK/
+// non-BB_ERR_TIMEOUT return, and a future WS failure classification could
+// legitimately need a fatal path) rather than asserting it can't happen.
+static void espidf_ws_abort_fn(bb_data_http_client_t *client, void *ctx)
+{
+    (void)ctx;
+    if (!client) return;  // LCOV_EXCL_BR_LINE -- the core's flush loop only ever calls this with the live client `c` it is currently draining; never NULL.
+
+    // LCOV_EXCL_START -- unreachable under espidf_ws_send_fn's current
+    // failure mapping (always retriable, never fatal) -- see this
+    // function's own doc above.
+    portENTER_CRITICAL(&s_ws_slots_mux);
+    bb_data_http_espidf_ws_slot_t *slot = ws_slot_find_by_client_locked(client);
+    bb_http_handle_t server = slot ? slot->server : NULL;
+    int              fd     = slot ? slot->fd     : -1;
+    if (slot) ws_slot_free_locked(slot);
+    portEXIT_CRITICAL(&s_ws_slots_mux);
+
+    if (server) {
+        bb_ws_server_close_client(server, fd);
+    }
+    bb_log_i(TAG, "ws client fd=%d aborted after fatal send failure", fd);
+    bb_data_http_client_release(client);
+    // LCOV_EXCL_STOP
 }
 
 // Peer-liveness pre-pass (KB 1447: "1/client/sweep before drain"). A single
@@ -644,10 +664,15 @@ bb_err_t bb_data_http_espidf_start(void)
         return BB_OK;
     }
 
+    // B1-1448 (epic B1-1123): no module-wide send_fn/abort_fn install here --
+    // every real client (SSE via bb_data_http_espidf_client_connect(), WS via
+    // ws_connect_cb() below) sets its OWN send_fn/abort_fn pair at acquire
+    // time (bb_data_http_client_cfg_t), so there is no shared default left to
+    // need one. render_fn/generation_fn stay module-wide: both are pure
+    // bb_data accessors with no transport identity, unaffected by this split
+    // (see bb_data_http.h's PER-CONSUMER SEAMS doc).
     bb_data_http_set_render_fn(espidf_render_fn, NULL);
     bb_data_http_set_generation_fn(espidf_generation_fn, NULL);
-    bb_data_http_set_send_fn(espidf_send_fn, NULL);
-    bb_data_http_set_abort_fn(espidf_abort_fn, NULL);
 
     bb_task_config_t cfg = {
         .entry       = broadcaster_task,
@@ -758,11 +783,18 @@ bb_err_t bb_data_http_espidf_client_connect(bb_http_request_t *req,
     // body byte.
 
     bb_data_http_client_t *client = NULL;
-    // fd is a real socket descriptor here -- never BB_DATA_HTTP_NO_FD (see
-    // bb_data_http_client_cfg_t's doc, bb_data_http.h). send_fn/abort_fn are
-    // left unset (NULL): this SSE client rides the module-wide default seams
-    // installed by bb_data_http_espidf_start(), same as before this PR.
-    bb_data_http_client_cfg_t cfg = { .fd = fd, .topic_filter = topic_filter, .is_ws = false };
+    // B1-1448 (epic B1-1123): no socket-shaped field on cfg -- `fd` is
+    // recorded below in this file's OWN s_slots[] side table, keyed on the
+    // returned client pointer, never routed through bb_data_http_client_cfg_t.
+    // send_fn/abort_fn are set to this SSE connection's own per-client seam
+    // pair (espidf_sse_send_fn/espidf_sse_abort_fn above) -- there is no
+    // module-wide default installed for either anymore (see
+    // bb_data_http_espidf_start()'s doc).
+    bb_data_http_client_cfg_t cfg = {
+        .topic_filter = topic_filter,
+        .send_fn      = espidf_sse_send_fn,
+        .abort_fn     = espidf_sse_abort_fn,
+    };
     err = bb_data_http_client_acquire(&cfg, &client);
     if (err != BB_OK) {
         bb_http_req_async_abort(async_req);
@@ -775,7 +807,7 @@ bb_err_t bb_data_http_espidf_client_connect(bb_http_request_t *req,
         slot->fd       = fd;
         slot->async_req = async_req;
         slot->client   = client;
-        slot->warmed   = false;  // first espidf_send_fn call for this client gets the widened first-frame timeout (if this sweep's one-per-sweep allowance is still available)
+        slot->warmed   = false;  // first espidf_sse_send_fn call for this client gets the widened first-frame timeout (if this sweep's one-per-sweep allowance is still available)
         slot->in_use   = true;
     }
     portEXIT_CRITICAL(&s_slots_mux);
@@ -840,10 +872,16 @@ static void ws_connect_cb(bb_http_handle_t server, int fd, void *ctx)
     (void)ctx;
 
     bb_data_http_client_t *client = NULL;
-    // Same rationale as the SSE acquire above: fd is real, topic filtering
-    // is not yet available on this path (B1-1423), and send_fn/abort_fn stay
-    // unset -- this WS client also rides the module-wide default seams.
-    bb_data_http_client_cfg_t cfg = { .fd = fd, .is_ws = true };
+    // Same rationale as the SSE acquire above: `fd` is recorded below in this
+    // file's OWN s_ws_slots[] side table, keyed on the returned client
+    // pointer, never routed through bb_data_http_client_cfg_t; topic
+    // filtering is not yet available on this path (B1-1423); send_fn/abort_fn
+    // are this WS connection's own per-client seam pair (espidf_ws_send_fn/
+    // espidf_ws_abort_fn above).
+    bb_data_http_client_cfg_t cfg = {
+        .send_fn  = espidf_ws_send_fn,
+        .abort_fn = espidf_ws_abort_fn,
+    };
     bb_err_t err = bb_data_http_client_acquire(&cfg, &client);
     if (err != BB_OK) {
         // The WS handshake has already completed by the time this callback

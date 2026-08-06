@@ -222,9 +222,9 @@ void test_bb_data_http_init_cfg_non_null_zero_max_clients_uses_default(void)
     // Kconfig bridge) -- not exposed via the public header, so hardcoded
     // here rather than referencing the private macro from a test.
     bb_data_http_client_t *c1 = NULL, *c2 = NULL, *overflow = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c1));
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 2, .is_ws = false}, &c2));
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 3, .is_ws = false}, &overflow));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c2));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &overflow));
 }
 
 // ---------------------------------------------------------------------------
@@ -504,7 +504,7 @@ void test_bb_data_http_client_acquire_release_round_trip(void)
 
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_active_client_count());
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
     TEST_ASSERT_NOT_NULL(c);
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
 
@@ -522,14 +522,14 @@ void test_bb_data_http_client_acquire_before_init_returns_invalid_state(void)
 {
     reset_all();
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
 }
 
 void test_bb_data_http_client_acquire_null_out_returns_invalid_arg(void)
 {
     reset_all();
     bb_data_http_init(NULL);
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, NULL));
 }
 
 void test_bb_data_http_client_acquire_null_cfg_returns_invalid_arg(void)
@@ -547,9 +547,9 @@ void test_bb_data_http_client_acquire_exhaustion_returns_no_space(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(&cfg));
 
     bb_data_http_client_t *c1 = NULL, *c2 = NULL, *c3 = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c1));
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 2, .is_ws = false}, &c2));
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 3, .is_ws = false}, &c3));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c2));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c3));
 }
 
 // B1-1447 review LOW 2: proving the error code alone is a weak test -- it
@@ -586,7 +586,7 @@ void test_bb_data_http_client_acquire_outbound_alloc_failure_returns_error(void)
 
     bb_queue_set_allocator(failing_calloc, free);
     bb_data_http_client_t *failed = NULL;
-    bb_err_t               rc = bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &failed);
+    bb_err_t               rc = bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &failed);
     bb_queue_reset_allocator();
 
     TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
@@ -611,79 +611,9 @@ void test_bb_data_http_client_acquire_outbound_alloc_failure_returns_error(void)
     // both still have passed (a single leaked slot never exhausts a
     // 2-slot pool).
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 2, .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
     TEST_ASSERT_FALSE(bb_data_http_client_poll_is_null_for_test(c));
     TEST_ASSERT_FALSE(bb_data_http_client_push_is_null_for_test(c));
-}
-
-// B1-1050 PR-1: the espidf WS backend acquires with is_ws=true (mirroring
-// the SSE path's is_ws=false) so its send_fn can branch on client->is_ws --
-// pin that the pure core actually records and returns the flag it was given
-// rather than silently defaulting/ignoring it (the espidf side table is not
-// host-testable, so this is the seam that IS).
-void test_bb_data_http_client_acquire_is_ws_true_sets_is_ws_flag(void)
-{
-    reset_all();
-    bb_data_http_init(NULL);
-
-    bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = true}, &c));
-    TEST_ASSERT_TRUE(bb_data_http_client_is_ws_for_test(c));
-}
-
-void test_bb_data_http_client_acquire_is_ws_false_clears_is_ws_flag(void)
-{
-    reset_all();
-    bb_data_http_init(NULL);
-
-    bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c));
-    TEST_ASSERT_FALSE(bb_data_http_client_is_ws_for_test(c));
-}
-
-void test_bb_data_http_client_is_ws_for_test_null_client_returns_false(void)
-{
-    reset_all();
-    TEST_ASSERT_FALSE(bb_data_http_client_is_ws_for_test(NULL));
-}
-
-// ---------------------------------------------------------------------------
-// fd validation (B1-1123 PR-1, KB 619 default-change trap): fd=0 is a VALID
-// descriptor, not "unset" -- acquire() must accept it (never silently
-// default it away) and must reject any negative fd that isn't the explicit
-// BB_DATA_HTTP_NO_FD sentinel, rather than defaulting a cfg that omitted fd.
-// ---------------------------------------------------------------------------
-
-void test_bb_data_http_client_acquire_fd_zero_is_accepted_as_a_real_descriptor(void)
-{
-    reset_all();
-    bb_data_http_init(NULL);
-
-    bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 0}, &c));
-    TEST_ASSERT_NOT_NULL(c);
-}
-
-void test_bb_data_http_client_acquire_no_fd_sentinel_is_accepted(void)
-{
-    reset_all();
-    bb_data_http_init(NULL);
-
-    bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK,
-        bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = BB_DATA_HTTP_NO_FD}, &c));
-    TEST_ASSERT_NOT_NULL(c);
-}
-
-void test_bb_data_http_client_acquire_negative_non_sentinel_fd_returns_invalid_arg(void)
-{
-    reset_all();
-    bb_data_http_init(NULL);
-
-    bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
-        bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = -2}, &c));
-    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_active_client_count());  // no slot consumed
 }
 
 // ---------------------------------------------------------------------------
@@ -700,7 +630,7 @@ void test_bb_data_http_client_topic_filter_null_subscribes_all(void)
     bb_data_http_attach("k2", "topic.b");
 
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 5, .topic_filter = NULL, .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = NULL}, &c));
 
     TEST_ASSERT_EQUAL_UINT32(0x3u, bb_data_http_client_dirty_mask_for_test(c));
 }
@@ -713,7 +643,7 @@ void test_bb_data_http_client_topic_filter_empty_string_subscribes_all(void)
     bb_data_http_attach("k2", "topic.b");
 
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 5, .topic_filter = "", .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = ""}, &c));
 
     TEST_ASSERT_EQUAL_UINT32(0x3u, bb_data_http_client_dirty_mask_for_test(c));
 }
@@ -726,7 +656,7 @@ void test_bb_data_http_client_topic_filter_exact_match_only(void)
     bb_data_http_attach("k2", "topic.b");
 
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 5, .topic_filter = "topic.a", .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = "topic.a"}, &c));
 
     TEST_ASSERT_EQUAL_UINT32(0x1u, bb_data_http_client_dirty_mask_for_test(c));  // only k1 (attach idx 0)
 }
@@ -738,7 +668,7 @@ void test_bb_data_http_client_topic_filter_no_match_subscribes_nothing(void)
     bb_data_http_attach("k1", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 5, .topic_filter = "topic.nope", .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = "topic.nope"}, &c));
 
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));
 }
@@ -757,7 +687,7 @@ void test_bb_data_http_client_acquire_topic_filter_too_long_returns_invalid_arg(
     filter[sizeof(filter) - 1] = '\0';
 
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 5, .topic_filter = filter, .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = filter}, &c));
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_active_client_count());  // no slot consumed
 }
 
@@ -777,7 +707,7 @@ void test_bb_data_http_sweep_step_renders_dirty_state_key(void)
     fake_gen_set("k1", 5);
 
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 42, .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
 
     bb_data_http_sweep_step();
 
@@ -787,13 +717,11 @@ void test_bb_data_http_sweep_step_renders_dirty_state_key(void)
     TEST_ASSERT_EQUAL_UINT32(5u, bb_data_http_client_seen_gen_for_test(c, 0));
 
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
-    int    fd     = -1;
-    bool   is_ws  = true;
+    const bb_data_http_client_t *sent_to = NULL;
     char   buf[128];
     size_t len = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(0, &fd, &is_ws, buf, sizeof(buf), &len));
-    TEST_ASSERT_EQUAL_INT(42, fd);
-    TEST_ASSERT_FALSE(is_ws);
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(0, &sent_to, buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL_PTR(c, sent_to);
     buf[len] = '\0';
     TEST_ASSERT_EQUAL_STRING("{\"key\":\"k1\",\"gen\":5}", buf);
 
@@ -814,7 +742,7 @@ void test_bb_data_http_sweep_step_coalesces_multiple_bumps_into_one_render(void)
     bb_data_http_attach("k1", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
     bb_data_http_sweep_step();  // drains the fresh-render-on-connect dirty bit
     bb_data_http_host_reset();
     s_render_call_count = 0;
@@ -840,7 +768,7 @@ void test_bb_data_http_sweep_step_multiple_dirty_keys_all_rendered(void)
     bb_data_http_attach("k2", "topic.b");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
 
     bb_data_http_sweep_step();
 
@@ -872,7 +800,7 @@ void test_bb_data_http_sweep_step_event_kind_key_delivers_via_shared_ring(void)
     bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
 
     // Fresh-render-on-connect only marks STATE keys dirty.
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));
@@ -904,7 +832,7 @@ void test_bb_data_http_sweep_step_event_kind_key_without_render_fn_advances_gen(
     fake_gen_set("ev1", 1);
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
 
     bb_data_http_sweep_step();
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
@@ -933,7 +861,7 @@ void test_bb_data_http_sweep_step_event_render_failure_retries_on_next_sweep(voi
     fake_gen_set("ev1", 1);
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
 
     size_t fails_before = bb_data_http_render_fail_count();
 
@@ -968,7 +896,7 @@ void test_bb_data_http_event_cursor_advances_across_sweeps(void)
     bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_event_cursor_for_test(c));
 
     fake_gen_bump("ev1");
@@ -1001,14 +929,14 @@ void test_bb_data_http_event_multiple_clients_independent_cursors(void)
     bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
 
     bb_data_http_client_t *a = NULL, *b = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &a));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &a));
 
     fake_gen_bump("ev1");
     bb_data_http_sweep_step();  // delivered to `a` only -- `b` doesn't exist yet
     TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_event_cursor_for_test(a));
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
 
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 2, .is_ws = false}, &b));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &b));
     TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_event_cursor_for_test(b));  // no backlog
 
     fake_gen_bump("ev1");
@@ -1018,14 +946,14 @@ void test_bb_data_http_event_multiple_clients_independent_cursors(void)
     TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_client_event_cursor_for_test(b));
     TEST_ASSERT_EQUAL_UINT(3, bb_data_http_host_frame_count());  // 1 (a only) + 2 (a and b)
 
-    int fd_a1 = -1, fd_a2 = -1, fd_b1 = -1;
-    bb_data_http_host_frame_at(0, &fd_a1, NULL, NULL, 0, NULL);
-    bb_data_http_host_frame_at(1, &fd_a2, NULL, NULL, 0, NULL);
-    bb_data_http_host_frame_at(2, &fd_b1, NULL, NULL, 0, NULL);
-    TEST_ASSERT_EQUAL_INT(1, fd_a1);
-    TEST_ASSERT_TRUE(fd_a2 == 1 || fd_a2 == 2);
-    TEST_ASSERT_TRUE(fd_b1 == 1 || fd_b1 == 2);
-    TEST_ASSERT_NOT_EQUAL(fd_a2, fd_b1);  // second event fanned out to BOTH fds
+    const bb_data_http_client_t *sent_to_a1 = NULL, *sent_to_a2 = NULL, *sent_to_b1 = NULL;
+    bb_data_http_host_frame_at(0, &sent_to_a1, NULL, 0, NULL);
+    bb_data_http_host_frame_at(1, &sent_to_a2, NULL, 0, NULL);
+    bb_data_http_host_frame_at(2, &sent_to_b1, NULL, 0, NULL);
+    TEST_ASSERT_EQUAL_PTR(a, sent_to_a1);
+    TEST_ASSERT_TRUE(sent_to_a2 == a || sent_to_a2 == b);
+    TEST_ASSERT_TRUE(sent_to_b1 == a || sent_to_b1 == b);
+    TEST_ASSERT_TRUE(sent_to_a2 != sent_to_b1);  // second event fanned out to BOTH clients
 }
 
 // topic_filter on events: a client filtered to a topic other than the one an
@@ -1042,7 +970,7 @@ void test_bb_data_http_event_topic_filter_excludes_non_matching_topic(void)
     bb_data_http_attach_ex("ev2", "topic.b", BB_DATA_HTTP_EVENT);
 
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .topic_filter = "topic.a", .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = "topic.a"}, &c));
 
     fake_gen_bump("ev2");  // topic.b -- not subscribed
     bb_data_http_sweep_step();
@@ -1058,10 +986,9 @@ void test_bb_data_http_event_topic_filter_excludes_non_matching_topic(void)
 
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
     TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_client_event_cursor_for_test(c));
-    int fd = -1;
     char buf[128];
     size_t len = 0;
-    bb_data_http_host_frame_at(0, &fd, NULL, buf, sizeof(buf), &len);
+    bb_data_http_host_frame_at(0, NULL, buf, sizeof(buf), &len);
     buf[len] = '\0';
     TEST_ASSERT_EQUAL_STRING("{\"key\":\"ev1\",\"gen\":1}", buf);
 }
@@ -1085,7 +1012,7 @@ void test_bb_data_http_event_ring_wrap_drops_evicted_gap_with_marker(void)
     bb_data_http_attach_ex("ev3", "t", BB_DATA_HTTP_EVENT);
 
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_event_cursor_for_test(c));
 
     // All four keys bump BEFORE this single sweep_step() call -- the ring
@@ -1107,13 +1034,13 @@ void test_bb_data_http_event_ring_wrap_drops_evicted_gap_with_marker(void)
     TEST_ASSERT_EQUAL_UINT(3, bb_data_http_host_frame_count());
     char   buf[128];
     size_t len = 0;
-    bb_data_http_host_frame_at(0, NULL, NULL, buf, sizeof(buf), &len);
+    bb_data_http_host_frame_at(0, NULL, buf, sizeof(buf), &len);
     buf[len] = '\0';
     TEST_ASSERT_EQUAL_STRING("{\"dropped\":2}", buf);
-    bb_data_http_host_frame_at(1, NULL, NULL, buf, sizeof(buf), &len);
+    bb_data_http_host_frame_at(1, NULL, buf, sizeof(buf), &len);
     buf[len] = '\0';
     TEST_ASSERT_EQUAL_STRING("{\"key\":\"ev2\",\"gen\":1}", buf);
-    bb_data_http_host_frame_at(2, NULL, NULL, buf, sizeof(buf), &len);
+    bb_data_http_host_frame_at(2, NULL, buf, sizeof(buf), &len);
     buf[len] = '\0';
     TEST_ASSERT_EQUAL_STRING("{\"key\":\"ev3\",\"gen\":1}", buf);
 
@@ -1143,7 +1070,7 @@ void test_bb_data_http_event_client_outbound_full_drops_with_marker(void)
     bb_data_http_attach_ex("ev1", "t", BB_DATA_HTTP_EVENT);
 
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
 
     // CONFIG_BB_DATA_HTTP_OUTBOUND_CAPACITY's C default is 8 (bb_data_http_
     // common.c's Kconfig bridge) -- not exposed via the public header, so
@@ -1189,7 +1116,7 @@ void test_bb_data_http_event_client_outbound_full_drops_with_marker(void)
     TEST_ASSERT_EQUAL_UINT(10, bb_data_http_host_frame_count());  // +marker, +event
     char   buf[64];
     size_t len = 0;
-    bb_data_http_host_frame_at(8, NULL, NULL, buf, sizeof(buf), &len);
+    bb_data_http_host_frame_at(8, NULL, buf, sizeof(buf), &len);
     buf[len] = '\0';
     TEST_ASSERT_EQUAL_STRING("{\"dropped\":2}", buf);
 }
@@ -1211,7 +1138,7 @@ void test_bb_data_http_event_pending_marker_flushes_on_quiet_sweep(void)
     bb_data_http_attach_ex("ev1", "t", BB_DATA_HTTP_EVENT);
 
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
 
     // Saturate outbound (capacity 8), then drop one more to leave a marker
     // pending (mirrors test_bb_data_http_event_client_outbound_full_drops_
@@ -1237,7 +1164,7 @@ void test_bb_data_http_event_pending_marker_flushes_on_quiet_sweep(void)
     TEST_ASSERT_EQUAL_UINT(9, bb_data_http_host_frame_count());
     char   buf[64];
     size_t len = 0;
-    bb_data_http_host_frame_at(8, NULL, NULL, buf, sizeof(buf), &len);
+    bb_data_http_host_frame_at(8, NULL, buf, sizeof(buf), &len);
     buf[len] = '\0';
     TEST_ASSERT_EQUAL_STRING("{\"dropped\":1}", buf);
 }
@@ -1258,8 +1185,8 @@ void test_bb_data_http_event_slow_client_does_not_affect_other_clients(void)
     bb_data_http_attach_ex("ev1", "event.only", BB_DATA_HTTP_EVENT);
 
     bb_data_http_client_t *slow = NULL, *fast = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .topic_filter = NULL, .is_ws = false}, &slow));            // all topics
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 2, .topic_filter = "event.only", .is_ws = false}, &fast));    // events only
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = NULL}, &slow));            // all topics
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = "event.only"}, &fast));    // events only
 
     // Saturate `slow`'s outbound (capacity 8) with 8 STATE renders --
     // `fast` is not subscribed to "state.only" so none of this reaches it.
@@ -1292,7 +1219,7 @@ void test_bb_data_http_sweep_step_without_render_fn_still_clears_dirty(void)
     bb_data_http_attach("k1", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
 
     bb_data_http_sweep_step();
 
@@ -1309,7 +1236,7 @@ void test_bb_data_http_sweep_step_without_generation_fn_still_drains_connect_dir
     bb_data_http_attach("k1", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
 
     bb_data_http_sweep_step();
 
@@ -1326,7 +1253,7 @@ void test_bb_data_http_sweep_step_render_failure_skips_frame_without_crash(void)
     bb_data_http_attach("k1", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
 
     size_t fails_before = bb_data_http_render_fail_count();
     bb_data_http_sweep_step();
@@ -1352,7 +1279,7 @@ void test_bb_data_http_sweep_step_push_without_send_fn_leaves_outbound_queued(vo
     bb_data_http_attach("k1", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
 
     bb_data_http_sweep_step();
 
@@ -1382,7 +1309,7 @@ void test_bb_data_http_sweep_step_send_failure_retriable_leaves_frame_queued_and
     bb_data_http_attach("k1", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);  // fresh-render-on-connect dirties k1
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties k1
 
     bb_data_http_host_fail_next(BB_ERR_TIMEOUT, 1);
 
@@ -1421,7 +1348,7 @@ void test_bb_data_http_sweep_step_send_failure_retriable_does_not_retry_within_s
     bb_data_http_attach("k2", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);  // fresh-render-on-connect dirties both k1 and k2
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties both k1 and k2
 
     // Only ONE failure injected: if k2's send were ever attempted this
     // sweep, the injected failure would already be spent on k1 and k2's
@@ -1457,7 +1384,7 @@ void test_bb_data_http_sweep_step_send_failure_retriable_bound_exceeded_drops_fr
     bb_data_http_attach("k1", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);  // fresh-render-on-connect dirties k1
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties k1
 
     bb_data_http_host_fail_next(BB_ERR_TIMEOUT, 3);
 
@@ -1504,7 +1431,7 @@ void test_bb_data_http_sweep_step_send_failure_retriable_bound_exceeded_does_not
     bb_data_http_attach("k2", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);  // fresh-render-on-connect dirties both k1 and k2
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties both k1 and k2
 
     bb_data_http_host_fail_next(BB_ERR_TIMEOUT, 3);
 
@@ -1543,7 +1470,7 @@ void test_bb_data_http_sweep_step_send_failure_fatal_invokes_abort_fn(void)
     bb_data_http_attach("k1", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);  // fresh-render-on-connect dirties k1
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties k1
 
     bb_data_http_host_fail_next(BB_ERR_INVALID_ARG, 1);  // non-BB_ERR_TIMEOUT == fatal
 
@@ -1574,7 +1501,7 @@ void test_bb_data_http_sweep_step_send_failure_fatal_without_abort_fn_releases_c
     bb_data_http_attach("k1", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);  // fresh-render-on-connect dirties k1
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties k1
     (void)c;
 
     bb_data_http_host_fail_next(BB_ERR_INVALID_ARG, 1);  // fatal
@@ -1610,7 +1537,7 @@ void test_bb_data_http_sweep_step_send_failure_fatal_uses_per_client_abort_fn_ov
 
     bb_data_http_client_t *c = NULL;
     // fresh-render-on-connect dirties k1
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .abort_fn = per_client_abort}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.abort_fn = per_client_abort}, &c);
 
     bb_data_http_host_fail_next(BB_ERR_INVALID_ARG, 1);  // non-BB_ERR_TIMEOUT == fatal
 
@@ -1644,7 +1571,7 @@ void test_bb_data_http_client_request_release_defers_actual_release_to_next_swee
     bb_data_http_init(NULL);
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
     TEST_ASSERT_FALSE(bb_data_http_client_pending_release_for_test(c));
 
@@ -1679,7 +1606,7 @@ void test_bb_data_http_sweep_step_reaps_client_only_on_sweep_after_mid_sweep_rel
     bb_data_http_attach("k1", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);  // fresh-render-on-connect dirties k1
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties k1
 
     // ctx == c: mid_sweep_release_render_fn() requests release on THIS
     // client from inside its own render call, simulating a concurrent
@@ -1723,7 +1650,7 @@ void test_bb_data_http_sweep_step_render_failure_retries_on_next_sweep(void)
     fake_gen_set("k1", 5);
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);  // fresh-render-on-connect sets the dirty bit
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect sets the dirty bit
 
     size_t fails_before = bb_data_http_render_fail_count();
 
@@ -1764,7 +1691,7 @@ void test_bb_data_http_sweep_step_generation_fn_failure_skips_key(void)
     fake_gen_set("k1", 5);
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
     bb_data_http_sweep_step();  // drains the fresh-render-on-connect dirty bit; seen_gen -> 5
     bb_data_http_host_reset();
     s_render_call_count = 0;
@@ -1799,8 +1726,8 @@ void test_bb_data_http_sweep_step_detect_phase_skips_unsubscribed_client(void)
     fake_gen_set("k1", 1);
 
     bb_data_http_client_t *sub = NULL, *unsub = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .topic_filter = "topic.a", .is_ws = false}, &sub));
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 2, .topic_filter = "topic.b", .is_ws = false}, &unsub));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = "topic.a"}, &sub));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = "topic.b"}, &unsub));
 
     bb_data_http_sweep_step();  // drains `sub`'s fresh-connect dirty bit; `unsub` was never dirty
     bb_data_http_host_reset();
@@ -1839,7 +1766,7 @@ void test_bb_data_http_subscribe_mask_event_only_client_excludes_state_key(void)
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
-        &(bb_data_http_client_cfg_t){.fd = 1, .topic_filter = "topic.a",
+        &(bb_data_http_client_cfg_t){.topic_filter = "topic.a",
                                       .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_EVENT}, &c));
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));  // never force-dirtied
 
@@ -1862,7 +1789,7 @@ void test_bb_data_http_subscribe_mask_state_only_client_excludes_event_key(void)
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
-        &(bb_data_http_client_cfg_t){.fd = 1, .topic_filter = "topic.a",
+        &(bb_data_http_client_cfg_t){.topic_filter = "topic.a",
                                       .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_STATE}, &c));
 
     fake_gen_bump("ev1");
@@ -1889,7 +1816,7 @@ void test_bb_data_http_subscribe_mask_zero_default_receives_both_kinds(void)
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
-        &(bb_data_http_client_cfg_t){.fd = 1, .topic_filter = "topic.a"}, &c));  // subscribe_mask unset
+        &(bb_data_http_client_cfg_t){.topic_filter = "topic.a"}, &c));  // subscribe_mask unset
     TEST_ASSERT_EQUAL_UINT32(0x1u, bb_data_http_client_dirty_mask_for_test(c));  // sk1 force-dirtied -> ALL includes STATE
 
     bb_data_http_sweep_step();  // drains sk1's connect-dirty render
@@ -1950,10 +1877,10 @@ void test_bb_data_http_subscribe_mask_event_only_client_state_seen_gen_stays_gat
 
     bb_data_http_client_t *push_only = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
-        &(bb_data_http_client_cfg_t){.fd = 1, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_EVENT}, &push_only));
+        &(bb_data_http_client_cfg_t){.subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_EVENT}, &push_only));
     bb_data_http_client_t *all = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
-        &(bb_data_http_client_cfg_t){.fd = 2, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_ALL}, &all));
+        &(bb_data_http_client_cfg_t){.subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_ALL}, &all));
 
     fake_gen_bump("sk1");
     fake_gen_bump("sk2");
@@ -1988,10 +1915,10 @@ void test_bb_data_http_subscribe_mask_state_only_client_never_advances_event_cur
 
     bb_data_http_client_t *state_only = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
-        &(bb_data_http_client_cfg_t){.fd = 1, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_STATE}, &state_only));
+        &(bb_data_http_client_cfg_t){.subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_STATE}, &state_only));
     bb_data_http_client_t *all = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
-        &(bb_data_http_client_cfg_t){.fd = 2, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_ALL}, &all));
+        &(bb_data_http_client_cfg_t){.subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_ALL}, &all));
 
     uint32_t cursor_before = bb_data_http_client_event_cursor_for_test(state_only);
 
@@ -2035,7 +1962,7 @@ void test_bb_data_http_push_only_client_has_null_poll_and_drains_correctly(void)
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
-        &(bb_data_http_client_cfg_t){.fd = 1, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_EVENT}, &c));
+        &(bb_data_http_client_cfg_t){.subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_EVENT}, &c));
     TEST_ASSERT_TRUE(bb_data_http_client_poll_is_null_for_test(c));
     TEST_ASSERT_FALSE(bb_data_http_client_push_is_null_for_test(c));
 
@@ -2060,7 +1987,7 @@ void test_bb_data_http_poll_only_client_has_null_push_and_drains_correctly(void)
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
-        &(bb_data_http_client_cfg_t){.fd = 1, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_STATE}, &c));
+        &(bb_data_http_client_cfg_t){.subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_STATE}, &c));
     TEST_ASSERT_FALSE(bb_data_http_client_poll_is_null_for_test(c));
     TEST_ASSERT_TRUE(bb_data_http_client_push_is_null_for_test(c));
     TEST_ASSERT_EQUAL_UINT32(0x1u, bb_data_http_client_dirty_mask_for_test(c));  // fresh-render-on-connect
@@ -2103,10 +2030,10 @@ void test_bb_data_http_client_acquire_poll_pool_exhausted_returns_no_space(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(&cfg));
 
     bb_data_http_client_t *c1 = NULL, *c2 = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1}, &c1));  // default mask ALL -- consumes the one poll slot
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c1));  // default mask ALL -- consumes the one poll slot
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
 
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 2}, &c2));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c2));
     TEST_ASSERT_NULL(c2);  // never touched -- caller's prior value survives a failed acquire
     // The fd-table client slot the failed attempt would have used was never
     // consumed: active_client_count() stays at 1, not silently 2 with a
@@ -2117,7 +2044,7 @@ void test_bb_data_http_client_acquire_poll_pool_exhausted_returns_no_space(void)
     // the poll pool fully exhausted.
     bb_data_http_client_t *c3 = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
-        &(bb_data_http_client_cfg_t){.fd = 3, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_EVENT}, &c3));
+        &(bb_data_http_client_cfg_t){.subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_EVENT}, &c3));
     TEST_ASSERT_EQUAL_UINT(2, bb_data_http_active_client_count());
 
     // Releasing the poll-holding client frees its pool slot back -- a
@@ -2125,7 +2052,7 @@ void test_bb_data_http_client_acquire_poll_pool_exhausted_returns_no_space(void)
     // pool is a genuine reusable resource, not a one-shot cap.
     bb_data_http_client_release(c1);
     bb_data_http_client_t *c4 = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 4}, &c4));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c4));
     TEST_ASSERT_FALSE(bb_data_http_client_poll_is_null_for_test(c4));
 }
 
@@ -2137,10 +2064,10 @@ void test_bb_data_http_client_acquire_push_pool_exhausted_returns_no_space(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(&cfg));
 
     bb_data_http_client_t *c1 = NULL, *c2 = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1}, &c1));  // default mask ALL -- consumes the one push slot
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c1));  // default mask ALL -- consumes the one push slot
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
 
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 2}, &c2));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c2));
     TEST_ASSERT_NULL(c2);
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
 
@@ -2148,7 +2075,7 @@ void test_bb_data_http_client_acquire_push_pool_exhausted_returns_no_space(void)
     // the push pool fully exhausted.
     bb_data_http_client_t *c3 = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
-        &(bb_data_http_client_cfg_t){.fd = 3, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_STATE}, &c3));
+        &(bb_data_http_client_cfg_t){.subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_STATE}, &c3));
     TEST_ASSERT_EQUAL_UINT(2, bb_data_http_active_client_count());
 }
 
@@ -2188,7 +2115,7 @@ void test_bb_data_http_sweep_step_drain_phase_skips_non_dirty_key(void)
     bb_data_http_attach("k2", "topic.b");
 
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .topic_filter = "topic.a", .is_ws = false}, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = "topic.a"}, &c));
     TEST_ASSERT_EQUAL_UINT32(0x1u, bb_data_http_client_dirty_mask_for_test(c));  // only k1 (idx 0)
 
     bb_data_http_sweep_step();
@@ -2215,7 +2142,7 @@ void test_bb_data_http_sweep_step_render_failure_log_rate_limit_both_outcomes(vo
     bb_data_http_attach("k1", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
 
     for (int i = 0; i < 32; i++) {
         bb_data_http_sweep_step();
@@ -2266,7 +2193,7 @@ void test_bb_data_http_for_test_helpers_defend_against_null_and_out_of_range(voi
 
     bb_data_http_init(NULL);
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_seen_gen_for_test(c, BB_DATA_HTTP_MAX_ATTACH));
 }
 
@@ -2286,7 +2213,7 @@ void test_bb_data_http_host_frame_capture_stops_at_capacity(void)
     bb_data_http_attach("k1", "topic.a");
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
 
     // BB_DATA_HTTP_HOST_CAPTURE_MAX (32) frames fill the ring; every send
     // past that must be silently dropped (host_send() returns
@@ -2311,15 +2238,15 @@ void test_bb_data_http_host_send_zero_length_frame_skips_copy(void)
     fake_gen_set("k1", 1);
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
     bb_data_http_sweep_step();
 
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
-    int    fd    = -1;
-    bool   is_ws = true;
+    const bb_data_http_client_t *sent_to = NULL;
     char   buf[8];
     size_t len   = 99;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(0, &fd, &is_ws, buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(0, &sent_to, buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL_PTR(c, sent_to);
     TEST_ASSERT_EQUAL_UINT(0, len);
 }
 
@@ -2328,11 +2255,10 @@ void test_bb_data_http_host_frame_at_out_of_range_returns_not_found(void)
     reset_all();
     bb_data_http_host_install_send();
 
-    int    fd    = -1;
-    bool   is_ws = false;
+    const bb_data_http_client_t *sent_to = NULL;
     char   buf[8];
     size_t len   = 0;
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_data_http_host_frame_at(0, &fd, &is_ws, buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_data_http_host_frame_at(0, &sent_to, buf, sizeof(buf), &len));
 }
 
 void test_bb_data_http_host_frame_at_null_out_params_are_optional(void)
@@ -2346,19 +2272,19 @@ void test_bb_data_http_host_frame_at_null_out_params_are_optional(void)
     fake_gen_set("k1", 1);
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
     bb_data_http_sweep_step();
 
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
     // Every output pointer may be NULL to skip that field (see
     // bb_data_http_host.h) -- must not crash / must still succeed.
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(0, NULL, NULL, NULL, 0, NULL));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(0, NULL, NULL, 0, NULL));
 
     // A non-NULL buf with buf_cap == 0 must also skip the copy (the `buf &&
     // buf_cap > 0` guard's other half) rather than writing past a
     // zero-capacity buffer.
     char zero_cap_buf[1];
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(0, NULL, NULL, zero_cap_buf, 0, NULL));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(0, NULL, zero_cap_buf, 0, NULL));
 }
 
 void test_bb_data_http_host_frame_key_at_out_of_range_returns_not_found(void)
@@ -2381,7 +2307,7 @@ void test_bb_data_http_host_frame_key_at_null_buf_is_optional(void)
     fake_gen_set("k1", 1);
 
     bb_data_http_client_t *c = NULL;
-    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
     bb_data_http_sweep_step();
 
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
@@ -2445,9 +2371,9 @@ void test_bb_data_http_sweep_step_delivers_to_multiple_independent_send_fn_consu
     capture_calls_t a_calls = {0}, b_calls = {0};
     bb_data_http_client_t *ca = NULL, *cb = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
-        &(bb_data_http_client_cfg_t){.fd = 1, .send_fn = capture_a, .send_ctx = &a_calls}, &ca));
+        &(bb_data_http_client_cfg_t){.send_fn = capture_a, .send_ctx = &a_calls}, &ca));
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
-        &(bb_data_http_client_cfg_t){.fd = 2, .send_fn = capture_b, .send_ctx = &b_calls}, &cb));
+        &(bb_data_http_client_cfg_t){.send_fn = capture_b, .send_ctx = &b_calls}, &cb));
 
     fake_gen_bump("k1");
     fake_gen_bump("k2");
@@ -2483,11 +2409,51 @@ void test_bb_data_http_sweep_step_client_with_no_send_fn_override_uses_module_wi
     fake_gen_set("k1", 1);
 
     bb_data_http_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1}, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
 
     bb_data_http_sweep_step();
 
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+}
+
+// B1-1448 (epic B1-1123 acceptance test): the epic's stated goal is that a
+// push-only, non-socket consumer -- the prototypical example being a future
+// MQTT publisher -- can register with bb_data_http carrying NO socket-shaped
+// field and NO sentinel, because neither exists on bb_data_http_client_cfg_t
+// anymore (the old fd/is_ws fields, and the fd sentinel that used to gate
+// them, are gone). The designated initializer below names ONLY the fields an
+// MQTT-shaped consumer actually needs -- subscribe_mask (EVENT-only: an
+// MQTT publisher has no socket to poll-render STATE onto) plus its own
+// send_fn/send_ctx (B1-1123 PR-1's per-consumer seam) -- and still acquires
+// and delivers correctly, proving the acquire/deliver path never implicitly
+// depended on a socket-shaped field existing.
+void test_bb_data_http_mqtt_shaped_client_acquires_and_delivers_with_no_socket_field(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+
+    capture_calls_t mqtt_calls = {0};
+    bb_data_http_client_t *mqtt = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){
+            .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_EVENT,
+            .send_fn        = capture_a,
+            .send_ctx       = &mqtt_calls,
+        }, &mqtt));
+
+    // Push-only: no STATE bookkeeping block at all -- an MQTT publisher has
+    // no socket to poll-render onto in the first place.
+    TEST_ASSERT_TRUE(bb_data_http_client_poll_is_null_for_test(mqtt));
+    TEST_ASSERT_FALSE(bb_data_http_client_push_is_null_for_test(mqtt));
+
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_INT(1, mqtt_calls.count);
+    TEST_ASSERT_EQUAL_STRING("ev1", mqtt_calls.last_keys[0]);
 }
 
 // ---------------------------------------------------------------------------
