@@ -205,6 +205,13 @@ bool bb_data_http_client_poll_is_null_for_test(const bb_data_http_client_t *c);
 // Mirror of bb_data_http_client_poll_is_null_for_test() for `push`. Returns
 // true if `c` is NULL.
 bool bb_data_http_client_push_is_null_for_test(const bb_data_http_client_t *c);
+
+// B1-1449: current occupancy of the shared EVENT ring -- lets a test assert
+// bb_data_http_push_pump() fed the ring directly, independent of any
+// client's own drained cursor. Returns 0 if the ring has not been created
+// (bb_data_http_init() not yet called, or bb_data_http_reset_for_test()
+// since).
+size_t bb_data_http_event_ring_count_for_test(void);
 #endif
 
 // GET /api/events route descriptor (B1-1215): schema-only (.handler == NULL)

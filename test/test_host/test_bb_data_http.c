@@ -1210,6 +1210,139 @@ void test_bb_data_http_event_slow_client_does_not_affect_other_clients(void)
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_client_outbound_count_for_test(fast));  // delivered normally
 }
 
+// ---------------------------------------------------------------------------
+// bb_data_http_push_pump() (B1-1449, epic B1-1123): the ring FEED, extracted
+// out of bb_data_http_sweep_step()'s own detect phase so it can be called
+// directly, decoupled from the 50ms broadcaster tick. Per the SCOPE FENCE on
+// bb_data_http_push_pump()'s own doc (bb_data_http.h), draining the ring
+// into a client's outbound queue and the flush/retry state machine both stay
+// tick-driven -- these tests never call push_pump() from anywhere but the
+// single (fake) broadcaster call sequence itself, mirroring every other
+// EVENT test above.
+// ---------------------------------------------------------------------------
+
+// Calling bb_data_http_push_pump() directly, twice, with no sweep_step() in
+// between, must feed the shared ring twice -- proving the ring feed itself
+// no longer needs a sweep_step() call (i.e. the 50ms broadcaster tick) to
+// run at all.
+void test_bb_data_http_push_pump_called_twice_directly_feeds_ring_twice(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_event_ring_count_for_test());
+
+    fake_gen_bump("ev1");
+    bb_data_http_push_pump();
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_event_ring_count_for_test());
+
+    fake_gen_bump("ev1");
+    bb_data_http_push_pump();
+    TEST_ASSERT_EQUAL_UINT(2, bb_data_http_event_ring_count_for_test());
+}
+
+// After two direct bb_data_http_push_pump() calls (no sweep_step() in
+// between -- see above), a SINGLE subsequent sweep_step() call must deliver
+// BOTH ring entries to a subscribed client, in order -- proving the feed
+// happened independently of, and strictly before, any drain/flush cadence.
+// fake_render_fn() embeds the observed generation in the frame's own JSON
+// body, so the two frames' content (not just their count) proves ordering.
+void test_bb_data_http_push_pump_twice_then_sweep_step_delivers_both_in_order(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
+
+    fake_gen_bump("ev1");  // gen=1
+    bb_data_http_push_pump();
+    fake_gen_bump("ev1");  // gen=2
+    bb_data_http_push_pump();
+    TEST_ASSERT_EQUAL_UINT(2, bb_data_http_event_ring_count_for_test());
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());  // not drained/flushed yet
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(2, bb_data_http_host_frame_count());
+
+    char buf0[128], buf1[128];
+    size_t len0 = 0, len1 = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(0, NULL, buf0, sizeof(buf0), &len0));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(1, NULL, buf1, sizeof(buf1), &len1));
+    buf0[len0] = '\0';
+    buf1[len1] = '\0';
+    TEST_ASSERT_EQUAL_STRING("{\"key\":\"ev1\",\"gen\":1}", buf0);
+    TEST_ASSERT_EQUAL_STRING("{\"key\":\"ev1\",\"gen\":2}", buf1);
+}
+
+// generation_fn failure on an EVENT key must skip that key's ring feed
+// entirely -- bb_data_http_push_pump()'s own `s_gen_fn(...) != BB_OK`
+// branch, now a distinct branch from sweep_step()'s STATE-only detect loop
+// since the B1-1449 split (previously one shared branch covered both kinds).
+// TWO EVENT keys in the SAME push_pump() call, one whose generation_fn
+// succeeds (ev_ok) and one that fails (ev_fail): asserting only "the ring
+// stayed empty" would pass identically for a push_pump() that does nothing
+// at all, so this asserts BOTH that ev_ok's bump DID land in the ring (ring
+// count == 1, positive proof push_pump() actually ran) AND that ev_fail's
+// bump specifically did NOT (never advances past 1) -- the failure is
+// selective, not a symptom of the whole function being a no-op.
+void test_bb_data_http_push_pump_generation_fn_failure_skips_event_key(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn_with_failure, NULL);
+    bb_data_http_attach_ex("ev_ok", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach_ex("ev_fail", "topic.b", BB_DATA_HTTP_EVENT);
+
+    s_gen_fail_key = "ev_fail";
+    fake_gen_bump("ev_ok");
+    fake_gen_bump("ev_fail");
+    bb_data_http_push_pump();
+
+    // Positive proof push_pump() ran at all: ev_ok's bump landed.
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_event_ring_count_for_test());
+
+    // A second push_pump() call with no further bumps must not grow the
+    // ring further: ev_fail is still failing (s_gen_fail_key unchanged) and
+    // ev_ok's generation hasn't moved again since its last successful push.
+    bb_data_http_push_pump();
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_event_ring_count_for_test());
+}
+
+// Tick-driven behavior is unchanged (mutation-test target, B1-1449): with no
+// direct bb_data_http_push_pump() call at all, a plain bb_data_http_sweep_step()
+// call must still feed the ring AND deliver it to a subscribed client within
+// the SAME call -- exactly as before this extraction (mirrors
+// test_bb_data_http_sweep_step_event_kind_key_delivers_via_shared_ring
+// above, restated here to sit next to push_pump()'s own dedicated tests).
+void test_bb_data_http_sweep_step_alone_still_feeds_and_delivers_event(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
+
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_event_ring_count_for_test());
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+}
+
 void test_bb_data_http_sweep_step_without_render_fn_still_clears_dirty(void)
 {
     reset_all();
@@ -2190,6 +2323,9 @@ void test_bb_data_http_for_test_helpers_defend_against_null_and_out_of_range(voi
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_event_cursor_for_test(NULL));
     TEST_ASSERT_FALSE(bb_data_http_client_pending_release_for_test(NULL));
     bb_data_http_client_request_release(NULL);  // no-op, must not crash
+    // B1-1449: before init() (or after reset_for_test(), as here) the shared
+    // EVENT ring does not exist yet -- the ring-not-created branch.
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_event_ring_count_for_test());
 
     bb_data_http_init(NULL);
     bb_data_http_client_t *c = NULL;
