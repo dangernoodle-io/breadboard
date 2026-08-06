@@ -1764,6 +1764,95 @@ void test_bb_data_http_sweep_step_detect_phase_skips_unsubscribed_client(void)
 }
 
 // ---------------------------------------------------------------------------
+// subscribe_mask (B1-1445): a kind axis orthogonal to topic_filter --
+// client_subscribes() must AND both gates, so a consumer can declare "EVENT
+// only, never STATE" (or vice versa) instead of that only happening by
+// accident of which keys share a topic name. Delivery-only in this PR: the
+// mask gates client_subscribes(), not the force-dirty/detect/ring-feed
+// participation itself (that cost-avoidance skip is the next PR).
+// ---------------------------------------------------------------------------
+
+// An EVENT-only client (subscribe_mask=BB_DATA_HTTP_SUBSCRIBE_EVENT) whose
+// topic_filter matches a STATE-kind key's topic must NOT receive that key --
+// under today's topic-only filtering it would (client_subscribes() ignored
+// kind entirely). Proven two ways: the fresh-render-on-connect dirty bit
+// stays clear at acquire time, and a later generation bump never queues an
+// outbound frame either.
+void test_bb_data_http_subscribe_mask_event_only_client_excludes_state_key(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach("sk1", "topic.a");  // BB_DATA_HTTP_STATE (default kind)
+    fake_gen_set("sk1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.fd = 1, .topic_filter = "topic.a",
+                                      .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_EVENT}, &c));
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));  // never force-dirtied
+
+    fake_gen_bump("sk1");
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_client_outbound_count_for_test(c));
+}
+
+// Mirror case: a STATE-only client must not receive an EVENT-kind key under
+// its subscribed topic.
+void test_bb_data_http_subscribe_mask_state_only_client_excludes_event_key(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.fd = 1, .topic_filter = "topic.a",
+                                      .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_STATE}, &c));
+
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
+}
+
+// Zero-default proof: a cfg that never sets subscribe_mask resolves to
+// BB_DATA_HTTP_SUBSCRIBE_ALL -- the client still receives both a STATE key
+// (fresh-render-on-connect dirty bit set) and an EVENT key (delivered on a
+// later generation bump), matching every existing call site's unchanged
+// behavior.
+void test_bb_data_http_subscribe_mask_zero_default_receives_both_kinds(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach("sk1", "topic.a");                        // BB_DATA_HTTP_STATE
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    fake_gen_set("sk1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.fd = 1, .topic_filter = "topic.a"}, &c));  // subscribe_mask unset
+    TEST_ASSERT_EQUAL_UINT32(0x1u, bb_data_http_client_dirty_mask_for_test(c));  // sk1 force-dirtied -> ALL includes STATE
+
+    bb_data_http_sweep_step();  // drains sk1's connect-dirty render
+    bb_data_http_host_reset();
+
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());  // ev1 delivered too -- zero-default == ALL
+}
+
+// ---------------------------------------------------------------------------
 // Drain-phase per-key dirty-bit skip: with multiple attached keys but only
 // one dirty for this client, the drain loop's other attach-index iterations
 // must `continue` past the not-set bit rather than rendering it.

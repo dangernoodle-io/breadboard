@@ -195,11 +195,15 @@ void bb_data_http_describe_foreach(bb_data_http_describe_cb_t cb, void *ctx)
     }
 }
 
-// True when client `c` should receive updates for a key attached under
-// `topic`: an empty topic_filter subscribes to everything; otherwise exact
-// match only.
-static bool client_subscribes(const bb_data_http_client_t *c, const char *topic)
+// True when client `c` should receive updates for a `kind`-kind key
+// attached under `topic`: BOTH the existing topic-string rule (an empty
+// topic_filter subscribes to everything; otherwise exact match only) AND
+// `c`'s resolved subscribe_mask having `kind`'s bit set must hold (B1-1445)
+// -- the two gates are ANDed, never substitutes for each other.
+static bool client_subscribes(const bb_data_http_client_t *c, const char *topic,
+                              bb_data_http_replay_kind_t kind)
 {
+    if ((c->subscribe_mask & (1u << kind)) == 0) return false;
     if (c->topic_filter[0] == '\0') return true;
     return strcmp(c->topic_filter, topic) == 0;
 }
@@ -369,6 +373,12 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
         c->send_ctx  = cfg->send_ctx;
         c->abort_fn  = cfg->abort_fn;
         c->abort_ctx = cfg->abort_ctx;
+        // Zero-default -> ALL (B1-1445): a cfg that never sets this
+        // field resolves to the same "receive everything" behavior every
+        // existing call site already had -- see bb_data_http_client_cfg_t's
+        // subscribe_mask doc (bb_data_http.h) for why a bare 0 is safe here
+        // in a way BB_DATA_HTTP_NO_FD's fd sentinel is not.
+        c->subscribe_mask = cfg->subscribe_mask ? cfg->subscribe_mask : BB_DATA_HTTP_SUBSCRIBE_ALL;
 
         c->outbound_max_bytes = CONFIG_BB_DATA_HTTP_OUTBOUND_MAX_BYTES;
         bb_queue_cfg_t qcfg = {
@@ -397,7 +407,7 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
             if (bb_registry_get_by_index(&s_attach_registry, k, &e) != BB_OK) continue;  // LCOV_EXCL_BR_LINE -- k < count by construction
             attach_slot_t *slot = (attach_slot_t *)e.value;
             if (slot->kind != BB_DATA_HTTP_STATE) continue;
-            if (!client_subscribes(c, slot->topic)) continue;
+            if (!client_subscribes(c, slot->topic, slot->kind)) continue;
             c->state_dirty_mask |= (1u << k);
         }
 
@@ -556,7 +566,7 @@ static void drain_client_events(bb_data_http_client_t *c)
         if (bb_registry_get_by_index(&s_attach_registry, (uint16_t)id, &e) != BB_OK) continue;  // LCOV_EXCL_BR_LINE -- id always names a still-registered attach index (the attach table never shrinks); unreachable in practice.
         attach_slot_t *slot = (attach_slot_t *)e.value;
 
-        if (!client_subscribes(c, slot->topic)) continue;
+        if (!client_subscribes(c, slot->topic, slot->kind)) continue;
 
         try_flush_event_drop_marker(c);
 
@@ -636,7 +646,7 @@ void bb_data_http_sweep_step(void)
             for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
                 bb_data_http_client_t *c = &s_clients[i];
                 if (!c->in_use) continue;
-                if (!client_subscribes(c, slot->topic)) continue;
+                if (!client_subscribes(c, slot->topic, slot->kind)) continue;
                 if (c->state_seen_gen[k] == gen) continue;  // unchanged since last render
 
                 c->state_seen_gen[k] = gen;
