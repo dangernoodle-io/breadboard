@@ -123,6 +123,18 @@ typedef bb_err_t (*bb_data_http_render_fn)(const char *key, char *buf, size_t ca
 // backend wraps bb_data_generation(); host tests supply a fake. Injected
 // (rather than a direct bb_data_generation() call) so this component never
 // links bb_data -- see the file header.
+//
+// CONTRACT (B1-1449): this callback MUST be a pure, side-effect-free read,
+// with its result for any given key independent of call ORDER relative to
+// any other key -- never lazily computed, cached, or mutated as a side
+// effect of being called. bb_data_http_sweep_step()/bb_data_http_push_pump()
+// rely on this: since the B1-1449 split, every STATE key's generation is now
+// read before any EVENT key's (see bb_data_http_push_pump()'s own doc) --
+// a call-order change from the pre-split single interleaved pass. That
+// reordering is observably inert ONLY because this contract holds; an
+// implementation that violates it (e.g. one that resets some shared
+// "dirty" state as a side effect of being read) would see this reordering
+// become a silent, real behavior change.
 typedef bb_err_t (*bb_data_http_generation_fn)(const char *key, uint32_t *out_gen, void *ctx);
 
 // Sends `len` already-rendered bytes to `client` (the same handle returned
@@ -508,15 +520,17 @@ size_t bb_data_http_active_client_count(void);
 // EVENT-kind attached keys follow a separate, append-only path within the
 // same sweep_step() call:
 //
-//   1. Ring feed: for each attached EVENT key whose generation (via
-//      generation_fn) differs from the module's own last-seen generation for
-//      that key, render_fn is called immediately (not deferred to a drain
-//      phase -- the shared ring has no per-client dirty state to coalesce
-//      against) and the rendered bytes are pushed onto the single shared
-//      EVENT ring. The last-seen generation for that key advances ONLY on
-//      render success (mirrors STATE's clear-only-on-success retry
-//      contract) so a failing render_fn is retried next sweep rather than
-//      silently skipping the event.
+//   1. Ring feed: bb_data_http_push_pump() (see its own doc below) --
+//      called here in the same relative position its logic used to occupy
+//      inline (B1-1449) -- for each attached EVENT key whose generation
+//      (via generation_fn) differs from the module's own last-seen
+//      generation for that key, render_fn is called immediately (not
+//      deferred to a drain phase -- the shared ring has no per-client dirty
+//      state to coalesce against) and the rendered bytes are pushed onto
+//      the single shared EVENT ring. The last-seen generation for that key
+//      advances ONLY on render success (mirrors STATE's
+//      clear-only-on-success retry contract) so a failing render_fn is
+//      retried next call rather than silently skipping the event.
 //   2. Per-client drain: for each active, subscribed client, every ring
 //      entry newer than its push->cursor is drained into its own outbound
 //      queue and its cursor advances past it. If the ring itself has
@@ -571,6 +585,55 @@ size_t bb_data_http_active_client_count(void);
 // setters above) rather than crashing -- useful for host tests exercising
 // only one half of the pipeline at a time.
 void bb_data_http_sweep_step(void);
+
+// EVENT ring-feed step (B1-1449, epic B1-1123), extracted out of
+// bb_data_http_sweep_step()'s own detect phase so it can be called directly
+// -- feeding the shared EVENT ring no longer has to wait for the next 50ms
+// broadcaster tick. Scans every attached EVENT-kind key for a generation
+// change (via the installed generation_fn), renders any that changed (via
+// the installed render_fn), and pushes the rendered bytes onto the single
+// shared EVENT ring -- see bb_data_http_sweep_step()'s own EVENT doc above
+// for the exact per-key semantics (retry-on-render-failure, degrade
+// gracefully with no render_fn, etc.), which this function implements
+// unchanged.
+//
+// sweep_step() itself calls this in the same relative position the old
+// inline ring-feed logic occupied (after STATE detect, before the
+// per-client drain/flush loop) -- observable OUTPUT is unchanged from before
+// this function existed; calling it is purely additive. One CALL-ORDER
+// detail did change, not just output: pre-split, generation_fn was called
+// for every attached key in a single registry-order pass, interleaving
+// STATE and EVENT keys; post-split, sweep_step()'s own detect loop calls
+// generation_fn for every STATE key first, THEN this function makes a
+// second, independent pass calling it for every EVENT key -- so all STATE
+// generation reads now precede all EVENT ones, whereas before they were
+// interleaved. This is safe ONLY because of generation_fn's own contract
+// (see bb_data_http_generation_fn's doc above) requiring it to be a pure,
+// order-independent read; ring push order is unaffected either way (still
+// strictly increasing attach index k).
+//
+// SCOPE FENCE: this function decouples ONLY the ring FEED from the tick.
+// Draining the ring into any client's own outbound queue, and the outbound
+// flush/retry state machine, both stay tick-driven, inside
+// bb_data_http_sweep_step() only -- they are NOT exposed as independently
+// callable, and must not be. That is what preserves the single-broadcaster-
+// task ownership model of every other field this component's clients carry
+// (see bb_data_http_client_t's TASK OWNERSHIP doc) -- the model that fixed
+// the original per-client-task TCB-reuse hazard this component's ring
+// design replaced. Do not add a drain-pump or flush-pump counterpart.
+//
+// SINGLE-WRITER CONTRACT: every s_event_ring/s_event_total_pushed/
+// s_event_last_gen mutation in this module (this function included) is
+// unsynchronized -- correct only because sweep_step() (and therefore this
+// function, called from it) has always run on exactly one task, the
+// broadcaster. Calling this function from a second, concurrent task without
+// a lock is a genuine DATA RACE on those statics, not merely a logic error
+// -- undefined behavior, not a wrong-but-deterministic result -- and NOTHING
+// in this module asserts or otherwise detects a second caller; violating
+// this contract fails silently (or intermittently) rather than loudly. That
+// lock is deliberately out of scope here (a future PR, B1-1450) -- until it
+// lands, only the existing single broadcaster task may call this function.
+void bb_data_http_push_pump(void);
 
 // Diagnostics: cumulative count of render_fn failures observed across every
 // sweep_step() call since bb_data_http_init() (or, on host,

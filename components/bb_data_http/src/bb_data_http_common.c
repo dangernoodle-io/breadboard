@@ -720,6 +720,66 @@ static void drain_client_events(bb_data_http_client_t *c)
     }
 }
 
+// Ring-feed step (B1-1449, design KB 1443/1444, epic B1-1123): for every
+// attached EVENT-kind key whose generation (via generation_fn) differs from
+// the module's own last-seen generation for that key, calls render_fn and
+// pushes the rendered bytes onto the single shared EVENT ring -- see this
+// function's own doc (bb_data_http.h) for the full contract. Extracted out
+// of bb_data_http_sweep_step()'s old single detect loop (B1-1449) so it can
+// be called directly, decoupled from the 50ms broadcaster tick;
+// sweep_step() still calls it in the same relative position (after STATE
+// detect, before the per-client drain/flush loop), so the tick-driven path
+// is unchanged. Single-writer only, same as every other s_event_* mutation
+// in this file: every caller today is sweep_step() itself, i.e. the
+// broadcaster task -- see this function's header doc for why a second,
+// independent caller needs the B1-1450 lock first.
+void bb_data_http_push_pump(void)
+{
+    if (!s_gen_fn) return;
+
+    uint16_t attach_count = bb_registry_count(&s_attach_registry);
+    for (uint16_t k = 0; k < attach_count; k++) {
+        bb_registry_entry_t e;
+        if (bb_registry_get_by_index(&s_attach_registry, k, &e) != BB_OK) continue;  // LCOV_EXCL_BR_LINE -- k < attach_count by construction
+        attach_slot_t *slot = (attach_slot_t *)e.value;
+        if (slot->kind != BB_DATA_HTTP_EVENT) continue;  // STATE keys are handled by sweep_step()'s own detect phase
+
+        uint32_t gen = 0;
+        if (s_gen_fn(slot->key, &gen, s_gen_ctx) != BB_OK) continue;
+        if (gen == s_event_last_gen[k]) continue;  // unchanged since last push
+
+        if (!s_render_fn) {
+            // Nothing to retry -- degrade the same way the drain phase's own
+            // no-render_fn path does (see bb_data_http_sweep_step() below):
+            // advance past this generation rather than looping on it forever
+            // with no way to ever produce a frame.
+            s_event_last_gen[k] = gen;
+            continue;
+        }
+
+        char     ev_buf[CONFIG_BB_DATA_HTTP_OUTBOUND_ENTRY_MAX];
+        size_t   ev_len    = 0;
+        bb_err_t render_rc = s_render_fn(slot->key, ev_buf, sizeof(ev_buf), &ev_len, s_render_ctx);
+        if (render_rc != BB_OK) {
+            // Leave s_event_last_gen[k] unchanged: retried next call rather
+            // than silently skipping the event -- same clear/advance-only-
+            // on-success contract as STATE's drain phase below, same
+            // rate-limited log.
+            s_render_fail_count++;
+            if (s_render_fail_count == 1 ||
+                (s_render_fail_count % BB_DATA_HTTP_RENDER_FAIL_LOG_EVERY) == 0) {
+                bb_log_w(TAG, "event render failed for key '%s': %d (total=%" PRIu32 ")",
+                        slot->key, (int)render_rc, s_render_fail_count);
+            }
+            continue;
+        }
+
+        bb_queue_push(s_event_ring, ev_buf, ev_len, 0, (uint32_t)k);
+        s_event_total_pushed++;
+        s_event_last_gen[k] = gen;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Sweep -- see bb_data_http.h's bb_data_http_sweep_step() doc for the full
 // two-phase detect/drain contract and the lost-wakeup ordering invariant.
@@ -733,12 +793,12 @@ void bb_data_http_sweep_step(void)
     // STATE render call. A generation bump that happens later, during this
     // same pass's render calls (see the drain phase below), is therefore
     // invisible here and gets correctly picked up on the NEXT sweep_step()
-    // call instead of being silently absorbed. EVENT-kind keys are handled
-    // inline here too (see the branch below) -- the shared ring has no
-    // per-client dirty state to coalesce against, so there is nothing to
-    // defer to a later drain phase for the ring-feed step itself (per-client
-    // draining of the ring still happens below, in the main per-client
-    // loop).
+    // call instead of being silently absorbed. EVENT-kind keys are skipped
+    // here (see bb_data_http_push_pump(), called below) -- the shared ring
+    // has no per-client dirty state to coalesce against, so there is
+    // nothing to defer to a later drain phase for the ring-feed step itself
+    // (per-client draining of the ring still happens below, in the main
+    // per-client loop).
     if (s_gen_fn) {
         // Hoisted poll!=NULL check (B1-1446, now a direct pointer check post-
         // B1-1447): which in-use clients even want STATE delivery at all,
@@ -762,44 +822,10 @@ void bb_data_http_sweep_step(void)
             bb_registry_entry_t e;
             if (bb_registry_get_by_index(&s_attach_registry, k, &e) != BB_OK) continue;  // LCOV_EXCL_BR_LINE -- k < attach_count by construction
             attach_slot_t *slot = (attach_slot_t *)e.value;
+            if (slot->kind == BB_DATA_HTTP_EVENT) continue;  // handled by bb_data_http_push_pump() below
 
             uint32_t gen = 0;
             if (s_gen_fn(slot->key, &gen, s_gen_ctx) != BB_OK) continue;
-
-            if (slot->kind == BB_DATA_HTTP_EVENT) {
-                if (gen == s_event_last_gen[k]) continue;  // unchanged since last push
-
-                if (!s_render_fn) {
-                    // Nothing to retry -- degrade the same way the drain
-                    // phase's own no-render_fn path does (see below):
-                    // advance past this generation rather than looping on it
-                    // forever with no way to ever produce a frame.
-                    s_event_last_gen[k] = gen;
-                    continue;
-                }
-
-                char     ev_buf[CONFIG_BB_DATA_HTTP_OUTBOUND_ENTRY_MAX];
-                size_t   ev_len    = 0;
-                bb_err_t render_rc = s_render_fn(slot->key, ev_buf, sizeof(ev_buf), &ev_len, s_render_ctx);
-                if (render_rc != BB_OK) {
-                    // Leave s_event_last_gen[k] unchanged: retried next
-                    // sweep_step() rather than silently skipping the event
-                    // -- same clear/advance-only-on-success contract as
-                    // STATE's drain phase below, same rate-limited log.
-                    s_render_fail_count++;
-                    if (s_render_fail_count == 1 ||
-                        (s_render_fail_count % BB_DATA_HTTP_RENDER_FAIL_LOG_EVERY) == 0) {
-                        bb_log_w(TAG, "event render failed for key '%s': %d (total=%" PRIu32 ")",
-                                slot->key, (int)render_rc, s_render_fail_count);
-                    }
-                    continue;
-                }
-
-                bb_queue_push(s_event_ring, ev_buf, ev_len, 0, (uint32_t)k);
-                s_event_total_pushed++;
-                s_event_last_gen[k] = gen;
-                continue;
-            }
 
             for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
                 if (!state_eligible[i]) continue;
@@ -812,6 +838,15 @@ void bb_data_http_sweep_step(void)
             }
         }
     }
+
+    // ---- Ring feed: pushes every changed EVENT-kind key's rendered bytes
+    // onto the shared ring -- see bb_data_http_push_pump()'s own doc above.
+    // Called here, in the same relative position the old inline ring-feed
+    // branch occupied (after STATE detect, before per-client drain/flush),
+    // so this call is inert for the tick-driven path -- sweep_step()'s own
+    // observable behavior is unchanged; push_pump() is additionally
+    // independently callable, ahead of the 50ms broadcaster tick (B1-1449).
+    bb_data_http_push_pump();
 
     // ---- Drain phase: per client, for each dirty STATE key, render THEN
     // clear the bit -- and only on render SUCCESS. A missing render_fn has
@@ -1062,6 +1097,14 @@ uint32_t bb_data_http_client_send_fail_count_for_test(const bb_data_http_client_
 uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *c)
 {
     return (c && c->push) ? c->push->cursor : 0;
+}
+
+// Current occupancy of the shared EVENT ring (B1-1449) -- bb_data_http_push_pump()'s
+// direct-call test seam, so a test can assert the ring itself gained an
+// entry without going through a client's own drained cursor.
+size_t bb_data_http_event_ring_count_for_test(void)
+{
+    return s_event_ring ? bb_queue_count(s_event_ring) : 0;
 }
 
 bool bb_data_http_client_pending_release_for_test(const bb_data_http_client_t *c)
