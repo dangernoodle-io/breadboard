@@ -9,6 +9,42 @@ config BB_DATA_HTTP_MAX_CLIENTS
         Sizes the compile-time client-slot pool; bb_data_http_init()'s cfg
         may only shrink this at runtime, never grow it.
 
+config BB_DATA_HTTP_MAX_POLL_CLIENTS
+    int "Max concurrent STATE (poll) subscriber slots"
+    default BB_DATA_HTTP_MAX_CLIENTS
+    range 0 16
+    help
+        B1-1447: sizes the compile-time pool of STATE bookkeeping blocks
+        (dirty-mask + per-key seen-generation), separately from
+        BB_DATA_HTTP_MAX_CLIENTS-sized fd-table slots -- a client whose
+        subscribe_mask (bb_data_http_client_cfg_t) excludes STATE never
+        consumes one. Defaults to BB_DATA_HTTP_MAX_CLIENTS so worst-case
+        memory stays byte-identical to before this pool split; tune it down
+        only when every client is known to be EVENT-only. 0 is valid --
+        every STATE-including bb_data_http_client_acquire() call then fails
+        BB_ERR_NO_SPACE, proving STATE support is genuinely optional at
+        compile time. bb_data_http_init()'s cfg may only shrink this at
+        runtime, never grow it (mirrors BB_DATA_HTTP_MAX_CLIENTS's own
+        shrink-only cfg override).
+
+config BB_DATA_HTTP_MAX_PUSH_CLIENTS
+    int "Max concurrent EVENT (push) subscriber slots"
+    default BB_DATA_HTTP_MAX_CLIENTS
+    range 0 16
+    help
+        B1-1447: sizes the compile-time pool of EVENT bookkeeping blocks
+        (ring read cursor + drop accounting), separately from
+        BB_DATA_HTTP_MAX_CLIENTS-sized fd-table slots -- a client whose
+        subscribe_mask (bb_data_http_client_cfg_t) excludes EVENT never
+        consumes one. Defaults to BB_DATA_HTTP_MAX_CLIENTS so worst-case
+        memory stays byte-identical to before this pool split; tune it down
+        only when every client is known to be STATE-only. 0 is valid --
+        every EVENT-including bb_data_http_client_acquire() call then fails
+        BB_ERR_NO_SPACE, proving EVENT support is genuinely optional at
+        compile time. bb_data_http_init()'s cfg may only shrink this at
+        runtime, never grow it (mirrors BB_DATA_HTTP_MAX_CLIENTS's own
+        shrink-only cfg override).
+
 config BB_DATA_HTTP_OUTBOUND_CAPACITY
     int "Per-client outbound queue entry capacity"
     default 8

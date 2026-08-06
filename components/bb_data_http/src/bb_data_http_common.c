@@ -44,6 +44,24 @@ static const char *TAG = "bb_data_http";
 #ifndef CONFIG_BB_DATA_HTTP_SEND_FAIL_MAX
 #define CONFIG_BB_DATA_HTTP_SEND_FAIL_MAX 3
 #endif
+// B1-1447: both default to CONFIG_BB_DATA_HTTP_MAX_CLIENTS (never a bare
+// literal) so worst-case memory stays byte-identical to before this pool
+// split -- see the Kconfig help text's identical rationale.
+#ifndef CONFIG_BB_DATA_HTTP_MAX_POLL_CLIENTS
+#define CONFIG_BB_DATA_HTTP_MAX_POLL_CLIENTS CONFIG_BB_DATA_HTTP_MAX_CLIENTS
+#endif
+#ifndef CONFIG_BB_DATA_HTTP_MAX_PUSH_CLIENTS
+#define CONFIG_BB_DATA_HTTP_MAX_PUSH_CLIENTS CONFIG_BB_DATA_HTTP_MAX_CLIENTS
+#endif
+// A Kconfig int's `range 0 16` permits 0 (see BB_DATA_HTTP_MAX_POLL_CLIENTS/
+// BB_DATA_HTTP_MAX_PUSH_CLIENTS's own doc: 0 proves that kind is genuinely
+// optional at compile time), but a zero-length static array is not valid
+// ISO C -- these back the pool arrays' actual declared size, while every
+// loop bound below still uses the CONFIG_ value (or s_cfg's runtime-shrunk
+// copy of it) directly, so a 0 cap still means "this pool never hands out a
+// slot", never "index into 1 unadvertised slot".
+#define BB_DATA_HTTP_POLL_POOL_BACKING (CONFIG_BB_DATA_HTTP_MAX_POLL_CLIENTS > 0 ? CONFIG_BB_DATA_HTTP_MAX_POLL_CLIENTS : 1)
+#define BB_DATA_HTTP_PUSH_POOL_BACKING (CONFIG_BB_DATA_HTTP_MAX_PUSH_CLIENTS > 0 ? CONFIG_BB_DATA_HTTP_MAX_PUSH_CLIENTS : 1)
 
 // ---------------------------------------------------------------------------
 // Attach table (composition-root owned). Name-keyed small lookup table --
@@ -74,7 +92,7 @@ static attach_slot_t *find_free_attach_slot(void)
     return NULL;
 }
 
-// The attach-table index used for a key's dirty-mask bit / state_seen_gen
+// The attach-table index used for a key's dirty-mask bit / poll->seen_gen
 // slot is always the registry's own bb_registry_get_by_index() position
 // (register-only, no deregister -- so registration order IS a stable,
 // permanent index), never the BSS array position in s_attach[] (which can
@@ -244,7 +262,7 @@ static uint32_t s_render_fail_count;
 //
 // s_event_last_gen is the module-level (not per-client) last-seen generation
 // per attach-table index, used to detect a new EVENT push is needed --
-// mirrors STATE's state_seen_gen role but scoped to the whole ring rather
+// mirrors STATE's poll->seen_gen role but scoped to the whole ring rather
 // than any one client, since the ring itself is the single shared consumer
 // of generation changes.
 static bb_queue_t s_event_ring;
@@ -281,10 +299,72 @@ void bb_data_http_set_abort_fn(bb_data_http_abort_fn fn, void *ctx)
 
 static struct {
     size_t max_clients;
+    size_t max_poll_clients;
+    size_t max_push_clients;
     bool   initialized;
 } s_cfg;
 
 static bb_data_http_client_t s_clients[CONFIG_BB_DATA_HTTP_MAX_CLIENTS];
+
+// ---------------------------------------------------------------------------
+// STATE (poll) / EVENT (push) bookkeeping pools (B1-1447, epic B1-1123).
+// Separately sized from s_clients above -- a client whose subscribe_mask
+// excludes a kind never draws from that kind's pool at all (see
+// bb_data_http_client_acquire() below), so the two pools can be tuned
+// independently of the fd-table cap and of each other. Backing array size
+// uses the *_BACKING macros (never 0 -- see their own doc) even when the
+// Kconfig cap itself is 0; every loop bound below still uses the real
+// (possibly runtime-shrunk via s_cfg) cap, so a 0-capacity pool still hands
+// out zero slots.
+// ---------------------------------------------------------------------------
+static bb_data_http_poll_state_t s_poll_states[BB_DATA_HTTP_POLL_POOL_BACKING];
+static bool                      s_poll_in_use[BB_DATA_HTTP_POLL_POOL_BACKING];
+static bb_data_http_push_state_t s_push_states[BB_DATA_HTTP_PUSH_POOL_BACKING];
+static bool                      s_push_in_use[BB_DATA_HTTP_PUSH_POOL_BACKING];
+
+// First free poll-pool slot within the runtime-shrunk s_cfg.max_poll_clients
+// bound (never the compile-time backing array size -- mirrors
+// bb_data_http_client_acquire()'s own `s_cfg.max_clients`-bounded scan).
+// NULL if the pool is exhausted (or its runtime cap is 0).
+static bb_data_http_poll_state_t *poll_alloc(void)
+{
+    for (size_t i = 0; i < s_cfg.max_poll_clients; i++) {
+        if (!s_poll_in_use[i]) {
+            s_poll_in_use[i] = true;
+            memset(&s_poll_states[i], 0, sizeof(s_poll_states[i]));
+            return &s_poll_states[i];
+        }
+    }
+    return NULL;
+}
+
+// No-op on NULL (mirrors bb_queue_destroy()'s own NULL-safe convention) --
+// safe to call unconditionally on a client whose poll was never allocated.
+static void poll_free(bb_data_http_poll_state_t *p)
+{
+    if (!p) return;
+    s_poll_in_use[p - s_poll_states] = false;
+}
+
+// Mirror of poll_alloc() for the push pool.
+static bb_data_http_push_state_t *push_alloc(void)
+{
+    for (size_t i = 0; i < s_cfg.max_push_clients; i++) {
+        if (!s_push_in_use[i]) {
+            s_push_in_use[i] = true;
+            memset(&s_push_states[i], 0, sizeof(s_push_states[i]));
+            return &s_push_states[i];
+        }
+    }
+    return NULL;
+}
+
+// Mirror of poll_free() for the push pool.
+static void push_free(bb_data_http_push_state_t *p)
+{
+    if (!p) return;
+    s_push_in_use[p - s_push_states] = false;
+}
 
 bb_err_t bb_data_http_init(const bb_data_http_cfg_t *cfg)
 {
@@ -296,6 +376,14 @@ bb_err_t bb_data_http_init(const bb_data_http_cfg_t *cfg)
     size_t ring_capacity = (cfg && cfg->event_ring_capacity) ? cfg->event_ring_capacity
                                                               : CONFIG_BB_DATA_HTTP_EVENT_RING_CAPACITY;
     if (ring_capacity > CONFIG_BB_DATA_HTTP_EVENT_RING_CAPACITY) return BB_ERR_INVALID_ARG;
+
+    // B1-1447: same shrink-only-override contract as max_clients/
+    // ring_capacity above -- see bb_data_http_cfg_t's doc (bb_data_http.h).
+    size_t max_poll_clients = (cfg && cfg->max_poll_clients) ? cfg->max_poll_clients : CONFIG_BB_DATA_HTTP_MAX_POLL_CLIENTS;
+    if (max_poll_clients > CONFIG_BB_DATA_HTTP_MAX_POLL_CLIENTS) return BB_ERR_INVALID_ARG;
+
+    size_t max_push_clients = (cfg && cfg->max_push_clients) ? cfg->max_push_clients : CONFIG_BB_DATA_HTTP_MAX_PUSH_CLIENTS;
+    if (max_push_clients > CONFIG_BB_DATA_HTTP_MAX_PUSH_CLIENTS) return BB_ERR_INVALID_ARG;
 
     bb_queue_cfg_t event_cfg = {
         .capacity_entries = ring_capacity,
@@ -313,17 +401,23 @@ bb_err_t bb_data_http_init(const bb_data_http_cfg_t *cfg)
     // the rest of the module's live state) only now, never before, so a
     // failed init leaves s_cfg untouched (a caller can retry init() after
     // fixing the cause instead of observing a half-mutated config).
-    s_cfg.max_clients     = max_clients;
-    s_event_ring          = event_ring;
-    s_event_total_pushed  = 0;
+    s_cfg.max_clients      = max_clients;
+    s_cfg.max_poll_clients = max_poll_clients;
+    s_cfg.max_push_clients = max_push_clients;
+    s_event_ring           = event_ring;
+    s_event_total_pushed   = 0;
     memset(s_event_last_gen, 0, sizeof(s_event_last_gen));
 
     for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
         s_clients[i].in_use = false;
     }
+    memset(s_poll_in_use, 0, sizeof(s_poll_in_use));
+    memset(s_push_in_use, 0, sizeof(s_push_in_use));
 
     s_cfg.initialized = true;
-    bb_log_i(TAG, "initialized: max_clients=%u event_ring_capacity=%u", (unsigned)s_cfg.max_clients, (unsigned)ring_capacity);
+    bb_log_i(TAG, "initialized: max_clients=%u event_ring_capacity=%u max_poll_clients=%u max_push_clients=%u",
+             (unsigned)s_cfg.max_clients, (unsigned)ring_capacity,
+             (unsigned)s_cfg.max_poll_clients, (unsigned)s_cfg.max_push_clients);
     return BB_OK;
 }
 
@@ -351,6 +445,36 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
         bb_data_http_client_t *c = &s_clients[i];
         if (c->in_use) continue;
 
+        // Zero-default -> ALL (B1-1445): a cfg that never sets this
+        // field resolves to the same "receive everything" behavior every
+        // existing call site already had -- see bb_data_http_client_cfg_t's
+        // subscribe_mask doc (bb_data_http.h) for why a bare 0 is safe here
+        // in a way BB_DATA_HTTP_NO_FD's fd sentinel is not.
+        uint32_t mask = cfg->subscribe_mask ? cfg->subscribe_mask : BB_DATA_HTTP_SUBSCRIBE_ALL;
+
+        // Pool-first (B1-1447): resolve this client's STATE/EVENT
+        // bookkeeping BEFORE touching `c` or creating its outbound queue --
+        // a client with a kind bit set but no pool slot to back it must
+        // never come into existence (see bb_data_http_client_acquire()'s
+        // doc, bb_data_http.h: acquire fails BB_ERR_NO_SPACE cleanly rather
+        // than returning a client with an unexpectedly-NULL poll/push). `c`
+        // (the free fd-table slot found above) is left completely untouched
+        // on either failure path below -- still available for a later
+        // acquire attempt, no partial state to unwind.
+        bb_data_http_poll_state_t *poll_state = NULL;
+        if (mask & BB_DATA_HTTP_SUBSCRIBE_STATE) {
+            poll_state = poll_alloc();
+            if (!poll_state) return BB_ERR_NO_SPACE;
+        }
+        bb_data_http_push_state_t *push_state = NULL;
+        if (mask & BB_DATA_HTTP_SUBSCRIBE_EVENT) {
+            push_state = push_alloc();
+            if (!push_state) {
+                poll_free(poll_state);
+                return BB_ERR_NO_SPACE;
+            }
+        }
+
         c->fd     = cfg->fd;
         c->is_ws  = cfg->is_ws;
         if (cfg->topic_filter) {
@@ -358,27 +482,24 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
         } else {
             c->topic_filter[0] = '\0';
         }
-        // Fresh EVENT clients start at the ring's current head -- they
-        // receive only EVENTs pushed AFTER they connect, never ring backlog
-        // (unlike STATE's fresh-render-on-connect below; see
-        // bb_data_http_client_t's event_cursor doc).
-        c->event_cursor              = s_event_total_pushed;
-        c->event_dropped             = 0;
-        c->event_drop_marker_pending = false;
-        c->state_dirty_mask          = 0;
-        memset(c->state_seen_gen, 0, sizeof(c->state_seen_gen));
-        c->send_fail_count           = 0;
+        c->subscribe_mask = mask;
+        c->poll           = poll_state;
+        c->push           = push_state;
+        if (c->push) {
+            // Fresh EVENT clients start at the ring's current head -- they
+            // receive only EVENTs pushed AFTER they connect, never ring
+            // backlog (unlike STATE's fresh-render-on-connect below; see
+            // bb_data_http_push_state_t's cursor doc). poll_alloc()/
+            // push_alloc() already zero-initialize the block, so only the
+            // one non-zero field needs setting here.
+            c->push->cursor = s_event_total_pushed;
+        }
+        c->send_fail_count = 0;
         atomic_store(&c->pending_release, false);
         c->send_fn   = cfg->send_fn;
         c->send_ctx  = cfg->send_ctx;
         c->abort_fn  = cfg->abort_fn;
         c->abort_ctx = cfg->abort_ctx;
-        // Zero-default -> ALL (B1-1445): a cfg that never sets this
-        // field resolves to the same "receive everything" behavior every
-        // existing call site already had -- see bb_data_http_client_cfg_t's
-        // subscribe_mask doc (bb_data_http.h) for why a bare 0 is safe here
-        // in a way BB_DATA_HTTP_NO_FD's fd sentinel is not.
-        c->subscribe_mask = cfg->subscribe_mask ? cfg->subscribe_mask : BB_DATA_HTTP_SUBSCRIBE_ALL;
 
         c->outbound_max_bytes = CONFIG_BB_DATA_HTTP_OUTBOUND_MAX_BYTES;
         bb_queue_cfg_t qcfg = {
@@ -393,27 +514,32 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
             .max_age          = 0,
         };
         bb_err_t err = bb_queue_create_ex(&qcfg, &c->outbound);
-        if (err != BB_OK) return err;
+        if (err != BB_OK) {
+            // `c` is still not `in_use` -- unwind the pool slots claimed
+            // above before propagating the error, same "leave nothing
+            // half-claimed" discipline as the pool-exhaustion returns above.
+            poll_free(c->poll);
+            push_free(c->push);
+            c->poll = NULL;
+            c->push = NULL;
+            return err;
+        }
 
         // Fresh-render-on-connect: force every subscribed STATE key dirty
         // now, independent of generation comparison. A key that has never
         // been touched (generation still at its initial value) would
         // otherwise never look "dirty" to the generation-diff detect logic
-        // in bb_data_http_sweep_step() -- state_seen_gen defaults to 0 here,
-        // which can legitimately equal an untouched key's real generation.
+        // in bb_data_http_sweep_step() -- seen_gen defaults to 0 here, which
+        // can legitimately equal an untouched key's real generation.
         //
-        // Hoisted mask check (B1-1446): a client whose mask excludes STATE
-        // entirely skips this walk -- not just the per-key
-        // client_subscribes() gate below the walk, but the walk itself.
-        // client_subscribes() already ANDs this same mask bit (B1-1445), so
-        // today this produces NO observable behavior change (state_dirty_mask
-        // is already left untouched for such a client either way) -- this is
-        // a PREREQUISITE for B1-1447, which splits STATE bookkeeping out of
-        // bb_data_http_client_t into a `poll` pointer that is NULL for a
-        // mask-excludes-STATE client; visiting this walk at all for such a
-        // client would then be a NULL dereference the moment it touches
-        // c->poll->*. Skip-before-visit here is what makes that split safe.
-        if (c->subscribe_mask & BB_DATA_HTTP_SUBSCRIBE_STATE) {
+        // Hoisted mask check (B1-1446, now a direct poll!=NULL check post-
+        // B1-1447): a client with no poll block (mask excludes STATE, or
+        // the poll pool was exhausted -- unreachable here, since exhaustion
+        // already returned above) skips this walk entirely -- not just the
+        // per-key client_subscribes() gate below the walk, but the walk
+        // itself. Visiting it for a NULL-poll client would dereference
+        // c->poll->dirty_mask.
+        if (c->poll) {
             uint16_t count = bb_registry_count(&s_attach_registry);
             for (uint16_t k = 0; k < count; k++) {
                 bb_registry_entry_t e;
@@ -421,7 +547,7 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
                 attach_slot_t *slot = (attach_slot_t *)e.value;
                 if (slot->kind != BB_DATA_HTTP_STATE) continue;
                 if (!client_subscribes(c, slot->topic, slot->kind)) continue;
-                c->state_dirty_mask |= (1u << k);
+                c->poll->dirty_mask |= (1u << k);
             }
         }
 
@@ -437,7 +563,11 @@ void bb_data_http_client_release(bb_data_http_client_t *c)
     if (!c) return;
     bb_queue_destroy(c->outbound);
     c->outbound = NULL;
-    c->in_use   = false;
+    poll_free(c->poll);
+    c->poll = NULL;
+    push_free(c->push);
+    c->push = NULL;
+    c->in_use = false;
     atomic_store(&c->pending_release, false);
 }
 
@@ -524,23 +654,26 @@ static const char *resolve_outbound_key(uint32_t id)
 // ahead of any surviving entries drained later in the same call.
 static void try_flush_event_drop_marker(bb_data_http_client_t *c)
 {
-    if (!c->event_drop_marker_pending) return;
+    if (!c->push->drop_marker_pending) return;
 
     char marker[24];
-    int  n = snprintf(marker, sizeof(marker), "{\"dropped\":%" PRIu32 "}", c->event_dropped);
+    int  n = snprintf(marker, sizeof(marker), "{\"dropped\":%" PRIu32 "}", c->push->dropped);
     if (n < 0 || (size_t)n >= sizeof(marker)) return;  // LCOV_EXCL_LINE -- uint32_t max always fits this buffer
     if (!client_outbound_has_room(c, (size_t)n)) return;
 
     bb_queue_push(c->outbound, marker, (size_t)n, 0, BB_DATA_HTTP_DROP_MARKER_ID);
-    c->event_drop_marker_pending = false;
+    c->push->drop_marker_pending = false;
 }
 
-// Drains every shared-ring EVENT entry newer than `c->event_cursor` -- and
+// Drains every shared-ring EVENT entry newer than `c->push->cursor` -- and
 // matching `c`'s topic_filter -- into c's own outbound queue, advancing its
 // cursor past each entry it examines (whether delivered, filtered out, or
 // dropped for lack of outbound room). See bb_data_http_sweep_step()'s EVENT
 // doc for the full contract; this never blocks or otherwise affects any
 // other client -- one slow client only ever drops its OWN events.
+// REQUIRES c->push != NULL (B1-1447) -- every call site gates on it first
+// (see bb_data_http_sweep_step()'s drain phase); called otherwise, this
+// dereferences a NULL pointer.
 static void drain_client_events(bb_data_http_client_t *c)
 {
     size_t   ring_count = bb_queue_count(s_event_ring);
@@ -555,18 +688,18 @@ static void drain_client_events(bb_data_http_client_t *c)
     // difference idiom (int32_t)(a - b) stays correct across the wrap as
     // long as the true distance between a and b never exceeds INT32_MAX,
     // which holds here (ring/outbound capacities are tiny by comparison).
-    if ((int32_t)(c->event_cursor - oldest_seq) < 0) {
+    if ((int32_t)(c->push->cursor - oldest_seq) < 0) {
         // The ring evicted entries this client never drained -- count the
         // whole gap as dropped and fast-forward the cursor: those sequence
         // numbers no longer exist in the ring to retry.
-        c->event_dropped             += (oldest_seq - c->event_cursor);
-        c->event_drop_marker_pending  = true;
-        c->event_cursor               = oldest_seq;
+        c->push->dropped             += (oldest_seq - c->push->cursor);
+        c->push->drop_marker_pending  = true;
+        c->push->cursor               = oldest_seq;
     }
 
     for (size_t idx = 0; idx < ring_count; idx++) {
         uint32_t seq = oldest_seq + (uint32_t)idx;
-        if ((int32_t)(seq - c->event_cursor) < 0) continue;  // already drained by an earlier sweep (wraparound-safe, see above)
+        if ((int32_t)(seq - c->push->cursor) < 0) continue;  // already drained by an earlier sweep (wraparound-safe, see above)
 
         char     buf[CONFIG_BB_DATA_HTTP_OUTBOUND_ENTRY_MAX];
         size_t   len = 0;
@@ -574,7 +707,7 @@ static void drain_client_events(bb_data_http_client_t *c)
         uint32_t id  = 0;  // attach-table index this entry was pushed under
         if (bb_queue_peek_at(s_event_ring, idx, buf, sizeof(buf), &len, &ts, &id) != BB_OK) continue;  // LCOV_EXCL_BR_LINE -- idx < ring_count by construction
 
-        c->event_cursor = seq + 1;
+        c->push->cursor = seq + 1;
 
         bb_registry_entry_t e;
         if (bb_registry_get_by_index(&s_attach_registry, (uint16_t)id, &e) != BB_OK) continue;  // LCOV_EXCL_BR_LINE -- id always names a still-registered attach index (the attach table never shrinks); unreachable in practice.
@@ -585,8 +718,8 @@ static void drain_client_events(bb_data_http_client_t *c)
         try_flush_event_drop_marker(c);
 
         if (!client_outbound_has_room(c, len)) {
-            c->event_dropped            += 1;
-            c->event_drop_marker_pending = true;
+            c->push->dropped             += 1;
+            c->push->drop_marker_pending  = true;
             continue;
         }
 
@@ -614,24 +747,22 @@ void bb_data_http_sweep_step(void)
     // draining of the ring still happens below, in the main per-client
     // loop).
     if (s_gen_fn) {
-        // Hoisted mask check (B1-1446): which in-use clients even want STATE
-        // delivery at all, computed ONCE per client here rather than
-        // re-derived on every (key, client) pair inside the STATE branch of
-        // the loop below -- a push-only (EVENT-only) client is then skipped
-        // from the inner client loop entirely, for every STATE key, without
-        // ever calling client_subscribes() on it. client_subscribes() already
-        // ANDs this same mask bit (B1-1445), so today this produces NO
-        // observable behavior change (state_seen_gen/state_dirty_mask are
-        // already left untouched for such a client either way) -- this is a
-        // PREREQUISITE for B1-1447, which splits STATE bookkeeping out of
-        // bb_data_http_client_t into a `poll` pointer that is NULL for a
-        // mask-excludes-STATE client; reaching c->state_seen_gen[k] (soon
-        // c->poll->seen_gen[k]) for such a client here would then be a NULL
-        // dereference. Skip-before-visit here is what makes that split safe.
+        // Hoisted poll!=NULL check (B1-1446, now a direct pointer check post-
+        // B1-1447): which in-use clients even want STATE delivery at all,
+        // computed ONCE per client here rather than re-derived on every
+        // (key, client) pair inside the STATE branch of the loop below -- a
+        // push-only (EVENT-only, poll==NULL) client is then skipped from the
+        // inner client loop entirely, for every STATE key, without ever
+        // dereferencing its (absent) poll block. `poll != NULL` is exactly
+        // equivalent to the mask check this replaces (poll is allocated iff
+        // subscribe_mask includes BB_DATA_HTTP_SUBSCRIBE_STATE -- see
+        // bb_data_http_client_acquire()) but is the direct, NULL-safety-
+        // first form: reaching c->poll->seen_gen[k] for a NULL-poll client
+        // here would otherwise be a NULL dereference. Skip-before-visit here
+        // is what makes that split safe.
         bool state_eligible[CONFIG_BB_DATA_HTTP_MAX_CLIENTS];
         for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
-            state_eligible[i] = s_clients[i].in_use &&
-                                 (s_clients[i].subscribe_mask & BB_DATA_HTTP_SUBSCRIBE_STATE) != 0;
+            state_eligible[i] = s_clients[i].in_use && s_clients[i].poll != NULL;
         }
 
         for (uint16_t k = 0; k < attach_count; k++) {
@@ -681,10 +812,10 @@ void bb_data_http_sweep_step(void)
                 if (!state_eligible[i]) continue;
                 bb_data_http_client_t *c = &s_clients[i];
                 if (!client_subscribes(c, slot->topic, slot->kind)) continue;
-                if (c->state_seen_gen[k] == gen) continue;  // unchanged since last render
+                if (c->poll->seen_gen[k] == gen) continue;  // unchanged since last render
 
-                c->state_seen_gen[k] = gen;
-                c->state_dirty_mask |= (1u << k);
+                c->poll->seen_gen[k] = gen;
+                c->poll->dirty_mask |= (1u << k);
             }
         }
     }
@@ -694,11 +825,11 @@ void bb_data_http_sweep_step(void)
     // nothing to retry, so it clears unconditionally; a render_fn that fails
     // leaves the bit set so the key is retried next sweep_step() instead of
     // being silently dropped (see bb_data_http_sweep_step()'s doc comment
-    // and the render-failure-retry host test). Every active client -- dirty
-    // or not -- also has drain_client_events() called on it (EVENT delivery
-    // is driven by the shared ring's own state, not this client's
-    // state_dirty_mask). Once both are resolved, the outbound queue is
-    // flushed via send_fn.
+    // and the render-failure-retry host test). Every EVENT-participating
+    // active client (c->push != NULL) -- dirty or not -- also has
+    // drain_client_events() called on it (EVENT delivery is driven by the
+    // shared ring's own state, not this client's own poll->dirty_mask).
+    // Once both are resolved, the outbound queue is flushed via send_fn.
     for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
         bb_data_http_client_t *c = &s_clients[i];
         if (!c->in_use) continue;
@@ -717,16 +848,20 @@ void bb_data_http_sweep_step(void)
             continue;
         }
 
-        if (c->state_dirty_mask != 0) {
+        // c->poll == NULL for an EVENT-only client (B1-1447) -- the guard
+        // below is the drain phase's own equivalent of state_eligible[]
+        // above, gating on the pointer directly since there is no dirty
+        // mask to read at all without it.
+        if (c->poll && c->poll->dirty_mask != 0) {
             for (uint16_t k = 0; k < attach_count; k++) {
                 uint32_t bit = (1u << k);
-                if ((c->state_dirty_mask & bit) == 0) continue;
+                if ((c->poll->dirty_mask & bit) == 0) continue;
 
                 if (!s_render_fn) {
                     // No render seam installed -- nothing to retry, so
                     // degrade gracefully by clearing (see
                     // bb_data_http_set_render_fn()).
-                    c->state_dirty_mask &= ~bit;
+                    c->poll->dirty_mask &= ~bit;
                     continue;
                 }
 
@@ -753,7 +888,7 @@ void bb_data_http_sweep_step(void)
                 }
 
                 // Clear ONLY on render success -- see the doc comment above.
-                c->state_dirty_mask &= ~bit;
+                c->poll->dirty_mask &= ~bit;
 
                 // render_fn's own `cap` argument (sizeof(buf)) always equals the
                 // outbound queue's configured max_entry_bytes, so out_len can
@@ -768,13 +903,15 @@ void bb_data_http_sweep_step(void)
             }
         }
 
-        // Non-participation (B1-1446): a client whose mask excludes EVENT
+        // Non-participation (B1-1446, now a direct push!=NULL check post-
+        // B1-1447): a client with no push block (mask excludes EVENT)
         // never calls drain_client_events() at all -- that function
-        // unconditionally advances event_cursor (and drop-accounting) off
-        // the shared ring's own state regardless of any per-entry
-        // client_subscribes() filtering inside it, so a STATE-only client
-        // must not be visited here even once.
-        if (c->subscribe_mask & BB_DATA_HTTP_SUBSCRIBE_EVENT) {
+        // REQUIRES c->push != NULL (unconditionally advances its cursor and
+        // drop-accounting off the shared ring's own state regardless of any
+        // per-entry client_subscribes() filtering inside it), so a
+        // STATE-only (push==NULL) client must not be visited here even
+        // once.
+        if (c->push) {
             drain_client_events(c);
         }
 
@@ -870,7 +1007,7 @@ size_t bb_data_http_render_fail_count(void)
 
 uint32_t bb_data_http_client_dropped_count(const bb_data_http_client_t *c)
 {
-    return c ? c->event_dropped : 0;
+    return (c && c->push) ? c->push->dropped : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -883,6 +1020,14 @@ void bb_data_http_reset_for_test(void)
     for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
         if (s_clients[i].in_use) bb_data_http_client_release(&s_clients[i]);
     }
+    // Defensive belt-and-suspenders (B1-1447): every live client's release
+    // above already frees its own poll/push pool slot, but clear both pools'
+    // in_use bitmaps outright too, same full-reset discipline as the attach/
+    // describe tables below -- a future acquire-path bug that leaks a pool
+    // slot without a corresponding live client must not silently poison
+    // every later test in the same process.
+    memset(s_poll_in_use, 0, sizeof(s_poll_in_use));
+    memset(s_push_in_use, 0, sizeof(s_push_in_use));
     memset(s_attach, 0, sizeof(s_attach));
     bb_registry_reset(&s_attach_registry);
     memset(s_describe, 0, sizeof(s_describe));
@@ -902,13 +1047,13 @@ void bb_data_http_reset_for_test(void)
 
 uint32_t bb_data_http_client_dirty_mask_for_test(const bb_data_http_client_t *c)
 {
-    return c ? c->state_dirty_mask : 0;
+    return (c && c->poll) ? c->poll->dirty_mask : 0;
 }
 
 uint32_t bb_data_http_client_seen_gen_for_test(const bb_data_http_client_t *c, size_t idx)
 {
-    if (!c || idx >= BB_DATA_HTTP_MAX_ATTACH) return 0;
-    return c->state_seen_gen[idx];
+    if (!c || !c->poll || idx >= BB_DATA_HTTP_MAX_ATTACH) return 0;
+    return c->poll->seen_gen[idx];
 }
 
 size_t bb_data_http_client_outbound_count_for_test(const bb_data_http_client_t *c)
@@ -923,7 +1068,7 @@ uint32_t bb_data_http_client_send_fail_count_for_test(const bb_data_http_client_
 
 uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *c)
 {
-    return c ? c->event_cursor : 0;
+    return (c && c->push) ? c->push->cursor : 0;
 }
 
 bool bb_data_http_client_is_ws_for_test(const bb_data_http_client_t *c)
@@ -934,6 +1079,16 @@ bool bb_data_http_client_is_ws_for_test(const bb_data_http_client_t *c)
 bool bb_data_http_client_pending_release_for_test(const bb_data_http_client_t *c)
 {
     return c ? atomic_load(&c->pending_release) : false;
+}
+
+bool bb_data_http_client_poll_is_null_for_test(const bb_data_http_client_t *c)
+{
+    return !c || c->poll == NULL;
+}
+
+bool bb_data_http_client_push_is_null_for_test(const bb_data_http_client_t *c)
+{
+    return !c || c->push == NULL;
 }
 #endif
 
