@@ -7,7 +7,8 @@
  * A consumer declares a static const bb_serialize_field_t table describing
  * a plain-old-data snapshot struct's fields (type, byte offset, optional
  * presence predicate, optional nested-object/array children), then calls
- * bb_serialize_walk() with any implementation of bb_serialize_emit_t.
+ * bb_serialize_walk() with a bb_serialize_walk_cfg_t naming any
+ * implementation of bb_serialize_emit_t.
  *
  * bb_serialize_emit_t is the swap seam: it carries a format_id but has no
  * built-in notion of a wire format. A format backend (JSON, msgpack, ...)
@@ -354,33 +355,48 @@ typedef bool (*bb_serialize_ref_resolve_fn)(const char *ref_key, void *ctx,
 // The pure walker
 // ---------------------------------------------------------------------------
 
-// Walks desc->fields against snap (the snapshot struct's base address),
-// driving emit for each present field in table order. No heap, no locks,
-// no I/O, no format knowledge -- purely a descriptor interpreter. Does NOT
-// wrap the walked fields in a begin_obj/end_obj pair itself; a backend's
-// one-shot entry point (e.g. bb_serialize_json()) does that around the
-// call if the wire format wants a root container.
-//
-// Thin wrapper over bb_serialize_walk_ref(desc, snap, emit, NULL, NULL) --
-// zero behavior/signature change for every existing caller. A descriptor
-// containing a BB_TYPE_REF field omits it (no resolver == unresolved
-// sibling; see bb_serialize_walk_ref()).
-void bb_serialize_walk(const bb_serialize_desc_t *desc, const void *snap,
-                        const bb_serialize_emit_t *emit);
+// Config struct for bb_serialize_walk() -- the ONE public walk entry point.
+// `desc`/`snap`/`emit` are the required core (a NULL in any of these is
+// invalid input, same as before this struct existed -- the walk is a no-op).
+// `resolve`/`resolve_ctx` are OPTIONAL REF-resolution extensions: leaving
+// both zero-init (as a plain-walk caller naturally does when only setting
+// desc/snap/emit) reproduces exactly the former bb_serialize_walk()
+// behavior -- a descriptor containing a BB_TYPE_REF field omits it (no
+// resolver == unresolved sibling). There is no zero-vs-unset ambiguity
+// here: every field is a pointer, and NULL already carries "absent"
+// semantics for each one (no core is required to be a non-pointer
+// sentinel, unlike e.g. bb_task_config_t.core).
+typedef struct {
+    const bb_serialize_desc_t *desc;
+    const void                *snap;
+    const bb_serialize_emit_t *emit;
 
-// Same as bb_serialize_walk(), plus REF resolution: any BB_TYPE_REF field
-// encountered calls `resolve(field->ref_key, resolve_ctx, &ref)`; on true,
-// the sibling's fields (ref.desc/ref.snap) are walked inline at the REF
-// field's wire key (`.key`), exactly like a BB_TYPE_OBJ child -- same
-// begin_obj/end_obj bracketing, same depth-cap accounting (a REF hop costs
-// one depth level, same as OBJ). On false, or when `resolve` is NULL, the
-// field is OMITTED entirely (no begin_obj/end_obj, no emit_null) -- the
-// same convention as a `present`-false field. If the REF field also
-// carries a `.present` predicate, it is evaluated FIRST; present-false
-// short-circuits before resolution is ever attempted.
-void bb_serialize_walk_ref(const bb_serialize_desc_t *desc, const void *snap,
-                            const bb_serialize_emit_t *emit,
-                            bb_serialize_ref_resolve_fn resolve, void *resolve_ctx);
+    // Optional REF resolution -- see bb_serialize_walk()'s doc below for
+    // the full BB_TYPE_REF contract. NULL (the zero-init default) means no
+    // resolver: any BB_TYPE_REF field encountered is omitted entirely.
+    bb_serialize_ref_resolve_fn resolve;
+    void                       *resolve_ctx;
+} bb_serialize_walk_cfg_t;
+
+// Walks cfg->desc->fields against cfg->snap (the snapshot struct's base
+// address), driving cfg->emit for each present field in table order. No
+// heap, no locks, no I/O, no format knowledge -- purely a descriptor
+// interpreter. Does NOT wrap the walked fields in a begin_obj/end_obj pair
+// itself; a backend's one-shot entry point (e.g. bb_serialize_json())
+// does that around the call if the wire format wants a root container.
+// Returns (is a no-op) if desc, snap, or emit is NULL.
+//
+// REF resolution: if cfg->resolve is non-NULL, any BB_TYPE_REF field
+// encountered calls `cfg->resolve(field->ref_key, cfg->resolve_ctx, &ref)`;
+// on true, the sibling's fields (ref.desc/ref.snap) are walked inline at
+// the REF field's wire key (`.key`), exactly like a BB_TYPE_OBJ child --
+// same begin_obj/end_obj bracketing, same depth-cap accounting (a REF hop
+// costs one depth level, same as OBJ). On false, or when cfg->resolve is
+// NULL, the field is OMITTED entirely (no begin_obj/end_obj, no
+// emit_null) -- the same convention as a `present`-false field. If the
+// REF field also carries a `.present` predicate, it is evaluated FIRST;
+// present-false short-circuits before resolution is ever attempted.
+void bb_serialize_walk(const bb_serialize_walk_cfg_t *cfg);
 
 // Top-level field lookup by key (not recursive into BB_TYPE_OBJ children)
 // -- e.g. for a future direct-read display path. Returns NULL if desc,

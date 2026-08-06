@@ -237,7 +237,8 @@ bb_err_t bb_serialize_console_render(const bb_serialize_desc_t *desc, const void
     bb_serialize_console_ctx_init(&ctx, buf, cap);
 
     bb_serialize_emit_t emit = bb_serialize_console_emit(&ctx);
-    bb_serialize_walk(desc, snap, &emit);
+    bb_serialize_walk_cfg_t walk_cfg = { .desc = desc, .snap = snap, .emit = &emit };
+    bb_serialize_walk(&walk_cfg);
 
     // Every begin_obj push (bb_console_push_path()) must have been popped
     // by its matching end_obj (bb_console_pop_path()) by the time the walk

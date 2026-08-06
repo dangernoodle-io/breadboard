@@ -473,8 +473,8 @@ bb_serialize_emit_t bb_serialize_json_emit(bb_serialize_json_ctx_t *ctx)
     return emit;
 }
 
-// Shared implementation -- resolve == NULL drives the plain
-// bb_serialize_walk() path (via bb_serialize_walk_ref's own NULL handling).
+// Shared implementation -- resolve == NULL drives the plain (non-REF)
+// bb_serialize_walk() path (cfg.resolve == NULL's own no-op handling).
 // f64_shortest selects bb_json_write_f64_shortest() over the default
 // bb_json_write_f64() for every BB_TYPE_F64 field this call renders (see
 // bb_serialize_json_ctx_t.f64_shortest's doc comment) -- a render-level
@@ -494,8 +494,16 @@ static bb_err_t bb_json_render_impl(const bb_serialize_desc_t *desc, const void 
 
     bb_serialize_emit_t emit = bb_serialize_json_emit(&ctx);
 
+    bb_serialize_walk_cfg_t walk_cfg = {
+        .desc        = desc,
+        .snap        = snap,
+        .emit        = &emit,
+        .resolve     = resolve,
+        .resolve_ctx = resolve_ctx,
+    };
+
     bb_json_putc(&ctx, '{');
-    bb_serialize_walk_ref(desc, snap, &emit, resolve, resolve_ctx);
+    bb_serialize_walk(&walk_cfg);
     bb_json_putc(&ctx, '}');
 
     if (ctx.err != BB_OK) {
@@ -575,8 +583,10 @@ bb_err_t bb_serialize_json_stream_render_ex(const bb_serialize_desc_t *desc, con
 
     bb_serialize_emit_t emit = bb_serialize_json_emit(&ctx);
 
+    bb_serialize_walk_cfg_t walk_cfg = { .desc = desc, .snap = snap, .emit = &emit };
+
     bb_json_putc(&ctx, '{');
-    bb_serialize_walk_ref(desc, snap, &emit, NULL, NULL);
+    bb_serialize_walk(&walk_cfg);
     bb_json_putc(&ctx, '}');
     bb_json_flush(&ctx);  // flush the tail
 
@@ -586,7 +596,7 @@ bb_err_t bb_serialize_json_stream_render_ex(const bb_serialize_desc_t *desc, con
 // Composed-document counterpart -- same buffer, same flush/abort mechanics
 // as bb_serialize_json_stream_render() above, driving one
 // bb_serialize_compose_walk() call per group (rather than a single
-// bb_serialize_walk_ref() call) inside one pair of root braces -- letting a
+// bb_serialize_walk() call) inside one pair of root braces -- letting a
 // caller mix shapes (e.g. RAW root fields + OBJECT sections) that no single
 // bb_serialize_compose_walk() call can express on its own. See the header's
 // doc comment for the mixed-shape rationale and the compose_err/ctx.err

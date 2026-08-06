@@ -333,7 +333,8 @@ bb_err_t bb_serialize_logfmt_render(const bb_serialize_desc_t *desc, const void 
     bb_serialize_logfmt_ctx_init(&ctx, buf, cap - 1);
 
     bb_serialize_emit_t emit = bb_serialize_logfmt_emit(&ctx);
-    bb_serialize_walk(desc, snap, &emit);
+    bb_serialize_walk_cfg_t walk_cfg = { .desc = desc, .snap = snap, .emit = &emit };
+    bb_serialize_walk(&walk_cfg);
 
     if (ctx.err != BB_OK) {
         buf[0] = '\0';

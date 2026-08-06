@@ -499,7 +499,7 @@ void test_bb_serialize_console_emit_zero_cap_ctx_walk_is_noop(void)
     bb_serialize_console_ctx_init(&ctx, buf, 0);
 
     bb_serialize_emit_t emit = bb_serialize_console_emit(&ctx);
-    bb_serialize_walk(&desc, &snap, &emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &desc, .snap = &snap, .emit = &emit });
 
     TEST_ASSERT_EQUAL_UINT(0, ctx.len);
     TEST_ASSERT_EQUAL('X', buf[0]);  // untouched -- no room even for a NUL

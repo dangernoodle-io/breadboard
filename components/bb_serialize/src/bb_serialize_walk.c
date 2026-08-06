@@ -206,18 +206,11 @@ static void walk_fields(const bb_serialize_field_t *fields, uint16_t n_fields,
     }
 }
 
-void bb_serialize_walk(const bb_serialize_desc_t *desc, const void *snap,
-                        const bb_serialize_emit_t *emit)
+void bb_serialize_walk(const bb_serialize_walk_cfg_t *cfg)
 {
-    bb_serialize_walk_ref(desc, snap, emit, NULL, NULL);
-}
-
-void bb_serialize_walk_ref(const bb_serialize_desc_t *desc, const void *snap,
-                            const bb_serialize_emit_t *emit,
-                            bb_serialize_ref_resolve_fn resolve, void *resolve_ctx)
-{
-    if (!desc || !snap || !emit) return;  // LCOV_EXCL_BR_LINE -- defensive against NULL misuse
-    walk_fields(desc->fields, desc->n_fields, snap, emit, 0, resolve, resolve_ctx);
+    if (!cfg || !cfg->desc || !cfg->snap || !cfg->emit) return;  // LCOV_EXCL_BR_LINE -- defensive against NULL misuse
+    walk_fields(cfg->desc->fields, cfg->desc->n_fields, cfg->snap, cfg->emit, 0,
+                cfg->resolve, cfg->resolve_ctx);
 }
 
 const bb_serialize_field_t *bb_serialize_desc_find(const bb_serialize_desc_t *desc,

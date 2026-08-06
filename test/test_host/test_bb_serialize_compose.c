@@ -308,7 +308,7 @@ void test_bb_serialize_compose_single_entry_raw_shape_matches_direct_walk(void)
     rec_t raw_via_compose = s_rec[0];
 
     rec_reset();
-    bb_serialize_walk(&s_flat_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_flat_desc, .snap = &snap, .emit = &s_mock_emit });
     TEST_ASSERT_EQUAL_UINT(1, s_rec_n);
 
     TEST_ASSERT_EQUAL(raw_via_compose.op, s_rec[0].op);
