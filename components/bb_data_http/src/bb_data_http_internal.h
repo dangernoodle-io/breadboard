@@ -100,6 +100,7 @@ struct bb_data_http_client {
     int                    fd;
     bool                   is_ws;
     char                   topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
+    uint32_t               subscribe_mask;  // resolved kind bitmask; see bb_data_http_client_cfg_t's doc (bb_data_http.h)
     uint32_t               event_cursor;
     uint32_t               event_dropped;
     bool                   event_drop_marker_pending;

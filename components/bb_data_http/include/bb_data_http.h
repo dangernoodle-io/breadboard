@@ -74,6 +74,23 @@ typedef enum {
     BB_DATA_HTTP_EVENT = 1,
 } bb_data_http_replay_kind_t;
 
+// Kind-subscription bitmask (B1-1445, epic B1-1123). Bit `1u <<
+// slot->kind` for each bb_data_http_replay_kind_t a client wants delivered
+// to it -- see bb_data_http_client_cfg_t's `subscribe_mask` doc below for
+// the full contract.
+#define BB_DATA_HTTP_SUBSCRIBE_STATE (1u << BB_DATA_HTTP_STATE)
+#define BB_DATA_HTTP_SUBSCRIBE_EVENT (1u << BB_DATA_HTTP_EVENT)
+#define BB_DATA_HTTP_SUBSCRIBE_ALL   (BB_DATA_HTTP_SUBSCRIBE_STATE | BB_DATA_HTTP_SUBSCRIBE_EVENT)
+
+// The macros above hard-code BB_DATA_HTTP_STATE/EVENT's numeric values (0/1)
+// rather than deriving the shift from the enumerator itself -- this assert
+// is what keeps that safe: inserting a kind before EVENT, or dropping either
+// enumerator's explicit `= N`, would silently invert which bit gates which
+// kind (a client's mask would gate the wrong delivery path with no compile
+// error) were this not here.
+_Static_assert(BB_DATA_HTTP_STATE == 0 && BB_DATA_HTTP_EVENT == 1,
+               "subscribe-mask bit mapping depends on these enum values");
+
 // Max length (including NUL) of an attach-table topic name or a client's
 // topic_filter. Fixed compile-time constant (mirrors bb_data's
 // BB_DATA_KEY_MAX sizing rationale) -- not Kconfig-tunable.
@@ -263,6 +280,16 @@ void bb_data_http_set_abort_fn(bb_data_http_abort_fn fn, void *ctx);
 // call site relies on.
 // abort_fn/abort_ctx: per-client fatal-abort seam, same NULL-means-
 // module-wide-default rule as send_fn/send_ctx above.
+// subscribe_mask (B1-1445): which bb_data_http_replay_kind_t(s) this
+// client receives, as a bitmask of BB_DATA_HTTP_SUBSCRIBE_STATE /
+// BB_DATA_HTTP_SUBSCRIBE_EVENT (or BB_DATA_HTTP_SUBSCRIBE_ALL for both).
+// Gates DELIVERY only -- a key must still match topic_filter (the existing
+// topic-string rule) AND have its kind bit set here; the two are ANDed, not
+// substitutes for each other. Zero-default (an unset/zero-valued field) is
+// safe and resolves to BB_DATA_HTTP_SUBSCRIBE_ALL, matching the behavior
+// every existing call site (which never sets this field) already had --
+// unlike `fd`, a bitmask has no valid-looking zero to collide with, so a
+// bare 0 unambiguously means "caller didn't ask for a kind filter".
 typedef struct {
     int                    fd;
     const char            *topic_filter;
@@ -271,6 +298,7 @@ typedef struct {
     void                  *send_ctx;
     bb_data_http_abort_fn  abort_fn;
     void                  *abort_ctx;
+    uint32_t               subscribe_mask;
 } bb_data_http_client_cfg_t;
 
 // ---------------------------------------------------------------------------
