@@ -552,17 +552,68 @@ void test_bb_data_http_client_acquire_exhaustion_returns_no_space(void)
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 3, .is_ws = false}, &c3));
 }
 
+// B1-1447 review LOW 2: proving the error code alone is a weak test -- it
+// passes whether or not the poll/push pool slots claimed before the failing
+// bb_queue_create_ex() call are actually unwound (bb_data_http_common.c's
+// acquire()'s poll_free(c->poll)/push_free(c->push) pair). Since this cfg
+// uses the default (ALL) mask, BOTH pools are claimed before the queue
+// create fails, so a leaked slot here is a leaked slot in EITHER pool, in a
+// static pool with no GC -- permanent once the default cap (2 of each) is
+// exhausted by repeated failures. Reclamation is proven, not just the
+// return code: after resetting the (now-working) allocator, a second
+// default-mask acquire must SUCCEED with both poll and push non-NULL --
+// impossible if either free() call above were silently dropped, since the
+// pool involved would then already read "exhausted" from this one prior
+// failed attempt.
+//
+// Mutation evidence: delete the poll_free(c->poll)/push_free(c->push) pair
+// in bb_data_http_client_acquire()'s outbound-alloc-failure unwind path --
+// this test then FAILS (the second acquire returns BB_ERR_NO_SPACE, or
+// succeeds with an unexpectedly-NULL poll/push), while the OLD (error-code-
+// only) assertion would still have passed.
 void test_bb_data_http_client_acquire_outbound_alloc_failure_returns_error(void)
 {
     reset_all();
-    bb_data_http_init(NULL);
+    // Pool caps pinned to exactly 1 each (rather than the Kconfig default
+    // of 2): the reclamation proof below only DISCRIMINATES a dropped
+    // poll_free()/push_free() call if the single slot the failed attempt
+    // claims is the ONLY slot in its pool -- at the default cap of 2, a
+    // leaked slot still leaves one spare for the second acquire to draw
+    // from, and the test would pass whether or not the unwind actually
+    // freed anything (verified by mutation, see this test's own doc below).
+    bb_data_http_cfg_t cfg = { .max_clients = 2, .max_poll_clients = 1, .max_push_clients = 1 };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(&cfg));
 
     bb_queue_set_allocator(failing_calloc, free);
-    bb_data_http_client_t *c = NULL;
-    bb_err_t               rc = bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &c);
+    bb_data_http_client_t *failed = NULL;
+    bb_err_t               rc = bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1, .is_ws = false}, &failed);
     bb_queue_reset_allocator();
 
     TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_NULL(failed);
+
+    // B1-1447 review LOW 2: the error code alone is a weak test -- it passes
+    // whether or not the poll/push pool slots claimed before the failing
+    // bb_queue_create_ex() call are actually unwound
+    // (bb_data_http_common.c's acquire()'s poll_free(c->poll)/
+    // push_free(c->push) pair). Since this cfg uses the default (ALL) mask,
+    // BOTH pools' single slot are claimed before the queue create fails --
+    // reclamation is proven here, not just the return code: after resetting
+    // the (now-working) allocator, a second default-mask acquire must
+    // SUCCEED with both poll and push non-NULL, which is only possible if
+    // that one slot in EACH pool was actually returned.
+    //
+    // Mutation evidence: delete the poll_free(c->poll)/push_free(c->push)
+    // pair in bb_data_http_client_acquire()'s outbound-alloc-failure unwind
+    // path -- this test then FAILS (the second acquire returns
+    // BB_ERR_NO_SPACE), while the OLD (error-code-only) assertion, and this
+    // same reclamation proof at the Kconfig-default pool cap of 2, would
+    // both still have passed (a single leaked slot never exhausts a
+    // 2-slot pool).
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 2, .is_ws = false}, &c));
+    TEST_ASSERT_FALSE(bb_data_http_client_poll_is_null_for_test(c));
+    TEST_ASSERT_FALSE(bb_data_http_client_push_is_null_for_test(c));
 }
 
 // B1-1050 PR-1: the espidf WS backend acquires with is_ws=true (mirroring
@@ -1657,7 +1708,7 @@ void test_bb_data_http_sweep_step_reaps_client_only_on_sweep_after_mid_sweep_rel
 // sweep would find nothing dirty, render_fn would never be called a second
 // time, and the final frame/seen-gen assertions would fail. (Cross-sweep
 // generation-bump safety is a separate, still-true property: the detect
-// phase records state_seen_gen from the pre-render generation and runs to
+// phase records poll->seen_gen from the pre-render generation and runs to
 // completion before any render call -- see bb_data_http.h's HARD INVARIANT
 // comment and bb_data_http_sweep_step()'s doc.)
 // ---------------------------------------------------------------------------
@@ -1698,7 +1749,7 @@ void test_bb_data_http_sweep_step_render_failure_retries_on_next_sweep(void)
 // ---------------------------------------------------------------------------
 // Detect-phase generation_fn failure (bb_data_http_sweep_step()'s detect
 // loop): a failing generation_fn must be skipped entirely for that key --
-// no dirty bit, no state_seen_gen update, no render call -- rather than
+// no dirty bit, no poll->seen_gen update, no render call -- rather than
 // treating the failure as "unchanged" or crashing on an uninitialized `gen`.
 // ---------------------------------------------------------------------------
 
@@ -1857,7 +1908,7 @@ void test_bb_data_http_subscribe_mask_zero_default_receives_both_kinds(void)
 //    force-dirty walk and bb_data_http_sweep_step()'s detect-phase inner
 //    client loop) hoist the subscribe_mask check to run once per client
 //    instead of once per (key, client) pair. client_subscribes() already
-//    ANDs this same mask bit (B1-1445), so state_seen_gen/state_dirty_mask
+//    ANDs this same mask bit (B1-1445), so poll->seen_gen/poll->dirty_mask
 //    were already left untouched for a mask-excludes-STATE client either
 //    way -- there is no NEW observably-different behavior today, and no
 //    test below claims one. The hoist exists as a PREREQUISITE for B1-1447
@@ -1876,12 +1927,12 @@ void test_bb_data_http_subscribe_mask_zero_default_receives_both_kinds(void)
 // ---------------------------------------------------------------------------
 
 // Delivery-gate regression guard (B1-1445): an EVENT-only client's
-// state_seen_gen must stay at 0 across a sweep that bumps every attached
+// poll->seen_gen must stay at 0 across a sweep that bumps every attached
 // STATE key's generation -- this is NOT a non-participation proof (the mask
 // check inside client_subscribes() already guaranteed this before B1-1446's
 // hoist landed; see the file-header comment above), just a guard against
 // regressing that existing delivery-gate behavior. A default-mask (ALL)
-// client in the same sweep proves nothing over-applies: its state_seen_gen
+// client in the same sweep proves nothing over-applies: its poll->seen_gen
 // DOES advance for the same keys.
 void test_bb_data_http_subscribe_mask_event_only_client_state_seen_gen_stays_gated(void)
 {
@@ -1955,6 +2006,169 @@ void test_bb_data_http_subscribe_mask_state_only_client_never_advances_event_cur
     // the ALL client isn't over-skipped -- its cursor advances past every
     // pushed ring entry.
     TEST_ASSERT_EQUAL_UINT32(cursor_before + 3, bb_data_http_client_event_cursor_for_test(all));
+}
+
+// ---------------------------------------------------------------------------
+// STATE/EVENT pool split (B1-1447, epic B1-1123): poll/push bookkeeping now
+// lives in separately-sized pools, pool-allocated per client at acquire time
+// per subscribe_mask bit -- direct proof (not just inferred through a
+// NULL-safe accessor's zero-return) that a kind-excluded client's pointer is
+// genuinely NULL, plus the pool-exhaustion failure mode this split
+// introduces: acquiring more of one kind than that kind's pool holds must
+// fail cleanly (BB_ERR_NO_SPACE) even while fd-table client slots remain
+// free, never return a client with an unexpectedly-NULL poll/push.
+// ---------------------------------------------------------------------------
+
+// Mirror of test_bb_data_http_subscribe_mask_event_only_client_state_seen_gen_
+// stays_gated, but a DIRECT poll==NULL proof (bb_data_http_client_poll_is_
+// null_for_test()) rather than inferring it from a NULL-safe getter's
+// zero-return, plus confirmation the client still sweeps/drains its EVENT
+// traffic correctly with no poll block at all.
+void test_bb_data_http_push_only_client_has_null_poll_and_drains_correctly(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.fd = 1, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_EVENT}, &c));
+    TEST_ASSERT_TRUE(bb_data_http_client_poll_is_null_for_test(c));
+    TEST_ASSERT_FALSE(bb_data_http_client_push_is_null_for_test(c));
+
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_event_cursor_for_test(c));
+}
+
+// Mirror case: a STATE-only client's push must be NULL, and it still
+// sweeps/drains its STATE traffic correctly with no push block at all.
+void test_bb_data_http_poll_only_client_has_null_push_and_drains_correctly(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach("sk1", "topic.a");
+    fake_gen_set("sk1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.fd = 1, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_STATE}, &c));
+    TEST_ASSERT_FALSE(bb_data_http_client_poll_is_null_for_test(c));
+    TEST_ASSERT_TRUE(bb_data_http_client_push_is_null_for_test(c));
+    TEST_ASSERT_EQUAL_UINT32(0x1u, bb_data_http_client_dirty_mask_for_test(c));  // fresh-render-on-connect
+    // bb_data_http_client_dropped_count() must degrade to 0 for a push==NULL
+    // client (branch coverage for its `c && c->push` gate's push==NULL arm,
+    // distinct from the c==NULL arm test_bb_data_http_for_test_helpers_
+    // defend_against_null_and_out_of_range already covers).
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dropped_count(c));
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));
+}
+
+// poll_is_null_for_test()/push_is_null_for_test() must tolerate a NULL
+// client the same way every other _for_test() getter does (see
+// test_bb_data_http_for_test_helpers_defend_against_null_and_out_of_range) --
+// "true" (poll/push IS null) is the correct answer for "there is no client
+// to point at", not a crash.
+void test_bb_data_http_poll_push_is_null_for_test_null_client_returns_true(void)
+{
+    reset_all();
+    TEST_ASSERT_TRUE(bb_data_http_client_poll_is_null_for_test(NULL));
+    TEST_ASSERT_TRUE(bb_data_http_client_push_is_null_for_test(NULL));
+}
+
+// Pool exhaustion (B1-1447 CRITICAL): bb_data_http_cfg_t's max_poll_clients/
+// max_push_clients shrink-only override lets a host test size a kind's pool
+// SMALLER than max_clients -- exactly the "someone tunes a pool down"
+// scenario the pool split introduces as a genuinely new failure mode.
+// Acquiring a second STATE-including client here must fail BB_ERR_NO_SPACE
+// even though a second fd-table client slot is still free (max_clients=2),
+// proving pool exhaustion is a DISTINCT failure from client-slot exhaustion,
+// never a silent NULL poll on a client that otherwise looks acquired.
+void test_bb_data_http_client_acquire_poll_pool_exhausted_returns_no_space(void)
+{
+    reset_all();
+    bb_data_http_cfg_t cfg = { .max_clients = 2, .max_poll_clients = 1 };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(&cfg));
+
+    bb_data_http_client_t *c1 = NULL, *c2 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1}, &c1));  // default mask ALL -- consumes the one poll slot
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 2}, &c2));
+    TEST_ASSERT_NULL(c2);  // never touched -- caller's prior value survives a failed acquire
+    // The fd-table client slot the failed attempt would have used was never
+    // consumed: active_client_count() stays at 1, not silently 2 with a
+    // half-populated client.
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
+
+    // Pools are independent: an EVENT-only client still succeeds even with
+    // the poll pool fully exhausted.
+    bb_data_http_client_t *c3 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.fd = 3, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_EVENT}, &c3));
+    TEST_ASSERT_EQUAL_UINT(2, bb_data_http_active_client_count());
+
+    // Releasing the poll-holding client frees its pool slot back -- a
+    // subsequent STATE-including acquire then succeeds again, proving the
+    // pool is a genuine reusable resource, not a one-shot cap.
+    bb_data_http_client_release(c1);
+    bb_data_http_client_t *c4 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 4}, &c4));
+    TEST_ASSERT_FALSE(bb_data_http_client_poll_is_null_for_test(c4));
+}
+
+// Mirror of the poll-exhaustion test above for the push pool.
+void test_bb_data_http_client_acquire_push_pool_exhausted_returns_no_space(void)
+{
+    reset_all();
+    bb_data_http_cfg_t cfg = { .max_clients = 2, .max_push_clients = 1 };
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(&cfg));
+
+    bb_data_http_client_t *c1 = NULL, *c2 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 1}, &c1));  // default mask ALL -- consumes the one push slot
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.fd = 2}, &c2));
+    TEST_ASSERT_NULL(c2);
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
+
+    // Pools are independent: a STATE-only client still succeeds even with
+    // the push pool fully exhausted.
+    bb_data_http_client_t *c3 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.fd = 3, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_STATE}, &c3));
+    TEST_ASSERT_EQUAL_UINT(2, bb_data_http_active_client_count());
+}
+
+// Init-time validation: max_poll_clients/max_push_clients may only SHRINK
+// the compile-time Kconfig cap, never grow it -- mirrors max_clients/
+// event_ring_capacity's own identical over-cap rejection
+// (test_bb_data_http_init_max_clients_over_cap_returns_invalid_arg /
+// test_bb_data_http_init_event_ring_capacity_over_cap_returns_invalid_arg).
+void test_bb_data_http_init_max_poll_clients_over_cap_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_data_http_cfg_t cfg = { .max_poll_clients = 1000 };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_init(&cfg));
+}
+
+void test_bb_data_http_init_max_push_clients_over_cap_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_data_http_cfg_t cfg = { .max_push_clients = 1000 };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_init(&cfg));
 }
 
 // ---------------------------------------------------------------------------

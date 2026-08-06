@@ -16,7 +16,7 @@
  *
  * EVENT replay (B1-1032, this PR): a single SHARED bb_queue ring, fed by
  * EVENT-kind attached keys, holds rendered frames in monotonic push order.
- * Each active client tracks its own event_cursor (the next undrained global
+ * Each active client tracks its own push->cursor (the next undrained global
  * push-sequence number) and independently drains ring entries -- newer than
  * its cursor and matching its topic_filter -- into its own outbound queue
  * each sweep_step(). Unlike STATE (coalesced dirty-mask, latest value wins),
@@ -38,7 +38,7 @@
  * name.
  *
  * HARD INVARIANT (the STATE lost-wakeup guarantee, KB 1443): the sweep-step's
- * detect phase writes every dirty client's state_seen_gen to the generation
+ * detect phase writes every dirty client's poll->seen_gen to the generation
  * it observed, and runs to COMPLETION for every attached key/client BEFORE
  * any render_fn call happens that same pass. A generation bump that lands
  * during (or after) this pass's own render calls is therefore invisible to
@@ -308,10 +308,23 @@ typedef struct {
 typedef struct {
     size_t max_clients;         // 0 -> CONFIG_BB_DATA_HTTP_MAX_CLIENTS
     size_t event_ring_capacity; // 0 -> CONFIG_BB_DATA_HTTP_EVENT_RING_CAPACITY
+    size_t max_poll_clients;    // 0 -> CONFIG_BB_DATA_HTTP_MAX_POLL_CLIENTS (B1-1447)
+    size_t max_push_clients;    // 0 -> CONFIG_BB_DATA_HTTP_MAX_PUSH_CLIENTS (B1-1447)
 } bb_data_http_cfg_t;
 
 // Initialize the transport core. Idempotent; a second call returns BB_OK.
 // cfg=NULL uses Kconfig defaults.
+//
+// max_poll_clients/max_push_clients (B1-1447): shrink-only overrides of the
+// compile-time BB_DATA_HTTP_MAX_POLL_CLIENTS/BB_DATA_HTTP_MAX_PUSH_CLIENTS
+// pool caps -- same "may only shrink, never grow" contract as max_clients
+// above. Sizes the pools bb_data_http_client_acquire() draws a client's
+// STATE/EVENT bookkeeping block from (see bb_data_http_client_cfg_t's
+// subscribe_mask doc below); either pool can be smaller than max_clients,
+// in which case acquiring more STATE-including (or EVENT-including) clients
+// than that pool holds fails BB_ERR_NO_SPACE even while fd-table client
+// slots remain free -- see bb_data_http_client_acquire()'s own doc.
+// Returns BB_ERR_INVALID_ARG if either exceeds its own Kconfig cap.
 bb_err_t bb_data_http_init(const bb_data_http_cfg_t *cfg);
 
 // ---------------------------------------------------------------------------
@@ -421,7 +434,14 @@ void bb_data_http_describe_foreach(bb_data_http_describe_cb_t cb, void *ctx);
 // truncated (a truncated filter can mis-subscribe a client to the wrong
 // topic).
 // Returns BB_ERR_INVALID_STATE if bb_data_http_init() has not been called.
-// Returns BB_ERR_NO_SPACE if every client slot is in use.
+// Returns BB_ERR_NO_SPACE if every client slot is in use, OR (B1-1447) if
+// `cfg->subscribe_mask` requires a STATE or EVENT bookkeeping block (see
+// bb_data_http_cfg_t's max_poll_clients/max_push_clients doc above) and that
+// kind's pool is exhausted -- a smaller-than-max_clients pool can run out
+// even while an fd-table client slot is still free. This never returns a
+// client with an unexpectedly-NULL poll/push pointer: acquisition fails
+// cleanly instead, and `*out` is left untouched (the caller's prior value,
+// typically NULL, is never overwritten on any failure path).
 bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
                                      bb_data_http_client_t **out);
 
@@ -472,12 +492,12 @@ size_t bb_data_http_active_client_count(void);
 //
 //   1. Detect: for each attached STATE key, read its current generation
 //      (via the injected generation_fn) and compare it against each
-//      matching client's own per-key state_seen_gen. On a mismatch, mark
+//      matching client's own per-key poll->seen_gen. On a mismatch, mark
 //      that client's dirty bit for the key AND record the observed
-//      generation into state_seen_gen -- BEFORE any rendering happens this
+//      generation into poll->seen_gen -- BEFORE any rendering happens this
 //      pass. This is what makes the ordering invariant below race-safe: a
 //      generation bump that happens *during* this pass's own render call
-//      (below) is invisible to this detect step (state_seen_gen already
+//      (below) is invisible to this detect step (poll->seen_gen already
 //      captured the pre-render value), so it is correctly re-detected on
 //      the NEXT sweep_step() call rather than silently absorbed.
 //   2. Drain: for each client -- FIRST reaping (bb_data_http_client_release())
@@ -509,7 +529,7 @@ size_t bb_data_http_active_client_count(void);
 //      contract) so a failing render_fn is retried next sweep rather than
 //      silently skipping the event.
 //   2. Per-client drain: for each active, subscribed client, every ring
-//      entry newer than its event_cursor is drained into its own outbound
+//      entry newer than its push->cursor is drained into its own outbound
 //      queue and its cursor advances past it. If the ring itself has
 //      evicted entries older than a client's cursor (a slow client that
 //      fell behind the ring's own capacity), that gap counts as dropped for

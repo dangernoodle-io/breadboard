@@ -14,30 +14,62 @@
 extern "C" {
 #endif
 
+// STATE (poll) bookkeeping, split out of bb_data_http_client_t (B1-1447,
+// epic B1-1123) into its own pool-allocated block -- see
+// bb_data_http_common.c's poll pool. dirty_mask / seen_gen are indexed by
+// ATTACH-TABLE index (0..BB_DATA_HTTP_MAX_ATTACH-1), NOT by bb_data binding
+// index -- this component never sees bb_data binding indices, only
+// attach-table slots it owns itself.
+typedef struct {
+    uint32_t dirty_mask;
+    uint32_t seen_gen[BB_DATA_HTTP_MAX_ATTACH];
+} bb_data_http_poll_state_t;
+
+// EVENT (push) bookkeeping, split out of bb_data_http_client_t (B1-1447,
+// epic B1-1123) into its own pool-allocated block -- see
+// bb_data_http_common.c's push pool.
+//
+// cursor (B1-1033 PR-3, KB 1443/1444) is this client's read position into
+// the shared EVENT ring (see bb_data_http_common.c's s_event_ring): the next
+// global push-sequence number this client has not yet drained. Set to the
+// ring's current total-pushed count on acquire -- a freshly-attached client
+// only receives EVENTs pushed AFTER it connects, never ring backlog (mirrors
+// an SSE "new events only" subscription rather than replay-on-connect;
+// STATE's fresh-render-on-connect semantics do not apply to EVENT).
+//
+// dropped / drop_marker_pending implement the backpressure contract (see
+// bb_data_http_sweep_step()'s EVENT drain doc): when this client's own
+// `outbound` queue has no room for a drained event, the event is dropped
+// (not evicted from the shared ring -- other clients are unaffected) and
+// dropped increments. A "dropped:N" marker frame is queued for this client
+// at the next opportunity outbound has room, then drop_marker_pending
+// clears; dropped itself is cumulative and never resets
+// (bb_data_http_client_dropped_count()).
+typedef struct {
+    uint32_t cursor;
+    uint32_t dropped;
+    bool     drop_marker_pending;
+} bb_data_http_push_state_t;
+
 // One fd-table client slot (B1-1033 Option A, KB 1443). Indexed 0..N-1 by
 // slot position within the static pool -- see bb_data_http_common.c.
 //
-// state_dirty_mask / state_seen_gen are indexed by ATTACH-TABLE index (0..
-// BB_DATA_HTTP_MAX_ATTACH-1), NOT by bb_data binding index -- this component
-// never sees bb_data binding indices, only attach-table slots it owns
-// itself.
+// poll (B1-1447): STATE bookkeeping, pool-allocated at acquire time only
+// when `subscribe_mask` includes BB_DATA_HTTP_SUBSCRIBE_STATE -- NULL
+// otherwise (an EVENT-only client never touches it; every call site that
+// would dereference it gates on `subscribe_mask` or `poll != NULL` FIRST --
+// see bb_data_http_client_acquire()'s force-dirty walk and
+// bb_data_http_sweep_step()'s detect/drain phases). A client whose kind the
+// core cannot back with a pool slot (pool exhausted) never comes into
+// existence -- bb_data_http_client_acquire() fails BB_ERR_NO_SPACE instead
+// of returning a client with a NULL poll a caller might not expect (see
+// bb_data_http_client_acquire()'s doc, bb_data_http.h).
 //
-// event_cursor (B1-1033 PR-3, KB 1443/1444) is this client's read position
-// into the shared EVENT ring (see bb_data_http_common.c's s_event_ring): the
-// next global push-sequence number this client has not yet drained. Set to
-// the ring's current total-pushed count on acquire -- a freshly-attached
-// client only receives EVENTs pushed AFTER it connects, never ring backlog
-// (mirrors an SSE "new events only" subscription rather than replay-on-
-// connect; STATE's fresh-render-on-connect semantics do not apply to EVENT).
-//
-// event_dropped / event_drop_marker_pending implement the backpressure
-// contract (see bb_data_http_sweep_step()'s EVENT drain doc): when this
-// client's own `outbound` queue has no room for a drained event, the event
-// is dropped (not evicted from the shared ring -- other clients are
-// unaffected) and event_dropped increments. A "dropped:N" marker frame is
-// queued for this client at the next opportunity outbound has room, then
-// event_drop_marker_pending clears; event_dropped itself is cumulative and
-// never resets (bb_data_http_client_dropped_count()).
+// push (B1-1447): EVENT bookkeeping, pool-allocated at acquire time only
+// when `subscribe_mask` includes BB_DATA_HTTP_SUBSCRIBE_EVENT -- NULL
+// otherwise, same non-participation discipline as poll above (see
+// bb_data_http_sweep_step()'s drain phase, which gates
+// drain_client_events() on `push != NULL`).
 //
 // outbound_max_bytes mirrors the byte budget passed to bb_queue_create_ex()
 // for `outbound` at acquire time. bb_queue exposes no "would this push fit"
@@ -96,25 +128,41 @@ extern "C" {
 // clearing `in_use`) could race the broadcaster's own in-flight read/write
 // of this SAME client inside bb_data_http_sweep_step() on another core.
 struct bb_data_http_client {
-    bool                   in_use;
-    int                    fd;
-    bool                   is_ws;
-    char                   topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
-    uint32_t               subscribe_mask;  // resolved kind bitmask; see bb_data_http_client_cfg_t's doc (bb_data_http.h)
-    uint32_t               event_cursor;
-    uint32_t               event_dropped;
-    bool                   event_drop_marker_pending;
-    uint32_t               state_dirty_mask;
-    uint32_t               state_seen_gen[BB_DATA_HTTP_MAX_ATTACH];
-    bb_queue_t             outbound;
-    size_t                 outbound_max_bytes;
-    uint32_t               send_fail_count;
-    atomic_bool            pending_release;
-    bb_data_http_send_fn   send_fn;   // NULL -> module-wide default (s_send_fn)
-    void                  *send_ctx;
-    bb_data_http_abort_fn  abort_fn;  // NULL -> module-wide default (s_abort_fn)
-    void                  *abort_ctx;
+    bool                        in_use;
+    int                         fd;
+    bool                        is_ws;
+    char                        topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
+    uint32_t                    subscribe_mask;  // resolved kind bitmask; see bb_data_http_client_cfg_t's doc (bb_data_http.h)
+    bb_data_http_poll_state_t  *poll;  // NULL unless subscribe_mask includes STATE -- see its own doc above
+    bb_data_http_push_state_t  *push;  // NULL unless subscribe_mask includes EVENT -- see its own doc above
+    bb_queue_t                  outbound;
+    size_t                      outbound_max_bytes;
+    uint32_t                    send_fail_count;
+    atomic_bool                 pending_release;
+    bb_data_http_send_fn        send_fn;   // NULL -> module-wide default (s_send_fn)
+    void                       *send_ctx;
+    bb_data_http_abort_fn       abort_fn;  // NULL -> module-wide default (s_abort_fn)
+    void                       *abort_ctx;
 };
+
+// Pinned shrink proof (B1-1447): splitting STATE/EVENT bookkeeping into
+// pool-allocated poll/push pointers must actually SHRINK this struct, not
+// just rename fields around the same footprint -- see bb_serialize_json_tok.c
+// for this repo's identical pinned-sizeof convention. A future field added
+// here (or a future revert) that changes this size needs a deliberate,
+// reviewed edit to this assert, not a silent drift. Pointer-width-dependent
+// (this struct carries several pointer-sized fields): 120 bytes on a 64-bit
+// host build (native test envs), 88 bytes on a 32-bit target (ESP32/xtensa
+// ILP32) -- both pinned here rather than assuming one ABI, since this header
+// is compiled by both. PRECONDITION: this two-arm ternary only distinguishes
+// ILP32 (4-byte pointers, e.g. ESP32/xtensa) from LP64 (8-byte pointers,
+// e.g. native host); it does NOT cover a 16-bit-pointer target (e.g. an
+// AVR/Arduino backend, which this workspace does have as a family, though
+// bb_data_http itself is realistically ESP32/host-only) -- such a build
+// would spuriously trip this assert and need a third arm added, not silently
+// pass under either existing one.
+_Static_assert(sizeof(struct bb_data_http_client) == (sizeof(void *) == 8 ? 120 : 88),
+               "bb_data_http_client_t size changed -- update this pin (B1-1447 pool split)");
 
 #ifdef BB_DATA_HTTP_TESTING
 // Test accessors -- expose fd-table/attach-table internals without widening
@@ -152,6 +200,18 @@ bool bb_data_http_client_pending_release_for_test(const bb_data_http_client_t *c
 // this flag being correctly threaded through by the pure core, so it needs
 // a host-testable seam of its own). Returns false if `c` is NULL.
 bool bb_data_http_client_is_ws_for_test(const bb_data_http_client_t *c);
+
+// B1-1447: direct proof that a client whose subscribe_mask excludes STATE
+// (or the STATE poll pool was exhausted -- see
+// bb_data_http_client_acquire()'s doc, bb_data_http.h) carries a genuinely
+// NULL `poll` pointer, rather than inferring it indirectly from every
+// poll-reading accessor's own NULL-safe zero-return. Returns true if `c` is
+// NULL (mirrors "no client, nothing to point at").
+bool bb_data_http_client_poll_is_null_for_test(const bb_data_http_client_t *c);
+
+// Mirror of bb_data_http_client_poll_is_null_for_test() for `push`. Returns
+// true if `c` is NULL.
+bool bb_data_http_client_push_is_null_for_test(const bb_data_http_client_t *c);
 #endif
 
 // GET /api/events route descriptor (B1-1215): schema-only (.handler == NULL)
