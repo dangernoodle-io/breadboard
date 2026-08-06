@@ -32,3 +32,30 @@ config BB_SMOKE_CORE_CLAIM_CORE
         the task simply runs unpinned. See smoke_core_claim.c.
 
 endmenu
+
+menu "breadboard smoke: bb_data_http notify-push proof (B1-1451 validation)"
+
+config BB_SMOKE_DATA_NOTIFY
+    bool "Enable notify-push HTTP proof routes (examples/smoke/main/smoke_data_notify.c)"
+    default n
+    help
+        Compiles in and registers three POST routes
+        (/api/smoke/notify-push, /api/smoke/tick-push,
+        /api/smoke/notify-stress) that exercise
+        bb_data_http_notify_push() (components/bb_data_http/include/
+        bb_data_http.h, B1-1451) -- the first real second caller of
+        bb_data_http_push_pump()'s shared-EVENT-ring multi-writer
+        protocol (B1-1449/B1-1450). notify-push/tick-push are an A/B pair
+        for measuring delivery latency off-board (curl -N the SSE stream
+        while POSTing each in turn); notify-stress runs a bounded tight
+        loop of bb_data_http_notify_push() calls concurrently with the
+        broadcaster task's own periodic sweep, to exercise genuine
+        two-task contention on the shared EVENT ring. Default off: every
+        existing smoke env is unaffected -- the "smoke_notify" bb_data key
+        is bound/attached (smoke_data_notify_bind()/_attach(),
+        examples/smoke/main/smoke_data_notify.c) and its routes are
+        registered ONLY when this is on; with it off, both wrappers are
+        no-op BB_OK stubs, so a default smoke build never binds or attaches
+        the key at all and consumes no bb_data binding-table slot for it.
+
+endmenu

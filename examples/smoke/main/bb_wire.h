@@ -75,6 +75,7 @@
 #include "bb_data.h"
 #include "bb_data_http.h"
 #include "smoke_core_claim.h"
+#include "smoke_data_notify.h"
 
 // bbtool:init tier=early fn=bb_lifecycle_register out=s_smoke_wifi_svc:bb_lifecycle_svc_t args=&(bb_lifecycle_config_t){.name="wifi"},&s_smoke_wifi_svc
 
@@ -301,6 +302,39 @@
 // bbtool:init tier=regular fn=bb_data_http_espidf_routes_init server=true component=bb_data_http requires=data_http_started,data_log_attached
 
 // bbtool:init tier=regular fn=bb_data_http_espidf_ws_routes_init server=true component=bb_data_http requires=data_http_started,data_log_attached
+
+// B1-1451 (epic B1-1123): "smoke_notify" is a SECOND bb_data_http-attached
+// key, EVENT-kind (unlike "log" above, which is STATE-kind) -- the on-device
+// proof harness for bb_data_http_notify_push() (examples/smoke/main/
+// smoke_data_notify.c/.h; see that file's own header comment for the full
+// rationale + off-board verification recipe).
+//
+// Unlike the "log" key above, bind/attach here go through smoke_data_notify_
+// bind()/_attach() WRAPPER functions, not bb_data_bind()/bb_data_http_
+// attach_sized() called directly with `args=` -- `bbtool codegen` markers
+// have no Kconfig gate of their own (they always fire), so the ONLY way to
+// make this binding disappear entirely on a default smoke build is to gate
+// the library calls THEMSELVES inside a wrapper (B1-1451 review fix: an
+// earlier version bound/attached this key unconditionally, permanently
+// consuming a bb_data binding-table slot on every board regardless of
+// whether this demo is ever enabled). Both wrappers -- and
+// smoke_data_notify_routes_init() below -- are no-op BB_OK stubs when
+// CONFIG_BB_SMOKE_DATA_NOTIFY is off, mirroring smoke_core_claim's always-
+// called/internally-gated shape.
+//
+//   smoke_data_notify_bind()  -- provides=data_notify_bound.
+//   smoke_data_notify_attach()  -- requires=data_http_init,data_notify_bound.
+//     provides=data_notify_attached.
+//   smoke_data_notify_routes_init(server)  -- requires=data_http_started,
+//     data_notify_attached (same ordering rationale as the "log" key's own
+//     routes_init markers above: routes must not accept connections before
+//     the broadcaster exists or the key is attached).
+
+// bbtool:init tier=regular fn=smoke_data_notify_bind provides=data_notify_bound
+
+// bbtool:init tier=regular fn=smoke_data_notify_attach requires=data_http_init,data_notify_bound provides=data_notify_attached
+
+// bbtool:init tier=regular fn=smoke_data_notify_routes_init server=true requires=data_http_started,data_notify_attached
 
 // B1-1274-adjacent: GET /ping, GET /ws, and POST /api/wsbcast are smoke's
 // own app-level routes (examples/smoke/main/smoke_app.c), not a component

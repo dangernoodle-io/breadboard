@@ -150,7 +150,7 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
         "${CMAKE_CURRENT_LIST_DIR}/bb_wire.h")
 endif()
 
-set(_smoke_srcs "entry_espidf.c" "smoke_app.c" "storage_typed_selftest.c" "smoke_core_claim.c" ${_site_srcs})
+set(_smoke_srcs "entry_espidf.c" "smoke_app.c" "storage_typed_selftest.c" "smoke_core_claim.c" "smoke_data_notify.c" ${_site_srcs})
 if(EXISTS "${BB_SMOKE_GENERATED_APP_INIT}")
     list(APPEND _smoke_srcs "generated/bb_app_init.c")
 endif()
