@@ -1,0 +1,47 @@
+CONFIG_IDF_TARGET="esp32"
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_FREERTOS_HZ=1000
+# Stack overflow detection: PTRVAL canary prints the overflowing task name
+# instead of aborting silently. Original ESP32 has no assist-debug module
+# (SOC_ASSIST_DEBUG_SUPPORTED is unset), so CONFIG_ESP_SYSTEM_HW_STACK_GUARD
+# isn't available here -- pair with the end-of-stack hardware watchpoint for
+# deterministic (not sampled-at-context-switch) detection. See
+# components/bb_health/Kconfig.
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW_PTRVAL=y
+CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
+CONFIG_LOG_DEFAULT_LEVEL=3
+CONFIG_BB_LOG_ROUTES=y
+CONFIG_BB_OTA_PULL_AUTOREGISTER=y
+# Enable RST-based SSE abort teardown (B1-517): bb_http_req_async_abort's
+# SO_LINGER{on,0} setsockopt is inert without this — see bb_http.h.
+CONFIG_LWIP_SO_LINGER=y
+# Enable ESP-IDF httpd WebSocket support so bb_ws_server compiles its real
+# (non-stub) implementation instead of the BB_ERR_UNSUPPORTED stubs used
+# when this is unset -- mirrors sdkconfig.defaults.esp32 (the base env this
+# one does NOT chain from, see platformio.ini's [env:esp32-data-notify]
+# SDKCONFIG_DEFAULTS list). Missing here previously (B1-1451 review fix):
+# GET /ws/events silently fell back to the unsupported stub
+# (bb_data_http_espidf_ws_routes_init/bb_ws_server_register_described_endpoint
+# both returned BB_ERR_UNSUPPORTED == ESP_ERR_NOT_SUPPORTED == 262, NOT an
+# httpd URI-handler-table exhaustion -- verified against esp_err.h and this
+# file's own #else CONFIG_HTTPD_WS_SUPPORT stub block,
+# platform/espidf/bb_ws_server/bb_ws_server.c), so the WS handshake returned
+# 400 Bad Request on hardware while the smoke_notify_push()'s SSE surface
+# (an entirely separate route/transport) kept working normally.
+CONFIG_HTTPD_WS_SUPPORT=y
+# Required alongside CONFIG_HTTPD_WS_SUPPORT: bb_ws_server's
+# ws_pre_handshake_cb gates the WS handshake against provisioning state
+# (B1-1348); bb_ws_server.c #errors at build time if this is off while WS
+# support is on.
+CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT=y
+# Compile+boot gate for the bb_data_http_notify_push() on-device proof
+# harness (B1-1451, epic B1-1123, examples/smoke/main/smoke_data_notify.c).
+# Default n; a no-op stub compiles in when off (every other smoke env is
+# unaffected). With this on, three POST routes
+# (/api/smoke/notify-push, /api/smoke/tick-push, /api/smoke/notify-stress)
+# are registered -- see examples/smoke/main/Kconfig.projbuild and
+# smoke_data_notify.c's own file header for the off-board verification
+# recipe.
+CONFIG_BB_SMOKE_DATA_NOTIFY=y

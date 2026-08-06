@@ -35,6 +35,13 @@
 
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
+// B1-1451: TaskHandle_t / xTaskNotifyGive / ulTaskNotifyTake / pdMS_TO_TICKS
+// -- direct-to-task notification API for the broadcaster's wake primitive
+// (see broadcaster_task()/bb_data_http_notify_push() below). Explicit,
+// rather than relying on some other included header pulling these in
+// transitively.
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #endif
 
 // ---------------------------------------------------------------------------
@@ -645,11 +652,45 @@ static void peer_liveness_prepass(void)
     }
 }
 
+// Broadcaster task handle (B1-1451, epic B1-1123) -- set exactly once, by
+// bb_data_http_espidf_start(), before the task's own first loop iteration
+// can possibly matter to a caller (bb_task_create() returns the handle to
+// the caller before the new task can run far enough for a notification to
+// be lost -- the earliest it can observe is its own first
+// ulTaskNotifyTake() call, and pdMS_TO_TICKS(BB_DATA_HTTP_SWEEP_INTERVAL_MS)
+// bounds how long that can possibly take to reach). Read-only thereafter
+// from bb_data_http_notify_push(), called from any other task, with no
+// lock -- same set-once-then-read-only-elsewhere discipline as s_started
+// immediately below, whose own idempotence check is (by its own established
+// pattern in this file) also not lock-protected. A caller that reads this
+// before bb_data_http_espidf_start() has run sees NULL and simply skips the
+// wake (bb_data_http_notify_push() degrades gracefully -- see its own doc,
+// bb_data_http.h) rather than racing a partially-constructed handle.
+static TaskHandle_t s_broadcaster_handle;
+
+// B1-1451: waits for a direct-to-task notification instead of an
+// unconditional bb_task_delay_ms() -- bb_data_http_notify_push() (any other
+// task) can xTaskNotifyGive() this task to cut the wait short, while
+// BB_DATA_HTTP_SWEEP_INTERVAL_MS remains the wait's TIMEOUT, not merely its
+// initial value: whether or not a notification ever arrives, this call
+// returns at the latest BB_DATA_HTTP_SWEEP_INTERVAL_MS after it starts
+// waiting, so the loop keeps sweeping on its existing cadence when idle --
+// see bb_data_http_notify_push()'s own PERIODICITY PRECONDITION doc
+// (bb_data_http.h) for why that unconditional periodic tick must survive
+// this change unchanged: every attached EVENT key -- not just one a second
+// caller happens to also pump -- is still swept by THIS loop every
+// BB_DATA_HTTP_SWEEP_INTERVAL_MS regardless of notification traffic. pdTRUE
+// clears the notification count to 0 on return (binary-semaphore semantics)
+// so a burst of several notify_push() calls between two sweeps collapses to
+// a single early wake, not a queued backlog of wakes -- exactly right,
+// since every notification's real payload (the pushed EVENT data) is
+// already durably in the shared ring by the time xTaskNotifyGive() runs,
+// not carried in the notification itself.
 static void broadcaster_task(void *arg)
 {
     (void)arg;
     for (;;) {
-        bb_task_delay_ms(BB_DATA_HTTP_SWEEP_INTERVAL_MS);
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(BB_DATA_HTTP_SWEEP_INTERVAL_MS));
         peer_liveness_prepass();
         s_cold_start_available = true;
         bb_data_http_sweep_step();
@@ -691,10 +732,24 @@ bb_err_t bb_data_http_espidf_start(void)
         return err;
     }
 
+    s_broadcaster_handle = (TaskHandle_t)handle;
     s_started = true;
     bb_log_i(TAG, "broadcaster task started (sweep=%dms, stack=%dB, prio=%d)",
              BB_DATA_HTTP_SWEEP_INTERVAL_MS, BB_DATA_HTTP_TASK_STACK_BYTES,
              BB_DATA_HTTP_TASK_PRIORITY);
+    return BB_OK;
+}
+
+// B1-1451: see bb_data_http.h's doc for the full contract (periodicity
+// precondition, graceful degrade, concurrency safety). push_pump() always
+// runs first, synchronously, regardless of whether the broadcaster has
+// started; the wake itself is skipped (not an error) when it hasn't.
+bb_err_t bb_data_http_notify_push(void)
+{
+    bb_data_http_push_pump();
+    if (s_broadcaster_handle) {
+        xTaskNotifyGive(s_broadcaster_handle);
+    }
     return BB_OK;
 }
 

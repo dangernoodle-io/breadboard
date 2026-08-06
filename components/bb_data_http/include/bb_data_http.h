@@ -822,6 +822,50 @@ bb_err_t bb_data_http_espidf_routes_init(bb_http_handle_t server);
 // opaque handle (bb_core.h, already included above) -- no platform type
 // leaks through this declaration.
 bb_err_t bb_data_http_espidf_ws_routes_init(bb_http_handle_t server);
+
+// Convenience wrapper for a SECOND, producer-owned caller (B1-1451, epic
+// B1-1123): bb_data_http_push_pump() plus an immediate wake of the
+// broadcaster task, so a producer's EVENT push does not wait for the
+// broadcaster's own next scheduled sweep to be DRAINED to a connected
+// client. Equivalent to:
+//
+//   bb_data_http_push_pump();
+//   <wake the broadcaster task>
+//
+// PERIODICITY PRECONDITION PRESERVED (bb_data_http_push_pump()'s own
+// MULTI-WRITER CONTRACT doc, above): this function's wake is a bounded-
+// TIMEOUT nudge on the broadcaster's existing wait, never a replacement for
+// its unconditional periodic tick -- broadcaster_task()
+// (bb_data_http_espidf.c) still calls bb_data_http_sweep_step() (which
+// itself calls bb_data_http_push_pump() for every attached EVENT key) on
+// its own BB_DATA_HTTP_SWEEP_INTERVAL_MS cadence regardless of whether any
+// notification arrives. A key this function is called for is therefore
+// STILL pumped by the broadcaster's own periodic sweep, exactly as before
+// this function existed -- calling this function only ever makes delivery
+// happen SOONER, it never becomes the sole periodic driver for any key,
+// including one this function's own caller also pumps. The self-healing
+// ABA-revoke property bb_data_http_push_pump() depends on (see its own
+// PRECONDITION note) is unaffected.
+//
+// Always calls bb_data_http_push_pump() first, synchronously, regardless of
+// whether the broadcaster task has been started yet (bb_data_http_
+// espidf_start()) -- feeding the shared EVENT ring has no dependency on the
+// broadcaster's own task handle. The wake itself is a no-op (the push still
+// happens) if the broadcaster task has not started: the ring will simply be
+// drained on the broadcaster's first sweep once it does start, same as any
+// other push_pump() caller.
+//
+// Safe to call from any task, including concurrently with the broadcaster
+// task itself and/or a second producer task calling this function on a
+// different key -- see bb_data_http_push_pump()'s own MULTI-WRITER CONTRACT
+// doc for the full concurrency argument; this function adds nothing beyond
+// an xTaskNotifyGive()-class wake on top of that already-safe call.
+//
+// Always returns BB_OK -- degrades gracefully (push still happens, wake is
+// skipped) rather than failing when the broadcaster task is not yet
+// running, mirroring this component's other setters/no-op-when-missing
+// seams.
+bb_err_t bb_data_http_notify_push(void);
 #endif
 
 #ifdef __cplusplus

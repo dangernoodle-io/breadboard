@@ -62,7 +62,7 @@ coverage-update-baseline: test ## Shrink-only: prune coverage baseline entries n
 	./scripts/coverage_toolchain.sh python3 scripts/coverage_gate.py --root . --update-baseline
 
 # r4_wifis3 / uno_cc3000 excluded from aggregate + CI pending arm64 toolchain fix (see backlog); use their individual targets locally
-smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32-cache-sweep smoke-esp32-diag-headless smoke-esp32-no-banner smoke-esp32-sw-wdt smoke-esp32-core-claim smoke-esp32c3 smoke-tdongle
+smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32-cache-sweep smoke-esp32-diag-headless smoke-esp32-no-banner smoke-esp32-sw-wdt smoke-esp32-core-claim smoke-esp32-data-notify smoke-esp32c3 smoke-tdongle
 
 # Per-board codegen prerequisites for every smoke-<board> target -- regenerate
 # smoke's REQUIRES fragment (board-parameterized, B1-747) + composition root
@@ -131,6 +131,9 @@ smoke-esp32-sw-wdt: smoke-gen-esp32 ## Build smoke with CONFIG_BB_TASK_REGISTRY_
 
 smoke-esp32-core-claim: smoke-gen-esp32 ## Build smoke with CONFIG_BB_SMOKE_CORE_CLAIM=y (synthetic core-claimer proof harness, exercises the httpd worker-core steering path end-to-end, B1-1364 PR5 validation)
 	$(PIO) run -d examples/smoke -e esp32-core-claim
+
+smoke-esp32-data-notify: smoke-gen-esp32 ## Build smoke with CONFIG_BB_SMOKE_DATA_NOTIFY=y (bb_data_http_notify_push() on-device proof harness, B1-1451, epic B1-1123)
+	$(PIO) run -d examples/smoke -e esp32-data-notify
 
 smoke-esp32c3: smoke-gen-esp32c3 ## Build smoke example for ESP32-C3-DevKitM-1
 	$(PIO) run -d examples/smoke -e esp32c3
