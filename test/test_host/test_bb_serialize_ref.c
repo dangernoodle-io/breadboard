@@ -214,7 +214,10 @@ void test_bb_serialize_ref_happy_path_resolves_inline(void)
     rec_reset();
     system_snap_t snap = { .uptime = 100 };
 
-    bb_serialize_walk_ref(&s_system_desc, &snap, &s_mock_emit, stub_resolve, NULL);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){
+        .desc = &s_system_desc, .snap = &snap, .emit = &s_mock_emit,
+        .resolve = stub_resolve, .resolve_ctx = NULL,
+    });
 
     TEST_ASSERT_EQUAL_UINT(4, s_rec_n);
     TEST_ASSERT_EQUAL(OP_I64, s_rec[0].op);
@@ -246,7 +249,10 @@ void test_bb_serialize_ref_unregistered_sibling_omits_field(void)
     rec_reset();
     system_snap_t snap = { .uptime = 100 };
 
-    bb_serialize_walk_ref(&s_system_desc, &snap, &s_mock_emit, stub_resolve_always_false, NULL);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){
+        .desc = &s_system_desc, .snap = &snap, .emit = &s_mock_emit,
+        .resolve = stub_resolve_always_false, .resolve_ctx = NULL,
+    });
 
     TEST_ASSERT_EQUAL_UINT(1, s_rec_n);
     TEST_ASSERT_EQUAL(OP_I64, s_rec[0].op);
@@ -255,15 +261,16 @@ void test_bb_serialize_ref_unregistered_sibling_omits_field(void)
     // Byte-identical (in recorded-op terms) to a descriptor that never
     // declared the REF field at all.
     rec_reset();
-    bb_serialize_walk(&s_system_no_ref_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_system_no_ref_desc, .snap = &snap, .emit = &s_mock_emit });
     TEST_ASSERT_EQUAL_UINT(1, s_rec_n);
     TEST_ASSERT_EQUAL(OP_I64, s_rec[0].op);
     assert_key("uptime", s_rec[0].key);
 }
 
 // ---------------------------------------------------------------------------
-// 3. resolve == NULL: plain bb_serialize_walk() on a desc containing a REF
-// field -> same omission (proves the wrapper is behavior-preserving).
+// 3. cfg->resolve left unset (NULL): a plain-walk-shaped cfg on a desc
+// containing a REF field -> same omission (proves the ergonomic
+// plain-walk-shaped cfg is behavior-preserving vs an explicit resolver).
 // ---------------------------------------------------------------------------
 
 void test_bb_serialize_ref_plain_walk_no_resolver_omits_field(void)
@@ -271,7 +278,7 @@ void test_bb_serialize_ref_plain_walk_no_resolver_omits_field(void)
     rec_reset();
     system_snap_t snap = { .uptime = 100 };
 
-    bb_serialize_walk(&s_system_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_system_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(1, s_rec_n);
     TEST_ASSERT_EQUAL(OP_I64, s_rec[0].op);
@@ -310,7 +317,10 @@ void test_bb_serialize_ref_present_false_short_circuits_before_resolve(void)
     rec_reset();
     gated_system_snap_t snap = { .uptime = 7, .wifi_present = false };
 
-    bb_serialize_walk_ref(&s_gated_system_desc, &snap, &s_mock_emit, stub_resolve, NULL);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){
+        .desc = &s_gated_system_desc, .snap = &snap, .emit = &s_mock_emit,
+        .resolve = stub_resolve, .resolve_ctx = NULL,
+    });
 
     TEST_ASSERT_EQUAL_UINT(1, s_rec_n);
     TEST_ASSERT_EQUAL(OP_I64, s_rec[0].op);
@@ -322,7 +332,10 @@ void test_bb_serialize_ref_present_true_resolves(void)
     rec_reset();
     gated_system_snap_t snap = { .uptime = 7, .wifi_present = true };
 
-    bb_serialize_walk_ref(&s_gated_system_desc, &snap, &s_mock_emit, stub_resolve, NULL);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){
+        .desc = &s_gated_system_desc, .snap = &snap, .emit = &s_mock_emit,
+        .resolve = stub_resolve, .resolve_ctx = NULL,
+    });
 
     TEST_ASSERT_EQUAL_UINT(4, s_rec_n);
     TEST_ASSERT_EQUAL(OP_BEGIN_OBJ, s_rec[1].op);
@@ -349,7 +362,10 @@ void test_bb_serialize_ref_resolver_true_null_desc_omits_field(void)
     rec_reset();
     system_snap_t snap = { .uptime = 100 };
 
-    bb_serialize_walk_ref(&s_system_desc, &snap, &s_mock_emit, stub_resolve_true_null_desc, NULL);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){
+        .desc = &s_system_desc, .snap = &snap, .emit = &s_mock_emit,
+        .resolve = stub_resolve_true_null_desc, .resolve_ctx = NULL,
+    });
 
     TEST_ASSERT_EQUAL_UINT(1, s_rec_n);
     TEST_ASSERT_EQUAL(OP_I64, s_rec[0].op);
@@ -370,7 +386,10 @@ void test_bb_serialize_ref_resolver_true_null_snap_omits_field(void)
     rec_reset();
     system_snap_t snap = { .uptime = 100 };
 
-    bb_serialize_walk_ref(&s_system_desc, &snap, &s_mock_emit, stub_resolve_true_null_snap, NULL);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){
+        .desc = &s_system_desc, .snap = &snap, .emit = &s_mock_emit,
+        .resolve = stub_resolve_true_null_snap, .resolve_ctx = NULL,
+    });
 
     TEST_ASSERT_EQUAL_UINT(1, s_rec_n);
     TEST_ASSERT_EQUAL(OP_I64, s_rec[0].op);
@@ -437,7 +456,10 @@ void test_bb_serialize_ref_cycle_truncates_at_max_depth(void)
 {
     rec_reset();
 
-    bb_serialize_walk_ref(&s_cycle_a_desc, &s_cycle_a_snap, &s_mock_emit, cycle_resolve, NULL);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){
+        .desc = &s_cycle_a_desc, .snap = &s_cycle_a_snap, .emit = &s_mock_emit,
+        .resolve = cycle_resolve, .resolve_ctx = NULL,
+    });
 
     // Depth 0..MAX_DEPTH-1 each alternately emit {marker, begin_obj(ref)}
     // (2 records) and recurse; at depth == MAX_DEPTH the REF guard bails

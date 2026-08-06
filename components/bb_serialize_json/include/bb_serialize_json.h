@@ -123,10 +123,10 @@ bb_err_t bb_serialize_json_render_ex(const bb_serialize_desc_t *desc, const void
                                       bool f64_shortest);
 
 // Same as bb_serialize_json_render(), plus BB_TYPE_REF resolution: drives
-// bb_serialize_walk_ref() (rather than bb_serialize_walk()) with `resolve`/
-// `resolve_ctx`, so a REF field's sibling section renders inline at its
-// wire key. All-or-nothing semantics and the NUL-terminator/overflow
-// contract are identical to bb_serialize_json_render().
+// bb_serialize_walk() with cfg->resolve/cfg->resolve_ctx set (rather than
+// left NULL), so a REF field's sibling section renders inline at its wire
+// key. All-or-nothing semantics and the NUL-terminator/overflow contract
+// are identical to bb_serialize_json_render().
 bb_err_t bb_serialize_json_render_ref(const bb_serialize_desc_t *desc, const void *snap,
                                        char *buf, size_t cap, size_t *out_len,
                                        bb_serialize_ref_resolve_fn resolve, void *resolve_ctx);

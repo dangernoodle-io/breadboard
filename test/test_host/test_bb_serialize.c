@@ -148,7 +148,7 @@ void test_bb_serialize_flat_scalars(void)
     rec_reset();
     flat_snap_t snap = { .i = -7, .u = 42, .f = 3.5, .b = true };
 
-    bb_serialize_walk(&s_flat_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_flat_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(4, s_rec_n);
     TEST_ASSERT_EQUAL(OP_I64, s_rec[0].op);
@@ -202,7 +202,7 @@ void test_bb_serialize_nested_obj(void)
     rec_reset();
     nested_snap_t snap = { .id = 1, .pos = { .x = 10, .y = 20 } };
 
-    bb_serialize_walk(&s_nested_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_nested_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(5, s_rec_n);
     TEST_ASSERT_EQUAL(OP_I64, s_rec[0].op);
@@ -250,7 +250,7 @@ void test_bb_serialize_present_gate_omits_field(void)
     rec_reset();
     gated_snap_t snap = { .a = 1, .b = 2, .b_present = false };
 
-    bb_serialize_walk(&s_gated_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_gated_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(1, s_rec_n);
     TEST_ASSERT_EQUAL(OP_I64, s_rec[0].op);
@@ -262,7 +262,7 @@ void test_bb_serialize_present_gate_emits_when_true(void)
     rec_reset();
     gated_snap_t snap = { .a = 1, .b = 2, .b_present = true };
 
-    bb_serialize_walk(&s_gated_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_gated_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(2, s_rec_n);
     assert_key("b", s_rec[1].key);
@@ -294,7 +294,7 @@ void test_bb_serialize_str_bound_no_nul_terminator(void)
     str_snap_t snap;
     memcpy(snap.status, "abcd", 4);  // NOT NUL-terminated within the 4-byte bound
 
-    bb_serialize_walk(&s_str_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_str_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(1, s_rec_n);
     TEST_ASSERT_EQUAL(OP_STR, s_rec[0].op);
@@ -308,7 +308,7 @@ void test_bb_serialize_str_bound_nul_terminated_short(void)
     str_snap_t snap;
     memcpy(snap.status, "ok\0\0", 4);
 
-    bb_serialize_walk(&s_str_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_str_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(1, s_rec_n);
     TEST_ASSERT_EQUAL_UINT(2, s_rec[0].str_len);
@@ -339,7 +339,7 @@ void test_bb_serialize_str_n_empty_non_null_emits_empty_string(void)
     rec_reset();
     strn_snap_t snap = { .sn = { .ptr = "", .len = 0 } };
 
-    bb_serialize_walk(&s_strn_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_strn_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(1, s_rec_n);
     TEST_ASSERT_EQUAL(OP_STR, s_rec[0].op);
@@ -351,7 +351,7 @@ void test_bb_serialize_str_n_null_ptr_emits_null(void)
     rec_reset();
     strn_snap_t snap = { .sn = { .ptr = NULL, .len = 5 } };
 
-    bb_serialize_walk(&s_strn_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_strn_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(1, s_rec_n);
     TEST_ASSERT_EQUAL(OP_NUL, s_rec[0].op);
@@ -384,7 +384,7 @@ void test_bb_serialize_arr_of_strings(void)
     const char *items[] = { "one", NULL, "three" };
     arr_str_snap_t snap = { .tags = { .items = items, .count = 3 } };
 
-    bb_serialize_walk(&s_arr_str_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_str_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(5, s_rec_n);
     TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
@@ -404,7 +404,7 @@ void test_bb_serialize_arr_of_strings_empty(void)
     rec_reset();
     arr_str_snap_t snap = { .tags = { .items = NULL, .count = 0 } };
 
-    bb_serialize_walk(&s_arr_str_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_str_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(2, s_rec_n);
     TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
@@ -437,7 +437,7 @@ void test_bb_serialize_arr_of_i64(void)
     const int64_t vals[] = { 1, 2, 3 };
     arr_i64_snap_t snap = { .nums = { .items = vals, .count = 3 } };
 
-    bb_serialize_walk(&s_arr_i64_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_i64_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(5, s_rec_n);
     TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
@@ -457,7 +457,7 @@ void test_bb_serialize_arr_of_i64_empty(void)
     rec_reset();
     arr_i64_snap_t snap = { .nums = { .items = NULL, .count = 0 } };
 
-    bb_serialize_walk(&s_arr_i64_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_i64_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(2, s_rec_n);
     TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
@@ -470,7 +470,7 @@ void test_bb_serialize_arr_of_i64_single(void)
     const int64_t vals[] = { 42 };
     arr_i64_snap_t snap = { .nums = { .items = vals, .count = 1 } };
 
-    bb_serialize_walk(&s_arr_i64_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_i64_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(3, s_rec_n);
     TEST_ASSERT_EQUAL(OP_I64, s_rec[1].op);
@@ -499,7 +499,7 @@ void test_bb_serialize_arr_of_u64(void)
     const uint64_t vals[] = { 10, 20 };
     arr_u64_snap_t snap = { .nums = { .items = vals, .count = 2 } };
 
-    bb_serialize_walk(&s_arr_u64_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_u64_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(4, s_rec_n);
     TEST_ASSERT_EQUAL(OP_U64, s_rec[1].op);
@@ -513,7 +513,7 @@ void test_bb_serialize_arr_of_u64_empty(void)
     rec_reset();
     arr_u64_snap_t snap = { .nums = { .items = NULL, .count = 0 } };
 
-    bb_serialize_walk(&s_arr_u64_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_u64_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(2, s_rec_n);
     TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
@@ -526,7 +526,7 @@ void test_bb_serialize_arr_of_u64_single(void)
     const uint64_t vals[] = { 42 };
     arr_u64_snap_t snap = { .nums = { .items = vals, .count = 1 } };
 
-    bb_serialize_walk(&s_arr_u64_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_u64_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(3, s_rec_n);
     TEST_ASSERT_EQUAL(OP_U64, s_rec[1].op);
@@ -555,7 +555,7 @@ void test_bb_serialize_arr_of_f64(void)
     const double vals[] = { 1.5, -2.25 };
     arr_f64_snap_t snap = { .nums = { .items = vals, .count = 2 } };
 
-    bb_serialize_walk(&s_arr_f64_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_f64_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(4, s_rec_n);
     TEST_ASSERT_EQUAL(OP_F64, s_rec[1].op);
@@ -569,7 +569,7 @@ void test_bb_serialize_arr_of_f64_empty(void)
     rec_reset();
     arr_f64_snap_t snap = { .nums = { .items = NULL, .count = 0 } };
 
-    bb_serialize_walk(&s_arr_f64_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_f64_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(2, s_rec_n);
     TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
@@ -582,7 +582,7 @@ void test_bb_serialize_arr_of_f64_single(void)
     const double vals[] = { 1.5 };
     arr_f64_snap_t snap = { .nums = { .items = vals, .count = 1 } };
 
-    bb_serialize_walk(&s_arr_f64_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_f64_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(3, s_rec_n);
     TEST_ASSERT_EQUAL(OP_F64, s_rec[1].op);
@@ -611,7 +611,7 @@ void test_bb_serialize_arr_of_bool(void)
     const bool vals[] = { true, false };
     arr_bool_snap_t snap = { .flags = { .items = vals, .count = 2 } };
 
-    bb_serialize_walk(&s_arr_bool_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_bool_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(4, s_rec_n);
     TEST_ASSERT_EQUAL(OP_BOOL, s_rec[1].op);
@@ -625,7 +625,7 @@ void test_bb_serialize_arr_of_bool_empty(void)
     rec_reset();
     arr_bool_snap_t snap = { .flags = { .items = NULL, .count = 0 } };
 
-    bb_serialize_walk(&s_arr_bool_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_bool_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(2, s_rec_n);
     TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
@@ -638,7 +638,7 @@ void test_bb_serialize_arr_of_bool_single(void)
     const bool vals[] = { true };
     arr_bool_snap_t snap = { .flags = { .items = vals, .count = 1 } };
 
-    bb_serialize_walk(&s_arr_bool_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_bool_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(3, s_rec_n);
     TEST_ASSERT_EQUAL(OP_BOOL, s_rec[1].op);
@@ -682,7 +682,7 @@ void test_bb_serialize_arr_of_obj_two_elements(void)
     elem_t elems[2] = { { .id = 1, .val = 100 }, { .id = 2, .val = 200 } };
     arr_obj_snap_t snap = { .items = { .items = elems, .count = 2 } };
 
-    bb_serialize_walk(&s_arr_obj_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_obj_desc, .snap = &snap, .emit = &s_mock_emit });
 
     // begin_arr, {begin_obj,id,val,end_obj} x2, end_arr = 1 + 4*2 + 1
     TEST_ASSERT_EQUAL_UINT(10, s_rec_n);
@@ -705,7 +705,7 @@ void test_bb_serialize_arr_of_obj_empty(void)
     rec_reset();
     arr_obj_snap_t snap = { .items = { .items = NULL, .count = 0 } };
 
-    bb_serialize_walk(&s_arr_obj_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_obj_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(2, s_rec_n);
     TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
@@ -719,7 +719,7 @@ void test_bb_serialize_arr_of_obj_null_items_guarded(void)
     // empty array (no deref), never crash.
     arr_obj_snap_t snap = { .items = { .items = NULL, .count = 3 } };
 
-    bb_serialize_walk(&s_arr_obj_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_arr_obj_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(2, s_rec_n);
     TEST_ASSERT_EQUAL(OP_BEGIN_ARR, s_rec[0].op);
@@ -754,7 +754,7 @@ void test_bb_serialize_depth_guard_bails_on_self_reference(void)
     rec_reset();
     deep_snap_t snap = { .marker = 1 };
 
-    bb_serialize_walk(&s_deep_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_deep_desc, .snap = &snap, .emit = &s_mock_emit });
 
     // Depths 0..MAX_DEPTH-1 each emit {marker, begin_obj("deep")} (2 records)
     // and recurse; at depth == MAX_DEPTH the guard bails, emitting only the
@@ -794,7 +794,7 @@ void test_bb_serialize_empty_obj(void)
     rec_reset();
     empty_obj_snap_t snap = { .child = { .marker = 99 } };
 
-    bb_serialize_walk(&s_empty_obj_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_empty_obj_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(2, s_rec_n);
     TEST_ASSERT_EQUAL(OP_BEGIN_OBJ, s_rec[0].op);
@@ -841,7 +841,7 @@ void test_bb_serialize_present_gated_container(void)
         .container_present = false,
     };
 
-    bb_serialize_walk(&s_gated_container_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_gated_container_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(0, s_rec_n);
 }
@@ -918,7 +918,7 @@ void test_bb_serialize_arr_of_obj_depth_guard_bails_on_self_reference(void)
         levels[i].kids.count = 1;
     }
 
-    bb_serialize_walk(&s_deep_arr_desc, &levels[0], &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_deep_arr_desc, .snap = &levels[0], .emit = &s_mock_emit });
 
     // At depth == BB_SERIALIZE_MAX_DEPTH the ARR-of-OBJ guard bails before
     // descending into the element loop -- no crash, no unbounded recursion.
@@ -948,7 +948,7 @@ void test_bb_serialize_unknown_type_is_noop(void)
         .snap_size = sizeof(flat_snap_t),
     };
 
-    bb_serialize_walk(&s_unknown_type_desc, &snap, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_unknown_type_desc, .snap = &snap, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(0, s_rec_n);
 }
@@ -985,9 +985,10 @@ void test_bb_serialize_walk_null_args_is_noop(void)
     rec_reset();
     flat_snap_t snap = { 0 };
 
-    bb_serialize_walk(NULL, &snap, &s_mock_emit);
-    bb_serialize_walk(&s_flat_desc, NULL, &s_mock_emit);
-    bb_serialize_walk(&s_flat_desc, &snap, NULL);
+    bb_serialize_walk(NULL);  // NULL cfg pointer itself -- distinct branch from a NULL cfg field
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = NULL, .snap = &snap, .emit = &s_mock_emit });
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_flat_desc, .snap = NULL, .emit = &s_mock_emit });
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_flat_desc, .snap = &snap, .emit = NULL });
 
     TEST_ASSERT_EQUAL_UINT(0, s_rec_n);
 }

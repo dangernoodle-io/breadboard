@@ -1511,7 +1511,7 @@ void test_bb_serialize_populate_walk_roundtrip(void)
     };
 
     bb_serialize_emit_t emit = make_emit(&m);
-    bb_serialize_walk(&s_roundtrip_desc, &golden, &emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &s_roundtrip_desc, .snap = &golden, .emit = &emit });
 
     bb_serialize_populate_t src = make_src(&m);
     elem_t            storage[4] = { 0 };

@@ -24,7 +24,8 @@ bb_err_t bb_serialize_compose_walk(const bb_serialize_compose_entry_t *entries, 
             emit->begin_obj(emit->ctx, shape == BB_SERIALIZE_COMPOSE_OBJECT ? e->name : NULL);
         }
 
-        bb_serialize_walk(e->desc, e->snap, emit);
+        bb_serialize_walk_cfg_t walk_cfg = { .desc = e->desc, .snap = e->snap, .emit = emit };
+        bb_serialize_walk(&walk_cfg);
 
         if (shape != BB_SERIALIZE_COMPOSE_RAW) {
             emit->end_obj(emit->ctx);

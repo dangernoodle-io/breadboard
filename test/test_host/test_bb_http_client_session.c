@@ -718,7 +718,7 @@ void test_bb_http_client_session_health_desc_walks_all_four_keys(void)
         .emit_i64  = http_health_capture_emit_i64,
         .emit_u64  = http_health_capture_emit_u64,
     };
-    bb_serialize_walk(&bb_http_client_session_health_desc, &snap, &emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &bb_http_client_session_health_desc, .snap = &snap, .emit = &emit });
 
     TEST_ASSERT_EQUAL_INT(4, cap.count);
     TEST_ASSERT_EQUAL_STRING("connected", cap.keys[0]);

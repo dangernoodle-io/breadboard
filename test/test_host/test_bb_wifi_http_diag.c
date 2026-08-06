@@ -182,7 +182,7 @@ void test_bb_wifi_http_diag_walk_empty_histogram_omits_every_bucket(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_wifi_http_diag_fill(&snap, NULL));
 
     rec_reset();
-    bb_serialize_walk(&bb_wifi_http_diag_desc, &snap, &s_rec_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &bb_wifi_http_diag_desc, .snap = &snap, .emit = &s_rec_emit });
 
     static const char *const buckets[] = {
         "unknown", "auth_fail", "assoc_fail", "handshake_timeout",
@@ -218,7 +218,7 @@ void test_bb_wifi_http_diag_walk_mixed_histogram_present_gates_correct_buckets(v
     TEST_ASSERT_EQUAL(BB_OK, bb_wifi_http_diag_fill(&snap, NULL));
 
     rec_reset();
-    bb_serialize_walk(&bb_wifi_http_diag_desc, &snap, &s_rec_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &bb_wifi_http_diag_desc, .snap = &snap, .emit = &s_rec_emit });
 
     TEST_ASSERT_TRUE(rec_saw("bb_lost_ip"));
     TEST_ASSERT_TRUE(rec_saw("bb_egress_dead"));

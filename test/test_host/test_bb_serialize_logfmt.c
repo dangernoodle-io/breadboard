@@ -428,7 +428,7 @@ void test_bb_serialize_logfmt_emit_direct_drive(void)
 
     bb_serialize_emit_t emit = bb_serialize_logfmt_emit(&ctx);
     TEST_ASSERT_EQUAL(BB_FORMAT_LOGFMT, emit.format_id);
-    bb_serialize_walk(&desc, &snap, &emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &desc, .snap = &snap, .emit = &emit });
 
     buf[ctx.len] = '\0';
     TEST_ASSERT_EQUAL_STRING("n=7", buf);

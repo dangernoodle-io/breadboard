@@ -134,7 +134,7 @@ void test_bb_partition_serialize_walk_nvs_row(void)
     rec_reset();
     bb_serialize_desc_t desc = s_row_desc;
     desc.n_fields = bb_partition_row_n_fields;
-    bb_serialize_walk(&desc, &wire, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &desc, .snap = &wire, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(7, s_rec_n);
 
@@ -185,7 +185,7 @@ void test_bb_partition_serialize_walk_ota0_row(void)
     rec_reset();
     bb_serialize_desc_t desc = s_row_desc;
     desc.n_fields = bb_partition_row_n_fields;
-    bb_serialize_walk(&desc, &wire, &s_mock_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){ .desc = &desc, .snap = &wire, .emit = &s_mock_emit });
 
     TEST_ASSERT_EQUAL_UINT(7, s_rec_n);
     TEST_ASSERT_EQUAL_UINT64(0x020000, s_rec[3].u64);
