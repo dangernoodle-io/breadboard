@@ -6,7 +6,7 @@ ESP-IDF-specific implementations for breadboard components. Public API and platf
 
 Each populated component has a directory here with its `.c` sources:
 
-- `log_stream/` — ring buffer + streaming task
+- `bb_log/` — async console writer (queue + task), bb_diag panic tap, optional UDP mirror
 - `nv_config/` — NVS-backed config store
 - `http_server/` — esp_http_server integration (body-parsing helpers live in `components/http_server/src/http_utils.c`)
 - `ota_pull/` — esp_https_ota integration

@@ -173,18 +173,11 @@ void bb_log_secret(bb_log_level_t level, const char *tag, const char *label, con
 #ifdef ESP_PLATFORM
 
 /**
- * Initialise the ring buffer and install the custom vprintf hook.
+ * Install the async console-writer task and the custom vprintf hook.
  * Must be called once from app_main before any tasks are started.
  */
-// bbtool:init tier=early fn=bb_log_stream_init provides=log_stream
+// bbtool:init tier=early fn=bb_log_stream_init
 bb_err_t bb_log_stream_init(void);
-
-/**
- * Drain queued log bytes into out_buf (up to out_buf_len).
- * Waits up to timeout_ms for data if the ring is empty; UINT32_MAX means block forever.
- * Returns the number of bytes written (excluding NUL), or 0 on timeout.
- */
-size_t bb_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t timeout_ms);
 
 /**
  * Returns true if bb_log_stream_init() has been called successfully.
@@ -192,7 +185,10 @@ size_t bb_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t timeout_m
 bool bb_log_stream_ready(void);
 
 /**
- * Returns the count of lines that could not be sent despite the drop-oldest loop.
+ * Returns the count of lines that could not be sent despite the drop-oldest
+ * loop. Vestigial since the SSE ring (its only writer) was removed
+ * (B1-1409) -- always 0 now. Kept as public API; not deleted without a
+ * ticket of its own.
  */
 uint32_t bb_log_stream_dropped_lines(void);
 
@@ -247,7 +243,7 @@ void bb_log_udp_disable(void);
  * bb_log has no self-registration; the consumer's app_main must call this
  * directly.
  */
-// bbtool:init tier=early fn=bb_log_config_init requires=log_stream
+// bbtool:init tier=early fn=bb_log_config_init
 bb_err_t bb_log_config_init(void);
 
 #endif /* ESP_PLATFORM */

@@ -23,15 +23,6 @@ config BB_LOG_LEVELS
         overrides remain available via bb_log_level_set() and the GET/POST
         /api/log/level routes (BB_LOG_ROUTES).
 
-config BB_LOG_STREAM_BUF_BYTES
-    int "Stream ringbuffer size (bytes)"
-    default 6144
-    range 512 65536
-    help
-        Size of the ringbuffer used to capture log lines for SSE consumers.
-        Allocated on heap (SPIRAM-preferred with fallback) only when
-        bb_log_stream_init() is called. Default 6144 bytes (6 KB).
-
 config BB_LOG_UDP_SINK
     bool "Mirror log lines to a UDP datagram sink"
     default n

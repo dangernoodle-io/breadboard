@@ -100,12 +100,13 @@ void bb_log_line_parse(const char *line, size_t len,
 // B1-831 PR-2 shipped the knobs + this decision function, no call site.
 // B1-831 PR-3 wires bb_log_telem_should_route_wide() into s_log_vprintf
 // (platform/espidf/bb_log/bb_log.c) so a TELEM-tagged line can stay
-// console-only instead of also fanning out to the wide sinks: the ring
-// (bb_log_stream_drain(), zero callers today), the bb_log_event forwarder
-// queue (the live GET /api/events?topic=log consumer), and the optional UDP
-// mirror (CONFIG_BB_LOG_UDP_SINK) -- all three are gated on the same
-// route_wide decision in s_log_vprintf. The console writer and the optional
-// bb_diag tap are NEVER gated -- every line always reaches them.
+// console-only instead of also fanning out to the wide sinks: the
+// bb_log_event forwarder queue (the live GET /api/events?topic=log
+// consumer) and the optional UDP mirror (CONFIG_BB_LOG_UDP_SINK) -- both
+// are gated on the same route_wide decision in s_log_vprintf. The console
+// writer and the optional bb_diag tap are NEVER gated -- every line always
+// reaches them. (The SSE ring this comment used to also mention was
+// removed, B1-1409 -- it had zero in-tree callers and no live consumer.)
 // ---------------------------------------------------------------------------
 
 // Tag buffer capacity for bb_log_telem_should_route_wide()'s internal parse

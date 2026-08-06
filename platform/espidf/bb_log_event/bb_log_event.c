@@ -7,7 +7,7 @@
 //
 // Design: s_log_vprintf has its own event queue (depth BB_LOG_EVENT_QUEUE_LEN);
 // this keeps the hot logging path non-blocking (drop-on-full with counter).
-// The s_rb ringbuf and bb_diag tap slot are left untouched.
+// The bb_diag tap slot is left untouched.
 
 #ifdef ESP_PLATFORM
 

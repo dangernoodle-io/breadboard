@@ -1,7 +1,5 @@
 #include "bb_log.h"
-#include "bb_mem.h"
 #include <stdio.h>
-#include <string.h>
 
 int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_list args)
 {
@@ -22,10 +20,8 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
-#include "freertos/ringbuf.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "esp_heap_caps.h"
 #include "bb_task.h"
 #include <stdatomic.h>
 
@@ -66,9 +62,6 @@ typedef struct {
 // not a hang).
 #define LOG_FLUSH_TIMEOUT_MS  1000
 
-static uint8_t *s_rb_storage = NULL;
-static StaticRingbuffer_t *s_rb_static = NULL;
-static RingbufHandle_t s_rb = NULL;
 static vprintf_like_t s_orig_vprintf = NULL;
 static bool s_ready = false;
 static bool s_initialized = false;
@@ -98,15 +91,6 @@ static SemaphoreHandle_t s_flush_done = NULL;
 static uint32_t s_flush_next_seq = 0;                     // only mutated under s_flush_lock
 static volatile uint32_t s_flush_last_completed_seq = 0;   // written by the writer task before each give
 static volatile uint32_t s_flush_timeouts = 0;             // bb_log_flush() calls that gave up before their marker completed
-
-static void s_drop_oldest(void)
-{
-    size_t item_size = 0;
-    void *item = xRingbufferReceive(s_rb, &item_size, 0);
-    if (item) {
-        vRingbufferReturnItem(s_rb, item);
-    }
-}
 
 /* Writer task: drains the queue and writes to stdout.
  * If USB-CDC TX blocks, only this task stalls — the log hook returns
@@ -138,8 +122,8 @@ static void s_writer_task_fn(void *arg)
 }
 
 #if CONFIG_BB_LOG_UDP_SINK
-/* Optional UDP mirror sink — a first-class output alongside the console writer
- * and ring buffer. The vprintf hook only enqueues (non-blocking); a dedicated
+/* Optional UDP mirror sink — a first-class output alongside the console writer.
+ * The vprintf hook only enqueues (non-blocking); a dedicated
  * low-priority task owns the socket and does the sendto, so the blocking call
  * never runs inside the ESP-IDF log mutex. Default-compiled-out (Kconfig n). */
 #define LOG_UDP_QUEUE_LEN     16
@@ -213,15 +197,15 @@ static int s_log_vprintf(const char *fmt, va_list args)
         s_writer_dropped++;
     }
 
-    /* B1-831 PR-3: should this line also reach the wide sinks (ring, the
-     * bb_log_event forwarder queue, and the optional UDP mirror), or stay
+    /* B1-831 PR-3: should this line also reach the wide sinks (the
+     * bb_log_event forwarder queue and the optional UDP mirror), or stay
      * console-only? Gated by its own #if CONFIG_BB_LOG_TELEM_ROUTING --
      * bb_log_telem_route.c (and therefore bb_log_telem_should_route_wide) is
      * compiled OUT of the SRCS list entirely when the knob is off
      * (components/bb_log/CMakeLists.txt), so an unguarded call here would
      * fail to link on a board that disables it. When the gate is compiled
      * out, routing is unconditionally wide -- identical to pre-B1-831
-     * behavior. The console writer (step 1) and the bb_diag tap (step 3) are
+     * behavior. The console writer (step 1) and the bb_diag tap (step 2) are
      * NEVER gated -- every line always reaches them regardless of route_wide. */
 #if CONFIG_BB_LOG_TELEM_ROUTING
     bool route_wide = bb_log_telem_should_route_wide(msg.line, msg.len);
@@ -229,23 +213,12 @@ static int s_log_vprintf(const char *fmt, va_list args)
     bool route_wide = true;
 #endif
 
-    /* 2. Push to ringbuf for SSE consumers */
-    if (route_wide && s_rb) {
-        if (xRingbufferSend(s_rb, msg.line, msg.len + 1, 0) != pdTRUE) {
-            for (int i = 0; i < 8; i++) {
-                s_drop_oldest();
-                if (xRingbufferSend(s_rb, msg.line, msg.len + 1, 0) == pdTRUE) break;
-                if (i == 7) s_dropped_lines++;
-            }
-        }
-    }
-
-    /* 3. Notify the optional tap (e.g. bb_diag panic mirror) — unaffected by
+    /* 2. Notify the optional tap (e.g. bb_diag panic mirror) — unaffected by
      *    TELEM routing, same as the console writer. */
     bb_log_stream_tap_fn tap = atomic_load(&s_tap);
     if (tap) tap(msg.line, msg.len);
 
-    /* 4. Enqueue for bb_log_event forwarder — non-blocking, drop on full.
+    /* 3. Enqueue for bb_log_event forwarder — non-blocking, drop on full.
      *    s_event_q is NULL until bb_log_event_set_queue() is called, so this
      *    step is free until the forwarder is initialized. */
     QueueHandle_t eq = s_event_q;
@@ -254,9 +227,9 @@ static int s_log_vprintf(const char *fmt, va_list args)
     }
 
 #if CONFIG_BB_LOG_UDP_SINK
-    /* 5. Enqueue for the UDP mirror — non-blocking, drop on full. sendto runs
+    /* 4. Enqueue for the UDP mirror — non-blocking, drop on full. sendto runs
      *    on s_udp_task, never here inside the IDF log mutex. Gated by
-     *    route_wide same as steps 2/4: a TELEM line kept console-only must
+     *    route_wide same as step 3: a TELEM line kept console-only must
      *    not leak over the network either. */
     if (route_wide && s_udp_enabled && s_udp_q && xQueueSend(s_udp_q, &msg, 0) != pdTRUE) {
         s_udp_dropped++;
@@ -311,44 +284,9 @@ bb_err_t bb_log_stream_init(void)
         return ESP_OK;
     }
 
-    // Allocate ringbuffer storage, preferring PSRAM with fallback to default heap
-    size_t buf_bytes = CONFIG_BB_LOG_STREAM_BUF_BYTES;
-    s_rb_storage = bb_malloc_prefer_spiram(buf_bytes);
-    if (!s_rb_storage) {
-        bb_log_e(TAG, "ringbuffer storage allocation failed");
-        return ESP_ERR_NO_MEM;
-    }
-
-    // Allocate static ringbuffer struct
-    s_rb_static = bb_malloc_internal(sizeof(StaticRingbuffer_t));
-    if (!s_rb_static) {
-        bb_log_e(TAG, "ringbuffer struct allocation failed");
-        bb_mem_free(s_rb_storage);
-        s_rb_storage = NULL;
-        return ESP_ERR_NO_MEM;
-    }
-
-    // Create the ringbuffer with heap-allocated storage
-    s_rb = xRingbufferCreateStatic(buf_bytes, RINGBUF_TYPE_NOSPLIT,
-                                    s_rb_storage, s_rb_static);
-    if (!s_rb) {
-        bb_log_e(TAG, "ring buffer creation failed");
-        bb_mem_free(s_rb_static);
-        bb_mem_free(s_rb_storage);
-        s_rb_static = NULL;
-        s_rb_storage = NULL;
-        return ESP_ERR_NO_MEM;
-    }
-
     s_writer_q = xQueueCreate(LOG_WRITER_QUEUE_LEN, sizeof(log_writer_msg_t));
     if (!s_writer_q) {
         bb_log_e(TAG, "writer queue creation failed");
-        vRingbufferDelete(s_rb);
-        s_rb = NULL;
-        bb_mem_free(s_rb_static);
-        bb_mem_free(s_rb_storage);
-        s_rb_static = NULL;
-        s_rb_storage = NULL;
         return ESP_ERR_NO_MEM;
     }
 
@@ -366,12 +304,6 @@ bb_err_t bb_log_stream_init(void)
         bb_log_e(TAG, "writer task creation failed");
         vQueueDelete(s_writer_q);
         s_writer_q = NULL;
-        vRingbufferDelete(s_rb);
-        s_rb = NULL;
-        bb_mem_free(s_rb_static);
-        bb_mem_free(s_rb_storage);
-        s_rb_static = NULL;
-        s_rb_storage = NULL;
         return ESP_ERR_NO_MEM;
     }
 
@@ -390,7 +322,7 @@ bb_err_t bb_log_stream_init(void)
     s_orig_vprintf = esp_log_set_vprintf(s_log_vprintf);
     s_initialized = true;
     s_ready = true;
-    bb_log_i(TAG, "log stream initialised (%" PRIu32 " bytes)", (uint32_t)buf_bytes);
+    bb_log_i(TAG, "log stream initialised");
     return ESP_OK;
 }
 
@@ -496,24 +428,6 @@ bb_err_t bb_log_flush(void)
 uint32_t bb_log_flush_timeouts(void)
 {
     return s_flush_timeouts;
-}
-
-size_t bb_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t timeout_ms)
-{
-    if (!s_rb || !out_buf || out_buf_len == 0) return 0;
-
-    // Convert timeout_ms to FreeRTOS ticks (UINT32_MAX means wait forever)
-    TickType_t ticks = (timeout_ms == UINT32_MAX) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
-
-    size_t item_size = 0;
-    char *item = xRingbufferReceive(s_rb, &item_size, ticks);
-    if (!item) return 0;
-
-    size_t copy_len = (item_size < out_buf_len) ? item_size : out_buf_len - 1;
-    memcpy(out_buf, item, copy_len);
-    out_buf[copy_len] = '\0';
-    vRingbufferReturnItem(s_rb, item);
-    return strlen(out_buf);
 }
 
 bool bb_log_stream_ready(void)
