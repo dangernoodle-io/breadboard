@@ -127,6 +127,31 @@ typedef struct {
 // bb_data_http_client_release() directly from there (destroying `outbound`,
 // clearing `in_use`) could race the broadcaster's own in-flight read/write
 // of this SAME client inside bb_data_http_sweep_step() on another core.
+//
+// SHARED EVENT RING -- a SEPARATE, real exception (B1-1450, epic B1-1123),
+// not part of the per-client single-task-ownership model above: the
+// module-level EVENT ring (bb_data_http_common.c's s_event_ring,
+// s_event_total_pushed, s_event_last_gen -- NOT any field on this struct)
+// is now genuinely multi-writer-safe, guarded by a short portMUX critical
+// section (s_event_ring_mux) wrapped around a CLAIM/RENDER/COMMIT-OR-
+// REVOKE protocol, not merely around the final push -- the generation
+// compare-and-advance that decides whether a key needs a fresh render is
+// itself claimed under the lock, before render_fn runs, so only one caller
+// ever wins the right to render+push a given (key, generation) pair; a
+// failed render revokes the claim via a locked compare-and-restore unless
+// a second caller has since claimed a newer generation. See
+// bb_data_http_push_pump()'s doc (bb_data_http.h) for the exact per-key
+// sequence and why locking only the push (without the decision) would
+// still leave a double-delivery hazard open. This lets a second,
+// independent producer task call bb_data_http_push_pump() directly,
+// concurrently with the broadcaster task's own sweep_step()-driven call.
+// It does NOT change anything about this struct or the per-client
+// ownership rules above: draining the ring into any client's `outbound`
+// (push->cursor, dropped, drop_marker_pending, outbound itself) is still
+// exclusively read/written by the single owning task inside
+// bb_data_http_sweep_step(), unlocked, exactly as before -- only the
+// ring's own module-level statics gained the claim/commit/revoke lock, not
+// the per-client drain/flush path.
 struct bb_data_http_client {
     bool                        in_use;
     char                        topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
@@ -212,6 +237,21 @@ bool bb_data_http_client_push_is_null_for_test(const bb_data_http_client_t *c);
 // (bb_data_http_init() not yet called, or bb_data_http_reset_for_test()
 // since).
 size_t bb_data_http_event_ring_count_for_test(void);
+
+// B1-1450: current value of the module-level, per-attach-index
+// s_event_last_gen for `key` -- lets a test observe the claim/commit/
+// revoke protocol's outcome directly. Returns 0 if `key` is not attached.
+uint32_t bb_data_http_event_last_gen_for_test(const char *key);
+
+// B1-1450: directly overwrite s_event_last_gen for `key`'s attach index,
+// bypassing the claim/commit/revoke protocol -- lets a host test simulate
+// a second, concurrent bb_data_http_push_pump() caller claiming a NEWER
+// generation for the SAME key while THIS caller's own render_fn call is
+// still in flight (the compare-and-restore revoke's "leave it alone"
+// branch, see bb_data_http_push_pump()'s own doc, bb_data_http.h), which
+// the single-threaded host harness cannot otherwise reach. No-op if `key`
+// is not attached.
+void bb_data_http_event_last_gen_set_for_test(const char *key, uint32_t gen);
 #endif
 
 // GET /api/events route descriptor (B1-1215): schema-only (.handler == NULL)

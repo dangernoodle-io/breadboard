@@ -622,17 +622,97 @@ void bb_data_http_sweep_step(void);
 // the original per-client-task TCB-reuse hazard this component's ring
 // design replaced. Do not add a drain-pump or flush-pump counterpart.
 //
-// SINGLE-WRITER CONTRACT: every s_event_ring/s_event_total_pushed/
-// s_event_last_gen mutation in this module (this function included) is
-// unsynchronized -- correct only because sweep_step() (and therefore this
-// function, called from it) has always run on exactly one task, the
-// broadcaster. Calling this function from a second, concurrent task without
-// a lock is a genuine DATA RACE on those statics, not merely a logic error
-// -- undefined behavior, not a wrong-but-deterministic result -- and NOTHING
-// in this module asserts or otherwise detects a second caller; violating
-// this contract fails silently (or intermittently) rather than loudly. That
-// lock is deliberately out of scope here (a future PR, B1-1450) -- until it
-// lands, only the existing single broadcaster task may call this function.
+// MULTI-WRITER CONTRACT (B1-1450, epic B1-1123): this function is safe to
+// call from a second, concurrent task alongside the existing broadcaster
+// task -- e.g. a dedicated producer task calling this function directly,
+// without going through sweep_step() at all. Safety comes from a
+// CLAIM/RENDER/COMMIT-OR-REVOKE protocol around the DECISION to render and
+// push, not merely around the final push -- see bb_data_http_common.c's
+// bb_data_http_push_pump() implementation doc for the full per-key
+// sequence. In short: the generation compare-and-advance is done under a
+// short portMUX critical section BEFORE render_fn runs, so only one caller
+// ever wins the right to render+push for a given (key, generation) pair;
+// render_fn itself still runs entirely unlocked (it can block); on success,
+// COMMIT re-checks the claim is still current (compare-and-discard) before
+// pushing -- a slow render_fn returning success AFTER a newer concurrent
+// claim has already committed fresher state is discarded, not pushed,
+// because render_fn's own contract is "render CURRENT value", not a frozen
+// per-generation snapshot, so a stale-but-successful render can easily
+// carry content a newer push already delivered; on failure, REVOKE
+// symmetrically compare-and-restores the claim, so the event is retried
+// later rather than silently lost, UNLESS a second caller has since
+// claimed a newer generation for that key, in which case the revoke is a
+// no-op and that newer claim's own outcome stands. Both compares (COMMIT's
+// and REVOKE's) are what prevent the double-delivery hazard a push-only,
+// or claim-only, lock would leave open: without locking the decision
+// itself, two concurrent callers could both read the same stale
+// last-seen-generation, both render, and both push (the same-generation
+// case); without COMMIT's own re-check, a slow claimant's stale-but-
+// successful render could still land a second frame AFTER a faster,
+// later-claimed concurrent render already pushed (the cross-generation
+// case) -- ring entries carry only an attach index, not a generation, so
+// neither case has any downstream dedup to fall back on.
+//
+// What stays outside the lock, and single-task-owned:
+//   - render_fn itself (can block; contract requires it stay out of any
+//     critical section)
+//   - draining the ring into any client's own outbound queue, and the
+//     outbound flush/retry state machine -- both stay entirely inside
+//     bb_data_http_sweep_step(), unlocked, and single-broadcaster-task-
+//     owned exactly as before this PR (see the SCOPE FENCE note above and
+//     bb_data_http_client_t's TASK OWNERSHIP doc, bb_data_http_internal.h)
+// A second caller must still only ever push EVENT frames through this
+// function -- it must never call bb_data_http_sweep_step() itself, nor
+// touch any client state directly.
+//
+// Cross-generation duplication is now CLOSED, not merely reduced: before
+// this PR, this loop was single-task and strictly serial, so render+push
+// for one generation always completed before the next generation of the
+// same key could even be claimed -- same-key cross-generation duplication
+// was structurally impossible then, for the mundane reason that no second
+// caller existed at all. A second concurrent caller makes it newly
+// REACHABLE (see the cross-generation case above), and COMMIT's
+// compare-and-discard is what closes it back off: a stale-but-successful
+// render for an outdated claim is always discarded, never pushed, once a
+// newer claim exists.
+//
+// ABA note on REVOKE's compare-and-restore: it is reachable for a THIRD
+// caller's own earlier revoke to have coincidentally restored
+// s_event_last_gen[k] back to exactly the value THIS caller claimed (e.g.
+// A claims g1 and stalls; B claims g2, fails, revokes to g1; A later fails
+// too, sees g1 -- its own claimed value, coincidentally restored by B's
+// unrelated revoke -- and restores to g0). This is provably self-healing,
+// not a correctness gap: generations are monotonic and never repeat, so
+// any wrongly-reverted marker is exceeded by the very next real generation
+// change, which re-triggers a fresh claim for that key. The only cost is a
+// redundant re-render of a generation that may already be reflected in a
+// later push, never a permanently lost event or a stuck marker --
+// deliberately not worth an epoch/token scheme to close. PRECONDITION:
+// this self-healing property depends on this function continuing to be
+// invoked periodically by every caller sharing this key (the broadcaster's
+// existing sweep-tick cadence, and whatever cadence a second caller uses)
+// -- without that, this class of transient staleness has no future call
+// to heal on and would persist indefinitely instead. A caller wired to
+// invoke this function only on-demand (rather than on a recurring tick)
+// does not get the self-healing guarantee for free.
+//
+// SUSTAINED-CHURN NOTE: under continuous generation churn for one key
+// faster than either caller's render_fn completes, COMMIT's compare-and-
+// discard (above) can keep discarding every render -- throughput for that
+// key can drop to zero while churn continues. This is EXPECTED under this
+// component's coalesce-to-latest contract (render_fn always renders the
+// key's CURRENT value, never a frozen per-generation snapshot -- see
+// bb_data_http_render_fn's own doc), not a lock defect: once churn settles,
+// the next successful COMMIT reflects the latest state and delivery
+// resumes. Do not read sustained zero throughput under heavy churn as
+// evidence the lock is broken.
+//
+// This protocol closes the double-delivery hazard; it has been verified
+// by inspection and by a full host+ESP-IDF build only. The host test
+// harness is single-threaded (no pthreads), so it cannot reproduce a
+// genuine two-task ring race -- that stress exercise is still owed once a
+// real second caller exists (B1-1451 wires a producer task to call this
+// function; that is the natural place to add it).
 void bb_data_http_push_pump(void);
 
 // Diagnostics: cumulative count of render_fn failures observed across every
