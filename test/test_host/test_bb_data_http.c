@@ -1767,9 +1767,7 @@ void test_bb_data_http_sweep_step_detect_phase_skips_unsubscribed_client(void)
 // subscribe_mask (B1-1445): a kind axis orthogonal to topic_filter --
 // client_subscribes() must AND both gates, so a consumer can declare "EVENT
 // only, never STATE" (or vice versa) instead of that only happening by
-// accident of which keys share a topic name. Delivery-only in this PR: the
-// mask gates client_subscribes(), not the force-dirty/detect/ring-feed
-// participation itself (that cost-avoidance skip is the next PR).
+// accident of which keys share a topic name.
 // ---------------------------------------------------------------------------
 
 // An EVENT-only client (subscribe_mask=BB_DATA_HTTP_SUBSCRIBE_EVENT) whose
@@ -1850,6 +1848,113 @@ void test_bb_data_http_subscribe_mask_zero_default_receives_both_kinds(void)
     bb_data_http_sweep_step();
 
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());  // ev1 delivered too -- zero-default == ALL
+}
+
+// ---------------------------------------------------------------------------
+// B1-1446: two changes bundled here.
+//
+// 1. The STATE-side skips below (bb_data_http_client_acquire()'s
+//    force-dirty walk and bb_data_http_sweep_step()'s detect-phase inner
+//    client loop) hoist the subscribe_mask check to run once per client
+//    instead of once per (key, client) pair. client_subscribes() already
+//    ANDs this same mask bit (B1-1445), so state_seen_gen/state_dirty_mask
+//    were already left untouched for a mask-excludes-STATE client either
+//    way -- there is no NEW observably-different behavior today, and no
+//    test below claims one. The hoist exists as a PREREQUISITE for B1-1447
+//    (splits STATE bookkeeping into a `poll` pointer, NULL for a
+//    mask-excludes-STATE client -- see the skip sites' own comments in
+//    bb_data_http_common.c for why visiting at all would then be a NULL
+//    dereference).
+// 2. drain_client_events() is now skipped ENTIRELY for a mask-excludes-EVENT
+//    client -- this one IS a real, previously-absent non-participation gap:
+//    that function unconditionally advances event_cursor/drop-accounting
+//    off the shared ring's own state, independent of any per-entry
+//    client_subscribes() filtering inside it. The test below proves this
+//    discriminates participation from delivery: a participating-but-
+//    filtered client would still have event_cursor mutated even though
+//    nothing was ever delivered to it.
+// ---------------------------------------------------------------------------
+
+// Delivery-gate regression guard (B1-1445): an EVENT-only client's
+// state_seen_gen must stay at 0 across a sweep that bumps every attached
+// STATE key's generation -- this is NOT a non-participation proof (the mask
+// check inside client_subscribes() already guaranteed this before B1-1446's
+// hoist landed; see the file-header comment above), just a guard against
+// regressing that existing delivery-gate behavior. A default-mask (ALL)
+// client in the same sweep proves nothing over-applies: its state_seen_gen
+// DOES advance for the same keys.
+void test_bb_data_http_subscribe_mask_event_only_client_state_seen_gen_stays_gated(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach("sk1", "topic.a");
+    bb_data_http_attach("sk2", "topic.b");
+    bb_data_http_attach("sk3", "topic.c");
+    fake_gen_set("sk1", 1);
+    fake_gen_set("sk2", 1);
+    fake_gen_set("sk3", 1);
+
+    bb_data_http_client_t *push_only = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.fd = 1, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_EVENT}, &push_only));
+    bb_data_http_client_t *all = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.fd = 2, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_ALL}, &all));
+
+    fake_gen_bump("sk1");
+    fake_gen_bump("sk2");
+    fake_gen_bump("sk3");
+    bb_data_http_sweep_step();
+
+    for (size_t k = 0; k < 3; k++) {
+        TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_seen_gen_for_test(push_only, k));
+    }
+    // the ALL client isn't over-skipped -- its seen_gen tracks the bumped
+    // generations (2, matching each fake_gen_bump() above).
+    for (size_t k = 0; k < 3; k++) {
+        TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_client_seen_gen_for_test(all, k));
+    }
+}
+
+// Non-participation proof (B1-1446): a STATE-only client must never
+// participate in EVENT draining at all. Its event_cursor must stay exactly
+// where it was set at acquire time (s_event_total_pushed, 0 here) across a
+// sweep that pushes several ring entries -- drain_client_events() must
+// never even be called for it. A default-mask (ALL) client in the same
+// sweep proves the skip doesn't over-apply: its event_cursor DOES advance.
+void test_bb_data_http_subscribe_mask_state_only_client_never_advances_event_cursor(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    fake_gen_set("ev1", 0);
+
+    bb_data_http_client_t *state_only = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.fd = 1, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_STATE}, &state_only));
+    bb_data_http_client_t *all = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.fd = 2, .subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_ALL}, &all));
+
+    uint32_t cursor_before = bb_data_http_client_event_cursor_for_test(state_only);
+
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+    fake_gen_bump("ev1");
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT32(cursor_before, bb_data_http_client_event_cursor_for_test(state_only));
+    // the ALL client isn't over-skipped -- its cursor advances past every
+    // pushed ring entry.
+    TEST_ASSERT_EQUAL_UINT32(cursor_before + 3, bb_data_http_client_event_cursor_for_test(all));
 }
 
 // ---------------------------------------------------------------------------

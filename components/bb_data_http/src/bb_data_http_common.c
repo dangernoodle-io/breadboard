@@ -203,7 +203,7 @@ void bb_data_http_describe_foreach(bb_data_http_describe_cb_t cb, void *ctx)
 static bool client_subscribes(const bb_data_http_client_t *c, const char *topic,
                               bb_data_http_replay_kind_t kind)
 {
-    if ((c->subscribe_mask & (1u << kind)) == 0) return false;
+    if ((c->subscribe_mask & (1u << kind)) == 0) return false;  // LCOV_EXCL_BR_LINE -- unreachable as false since B1-1446: every call site (the force-dirty walk, the STATE detect loop, and drain_client_events()) now pre-filters on this exact mask bit before ever reaching this call, so `kind`'s bit is always set here today. Kept as defense-in-depth (client_subscribes()'s own doc still promises the AND, independent of any one caller's pre-filter) against a future caller that doesn't pre-filter -- not dead code to delete.
     if (c->topic_filter[0] == '\0') return true;
     return strcmp(c->topic_filter, topic) == 0;
 }
@@ -401,14 +401,28 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
         // otherwise never look "dirty" to the generation-diff detect logic
         // in bb_data_http_sweep_step() -- state_seen_gen defaults to 0 here,
         // which can legitimately equal an untouched key's real generation.
-        uint16_t count = bb_registry_count(&s_attach_registry);
-        for (uint16_t k = 0; k < count; k++) {
-            bb_registry_entry_t e;
-            if (bb_registry_get_by_index(&s_attach_registry, k, &e) != BB_OK) continue;  // LCOV_EXCL_BR_LINE -- k < count by construction
-            attach_slot_t *slot = (attach_slot_t *)e.value;
-            if (slot->kind != BB_DATA_HTTP_STATE) continue;
-            if (!client_subscribes(c, slot->topic, slot->kind)) continue;
-            c->state_dirty_mask |= (1u << k);
+        //
+        // Hoisted mask check (B1-1446): a client whose mask excludes STATE
+        // entirely skips this walk -- not just the per-key
+        // client_subscribes() gate below the walk, but the walk itself.
+        // client_subscribes() already ANDs this same mask bit (B1-1445), so
+        // today this produces NO observable behavior change (state_dirty_mask
+        // is already left untouched for such a client either way) -- this is
+        // a PREREQUISITE for B1-1447, which splits STATE bookkeeping out of
+        // bb_data_http_client_t into a `poll` pointer that is NULL for a
+        // mask-excludes-STATE client; visiting this walk at all for such a
+        // client would then be a NULL dereference the moment it touches
+        // c->poll->*. Skip-before-visit here is what makes that split safe.
+        if (c->subscribe_mask & BB_DATA_HTTP_SUBSCRIBE_STATE) {
+            uint16_t count = bb_registry_count(&s_attach_registry);
+            for (uint16_t k = 0; k < count; k++) {
+                bb_registry_entry_t e;
+                if (bb_registry_get_by_index(&s_attach_registry, k, &e) != BB_OK) continue;  // LCOV_EXCL_BR_LINE -- k < count by construction
+                attach_slot_t *slot = (attach_slot_t *)e.value;
+                if (slot->kind != BB_DATA_HTTP_STATE) continue;
+                if (!client_subscribes(c, slot->topic, slot->kind)) continue;
+                c->state_dirty_mask |= (1u << k);
+            }
         }
 
         c->in_use = true;
@@ -600,6 +614,26 @@ void bb_data_http_sweep_step(void)
     // draining of the ring still happens below, in the main per-client
     // loop).
     if (s_gen_fn) {
+        // Hoisted mask check (B1-1446): which in-use clients even want STATE
+        // delivery at all, computed ONCE per client here rather than
+        // re-derived on every (key, client) pair inside the STATE branch of
+        // the loop below -- a push-only (EVENT-only) client is then skipped
+        // from the inner client loop entirely, for every STATE key, without
+        // ever calling client_subscribes() on it. client_subscribes() already
+        // ANDs this same mask bit (B1-1445), so today this produces NO
+        // observable behavior change (state_seen_gen/state_dirty_mask are
+        // already left untouched for such a client either way) -- this is a
+        // PREREQUISITE for B1-1447, which splits STATE bookkeeping out of
+        // bb_data_http_client_t into a `poll` pointer that is NULL for a
+        // mask-excludes-STATE client; reaching c->state_seen_gen[k] (soon
+        // c->poll->seen_gen[k]) for such a client here would then be a NULL
+        // dereference. Skip-before-visit here is what makes that split safe.
+        bool state_eligible[CONFIG_BB_DATA_HTTP_MAX_CLIENTS];
+        for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
+            state_eligible[i] = s_clients[i].in_use &&
+                                 (s_clients[i].subscribe_mask & BB_DATA_HTTP_SUBSCRIBE_STATE) != 0;
+        }
+
         for (uint16_t k = 0; k < attach_count; k++) {
             bb_registry_entry_t e;
             if (bb_registry_get_by_index(&s_attach_registry, k, &e) != BB_OK) continue;  // LCOV_EXCL_BR_LINE -- k < attach_count by construction
@@ -644,8 +678,8 @@ void bb_data_http_sweep_step(void)
             }
 
             for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
+                if (!state_eligible[i]) continue;
                 bb_data_http_client_t *c = &s_clients[i];
-                if (!c->in_use) continue;
                 if (!client_subscribes(c, slot->topic, slot->kind)) continue;
                 if (c->state_seen_gen[k] == gen) continue;  // unchanged since last render
 
@@ -734,7 +768,15 @@ void bb_data_http_sweep_step(void)
             }
         }
 
-        drain_client_events(c);
+        // Non-participation (B1-1446): a client whose mask excludes EVENT
+        // never calls drain_client_events() at all -- that function
+        // unconditionally advances event_cursor (and drop-accounting) off
+        // the shared ring's own state regardless of any per-entry
+        // client_subscribes() filtering inside it, so a STATE-only client
+        // must not be visited here even once.
+        if (c->subscribe_mask & BB_DATA_HTTP_SUBSCRIBE_EVENT) {
+            drain_client_events(c);
+        }
 
         // Per-client-then-global resolution (B1-1123 PR-1, see
         // bb_data_http.h's PER-CONSUMER SEAMS doc): a client acquired with

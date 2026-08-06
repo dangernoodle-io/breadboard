@@ -453,6 +453,8 @@ void test_bb_data_http_sweep_step_detect_phase_skips_unsubscribed_client(void);
 void test_bb_data_http_subscribe_mask_event_only_client_excludes_state_key(void);
 void test_bb_data_http_subscribe_mask_state_only_client_excludes_event_key(void);
 void test_bb_data_http_subscribe_mask_zero_default_receives_both_kinds(void);
+void test_bb_data_http_subscribe_mask_event_only_client_state_seen_gen_stays_gated(void);
+void test_bb_data_http_subscribe_mask_state_only_client_never_advances_event_cursor(void);
 void test_bb_data_http_sweep_step_drain_phase_skips_non_dirty_key(void);
 void test_bb_data_http_sweep_step_render_failure_log_rate_limit_both_outcomes(void);
 void test_bb_data_http_sweep_step_event_render_failure_log_rate_limit_both_outcomes(void);
@@ -12295,6 +12297,8 @@ int main(void) {
     RUN_TEST(test_bb_data_http_subscribe_mask_event_only_client_excludes_state_key);
     RUN_TEST(test_bb_data_http_subscribe_mask_state_only_client_excludes_event_key);
     RUN_TEST(test_bb_data_http_subscribe_mask_zero_default_receives_both_kinds);
+    RUN_TEST(test_bb_data_http_subscribe_mask_event_only_client_state_seen_gen_stays_gated);
+    RUN_TEST(test_bb_data_http_subscribe_mask_state_only_client_never_advances_event_cursor);
     RUN_TEST(test_bb_data_http_sweep_step_drain_phase_skips_non_dirty_key);
     RUN_TEST(test_bb_data_http_sweep_step_render_failure_log_rate_limit_both_outcomes);
     RUN_TEST(test_bb_data_http_sweep_step_event_render_failure_log_rate_limit_both_outcomes);
