@@ -54,12 +54,17 @@ void bb_data_http_host_reset(void);
 // Number of frames captured since the last bb_data_http_host_reset().
 size_t bb_data_http_host_frame_count(void);
 
-// Copies capture record `idx` (0 == oldest). `buf`/`buf_cap` receive up to
-// buf_cap bytes of the captured frame; out_len receives the frame's actual
-// length (may exceed buf_cap -- only min(out_len, buf_cap) bytes are
-// copied). Any output pointer may be NULL to skip that field.
+// Copies capture record `idx` (0 == oldest). `out_client` receives the
+// bb_data_http_client_t* the frame was sent to (B1-1448, epic B1-1123: fd/
+// is_ws no longer exist on the client at all -- a test that needs to
+// distinguish which of several acquired clients received a frame compares
+// this pointer against the value bb_data_http_client_acquire() returned, not
+// a socket descriptor). `buf`/`buf_cap` receive up to buf_cap bytes of the
+// captured frame; out_len receives the frame's actual length (may exceed
+// buf_cap -- only min(out_len, buf_cap) bytes are copied). Any output
+// pointer may be NULL to skip that field.
 // Returns BB_ERR_NOT_FOUND if idx >= bb_data_http_host_frame_count().
-bb_err_t bb_data_http_host_frame_at(size_t idx, int *out_fd, bool *out_is_ws,
+bb_err_t bb_data_http_host_frame_at(size_t idx, const bb_data_http_client_t **out_client,
                                     char *buf, size_t buf_cap, size_t *out_len);
 
 // Copies capture record `idx`'s resolved send_fn `key` (B1-1123 PR-2) into

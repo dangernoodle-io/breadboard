@@ -251,29 +251,24 @@ void bb_data_http_set_abort_fn(bb_data_http_abort_fn fn, void *ctx);
 // per-consumer one.
 // ---------------------------------------------------------------------------
 
-// Sentinel for bb_data_http_client_cfg_t's `fd` field: a socketless consumer
-// (e.g. a future MQTT/UDP client acquired via B1-1126/B1-1127) has no fd to
-// carry. Deliberately negative -- fd=0 is a VALID file descriptor (stdin),
-// not "unset", so acquire() must reject any fd that is neither this sentinel
-// nor a plausible non-negative descriptor rather than silently defaulting a
-// cfg that omitted it (see bb_data_http_client_acquire()'s doc below for the
-// exact rule).
-#define BB_DATA_HTTP_NO_FD (-1)
-
 // Config struct for bb_data_http_client_acquire() -- the single-params-struct
 // convention (never `_ex`/`_named`): this REPLACES the old
 // bb_data_http_client_acquire()/bb_data_http_client_acquire_ex() pair rather
 // than adding a third entry point.
 //
-// fd: BB_DATA_HTTP_NO_FD for a socketless consumer; otherwise the caller's
-// socket descriptor (see acquire()'s validation rule below -- 0 is valid).
+// B1-1448 (epic B1-1123): no socket-shaped field lives here. fd/is_ws were
+// the last HTTP-specific fields on this cfg -- carrying them asserted every
+// consumer was a socket, which is exactly what a future MQTT/UDP consumer is
+// not. A transport that needs socket/framing identity resolves it itself,
+// from its OWN side table keyed on the acquired bb_data_http_client_t* (see
+// platform/espidf/bb_data_http/bb_data_http_espidf.c's per-connect-site
+// s_slots[]/s_ws_slots[]), never through this cfg.
+//
 // topic_filter: NULL/"" subscribes to every attached key; a non-empty filter
 // subscribes only to keys attached under that exact topic name
 // (bb_data_http_attach()'s `topic` argument). Zero-default (NULL) is safe --
 // "subscribe to everything" is the same behavior an omitted field already
 // had under the old convenience wrapper.
-// is_ws: selects the framing a backend's send_fn applies. Zero-default
-// (false) is safe -- matches the old convenience wrapper's default.
 // send_fn/send_ctx: per-client send seam (see the PER-CONSUMER SEAMS doc
 // above). NULL means "use the module-wide default installed via
 // bb_data_http_set_send_fn()" -- the safe zero-default every existing HTTP
@@ -287,13 +282,11 @@ void bb_data_http_set_abort_fn(bb_data_http_abort_fn fn, void *ctx);
 // topic-string rule) AND have its kind bit set here; the two are ANDed, not
 // substitutes for each other. Zero-default (an unset/zero-valued field) is
 // safe and resolves to BB_DATA_HTTP_SUBSCRIBE_ALL, matching the behavior
-// every existing call site (which never sets this field) already had --
-// unlike `fd`, a bitmask has no valid-looking zero to collide with, so a
-// bare 0 unambiguously means "caller didn't ask for a kind filter".
+// every existing call site (which never sets this field) already had -- a
+// bitmask has no valid-looking zero to collide with, so a bare 0
+// unambiguously means "caller didn't ask for a kind filter".
 typedef struct {
-    int                    fd;
     const char            *topic_filter;
-    bool                   is_ws;
     bb_data_http_send_fn   send_fn;
     void                  *send_ctx;
     bb_data_http_abort_fn  abort_fn;
@@ -423,11 +416,7 @@ void bb_data_http_describe_foreach(bb_data_http_describe_cb_t cb, void *ctx);
 // (fresh-render-on-connect) so the first bb_data_http_sweep_step() call
 // after acquire renders and sends it.
 //
-// Returns BB_ERR_INVALID_ARG if `cfg` or `out` is NULL; if `cfg->fd` is
-// neither BB_DATA_HTTP_NO_FD nor a non-negative descriptor (the KB 619
-// default-change trap: fd=0 is a valid descriptor, so an omitted/zeroed `fd`
-// field is REJECTED rather than silently treated as "unset" -- callers that
-// have no real fd must pass BB_DATA_HTTP_NO_FD explicitly); or if
+// Returns BB_ERR_INVALID_ARG if `cfg` or `out` is NULL; or if
 // `cfg->topic_filter` is non-NULL/non-empty and its length (excluding NUL)
 // is >= BB_DATA_HTTP_TOPIC_MAX -- mirrors bb_data_http_attach_ex()'s own
 // topic bound so an over-length filter is rejected rather than silently
@@ -638,8 +627,9 @@ bb_err_t bb_data_http_espidf_start(void);
 // Handles one SSE connect on the calling (httpd) task: sets socket
 // hardening (SO_SNDTIMEO/SO_RCVTIMEO/TCP_NODELAY), sends SSE response
 // headers plus a ": connected" comment, begins the async handler, acquires
-// a bb_data_http client slot (is_ws=false), and records the fd -> async
-// request mapping the broadcaster's send_fn and peer-liveness pre-pass use.
+// a bb_data_http client slot with its own SSE send_fn/abort_fn (B1-1448), and
+// records the fd -> async request mapping that SSE send_fn and the
+// peer-liveness pre-pass use.
 // Returns before any data is drained -- draining happens on the next
 // broadcaster sweep, never on the calling task. bb_data_http_espidf_start()
 // must have been called first (its seams are what the sweep actually
@@ -667,8 +657,9 @@ bb_err_t bb_data_http_espidf_routes_init(bb_http_handle_t server);
 
 // Registers the WS egress endpoint GET /ws/events on `server` (B1-1050
 // PR-1): installs bb_ws_server's process-global connect/disconnect
-// callbacks (acquiring/releasing a bb_data_http client with is_ws=true per
-// WS session -- see bb_ws_server_set_connect_cb/set_disconnect_cb's own
+// callbacks (acquiring/releasing a bb_data_http client with its own WS
+// send_fn/abort_fn, B1-1448, per WS session -- see
+// bb_ws_server_set_connect_cb/set_disconnect_cb's own
 // "one registration per process" contract) and registers the endpoint
 // itself via bb_ws_server_register_endpoint(). Inbound DATA frames on this
 // endpoint are explicitly discarded (bb_data_http has no recv concept; see

@@ -129,8 +129,6 @@ typedef struct {
 // of this SAME client inside bb_data_http_sweep_step() on another core.
 struct bb_data_http_client {
     bool                        in_use;
-    int                         fd;
-    bool                        is_ws;
     char                        topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
     uint32_t                    subscribe_mask;  // resolved kind bitmask; see bb_data_http_client_cfg_t's doc (bb_data_http.h)
     bb_data_http_poll_state_t  *poll;  // NULL unless subscribe_mask includes STATE -- see its own doc above
@@ -145,24 +143,26 @@ struct bb_data_http_client {
     void                       *abort_ctx;
 };
 
-// Pinned shrink proof (B1-1447): splitting STATE/EVENT bookkeeping into
-// pool-allocated poll/push pointers must actually SHRINK this struct, not
-// just rename fields around the same footprint -- see bb_serialize_json_tok.c
-// for this repo's identical pinned-sizeof convention. A future field added
-// here (or a future revert) that changes this size needs a deliberate,
-// reviewed edit to this assert, not a silent drift. Pointer-width-dependent
-// (this struct carries several pointer-sized fields): 120 bytes on a 64-bit
-// host build (native test envs), 88 bytes on a 32-bit target (ESP32/xtensa
-// ILP32) -- both pinned here rather than assuming one ABI, since this header
-// is compiled by both. PRECONDITION: this two-arm ternary only distinguishes
-// ILP32 (4-byte pointers, e.g. ESP32/xtensa) from LP64 (8-byte pointers,
-// e.g. native host); it does NOT cover a 16-bit-pointer target (e.g. an
-// AVR/Arduino backend, which this workspace does have as a family, though
-// bb_data_http itself is realistically ESP32/host-only) -- such a build
-// would spuriously trip this assert and need a third arm added, not silently
-// pass under either existing one.
-_Static_assert(sizeof(struct bb_data_http_client) == (sizeof(void *) == 8 ? 120 : 88),
-               "bb_data_http_client_t size changed -- update this pin (B1-1447 pool split)");
+// Pinned shrink proof (B1-1447, re-pinned B1-1448): splitting STATE/EVENT
+// bookkeeping into pool-allocated poll/push pointers, and later dropping the
+// last HTTP-specific fd/is_ws fields (B1-1448, epic B1-1123), must actually
+// SHRINK this struct, not just rename fields around the same footprint --
+// see bb_serialize_json_tok.c for this repo's identical pinned-sizeof
+// convention. A future field added here (or a future revert) that changes
+// this size needs a deliberate, reviewed edit to this assert, not a silent
+// drift. Pointer-width-dependent (this struct carries several pointer-sized
+// fields): 112 bytes on a 64-bit host build (native test envs), 80 bytes on
+// a 32-bit target (ESP32/xtensa ILP32) -- both pinned here rather than
+// assuming one ABI, since this header is compiled by both. PRECONDITION:
+// this two-arm ternary only distinguishes ILP32 (4-byte pointers, e.g.
+// ESP32/xtensa) from LP64 (8-byte pointers, e.g. native host); it does NOT
+// cover a 16-bit-pointer target (e.g. an AVR/Arduino backend, which this
+// workspace does have as a family, though bb_data_http itself is
+// realistically ESP32/host-only) -- such a build would spuriously trip this
+// assert and need a third arm added, not silently pass under either
+// existing one.
+_Static_assert(sizeof(struct bb_data_http_client) == (sizeof(void *) == 8 ? 112 : 80),
+               "bb_data_http_client_t size changed -- update this pin (B1-1448 fd/is_ws removal)");
 
 #ifdef BB_DATA_HTTP_TESTING
 // Test accessors -- expose fd-table/attach-table internals without widening
@@ -193,13 +193,6 @@ uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *
 // bb_data_http_client_t's TASK OWNERSHIP doc). Returns false if `c` is
 // NULL.
 bool bb_data_http_client_pending_release_for_test(const bb_data_http_client_t *c);
-
-// Returns client `c`'s is_ws flag, as recorded by
-// bb_data_http_client_acquire()'s `is_ws` argument (B1-1050 PR-1: WS
-// egress wiring -- the espidf backend's WS acquire/release path relies on
-// this flag being correctly threaded through by the pure core, so it needs
-// a host-testable seam of its own). Returns false if `c` is NULL.
-bool bb_data_http_client_is_ws_for_test(const bb_data_http_client_t *c);
 
 // B1-1447: direct proof that a client whose subscribe_mask excludes STATE
 // (or the STATE poll pool was exhausted -- see

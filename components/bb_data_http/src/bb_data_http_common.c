@@ -430,11 +430,6 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
 {
     if (!cfg || !out) return BB_ERR_INVALID_ARG;
     if (!s_cfg.initialized) return BB_ERR_INVALID_STATE;
-    // KB 619 default-change trap: fd=0 is a VALID descriptor, not "unset" --
-    // a cfg whose fd is neither the explicit BB_DATA_HTTP_NO_FD sentinel nor
-    // a plausible non-negative descriptor is REJECTED rather than silently
-    // defaulted (see bb_data_http_client_cfg_t's doc, bb_data_http.h).
-    if (cfg->fd != BB_DATA_HTTP_NO_FD && cfg->fd < 0) return BB_ERR_INVALID_ARG;
     // Mirrors bb_data_http_attach_ex()'s own topic-length bound: an
     // over-length filter must be REJECTED, never silently truncated by the
     // bb_strlcpy below (a truncated filter can mis-subscribe a client to a
@@ -448,8 +443,8 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
         // Zero-default -> ALL (B1-1445): a cfg that never sets this
         // field resolves to the same "receive everything" behavior every
         // existing call site already had -- see bb_data_http_client_cfg_t's
-        // subscribe_mask doc (bb_data_http.h) for why a bare 0 is safe here
-        // in a way BB_DATA_HTTP_NO_FD's fd sentinel is not.
+        // subscribe_mask doc (bb_data_http.h) for why a bare 0 is
+        // unambiguously safe here.
         uint32_t mask = cfg->subscribe_mask ? cfg->subscribe_mask : BB_DATA_HTTP_SUBSCRIBE_ALL;
 
         // Pool-first (B1-1447): resolve this client's STATE/EVENT
@@ -475,8 +470,6 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
             }
         }
 
-        c->fd     = cfg->fd;
-        c->is_ws  = cfg->is_ws;
         if (cfg->topic_filter) {
             bb_strlcpy(c->topic_filter, cfg->topic_filter, sizeof(c->topic_filter));
         } else {
@@ -970,8 +963,8 @@ void bb_data_http_sweep_step(void)
                 if (c->send_fail_count < CONFIG_BB_DATA_HTTP_SEND_FAIL_MAX) {
                     break;  // retry this same frame next sweep_step() -- never loop within this sweep
                 }
-                bb_log_w(TAG, "send failed %" PRIu32 " consecutive times for key '%s' (fd=%d), dropping frame",
-                        c->send_fail_count, resolve_outbound_key(id), c->fd);
+                bb_log_w(TAG, "send failed %" PRIu32 " consecutive times for key '%s' (client=%p), dropping frame",
+                        c->send_fail_count, resolve_outbound_key(id), (void *)c);
                 bb_queue_pop_oldest(c->outbound);
                 c->send_fail_count = 0;
                 // Bound exceeded on this frame only -- but still stop for
@@ -986,8 +979,8 @@ void bb_data_http_sweep_step(void)
             // bb_data_http_send_fn's return contract. Never retried; the
             // frame is left in the queue (irrelevant -- the client is
             // about to be released, which destroys the queue too).
-            bb_log_w(TAG, "send failed fatally for key '%s' (fd=%d): %d, aborting client",
-                    resolve_outbound_key(id), c->fd, (int)send_rc);
+            bb_log_w(TAG, "send failed fatally for key '%s' (client=%p): %d, aborting client",
+                    resolve_outbound_key(id), (void *)c, (int)send_rc);
             bb_data_http_abort_fn abort_fn  = c->abort_fn  ? c->abort_fn  : s_abort_fn;
             void                 *abort_ctx = c->abort_fn  ? c->abort_ctx : s_abort_ctx;
             if (abort_fn) {
@@ -1069,11 +1062,6 @@ uint32_t bb_data_http_client_send_fail_count_for_test(const bb_data_http_client_
 uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *c)
 {
     return (c && c->push) ? c->push->cursor : 0;
-}
-
-bool bb_data_http_client_is_ws_for_test(const bb_data_http_client_t *c)
-{
-    return c ? c->is_ws : false;
 }
 
 bool bb_data_http_client_pending_release_for_test(const bb_data_http_client_t *c)

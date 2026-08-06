@@ -10,8 +10,11 @@
 // part of the public API, but platform backends (this file included) are
 // allowed direct access to it, same precedent as
 // platform/host/bb_led_gpio/bb_led_gpio.c's own relative include of its
-// component's *_internal.h. This stub still captures fd/is_ws (tests assert
-// on them) by reading them straight off the client handle.
+// component's *_internal.h. B1-1448 (epic B1-1123): fd/is_ws no longer exist
+// on bb_data_http_client_t at all -- this stub captures the client HANDLE
+// itself instead (host tests assert on client identity, e.g. distinguishing
+// which of several acquired clients a frame was sent to, by comparing this
+// pointer against the value bb_data_http_client_acquire() returned).
 #include "../../../components/bb_data_http/src/bb_data_http_internal.h"
 
 #include "bb_str.h"
@@ -22,11 +25,10 @@
 #define BB_DATA_HTTP_HOST_FRAME_MAX   256
 
 typedef struct {
-    int    fd;
-    bool   is_ws;
-    char   key[BB_DATA_HTTP_KEY_MAX];
-    size_t len;
-    char   bytes[BB_DATA_HTTP_HOST_FRAME_MAX];
+    const bb_data_http_client_t *client;
+    char                         key[BB_DATA_HTTP_KEY_MAX];
+    size_t                       len;
+    char                         bytes[BB_DATA_HTTP_HOST_FRAME_MAX];
 } capture_frame_t;
 
 static capture_frame_t s_frames[BB_DATA_HTTP_HOST_CAPTURE_MAX];
@@ -58,8 +60,7 @@ static bb_err_t host_send(const char *key, const bb_data_http_client_t *client,
     if (s_frame_count >= BB_DATA_HTTP_HOST_CAPTURE_MAX) return BB_ERR_NO_SPACE;
 
     capture_frame_t *f = &s_frames[s_frame_count];
-    f->fd    = client ? client->fd : -1;  // LCOV_EXCL_BR_LINE -- host_send()'s only caller (bb_data_http_sweep_step()'s drain phase) always passes the live client `c` it is currently draining; never NULL.
-    f->is_ws = client ? client->is_ws : false;  // LCOV_EXCL_BR_LINE -- same rationale as f->fd above.
+    f->client = client;
     if (key) {  // LCOV_EXCL_BR_LINE -- resolve_outbound_key() (bb_data_http_common.c) never returns NULL; the seam's own contract (bb_data_http.h) forbids it.
         bb_strlcpy(f->key, key, sizeof(f->key));
     } else {
@@ -131,14 +132,13 @@ static capture_frame_t *frame_at(size_t idx)
     return &s_frames[idx];
 }
 
-bb_err_t bb_data_http_host_frame_at(size_t idx, int *out_fd, bool *out_is_ws,
+bb_err_t bb_data_http_host_frame_at(size_t idx, const bb_data_http_client_t **out_client,
                                     char *buf, size_t buf_cap, size_t *out_len)
 {
     capture_frame_t *f = frame_at(idx);
     if (!f) return BB_ERR_NOT_FOUND;
 
-    if (out_fd) *out_fd = f->fd;
-    if (out_is_ws) *out_is_ws = f->is_ws;
+    if (out_client) *out_client = f->client;
     if (out_len) *out_len = f->len;
     if (buf && buf_cap > 0) {
         size_t n = f->len < buf_cap ? f->len : buf_cap;
