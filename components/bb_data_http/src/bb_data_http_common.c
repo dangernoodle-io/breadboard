@@ -2,7 +2,11 @@
 // bb_data_http.h for the full seam/invariant contract. This file has no
 // FreeRTOS, httpd, or bb_data/bb_ws_server dependency -- everything it needs
 // beyond bb_queue/bb_core/bb_registry/bb_str/bb_log is reached through the
-// three injected seams (render/generation/send).
+// three injected seams (render/generation/send). ONE narrow exception
+// (B1-1450): the shared EVENT ring's write-side lock below is a raw
+// portMUX spinlock on ESP-IDF, self-contained behind its own #ifdef
+// ESP_PLATFORM block -- see that block's own doc for why a raw spinlock
+// rather than bb_lock_t.
 #include "bb_data_http.h"
 #include "bb_data_http_internal.h"
 
@@ -269,6 +273,67 @@ static bb_queue_t s_event_ring;
 static uint32_t   s_event_total_pushed;
 static uint32_t   s_event_last_gen[BB_DATA_HTTP_MAX_ATTACH];
 
+// BB_DATA_HTTP_EVENT_ENTRY_MAX -- single source of truth for BOTH the event
+// ring's max_entry_bytes (event_cfg, bb_data_http_init() below) AND
+// bb_data_http_push_pump()'s ev_buf stack buffer, so the two structurally
+// cannot drift apart independently (one macro, two use sites, rather than
+// two copies of the same literal). This equality is safety-load-bearing,
+// not just a size optimization -- see s_event_ring_mux's doc below for why.
+#define BB_DATA_HTTP_EVENT_ENTRY_MAX CONFIG_BB_DATA_HTTP_OUTBOUND_ENTRY_MAX
+
+// s_event_ring_mux (B1-1450, epic B1-1123): guards the CLAIM/PUSH protocol
+// bb_data_http_push_pump() uses to make the shared EVENT ring safe for a
+// second, concurrent caller -- see that function's own doc (bb_data_http.h)
+// for the full claim/render/commit-or-revoke contract this lock backs.
+// Same discipline as the espidf backend's own s_slots_mux/s_ws_slots_mux
+// (bb_data_http_espidf.c): a portMUX spinlock, held only across bounded,
+// non-blocking work -- a bb_queue_push, a plain integer read/write/
+// compare -- NEVER across render_fn or any other call that can block.
+// This is a raw portMUX rather than bb_lock_t deliberately: bb_lock_t is a
+// blocking mutex (fine for a task that may sleep waiting for it), but this
+// component's existing sibling locks in the same file family are already
+// portMUX spinlocks for exactly this hold-time-bounded, no-blocking-inside
+// pattern -- matching that established discipline here keeps one lock
+// style per hazard class in this component rather than introducing a
+// second, inconsistent one. Self-contained #ifdef ESP_PLATFORM block: this
+// is the ONE place this otherwise-portable file reaches for a FreeRTOS
+// header (see the file's own top-of-file doc), and it never leaks a
+// platform type past this block -- BB_DATA_HTTP_EVENT_RING_LOCK/UNLOCK are
+// plain macros, not exposed types. On host, the lock is a no-op: the host
+// test harness is documented single-threaded (no pthreads driving
+// concurrent callers), so there is nothing to guard against there, and a
+// real host mutex would only cost cycles for no correctness benefit.
+//
+// HAZARD this section's held-work must never grow into: bb_queue_push()
+// (platform/host/bb_queue/bb_queue.c) has its own bb_log_w/bb_log_d calls
+// on two branches -- "len > max_entry" (rejected regardless of policy) and
+// "ring full under BB_QUEUE_REJECT_NEW" -- and a log call is blocking
+// FreeRTOS plumbing on ESP-IDF, which must never run inside a portMUX
+// critical section. Neither branch can fire today ONLY because of two
+// invariants held together here: (1) BB_DATA_HTTP_EVENT_ENTRY_MAX ties
+// ev_len's upper bound (sizeof(ev_buf)) to event_cfg.max_entry_bytes, so
+// "len > max_entry" is unreachable; (2) event_cfg.policy below is
+// BB_QUEUE_EVICT_OLDEST with max_age == 0, so the ring never rejects a
+// push for being full -- it evicts instead, silently, no log branch. A
+// static_assert can't usefully pin either invariant (the entry-size one is
+// already structural via the shared macro above, not a numeric coincidence
+// to assert on; the policy one is a runtime enum value, not a compile-time
+// constant this file can compare against a symbol tying it back to the
+// lock). Re-verify this comment's claim by hand if event_cfg.policy above
+// ever changes away from BB_QUEUE_EVICT_OLDEST, or if ev_buf's declaration
+// in bb_data_http_push_pump() is ever changed to something other than
+// BB_DATA_HTTP_EVENT_ENTRY_MAX.
+#ifdef ESP_PLATFORM
+#include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
+static portMUX_TYPE s_event_ring_mux = portMUX_INITIALIZER_UNLOCKED;
+#define BB_DATA_HTTP_EVENT_RING_LOCK()   portENTER_CRITICAL(&s_event_ring_mux)
+#define BB_DATA_HTTP_EVENT_RING_UNLOCK() portEXIT_CRITICAL(&s_event_ring_mux)
+#else
+#define BB_DATA_HTTP_EVENT_RING_LOCK()   ((void)0)
+#define BB_DATA_HTTP_EVENT_RING_UNLOCK() ((void)0)
+#endif
+
 void bb_data_http_set_render_fn(bb_data_http_render_fn fn, void *ctx)
 {
     s_render_fn  = fn;
@@ -387,7 +452,7 @@ bb_err_t bb_data_http_init(const bb_data_http_cfg_t *cfg)
 
     bb_queue_cfg_t event_cfg = {
         .capacity_entries = ring_capacity,
-        .max_entry_bytes  = CONFIG_BB_DATA_HTTP_OUTBOUND_ENTRY_MAX,
+        .max_entry_bytes  = BB_DATA_HTTP_EVENT_ENTRY_MAX,
         .policy           = BB_QUEUE_EVICT_OLDEST,
         .name             = "bbdhevt",
         .max_bytes        = 0,
@@ -729,10 +794,96 @@ static void drain_client_events(bb_data_http_client_t *c)
 // be called directly, decoupled from the 50ms broadcaster tick;
 // sweep_step() still calls it in the same relative position (after STATE
 // detect, before the per-client drain/flush loop), so the tick-driven path
-// is unchanged. Single-writer only, same as every other s_event_* mutation
-// in this file: every caller today is sweep_step() itself, i.e. the
-// broadcaster task -- see this function's header doc for why a second,
-// independent caller needs the B1-1450 lock first.
+// is unchanged.
+//
+// CLAIM/RENDER/COMMIT-OR-REVOKE protocol (B1-1450, epic B1-1123): this is
+// what makes the function safe for a second, concurrent caller. Per key:
+//   1. CLAIM (locked): compare gen to s_event_last_gen[k]. Equal means some
+//      caller -- this one on a prior call, or a concurrent one just now --
+//      already has this generation handled or in flight; skip. Otherwise
+//      immediately store s_event_last_gen[k] = gen (remembering the prior
+//      value) BEFORE render_fn runs, so a second concurrent caller that
+//      reaches this same key's claim step next sees the NEW value and
+//      skips -- only one caller ever wins the claim for a given
+//      (key, generation) pair. This is the ONLY place s_event_last_gen[k]
+//      is ever written for the no-render_fn degrade path too (folded into
+//      the claim itself, see step 2) -- there is exactly one write site,
+//      always under the lock, not a separate unguarded one.
+//   2. No render_fn installed: the claim above already advanced past this
+//      generation; nothing further to do (mirrors the old degrade-and-
+//      advance behavior, now inherent in the claim rather than a second
+//      write).
+//   3. RENDER (unlocked): render_fn runs outside the lock -- it can block,
+//      and per this component's contract may take arbitrarily long.
+//   4a. COMMIT on render success (locked, compare-and-discard -- SYMMETRIC
+//       with REVOKE below, not unconditional): re-check s_event_last_gen[k]
+//       still equals the generation THIS caller claimed BEFORE pushing. If
+//       it still matches, push the rendered frame and bump
+//       s_event_total_pushed (s_event_last_gen[k] itself is NOT touched
+//       here -- it already holds `gen`, set by the claim in step 1). If it
+//       does NOT match, a second, concurrent caller has since claimed and
+//       already committed a NEWER generation for this same key --
+//       DISCARD this render (no push, no counter bump) instead of pushing
+//       it. This check is required even though render_fn ran against a
+//       generation THIS caller uniquely claimed: render_fn's own contract
+//       is "render the key's CURRENT value", not a frozen per-generation
+//       snapshot, so a slow render_fn that returns success late can easily
+//       carry content at or past whatever a faster, later-claimed
+//       concurrent render already pushed -- pushing it anyway would be a
+//       second frame for one logical occurrence.
+//   4b. REVOKE on render failure (locked, compare-and-restore): if
+//       s_event_last_gen[k] still equals the generation THIS caller
+//       claimed, restore it to the pre-claim value so a later call retries
+//       this generation (same retry contract as before this protocol
+//       existed). If it does NOT still equal that value, a second,
+//       concurrent caller has since claimed a NEWER generation for this
+//       same key -- leave it alone; blindly restoring would resurrect a
+//       stale value and cause that other caller's already-in-flight (or
+//       already-committed) work to be spuriously redone.
+//
+//       ABA note on this compare-and-restore: it is possible for a THIRD
+//       caller's own earlier revoke to have coincidentally restored
+//       s_event_last_gen[k] back to exactly the value THIS caller claimed,
+//       making this compare pass when the "true" chain of custody would
+//       say it shouldn't (e.g. A claims g1 and stalls; B claims g2, fails,
+//       revokes to g1; A later fails too, sees g1 -- its own claimed value,
+//       coincidentally restored by B -- and restores to g0). This is
+//       provably self-healing, not a correctness gap: generations are
+//       monotonic and never repeat, so any wrongly-reverted marker is
+//       exceeded by the very next real generation change, which re-triggers
+//       a fresh claim for that key. The only cost is a redundant re-render
+//       of a generation that may already be reflected in a later push, not
+//       a permanently lost event or a stuck marker -- deliberately not
+//       worth an epoch/token scheme to close. PRECONDITION: this healing
+//       depends on this function continuing to be invoked periodically by
+//       every caller sharing this key (the broadcaster's existing
+//       sweep-tick cadence, and whatever cadence a second caller uses) --
+//       a caller wired to invoke this function only on-demand does not get
+//       the self-healing guarantee for free; see this function's own doc
+//       (bb_data_http.h) for the full precondition.
+//
+//       SUSTAINED-CHURN NOTE: under continuous generation churn for one
+//       key faster than either caller's render_fn completes, COMMIT's
+//       compare-and-discard can keep discarding every render for that key
+//       -- throughput can drop to zero while churn continues. EXPECTED
+//       under this component's coalesce-to-latest contract (render_fn
+//       always renders CURRENT value, never a frozen snapshot), not a lock
+//       defect -- see this function's own doc (bb_data_http.h) for the
+//       full callout.
+//
+// Why this closes the double-delivery hazard a partial (push-only) lock
+// left open: without locking the CLAIM (and, symmetrically, the COMMIT)
+// step, two concurrent callers could both read the same stale
+// s_event_last_gen[k], both decide to render, and both push -- two ring
+// entries for one logical occurrence, with no downstream dedup (ring
+// entries carry no generation, only the attach index). Locking only the
+// final push prevented torn writes but not that double-decide/double-
+// render/double-push outcome; locking the claim alone closes the
+// same-(key,generation) case but NOT the cross-generation case (a slow
+// claimant's stale-but-successful render landing after a faster,
+// later-claimed concurrent render already pushed) -- COMMIT's own
+// compare-and-discard closes that remaining gap by re-validating the claim
+// immediately before the push, not just at claim time.
 void bb_data_http_push_pump(void)
 {
     if (!s_gen_fn) return;
@@ -746,37 +897,67 @@ void bb_data_http_push_pump(void)
 
         uint32_t gen = 0;
         if (s_gen_fn(slot->key, &gen, s_gen_ctx) != BB_OK) continue;
-        if (gen == s_event_last_gen[k]) continue;  // unchanged since last push
+
+        // Step 1: CLAIM. Locked check-and-set -- see this function's own
+        // doc above for why this must be atomic with the generation
+        // compare, not just the eventual push.
+        BB_DATA_HTTP_EVENT_RING_LOCK();
+        if (gen == s_event_last_gen[k]) {
+            BB_DATA_HTTP_EVENT_RING_UNLOCK();
+            continue;  // already handled: by us last call, or a concurrent caller just now
+        }
+        uint32_t prev_gen = s_event_last_gen[k];
+        s_event_last_gen[k] = gen;  // claimed
+        BB_DATA_HTTP_EVENT_RING_UNLOCK();
 
         if (!s_render_fn) {
-            // Nothing to retry -- degrade the same way the drain phase's own
-            // no-render_fn path does (see bb_data_http_sweep_step() below):
-            // advance past this generation rather than looping on it forever
-            // with no way to ever produce a frame.
-            s_event_last_gen[k] = gen;
+            // Step 2: nothing to retry -- the claim above already advanced
+            // past this generation (see this function's own doc, step 2).
             continue;
         }
 
-        char     ev_buf[CONFIG_BB_DATA_HTTP_OUTBOUND_ENTRY_MAX];
+        // Step 3: RENDER, unlocked -- render_fn can block; must never run
+        // under s_event_ring_mux.
+        char     ev_buf[BB_DATA_HTTP_EVENT_ENTRY_MAX];
         size_t   ev_len    = 0;
         bb_err_t render_rc = s_render_fn(slot->key, ev_buf, sizeof(ev_buf), &ev_len, s_render_ctx);
         if (render_rc != BB_OK) {
-            // Leave s_event_last_gen[k] unchanged: retried next call rather
-            // than silently skipping the event -- same clear/advance-only-
-            // on-success contract as STATE's drain phase below, same
-            // rate-limited log.
+            // Step 4b: REVOKE (compare-and-restore) -- see this function's
+            // own doc above for why the compare guards against clobbering
+            // a newer concurrent claim.
             s_render_fail_count++;
             if (s_render_fail_count == 1 ||
                 (s_render_fail_count % BB_DATA_HTTP_RENDER_FAIL_LOG_EVERY) == 0) {
                 bb_log_w(TAG, "event render failed for key '%s': %d (total=%" PRIu32 ")",
                         slot->key, (int)render_rc, s_render_fail_count);
             }
+            BB_DATA_HTTP_EVENT_RING_LOCK();
+            if (s_event_last_gen[k] == gen) {
+                s_event_last_gen[k] = prev_gen;
+            }
+            BB_DATA_HTTP_EVENT_RING_UNLOCK();
             continue;
         }
 
-        bb_queue_push(s_event_ring, ev_buf, ev_len, 0, (uint32_t)k);
-        s_event_total_pushed++;
-        s_event_last_gen[k] = gen;
+        // Step 4a: COMMIT -- symmetric with REVOKE (step 4b): re-check the
+        // claim is still ours BEFORE pushing, same compare, same lock. A
+        // SLOW render_fn can return success after a NEWER concurrent claim
+        // has already committed fresher state for this key (render_fn's
+        // contract is "render CURRENT value", not a per-generation
+        // snapshot, so this stale render's payload plausibly reflects that
+        // newer state too) -- pushing it anyway would be a second frame
+        // for one logical occurrence, the exact double-delivery hazard
+        // this protocol exists to close. If s_event_last_gen[k] still
+        // equals `gen`, this claim is still current: push and bump the
+        // counter as before. If it does not, DISCARD this render (no
+        // push, no counter bump) -- a newer claim already reflects
+        // fresher state.
+        BB_DATA_HTTP_EVENT_RING_LOCK();
+        if (s_event_last_gen[k] == gen) {
+            bb_queue_push(s_event_ring, ev_buf, ev_len, 0, (uint32_t)k);
+            s_event_total_pushed++;
+        }
+        BB_DATA_HTTP_EVENT_RING_UNLOCK();
     }
 }
 
@@ -1105,6 +1286,57 @@ uint32_t bb_data_http_client_event_cursor_for_test(const bb_data_http_client_t *
 size_t bb_data_http_event_ring_count_for_test(void)
 {
     return s_event_ring ? bb_queue_count(s_event_ring) : 0;
+}
+
+// key -> attach-table registry index, test-only. Mirrors the same linear
+// scan bb_data_http_push_pump() and friends already do internally (the
+// attach-table index is registration order, not stored on the slot itself
+// -- see bb_data_http_attach_ex()'s own doc above). Returns true and
+// writes *out_idx on a match, false (leaving *out_idx untouched) if key is
+// not attached.
+static bool find_attach_index_for_test(const char *key, uint16_t *out_idx)
+{
+    uint16_t count = bb_registry_count(&s_attach_registry);
+    for (uint16_t k = 0; k < count; k++) {  // LCOV_EXCL_BR_LINE -- every test-only caller passes an already-attached key, so this loop always returns from inside before k reaches count
+        bb_registry_entry_t e;
+        if (bb_registry_get_by_index(&s_attach_registry, k, &e) != BB_OK) continue;  // LCOV_EXCL_BR_LINE -- k < count by construction
+        attach_slot_t *slot = (attach_slot_t *)e.value;
+        if (strcmp(slot->key, key) == 0) {
+            *out_idx = k;
+            return true;
+        }
+    }
+    return false;  // LCOV_EXCL_LINE -- every test-only caller passes an already-attached key
+}
+
+// B1-1450: current value of s_event_last_gen for `key`'s attach index.
+// Returns 0 if key is not attached (mirrors every other for_test
+// accessor's NULL-safe zero-return convention).
+uint32_t bb_data_http_event_last_gen_for_test(const char *key)
+{
+    uint16_t idx = 0;
+    if (!find_attach_index_for_test(key, &idx)) return 0;  // LCOV_EXCL_LINE -- every test-only caller passes an already-attached key
+    uint32_t gen;
+    BB_DATA_HTTP_EVENT_RING_LOCK();
+    gen = s_event_last_gen[idx];
+    BB_DATA_HTTP_EVENT_RING_UNLOCK();
+    return gen;
+}
+
+// B1-1450: directly overwrite s_event_last_gen for `key`'s attach index,
+// bypassing the claim/commit/revoke protocol entirely -- lets a host test
+// simulate a second, concurrent bb_data_http_push_pump() caller claiming a
+// NEWER generation for the SAME key while THIS caller's own render_fn call
+// is still in flight (the compare-and-restore revoke's "leave it alone"
+// branch, see that function's own doc), which the single-threaded host
+// harness cannot otherwise reach. No-op if key is not attached.
+void bb_data_http_event_last_gen_set_for_test(const char *key, uint32_t gen)
+{
+    uint16_t idx = 0;
+    if (!find_attach_index_for_test(key, &idx)) return;  // LCOV_EXCL_LINE -- every test-only caller passes an already-attached key
+    BB_DATA_HTTP_EVENT_RING_LOCK();
+    s_event_last_gen[idx] = gen;
+    BB_DATA_HTTP_EVENT_RING_UNLOCK();
 }
 
 bool bb_data_http_client_pending_release_for_test(const bb_data_http_client_t *c)

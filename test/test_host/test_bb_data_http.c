@@ -139,6 +139,47 @@ static bb_err_t mid_sweep_release_render_fn(const char *key, char *buf, size_t c
     return fake_render_fn(key, buf, cap, out_len, NULL);
 }
 
+// B1-1450: simulates a second, concurrent bb_data_http_push_pump() caller
+// claiming a NEWER generation for the SAME key while THIS caller's own
+// render_fn call is still in flight -- same same-call-sequencing trick as
+// mid_sweep_release_render_fn() above, applied to the claim/revoke
+// protocol's compare-and-restore race instead of the client-release race.
+// Directly claims gen+1 via the test-only setter (bypassing the real
+// claim/commit/revoke protocol, standing in for a second task's own claim
+// step), then fails so the ORIGINAL caller's own revoke attempt (for the
+// generation it actually claimed) runs against an already-moved-on value.
+static bb_err_t concurrent_claim_then_fail_render_fn(const char *key, char *buf, size_t cap,
+                                                      size_t *out_len, void *ctx)
+{
+    (void)buf;
+    (void)cap;
+    (void)out_len;
+    (void)ctx;
+    uint32_t gen = 0;
+    fake_generation_fn(key, &gen, NULL);
+    bb_data_http_event_last_gen_set_for_test(key, gen + 1);
+    return BB_ERR_INVALID_STATE;
+}
+
+// B1-1450 round 2: simulates a second, concurrent bb_data_http_push_pump()
+// caller claiming AND COMMITTING a NEWER generation for the SAME key while
+// THIS caller's own render_fn call is still in flight, then SUCCEEDING --
+// unlike concurrent_claim_then_fail_render_fn() above (which drives the
+// REVOKE compare-and-restore's "leave it alone" branch), this drives
+// COMMIT's own compare-and-discard: a stale-but-successful render must be
+// discarded once a newer claim already exists, per push_pump()'s own doc
+// (bb_data_http.h). Same same-call-sequencing trick, applied to the
+// remaining round-1 gap: locking only the CLAIM step (not COMMIT) let a
+// slow claimant's stale-but-successful render still land a duplicate push.
+static bb_err_t concurrent_claim_then_succeed_render_fn(const char *key, char *buf, size_t cap,
+                                                         size_t *out_len, void *ctx)
+{
+    uint32_t gen = 0;
+    fake_generation_fn(key, &gen, NULL);
+    bb_data_http_event_last_gen_set_for_test(key, gen + 1);
+    return fake_render_fn(key, buf, cap, out_len, ctx);
+}
+
 static void *failing_calloc(size_t n, size_t sz)
 {
     (void)n;
@@ -1316,6 +1357,68 @@ void test_bb_data_http_push_pump_generation_fn_failure_skips_event_key(void)
     // ev_ok's generation hasn't moved again since its last successful push.
     bb_data_http_push_pump();
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_event_ring_count_for_test());
+}
+
+// B1-1450: the claim/commit/revoke protocol's compare-and-restore step
+// must NOT clobber a NEWER generation a concurrent caller has since
+// claimed for the same key -- see this function's own doc
+// (bb_data_http.h) and concurrent_claim_then_fail_render_fn()'s doc above
+// for the exact race this simulates. Without the compare (i.e. a bare
+// unconditional restore-on-failure), this would wrongly resurrect the
+// stale pre-claim generation over the concurrent caller's newer claim.
+void test_bb_data_http_push_pump_revoke_leaves_newer_concurrent_claim_alone(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(concurrent_claim_then_fail_render_fn, NULL);
+    // ev0 attached FIRST so the test-only key->index lookup helper
+    // (find_attach_index_for_test(), bb_data_http_common.c) must scan past
+    // a non-matching entry before finding "ev1" -- exercises its strcmp
+    // mismatch branch, not just an always-first-match lookup.
+    bb_data_http_attach_ex("ev0", "topic.z", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+
+    fake_gen_bump("ev1");  // gen=1
+    bb_data_http_push_pump();
+
+    // render_fn always fails in this fixture -- nothing ever committed.
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_event_ring_count_for_test());
+
+    // The revoke found s_event_last_gen already moved to 2 (by the
+    // simulated concurrent caller inside render_fn, BEFORE this caller's
+    // own revoke ran) and correctly left it there instead of restoring it
+    // to the pre-claim value (0).
+    TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_event_last_gen_for_test("ev1"));
+}
+
+// B1-1450 round 2: COMMIT's own compare-and-discard must reject a
+// stale-but-successful render once a NEWER concurrent claim has already
+// landed for the same key -- see push_pump()'s own doc (bb_data_http.h,
+// step 4a) and concurrent_claim_then_succeed_render_fn()'s doc above for
+// the exact race this simulates. Proves the DISCARD itself (ring does not
+// grow), not merely that the generation marker is left alone -- distinct
+// from test_bb_data_http_push_pump_revoke_leaves_newer_concurrent_claim_alone
+// above, which covers the REVOKE (render-failure) side of this same
+// symmetry.
+void test_bb_data_http_push_pump_commit_discards_stale_render_after_newer_concurrent_claim(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(concurrent_claim_then_succeed_render_fn, NULL);
+    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+
+    fake_gen_bump("ev1");  // gen=1
+    bb_data_http_push_pump();
+
+    // render_fn SUCCEEDED (unlike the REVOKE-side test above), but by the
+    // time COMMIT re-checked the claim, the simulated concurrent caller had
+    // already claimed gen=2 for this same key -- COMMIT must discard this
+    // stale render rather than push a second, duplicate frame.
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_event_ring_count_for_test());
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_render_fail_count());  // a discard is not a render failure
+    TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_event_last_gen_for_test("ev1"));  // the newer claim stands, untouched
 }
 
 // Tick-driven behavior is unchanged (mutation-test target, B1-1449): with no
