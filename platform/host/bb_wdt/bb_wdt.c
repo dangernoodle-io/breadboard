@@ -94,34 +94,26 @@ void bb_wdt_extend_end(void)
 {
 }
 
-bb_err_t bb_wdt_task_subscribe(void)
+bb_err_t bb_wdt_task_subscribe(const bb_wdt_task_subscribe_cfg_t *cfg)
 {
-    return bb_wdt_task_subscribe_handle(NULL);
-}
-
-bb_err_t bb_wdt_task_unsubscribe(void)
-{
-    return bb_wdt_task_unsubscribe_handle(NULL);
-}
-
-bb_err_t bb_wdt_task_subscribe_handle(void *handle)
-{
+    if (!cfg) return BB_ERR_INVALID_ARG;
 #ifdef BB_WDT_TESTING
     s_subscribe_count++;
-    s_last_subscribe_handle = handle;
+    s_last_subscribe_handle = cfg->handle;
 #else
-    (void)handle;
+    (void)cfg;
 #endif
     return BB_OK;
 }
 
-bb_err_t bb_wdt_task_unsubscribe_handle(void *handle)
+bb_err_t bb_wdt_task_unsubscribe(const bb_wdt_task_unsubscribe_cfg_t *cfg)
 {
+    if (!cfg) return BB_ERR_INVALID_ARG;
 #ifdef BB_WDT_TESTING
     s_unsub_count++;
-    s_last_unsubscribe_handle = handle;
+    s_last_unsubscribe_handle = cfg->handle;
 #else
-    (void)handle;
+    (void)cfg;
 #endif
     return BB_OK;
 }

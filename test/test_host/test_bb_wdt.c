@@ -97,7 +97,7 @@ void test_bb_wdt_feed_increments_counter(void)
 void test_bb_wdt_subscribe_increments_counter(void)
 {
     bb_wdt_test_reset();
-    bb_err_t rc = bb_wdt_task_subscribe();
+    bb_err_t rc = bb_wdt_task_subscribe(&(bb_wdt_task_subscribe_cfg_t){0});
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_subscribe_count());
 }
@@ -105,7 +105,7 @@ void test_bb_wdt_subscribe_increments_counter(void)
 void test_bb_wdt_unsubscribe_increments_counter(void)
 {
     bb_wdt_test_reset();
-    bb_err_t rc = bb_wdt_task_unsubscribe();
+    bb_err_t rc = bb_wdt_task_unsubscribe(&(bb_wdt_task_unsubscribe_cfg_t){0});
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_unsubscribe_count());
 }
@@ -120,15 +120,32 @@ void test_bb_wdt_set_timeout_noop_on_host(void)
 }
 
 /* -------------------------------------------------------------------------
- * bb_wdt_task_subscribe_handle / bb_wdt_task_unsubscribe_handle
- * (B1-1043: arbitrary-task-handle subscribe API)
+ * bb_wdt_task_subscribe/unsubscribe cfg->handle (B1-1043: arbitrary-task-
+ * handle subscribe; B1-1460: collapsed the former _handle()-suffixed sibling
+ * onto this single entry point's cfg struct)
  * ---------------------------------------------------------------------- */
+
+void test_bb_wdt_subscribe_cfg_null_is_invalid_arg(void)
+{
+    /* a NULL cfg pointer is not "use defaults" -- it's a caller bug,
+     * consistent with every other bb_*_cfg_t entry point in this repo. */
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_wdt_task_subscribe(NULL));
+    TEST_ASSERT_EQUAL_INT(0, bb_wdt_test_subscribe_count());
+}
+
+void test_bb_wdt_unsubscribe_cfg_null_is_invalid_arg(void)
+{
+    bb_wdt_test_reset();
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_wdt_task_unsubscribe(NULL));
+    TEST_ASSERT_EQUAL_INT(0, bb_wdt_test_unsubscribe_count());
+}
 
 void test_bb_wdt_subscribe_handle_increments_counter(void)
 {
     bb_wdt_test_reset();
     int fake_handle;
-    bb_err_t rc = bb_wdt_task_subscribe_handle(&fake_handle);
+    bb_err_t rc = bb_wdt_task_subscribe(&(bb_wdt_task_subscribe_cfg_t){ .handle = &fake_handle });
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_subscribe_count());
     /* the exact handle pointer must be routed through, not dropped */
@@ -139,40 +156,44 @@ void test_bb_wdt_unsubscribe_handle_increments_counter(void)
 {
     bb_wdt_test_reset();
     int fake_handle;
-    bb_err_t rc = bb_wdt_task_unsubscribe_handle(&fake_handle);
+    bb_err_t rc = bb_wdt_task_unsubscribe(&(bb_wdt_task_unsubscribe_cfg_t){ .handle = &fake_handle });
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_unsubscribe_count());
     TEST_ASSERT_EQUAL_PTR(&fake_handle, bb_wdt_test_last_unsubscribe_handle());
 }
 
-void test_bb_wdt_subscribe_handle_null_is_self_subscribe(void)
+void test_bb_wdt_subscribe_omitted_handle_matches_pre_collapse_base_call(void)
 {
-    /* NULL handle routes through the same counter as the self API — this
-     * is the "thin wrapper" contract: bb_wdt_task_subscribe() ==
-     * bb_wdt_task_subscribe_handle(NULL). */
+    /* B1-1460 zero-default pin: an omitted cfg->handle field (zero-init ->
+     * NULL) must reproduce the pre-collapse no-arg bb_wdt_task_subscribe()
+     * call exactly -- same return, same counter, same recorded (NULL)
+     * handle. NULL is esp_task_wdt_add's own "current task" sentinel, not a
+     * distinct "unset" state, so zero-init is safe here (contrast
+     * bb_task_config_t.core, where 0 is a real core and needs its own
+     * BB_TASK_CORE_ANY sentinel instead of zero-init). */
     bb_wdt_test_reset();
-    bb_err_t rc = bb_wdt_task_subscribe_handle(NULL);
+    bb_err_t rc = bb_wdt_task_subscribe(&(bb_wdt_task_subscribe_cfg_t){0});
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_subscribe_count());
     TEST_ASSERT_NULL(bb_wdt_test_last_subscribe_handle());
 }
 
-void test_bb_wdt_unsubscribe_handle_null_is_self_unsubscribe(void)
+void test_bb_wdt_unsubscribe_omitted_handle_matches_pre_collapse_base_call(void)
 {
     bb_wdt_test_reset();
-    bb_err_t rc = bb_wdt_task_unsubscribe_handle(NULL);
+    bb_err_t rc = bb_wdt_task_unsubscribe(&(bb_wdt_task_unsubscribe_cfg_t){0});
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_unsubscribe_count());
     TEST_ASSERT_NULL(bb_wdt_test_last_unsubscribe_handle());
 }
 
-void test_bb_wdt_task_subscribe_routes_through_handle_api(void)
+void test_bb_wdt_task_subscribe_unsubscribe_default_cfg_counters(void)
 {
-    /* bb_wdt_task_subscribe()/unsubscribe() are thin wrappers over the
-     * handle API passing NULL — same observable counters either way. */
+    /* default (zero-init) cfg for both subscribe/unsubscribe -- same
+     * observable counters as the pre-collapse no-arg calls. */
     bb_wdt_test_reset();
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_task_subscribe());
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_task_unsubscribe());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_task_subscribe(&(bb_wdt_task_subscribe_cfg_t){0}));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_task_unsubscribe(&(bb_wdt_task_unsubscribe_cfg_t){0}));
     TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_subscribe_count());
     TEST_ASSERT_EQUAL_INT(1, bb_wdt_test_unsubscribe_count());
     /* a regression that ignored the caller's handle and always
@@ -188,12 +209,12 @@ void test_bb_wdt_subscribe_handle_distinguishes_from_null(void)
      * pointer, not silently collapse to the self (NULL) path. */
     bb_wdt_test_reset();
     int fake_handle;
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_task_subscribe_handle(&fake_handle));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_task_subscribe(&(bb_wdt_task_subscribe_cfg_t){ .handle = &fake_handle }));
     TEST_ASSERT_NOT_NULL(bb_wdt_test_last_subscribe_handle());
     TEST_ASSERT_EQUAL_PTR(&fake_handle, bb_wdt_test_last_subscribe_handle());
 
     bb_wdt_test_reset();
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_task_subscribe_handle(NULL));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_wdt_task_subscribe(&(bb_wdt_task_subscribe_cfg_t){0}));
     TEST_ASSERT_NULL(bb_wdt_test_last_subscribe_handle());
 }
 

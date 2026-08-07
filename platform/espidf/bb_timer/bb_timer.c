@@ -126,7 +126,7 @@ static void disp_task_fn(void *unused)
     // call, and tighter: this is the very first statement the task runs, vs.
     // the old parent-side subscribe which raced the task's own first
     // scheduler slice on the other core.
-    bb_wdt_task_subscribe();
+    bb_wdt_task_subscribe(&(bb_wdt_task_subscribe_cfg_t){0});
     for (;;) {
         if (xQueueReceive(s_disp_queue, &msg,
                           pdMS_TO_TICKS(BB_TIMER_DISP_WDT_FEED_MS)) == pdTRUE) {

@@ -167,25 +167,17 @@ void bb_wdt_extend_end(void)
     bb_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
 }
 
-bb_err_t bb_wdt_task_subscribe(void)
+bb_err_t bb_wdt_task_subscribe(const bb_wdt_task_subscribe_cfg_t *cfg)
 {
-    return bb_wdt_task_subscribe_handle(NULL);
-}
-
-bb_err_t bb_wdt_task_unsubscribe(void)
-{
-    return bb_wdt_task_unsubscribe_handle(NULL);
-}
-
-bb_err_t bb_wdt_task_subscribe_handle(void *handle)
-{
-    esp_err_t err = esp_task_wdt_add((TaskHandle_t)handle);
+    if (!cfg) return BB_ERR_INVALID_ARG;
+    esp_err_t err = esp_task_wdt_add((TaskHandle_t)cfg->handle);
     return (bb_err_t)err;
 }
 
-bb_err_t bb_wdt_task_unsubscribe_handle(void *handle)
+bb_err_t bb_wdt_task_unsubscribe(const bb_wdt_task_unsubscribe_cfg_t *cfg)
 {
-    esp_err_t err = esp_task_wdt_delete((TaskHandle_t)handle);
+    if (!cfg) return BB_ERR_INVALID_ARG;
+    esp_err_t err = esp_task_wdt_delete((TaskHandle_t)cfg->handle);
     if (err == ESP_ERR_NOT_FOUND) {
         return BB_OK;
     }
