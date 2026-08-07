@@ -28,7 +28,7 @@ extern "C" {
 bb_err_t smoke_data_notify_bind(void);
 
 // Attaches "smoke_notify" into bb_data_http's own attach table under topic
-// "smoke.notify" (wraps bb_data_http_attach_sized()). No-op (returns BB_OK,
+// "smoke.notify" (wraps bb_data_http_attach()). No-op (returns BB_OK,
 // nothing attached) when CONFIG_BB_SMOKE_DATA_NOTIFY is off -- see
 // smoke_data_notify_bind()'s doc above.
 bb_err_t smoke_data_notify_attach(void);

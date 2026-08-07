@@ -278,13 +278,54 @@ void test_bb_data_http_attach_round_trip(void)
     bb_data_http_init(NULL);
 
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_attach_count());
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach("k1", "topic.a"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"}));
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_attach_count());
 
     // Re-attaching an already-attached key is idempotent: updates topic/kind
     // in place, does not grow the table.
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach_ex("k1", "topic.b", BB_DATA_HTTP_EVENT));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.b",.kind=BB_DATA_HTTP_EVENT}));
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_attach_count());
+}
+
+// B1-1439: a NULL cfg pointer is not "use defaults" -- it's a caller bug,
+// consistent with every other bb_*_cfg_t entry point in this repo (mirrors
+// bb_wdt_task_subscribe(NULL)'s own BB_ERR_INVALID_ARG contract, B1-1460).
+void test_bb_data_http_attach_null_cfg_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_attach(NULL));
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_attach_count());
+}
+
+// B1-1439 zero-default pin: an omitted cfg->kind field (zero-init ->
+// BB_DATA_HTTP_STATE, since the enum's explicit `= 0`) must reproduce the
+// pre-collapse no-kind-arg bb_data_http_attach(key, topic) call exactly --
+// same return, and the attached key must actually behave as STATE-kind (an
+// EVENT-only accessor must see nothing for it). Contrast bb_task_config_t.
+// core, where 0 is a REAL value and needs its own sentinel instead of
+// zero-init (wiki Conventions#api-conventions).
+void test_bb_data_http_attach_omitted_kind_matches_pre_collapse_base_call(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="sk1",.topic="t"}));
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_attach_count());
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_event_ring_count_for_test());
+
+    fake_gen_reset();
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    fake_gen_bump("sk1");
+    bb_data_http_push_pump();
+    // A STATE-kind key is never fed into the EVENT ring by push_pump() --
+    // if kind had silently defaulted to something other than
+    // BB_DATA_HTTP_STATE, this key would show up here instead.
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_event_ring_count_for_test());
+    bb_data_http_set_generation_fn(NULL, NULL);
+    bb_data_http_set_render_fn(NULL, NULL);
 }
 
 void test_bb_data_http_attach_null_or_empty_args_return_invalid_arg(void)
@@ -292,10 +333,10 @@ void test_bb_data_http_attach_null_or_empty_args_return_invalid_arg(void)
     reset_all();
     bb_data_http_init(NULL);
 
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_attach(NULL, "t"));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_attach("k", NULL));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_attach("", "t"));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_attach("k", ""));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key=NULL,.topic="t"}));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k",.topic=NULL}));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="",.topic="t"}));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k",.topic=""}));
 }
 
 void test_bb_data_http_attach_key_too_long_returns_invalid_arg(void)
@@ -306,7 +347,7 @@ void test_bb_data_http_attach_key_too_long_returns_invalid_arg(void)
     char key[BB_DATA_HTTP_KEY_MAX + 1];
     memset(key, 'k', sizeof(key) - 1);
     key[sizeof(key) - 1] = '\0';
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_attach(key, "t"));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key=key,.topic="t"}));
 }
 
 void test_bb_data_http_attach_topic_too_long_returns_invalid_arg(void)
@@ -317,7 +358,7 @@ void test_bb_data_http_attach_topic_too_long_returns_invalid_arg(void)
     char topic[BB_DATA_HTTP_TOPIC_MAX + 1];
     memset(topic, 't', sizeof(topic) - 1);
     topic[sizeof(topic) - 1] = '\0';
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_attach("k", topic));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k",.topic=topic}));
 }
 
 void test_bb_data_http_attach_capacity_full_returns_no_space(void)
@@ -328,18 +369,18 @@ void test_bb_data_http_attach_capacity_full_returns_no_space(void)
     char keys[BB_DATA_HTTP_MAX_ATTACH + 1][16];
     for (int i = 0; i < BB_DATA_HTTP_MAX_ATTACH; i++) {
         snprintf(keys[i], sizeof(keys[i]), "k.%d", i);
-        TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach(keys[i], "t"));
+        TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key=keys[i],.topic="t"}));
     }
 
     snprintf(keys[BB_DATA_HTTP_MAX_ATTACH], sizeof(keys[BB_DATA_HTTP_MAX_ATTACH]), "k.%d", BB_DATA_HTTP_MAX_ATTACH);
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_attach(keys[BB_DATA_HTTP_MAX_ATTACH], "t"));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key=keys[BB_DATA_HTTP_MAX_ATTACH],.topic="t"}));
 
     // Re-attaching an already-attached key still succeeds even with the
     // table full.
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach(keys[0], "t2"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key=keys[0],.topic="t2"}));
 }
 
-// B1-1045 PR-4 fix: bb_data_http_attach_sized() rejects (and does NOT
+// B1-1045 PR-4 fix: bb_data_http_attach() rejects (and does NOT
 // attach) a key whose snap_size exceeds the render scratch bound instead of
 // silently attaching a key that would render-fail forever. Host default
 // mirrors the Kconfig default (256, see bb_data_http_common.c's
@@ -351,14 +392,14 @@ void test_bb_data_http_attach_sized_oversized_snap_size_returns_no_space_and_doe
 
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_attach_count());
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
-                      bb_data_http_attach_sized("oversized", "t", BB_DATA_HTTP_STATE, 257));
+                      bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="oversized",.topic="t",.kind=BB_DATA_HTTP_STATE,.snap_size=257}));
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_attach_count());
 }
 
 // Branch coverage for the loud-reject log line's `key ? key : "(null)"`
 // argument with a `key ? key : "(null)"` ternary (bb_data_http_common.c) --
-// bb_data_http_attach_sized() checks snap_size BEFORE ever validating `key`
-// (that validation lives in bb_data_http_attach_ex(), never reached on this
+// bb_data_http_attach() checks snap_size BEFORE ever validating `key`
+// (that check happens later in the same function, never reached on this
 // early-reject path), so a NULL key reaching this guard is a real,
 // reachable case, not a defensive no-op. Exercises the ternary's NULL arm.
 void test_bb_data_http_attach_sized_oversized_snap_size_null_key_does_not_crash(void)
@@ -367,7 +408,7 @@ void test_bb_data_http_attach_sized_oversized_snap_size_null_key_does_not_crash(
     bb_data_http_init(NULL);
 
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
-                      bb_data_http_attach_sized(NULL, "t", BB_DATA_HTTP_STATE, 257));
+                      bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key=NULL,.topic="t",.kind=BB_DATA_HTTP_STATE,.snap_size=257}));
 }
 
 // The "log" key's actual wire size (220 bytes, BB_LOG_EVENT_LOG_TEXT_MAX)
@@ -378,7 +419,7 @@ void test_bb_data_http_attach_sized_log_sized_snap_size_attaches_successfully(vo
     reset_all();
     bb_data_http_init(NULL);
 
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach_sized("log", "log", BB_DATA_HTTP_STATE, 220));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="log",.topic="log",.kind=BB_DATA_HTTP_STATE,.snap_size=220}));
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_attach_count());
 }
 
@@ -390,7 +431,7 @@ void test_bb_data_http_attach_sized_exact_scratch_size_attaches_successfully(voi
     reset_all();
     bb_data_http_init(NULL);
 
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach_sized("k", "t", BB_DATA_HTTP_STATE, 256));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k",.topic="t",.kind=BB_DATA_HTTP_STATE,.snap_size=256}));
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_attach_count());
 }
 
@@ -528,7 +569,7 @@ void test_bb_data_http_describe_independent_of_attach_table(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_describe("k1", "t", "C", "{}"));
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_attach_count());
 
-    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach("k2", "t2"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k2",.topic="t2"}));
     bb_data_http_describe_foreach(describe_capture_cb, &s_describe_capture_count);
     TEST_ASSERT_EQUAL_UINT(1, s_describe_capture_count);
     TEST_ASSERT_EQUAL_STRING("k1", s_describe_capture[0].key);
@@ -667,8 +708,8 @@ void test_bb_data_http_client_topic_filter_null_subscribes_all(void)
 {
     reset_all();
     bb_data_http_init(NULL);
-    bb_data_http_attach("k1", "topic.a");
-    bb_data_http_attach("k2", "topic.b");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k2",.topic="topic.b"});
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = NULL}, &c));
@@ -680,8 +721,8 @@ void test_bb_data_http_client_topic_filter_empty_string_subscribes_all(void)
 {
     reset_all();
     bb_data_http_init(NULL);
-    bb_data_http_attach("k1", "topic.a");
-    bb_data_http_attach("k2", "topic.b");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k2",.topic="topic.b"});
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = ""}, &c));
@@ -693,8 +734,8 @@ void test_bb_data_http_client_topic_filter_exact_match_only(void)
 {
     reset_all();
     bb_data_http_init(NULL);
-    bb_data_http_attach("k1", "topic.a");
-    bb_data_http_attach("k2", "topic.b");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k2",.topic="topic.b"});
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = "topic.a"}, &c));
@@ -706,7 +747,7 @@ void test_bb_data_http_client_topic_filter_no_match_subscribes_nothing(void)
 {
     reset_all();
     bb_data_http_init(NULL);
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = "topic.nope"}, &c));
@@ -715,7 +756,7 @@ void test_bb_data_http_client_topic_filter_no_match_subscribes_nothing(void)
 }
 
 // An over-length topic_filter must be REJECTED (BB_ERR_INVALID_ARG), the
-// same as bb_data_http_attach_ex() rejects an over-length topic -- never
+// same as bb_data_http_attach() rejects an over-length topic -- never
 // silently truncated by bb_strlcpy into a filter that mis-subscribes the
 // client to a topic name it never asked for.
 void test_bb_data_http_client_acquire_topic_filter_too_long_returns_invalid_arg(void)
@@ -744,7 +785,7 @@ void test_bb_data_http_sweep_step_renders_dirty_state_key(void)
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
 
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
     fake_gen_set("k1", 5);
 
     bb_data_http_client_t *c = NULL;
@@ -780,7 +821,7 @@ void test_bb_data_http_sweep_step_coalesces_multiple_bumps_into_one_render(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
@@ -805,8 +846,8 @@ void test_bb_data_http_sweep_step_multiple_dirty_keys_all_rendered(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
-    bb_data_http_attach("k2", "topic.b");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k2",.topic="topic.b"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
@@ -838,7 +879,7 @@ void test_bb_data_http_sweep_step_event_kind_key_delivers_via_shared_ring(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
@@ -869,7 +910,7 @@ void test_bb_data_http_sweep_step_event_kind_key_without_render_fn_advances_gen(
     bb_data_http_init(NULL);
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     // no render_fn installed
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
     fake_gen_set("ev1", 1);
 
     bb_data_http_client_t *c = NULL;
@@ -898,7 +939,7 @@ void test_bb_data_http_sweep_step_event_render_failure_retries_on_next_sweep(voi
     bb_data_http_init(NULL);
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
     fake_gen_set("ev1", 1);
 
     bb_data_http_client_t *c = NULL;
@@ -934,7 +975,7 @@ void test_bb_data_http_event_cursor_advances_across_sweeps(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
@@ -967,7 +1008,7 @@ void test_bb_data_http_event_multiple_clients_independent_cursors(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
 
     bb_data_http_client_t *a = NULL, *b = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &a));
@@ -1007,8 +1048,8 @@ void test_bb_data_http_event_topic_filter_excludes_non_matching_topic(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
-    bb_data_http_attach_ex("ev2", "topic.b", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev2",.topic="topic.b",.kind=BB_DATA_HTTP_EVENT});
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = "topic.a"}, &c));
@@ -1047,10 +1088,10 @@ void test_bb_data_http_event_ring_wrap_drops_evicted_gap_with_marker(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach_ex("ev0", "t", BB_DATA_HTTP_EVENT);
-    bb_data_http_attach_ex("ev1", "t", BB_DATA_HTTP_EVENT);
-    bb_data_http_attach_ex("ev2", "t", BB_DATA_HTTP_EVENT);
-    bb_data_http_attach_ex("ev3", "t", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev0",.topic="t",.kind=BB_DATA_HTTP_EVENT});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="t",.kind=BB_DATA_HTTP_EVENT});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev2",.topic="t",.kind=BB_DATA_HTTP_EVENT});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev3",.topic="t",.kind=BB_DATA_HTTP_EVENT});
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
@@ -1108,7 +1149,7 @@ void test_bb_data_http_event_client_outbound_full_drops_with_marker(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     // no send_fn yet -- outbound is never drained, so it fills up
-    bb_data_http_attach_ex("ev1", "t", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="t",.kind=BB_DATA_HTTP_EVENT});
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
@@ -1176,7 +1217,7 @@ void test_bb_data_http_event_pending_marker_flushes_on_quiet_sweep(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     // no send_fn yet -- outbound is never drained, so it fills up
-    bb_data_http_attach_ex("ev1", "t", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="t",.kind=BB_DATA_HTTP_EVENT});
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
@@ -1222,8 +1263,8 @@ void test_bb_data_http_event_slow_client_does_not_affect_other_clients(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     // no send_fn -- nothing is ever flushed, so outbound only ever grows.
-    bb_data_http_attach("s1", "state.only");
-    bb_data_http_attach_ex("ev1", "event.only", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="s1",.topic="state.only"});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="event.only",.kind=BB_DATA_HTTP_EVENT});
 
     bb_data_http_client_t *slow = NULL, *fast = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = NULL}, &slow));            // all topics
@@ -1272,7 +1313,7 @@ void test_bb_data_http_push_pump_called_twice_directly_feeds_ring_twice(void)
     bb_data_http_init(NULL);
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
 
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_event_ring_count_for_test());
 
@@ -1298,7 +1339,7 @@ void test_bb_data_http_push_pump_twice_then_sweep_step_delivers_both_in_order(vo
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
@@ -1341,8 +1382,8 @@ void test_bb_data_http_push_pump_generation_fn_failure_skips_event_key(void)
     bb_data_http_init(NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_set_generation_fn(fake_generation_fn_with_failure, NULL);
-    bb_data_http_attach_ex("ev_ok", "topic.a", BB_DATA_HTTP_EVENT);
-    bb_data_http_attach_ex("ev_fail", "topic.b", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev_ok",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev_fail",.topic="topic.b",.kind=BB_DATA_HTTP_EVENT});
 
     s_gen_fail_key = "ev_fail";
     fake_gen_bump("ev_ok");
@@ -1376,8 +1417,8 @@ void test_bb_data_http_push_pump_revoke_leaves_newer_concurrent_claim_alone(void
     // (find_attach_index_for_test(), bb_data_http_common.c) must scan past
     // a non-matching entry before finding "ev1" -- exercises its strcmp
     // mismatch branch, not just an always-first-match lookup.
-    bb_data_http_attach_ex("ev0", "topic.z", BB_DATA_HTTP_EVENT);
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev0",.topic="topic.z",.kind=BB_DATA_HTTP_EVENT});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
 
     fake_gen_bump("ev1");  // gen=1
     bb_data_http_push_pump();
@@ -1407,7 +1448,7 @@ void test_bb_data_http_push_pump_commit_discards_stale_render_after_newer_concur
     bb_data_http_init(NULL);
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(concurrent_claim_then_succeed_render_fn, NULL);
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
 
     fake_gen_bump("ev1");  // gen=1
     bb_data_http_push_pump();
@@ -1434,7 +1475,7 @@ void test_bb_data_http_sweep_step_alone_still_feeds_and_delivers_event(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
@@ -1452,7 +1493,7 @@ void test_bb_data_http_sweep_step_without_render_fn_still_clears_dirty(void)
     bb_data_http_init(NULL);
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     // no render_fn installed
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
@@ -1469,7 +1510,7 @@ void test_bb_data_http_sweep_step_without_generation_fn_still_drains_connect_dir
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
     // no generation_fn installed
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
@@ -1486,7 +1527,7 @@ void test_bb_data_http_sweep_step_render_failure_skips_frame_without_crash(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(failing_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
@@ -1512,7 +1553,7 @@ void test_bb_data_http_sweep_step_push_without_send_fn_leaves_outbound_queued(vo
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     // no send_fn installed
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
@@ -1542,7 +1583,7 @@ void test_bb_data_http_sweep_step_send_failure_retriable_leaves_frame_queued_and
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties k1
@@ -1580,8 +1621,8 @@ void test_bb_data_http_sweep_step_send_failure_retriable_does_not_retry_within_s
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
-    bb_data_http_attach("k2", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k2",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties both k1 and k2
@@ -1617,7 +1658,7 @@ void test_bb_data_http_sweep_step_send_failure_retriable_bound_exceeded_drops_fr
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties k1
@@ -1663,8 +1704,8 @@ void test_bb_data_http_sweep_step_send_failure_retriable_bound_exceeded_does_not
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
-    bb_data_http_attach("k2", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k2",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties both k1 and k2
@@ -1703,7 +1744,7 @@ void test_bb_data_http_sweep_step_send_failure_fatal_invokes_abort_fn(void)
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
     bb_data_http_host_install_abort();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties k1
@@ -1734,7 +1775,7 @@ void test_bb_data_http_sweep_step_send_failure_fatal_without_abort_fn_releases_c
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
     // no abort_fn installed
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties k1
@@ -1769,7 +1810,7 @@ void test_bb_data_http_sweep_step_send_failure_fatal_uses_per_client_abort_fn_ov
     bb_data_http_host_install_send();
     bb_data_http_host_install_abort();  // module-wide default -- must NOT fire for this client
     s_per_client_aborted = NULL;
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     // fresh-render-on-connect dirties k1
@@ -1839,7 +1880,7 @@ void test_bb_data_http_sweep_step_reaps_client_only_on_sweep_after_mid_sweep_rel
     bb_data_http_init(NULL);
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect dirties k1
@@ -1882,7 +1923,7 @@ void test_bb_data_http_sweep_step_render_failure_retries_on_next_sweep(void)
     bb_data_http_init(NULL);
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
     fake_gen_set("k1", 5);
 
     bb_data_http_client_t *c = NULL;
@@ -1923,7 +1964,7 @@ void test_bb_data_http_sweep_step_generation_fn_failure_skips_key(void)
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
     bb_data_http_set_generation_fn(fake_generation_fn_with_failure, NULL);
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
     fake_gen_set("k1", 5);
 
     bb_data_http_client_t *c = NULL;
@@ -1958,7 +1999,7 @@ void test_bb_data_http_sweep_step_detect_phase_skips_unsubscribed_client(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
     fake_gen_set("k1", 1);
 
     bb_data_http_client_t *sub = NULL, *unsub = NULL;
@@ -1997,7 +2038,7 @@ void test_bb_data_http_subscribe_mask_event_only_client_excludes_state_key(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("sk1", "topic.a");  // BB_DATA_HTTP_STATE (default kind)
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="sk1",.topic="topic.a"});  // BB_DATA_HTTP_STATE (default kind)
     fake_gen_set("sk1", 1);
 
     bb_data_http_client_t *c = NULL;
@@ -2021,7 +2062,7 @@ void test_bb_data_http_subscribe_mask_state_only_client_excludes_event_key(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
@@ -2046,8 +2087,8 @@ void test_bb_data_http_subscribe_mask_zero_default_receives_both_kinds(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("sk1", "topic.a");                        // BB_DATA_HTTP_STATE
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="sk1",.topic="topic.a"});                        // BB_DATA_HTTP_STATE
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
     fake_gen_set("sk1", 1);
 
     bb_data_http_client_t *c = NULL;
@@ -2104,9 +2145,9 @@ void test_bb_data_http_subscribe_mask_event_only_client_state_seen_gen_stays_gat
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("sk1", "topic.a");
-    bb_data_http_attach("sk2", "topic.b");
-    bb_data_http_attach("sk3", "topic.c");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="sk1",.topic="topic.a"});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="sk2",.topic="topic.b"});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="sk3",.topic="topic.c"});
     fake_gen_set("sk1", 1);
     fake_gen_set("sk2", 1);
     fake_gen_set("sk3", 1);
@@ -2146,7 +2187,7 @@ void test_bb_data_http_subscribe_mask_state_only_client_never_advances_event_cur
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
     fake_gen_set("ev1", 0);
 
     bb_data_http_client_t *state_only = NULL;
@@ -2194,7 +2235,7 @@ void test_bb_data_http_push_only_client_has_null_poll_and_drains_correctly(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
@@ -2218,7 +2259,7 @@ void test_bb_data_http_poll_only_client_has_null_push_and_drains_correctly(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("sk1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="sk1",.topic="topic.a"});
     fake_gen_set("sk1", 1);
 
     bb_data_http_client_t *c = NULL;
@@ -2347,8 +2388,8 @@ void test_bb_data_http_sweep_step_drain_phase_skips_non_dirty_key(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
-    bb_data_http_attach("k2", "topic.b");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k2",.topic="topic.b"});
 
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.topic_filter = "topic.a"}, &c));
@@ -2375,7 +2416,7 @@ void test_bb_data_http_sweep_step_render_failure_log_rate_limit_both_outcomes(vo
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(failing_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
@@ -2399,7 +2440,7 @@ void test_bb_data_http_sweep_step_event_render_failure_log_rate_limit_both_outco
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(failing_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
 
     for (int i = 0; i < 32; i++) {
         fake_gen_bump("ev1");
@@ -2449,7 +2490,7 @@ void test_bb_data_http_host_frame_capture_stops_at_capacity(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
@@ -2473,7 +2514,7 @@ void test_bb_data_http_host_send_zero_length_frame_skips_copy(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(empty_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
     fake_gen_set("k1", 1);
 
     bb_data_http_client_t *c = NULL;
@@ -2507,7 +2548,7 @@ void test_bb_data_http_host_frame_at_null_out_params_are_optional(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
     fake_gen_set("k1", 1);
 
     bb_data_http_client_t *c = NULL;
@@ -2542,7 +2583,7 @@ void test_bb_data_http_host_frame_key_at_null_buf_is_optional(void)
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
     fake_gen_set("k1", 1);
 
     bb_data_http_client_t *c = NULL;
@@ -2604,8 +2645,8 @@ void test_bb_data_http_sweep_step_delivers_to_multiple_independent_send_fn_consu
     bb_data_http_init(NULL);
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
-    bb_data_http_attach("k1", "topic.a");
-    bb_data_http_attach("k2", "topic.b");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k2",.topic="topic.b"});
 
     capture_calls_t a_calls = {0}, b_calls = {0};
     bb_data_http_client_t *ca = NULL, *cb = NULL;
@@ -2644,7 +2685,7 @@ void test_bb_data_http_sweep_step_client_with_no_send_fn_override_uses_module_wi
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
     bb_data_http_host_install_send();
-    bb_data_http_attach("k1", "topic.a");
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
     fake_gen_set("k1", 1);
 
     bb_data_http_client_t *c = NULL;
@@ -2672,7 +2713,7 @@ void test_bb_data_http_mqtt_shaped_client_acquires_and_delivers_with_no_socket_f
     bb_data_http_init(NULL);
     bb_data_http_set_generation_fn(fake_generation_fn, NULL);
     bb_data_http_set_render_fn(fake_render_fn, NULL);
-    bb_data_http_attach_ex("ev1", "topic.a", BB_DATA_HTTP_EVENT);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
 
     capture_calls_t mqtt_calls = {0};
     bb_data_http_client_t *mqtt = NULL;

@@ -205,8 +205,8 @@ config BB_DATA_HTTP_RENDER_SCRATCH_BYTES
         rate-limited) every subsequent sweep rather than silently dropped.
         Default 256 covers the largest wire type attached today (the "log"
         key's bb_log_event_wire_t at 220 bytes, B1-1045 PR-4) with margin;
-        bb_data_http_attach_sized() FAILS LOUD at attach time (ESP_LOGE +
+        bb_data_http_attach() FAILS LOUD at attach time (ESP_LOGE +
         BB_ERR_NO_SPACE, not a silent forever-failing render) if a future
-        binding's snap_size exceeds this.
+        binding's bb_data_http_attach_cfg_t.snap_size field exceeds this.
 
 endmenu

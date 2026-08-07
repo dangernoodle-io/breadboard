@@ -57,7 +57,7 @@
 // internally-gated shape) since `bbtool codegen` markers have no Kconfig
 // gate of their own -- every symbol this file's owning markers name must
 // exist on every smoke build regardless of this knob, hence the wrapper
-// functions rather than calling bb_data_bind()/bb_data_http_attach_sized()
+// functions rather than calling bb_data_bind()/bb_data_http_attach()
 // straight from a marker's `args=`.
 #include "sdkconfig.h"
 #include "smoke_data_notify.h"
@@ -312,12 +312,13 @@ bb_err_t smoke_data_notify_bind(void)
     });
 }
 
-// Wraps bb_data_http_attach_sized() -- see smoke_data_notify_bind()'s doc
+// Wraps bb_data_http_attach() -- see smoke_data_notify_bind()'s doc
 // immediately above for the gating rationale.
 bb_err_t smoke_data_notify_attach(void)
 {
-    return bb_data_http_attach_sized(SMOKE_DATA_NOTIFY_KEY, SMOKE_DATA_NOTIFY_TOPIC,
-                                     BB_DATA_HTTP_EVENT, bb_log_event_wire_desc.snap_size);
+    return bb_data_http_attach(&(bb_data_http_attach_cfg_t){
+        .key = SMOKE_DATA_NOTIFY_KEY, .topic = SMOKE_DATA_NOTIFY_TOPIC,
+        .kind = BB_DATA_HTTP_EVENT, .snap_size = bb_log_event_wire_desc.snap_size });
 }
 
 bb_err_t smoke_data_notify_routes_init(bb_http_handle_t server)
