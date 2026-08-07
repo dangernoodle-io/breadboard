@@ -910,7 +910,7 @@ static void ota_worker_task(void *arg)
     // Remove this task from the task WDT. OTA is single-shot and long-running;
     // a stalled mbedtls recv should surface as a clean HTTP timeout, not a
     // WDT panic. ota_task_exit() re-adds before dying.
-    bb_err_t wdt_err = bb_wdt_task_unsubscribe();
+    bb_err_t wdt_err = bb_wdt_task_unsubscribe(&(bb_wdt_task_unsubscribe_cfg_t){0});
     if (wdt_err != BB_OK) {
         bb_log_w(TAG, "bb_wdt_task_unsubscribe: %d", wdt_err);
     }
@@ -961,7 +961,7 @@ bb_err_t bb_ota_pull_run_sync(const char *asset_url)
     if (!asset_url || asset_url[0] == '\0') return ESP_ERR_INVALID_ARG;
     // The caller (boot task) is long-lived during the download; drop it from
     // the task WDT if subscribed (best-effort — the boot task usually isn't).
-    bb_wdt_task_unsubscribe();
+    bb_wdt_task_unsubscribe(&(bb_wdt_task_unsubscribe_cfg_t){0});
     return ota_download_and_flash(asset_url);
 }
 

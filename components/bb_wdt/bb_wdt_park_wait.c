@@ -15,9 +15,9 @@ bool bb_wdt_park_wait(bool (*try_wait)(void *ctx, uint32_t ms),
      * park, then re-add and feed it on resume. The active task's own
      * subscription plus the OTA timeout extension cover the system in the
      * meantime. Assumes the caller is a WDT-subscribed task (mining/asic). */
-    bb_wdt_task_unsubscribe();
+    bb_wdt_task_unsubscribe(&(bb_wdt_task_unsubscribe_cfg_t){0});
     bool resumed = try_wait(ctx, total_ms);
-    bb_wdt_task_subscribe();
+    bb_wdt_task_subscribe(&(bb_wdt_task_subscribe_cfg_t){0});
     bb_wdt_task_feed();
     return resumed;
 }

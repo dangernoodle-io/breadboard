@@ -175,8 +175,8 @@ static void pool_free_locked(bb_task_entry_t *entry)
 // Returns true on success. Never fails registration on error — the caller
 // logs and leaves wdt_subscribed=false.
 //
-// Routed through bb_wdt_task_subscribe_handle/unsubscribe_handle
-// (arbitrary-handle bb_wdt API, B1-1043) rather than calling
+// Routed through bb_wdt_task_subscribe/unsubscribe (cfg->handle, B1-1043,
+// collapsed onto a config struct in B1-1460) rather than calling
 // esp_task_wdt_add/delete directly — bb_wdt is the SINGLE wrapper over the
 // ESP-IDF Task WDT API, gated by BB_TASK_REGISTRY_WDT_SUPPORT.
 //
@@ -187,9 +187,9 @@ static void pool_free_locked(bb_task_entry_t *entry)
 #if defined(ESP_PLATFORM) && BB_TASK_REGISTRY_WDT_SUPPORT
 static bool hw_wdt_subscribe(void *handle)
 {
-    bb_err_t err = bb_wdt_task_subscribe_handle(handle);
+    bb_err_t err = bb_wdt_task_subscribe(&(bb_wdt_task_subscribe_cfg_t){ .handle = handle });
     if (err != BB_OK) {
-        bb_log_w(TAG, "bb_wdt_task_subscribe_handle failed: %d", (int)err);
+        bb_log_w(TAG, "bb_wdt_task_subscribe failed: %d", (int)err);
         return false;
     }
     return true;
@@ -197,9 +197,9 @@ static bool hw_wdt_subscribe(void *handle)
 
 static void hw_wdt_unsubscribe(void *handle)
 {
-    bb_err_t err = bb_wdt_task_unsubscribe_handle(handle);
+    bb_err_t err = bb_wdt_task_unsubscribe(&(bb_wdt_task_unsubscribe_cfg_t){ .handle = handle });
     if (err != BB_OK) {
-        bb_log_w(TAG, "bb_wdt_task_unsubscribe_handle failed: %d", (int)err);
+        bb_log_w(TAG, "bb_wdt_task_unsubscribe failed: %d", (int)err);
     }
 }
 #elif defined(ESP_PLATFORM)
@@ -217,13 +217,13 @@ static void hw_wdt_unsubscribe(void *handle)
 static bool hw_wdt_subscribe(void *handle)
 {
     (void)handle;
-    return bb_wdt_task_subscribe() == BB_OK;
+    return bb_wdt_task_subscribe(&(bb_wdt_task_subscribe_cfg_t){0}) == BB_OK;
 }
 
 static void hw_wdt_unsubscribe(void *handle)
 {
     (void)handle;
-    bb_wdt_task_unsubscribe();
+    bb_wdt_task_unsubscribe(&(bb_wdt_task_unsubscribe_cfg_t){0});
 }
 #endif
 

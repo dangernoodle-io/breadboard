@@ -38,44 +38,50 @@ void bb_wdt_extend_begin(uint32_t extended_s);
 void bb_wdt_extend_end(void);
 
 /*
- * Subscribe the calling task to the Task WDT (esp_task_wdt_add(NULL)).
- * Returns BB_OK on success, or a platform error code on failure.
- * No-op / returns BB_OK on host.
- *
- * Thin wrapper over bb_wdt_task_subscribe_handle(NULL).
+ * Config for bb_wdt_task_subscribe() (B1-1460) -- collapses the former
+ * bb_wdt_task_subscribe()/bb_wdt_task_subscribe_handle() variant-ladder
+ * pair into one entry point. `handle` is an opaque platform task handle
+ * (TaskHandle_t on ESP-IDF); a zero-init struct (handle == NULL) subscribes
+ * the CALLING task -- NULL is esp_task_wdt_add's own "current task" sentinel
+ * (esp_task_wdt_add(NULL)), not a distinct "unset" state that needs its own
+ * sentinel, so zero-init cfg reproduces the pre-collapse no-arg call exactly.
  */
-bb_err_t bb_wdt_task_subscribe(void);
+typedef struct {
+    void *handle;
+} bb_wdt_task_subscribe_cfg_t;
 
 /*
- * Unsubscribe the calling task from the Task WDT (esp_task_wdt_delete(NULL)).
- * Returns BB_OK on success, BB_OK if not subscribed, or a platform error.
- * No-op / returns BB_OK on host.
- *
- * Thin wrapper over bb_wdt_task_unsubscribe_handle(NULL).
+ * Subscribe a task to the Task WDT (esp_task_wdt_add(cfg->handle)).
+ * `cfg->handle == NULL` subscribes the calling task. Single wrapper over
+ * esp_task_wdt_add — callers must not call the raw ESP-IDF API directly.
+ * Returns BB_OK on success, BB_ERR_INVALID_ARG if cfg is NULL, or a platform
+ * error code on failure. No-op / returns BB_OK on host (given non-NULL cfg).
  */
-bb_err_t bb_wdt_task_unsubscribe(void);
+bb_err_t bb_wdt_task_subscribe(const bb_wdt_task_subscribe_cfg_t *cfg);
 
 /*
- * Subscribe an arbitrary task handle to the Task WDT (esp_task_wdt_add(handle)).
- * `handle` is an opaque platform task handle (TaskHandle_t on ESP-IDF); pass
- * NULL to subscribe the calling task, equivalent to bb_wdt_task_subscribe().
- * Single wrapper over esp_task_wdt_add — callers must not call the raw
- * ESP-IDF API directly.
- * Returns BB_OK on success, or a platform error code on failure.
- * No-op / returns BB_OK on host.
+ * Config for bb_wdt_task_unsubscribe() (B1-1460) -- collapses the former
+ * bb_wdt_task_unsubscribe()/bb_wdt_task_unsubscribe_handle() variant-ladder
+ * pair into one entry point. `handle` is an opaque platform task handle
+ * (TaskHandle_t on ESP-IDF); a zero-init struct (handle == NULL) unsubscribes
+ * the CALLING task -- NULL is esp_task_wdt_delete's own "current task"
+ * sentinel (esp_task_wdt_delete(NULL)), not a distinct "unset" state that
+ * needs its own sentinel, so zero-init cfg reproduces the pre-collapse
+ * no-arg call exactly.
  */
-bb_err_t bb_wdt_task_subscribe_handle(void *handle);
+typedef struct {
+    void *handle;
+} bb_wdt_task_unsubscribe_cfg_t;
 
 /*
- * Unsubscribe an arbitrary task handle from the Task WDT
- * (esp_task_wdt_delete(handle)). `handle` is an opaque platform task handle
- * (TaskHandle_t on ESP-IDF); pass NULL to unsubscribe the calling task,
- * equivalent to bb_wdt_task_unsubscribe(). Single wrapper over
+ * Unsubscribe a task from the Task WDT (esp_task_wdt_delete(cfg->handle)).
+ * `cfg->handle == NULL` unsubscribes the calling task. Single wrapper over
  * esp_task_wdt_delete — callers must not call the raw ESP-IDF API directly.
- * Returns BB_OK on success, BB_OK if not subscribed, or a platform error.
- * No-op / returns BB_OK on host.
+ * Returns BB_OK on success, BB_OK if not subscribed, BB_ERR_INVALID_ARG if
+ * cfg is NULL, or a platform error code on failure. No-op / returns BB_OK
+ * on host (given non-NULL cfg).
  */
-bb_err_t bb_wdt_task_unsubscribe_handle(void *handle);
+bb_err_t bb_wdt_task_unsubscribe(const bb_wdt_task_unsubscribe_cfg_t *cfg);
 
 /*
  * Feed the Task WDT for the calling task (esp_task_wdt_reset(NULL)).

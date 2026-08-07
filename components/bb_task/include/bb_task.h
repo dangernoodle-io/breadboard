@@ -418,8 +418,8 @@ void bb_task_yield(void);
 // task was created (FreeRTOS's own high-water-mark semantics -- a
 // non-increasing value over the task's life). NULL means "the calling
 // task" -- matches FreeRTOS's own uxTaskGetStackHighWaterMark(NULL)
-// semantics and this repo's existing bb_wdt_task_subscribe_handle(NULL)
-// idiom (components/bb_wdt/include/bb_wdt.h). handle_or_null must be NULL
+// semantics and this repo's existing bb_wdt_task_subscribe_cfg_t.handle ==
+// NULL idiom (components/bb_wdt/include/bb_wdt.h). handle_or_null must be NULL
 // or a still-live task handle; passing a handle for an already-deleted task
 // is undefined behaviour, because FreeRTOS does not validate the handle.
 //
