@@ -1658,13 +1658,14 @@ void test_http_serialize_send_error_long_msg_truncates(void);
 void test_http_serialize_stream_compose_happy_path(void);
 void test_http_serialize_stream_compose_mixed_shape_groups(void);
 void test_http_serialize_stream_compose_null_req_invalid_arg(void);
+void test_http_serialize_stream_compose_null_cfg_invalid_arg(void);
 void test_http_serialize_stream_compose_null_groups_nonzero_n_invalid_arg(void);
 void test_http_serialize_stream_compose_null_groups_zero_n_ok(void);
 void test_http_serialize_stream_compose_set_type_fail_short_circuits(void);
 void test_http_serialize_stream_compose_send_chunk_fail_propagates_original_error(void);
-void test_http_serialize_stream_compose_ex_f64_shortest_false_is_fixed_decimal(void);
-void test_http_serialize_stream_compose_ex_f64_shortest_true_is_shortest(void);
-void test_http_serialize_stream_compose_thin_wrapper_matches_ex_false(void);
+void test_http_serialize_stream_compose_f64_shortest_false_is_fixed_decimal(void);
+void test_http_serialize_stream_compose_f64_shortest_true_is_shortest(void);
+void test_http_serialize_stream_compose_omitted_f64_shortest_defaults_fixed_decimal(void);
 
 // Forward declarations from test_bb_settings_creds_boot.c
 void test_bb_settings_creds_boot_init_success(void);
@@ -7180,13 +7181,14 @@ int main(void) {
     RUN_TEST(test_http_serialize_stream_compose_happy_path);
     RUN_TEST(test_http_serialize_stream_compose_mixed_shape_groups);
     RUN_TEST(test_http_serialize_stream_compose_null_req_invalid_arg);
+    RUN_TEST(test_http_serialize_stream_compose_null_cfg_invalid_arg);
     RUN_TEST(test_http_serialize_stream_compose_null_groups_nonzero_n_invalid_arg);
     RUN_TEST(test_http_serialize_stream_compose_null_groups_zero_n_ok);
     RUN_TEST(test_http_serialize_stream_compose_set_type_fail_short_circuits);
     RUN_TEST(test_http_serialize_stream_compose_send_chunk_fail_propagates_original_error);
-    RUN_TEST(test_http_serialize_stream_compose_ex_f64_shortest_false_is_fixed_decimal);
-    RUN_TEST(test_http_serialize_stream_compose_ex_f64_shortest_true_is_shortest);
-    RUN_TEST(test_http_serialize_stream_compose_thin_wrapper_matches_ex_false);
+    RUN_TEST(test_http_serialize_stream_compose_f64_shortest_false_is_fixed_decimal);
+    RUN_TEST(test_http_serialize_stream_compose_f64_shortest_true_is_shortest);
+    RUN_TEST(test_http_serialize_stream_compose_omitted_f64_shortest_defaults_fixed_decimal);
 
     // bb_settings creds-boot shell tests (B1-963: relocated from
     // bb_nv_config_init)

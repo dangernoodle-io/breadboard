@@ -70,6 +70,11 @@ bb_err_t bb_health_compose_and_stream(bb_http_request_t *req, const bb_health_wi
     // f64_shortest = true (MANDATORY, B1-1102): cJSON-print_number-identical
     // shortest float rendering -- required for on-device byte-identity with
     // today's /api/health (e.g. temp's soc_c must render "55.3", never
-    // "55.300000").
-    return bb_http_serialize_stream_compose_ex(req, groups, 2, true);
+    // "55.300000"). Explicit here because the collapsed cfg struct
+    // zero-inits this field to false (B1-1438) -- omitting it would silently
+    // flip health's float formatting back to fixed-decimal.
+    bb_http_serialize_stream_compose_cfg_t cfg = {
+        .groups = groups, .n_groups = 2, .f64_shortest = true,
+    };
+    return bb_http_serialize_stream_compose(req, &cfg);
 }

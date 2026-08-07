@@ -1,7 +1,9 @@
 // Host tests for bb_http_serialize_stream_compose() -- the HTTP adapter over
-// bb_serialize_json_stream_compose_render() (B1-1097 PR-2). Driven against
-// the host bb_http_resp_send_chunk backend, same capture harness as
-// test_bb_http_serialize_stream.c.
+// bb_serialize_json_stream_compose_render() (B1-1097 PR-2), collapsed onto a
+// single cfg-struct entry point (B1-1438; formerly a
+// bb_http_serialize_stream_compose()/bb_http_serialize_stream_compose_ex()
+// ladder). Driven against the host bb_http_resp_send_chunk backend, same
+// capture harness as test_bb_http_serialize_stream.c.
 
 #include "unity.h"
 #include "bb_http_serialize_stream.h"
@@ -86,9 +88,10 @@ void test_http_serialize_stream_compose_happy_path(void)
     const bb_serialize_compose_group_t groups[] = {
         { .entries = entries, .n = 2, .shape = BB_SERIALIZE_COMPOSE_OBJECT },
     };
+    bb_http_serialize_stream_compose_cfg_t cfg = { .groups = groups, .n_groups = 1 };
 
     cap_begin();
-    bb_err_t err = bb_http_serialize_stream_compose(s_req, groups, 1);
+    bb_err_t err = bb_http_serialize_stream_compose(s_req, &cfg);
     cap_end();
 
     TEST_ASSERT_EQUAL(BB_OK, err);
@@ -118,9 +121,10 @@ void test_http_serialize_stream_compose_mixed_shape_groups(void)
         { .entries = root_entries,    .n = 1, .shape = BB_SERIALIZE_COMPOSE_RAW },
         { .entries = section_entries, .n = 1, .shape = BB_SERIALIZE_COMPOSE_OBJECT },
     };
+    bb_http_serialize_stream_compose_cfg_t cfg = { .groups = groups, .n_groups = 2 };
 
     cap_begin();
-    bb_err_t err = bb_http_serialize_stream_compose(s_req, groups, 2);
+    bb_err_t err = bb_http_serialize_stream_compose(s_req, &cfg);
     cap_end();
 
     TEST_ASSERT_EQUAL(BB_OK, err);
@@ -141,13 +145,20 @@ void test_http_serialize_stream_compose_null_req_invalid_arg(void)
     const bb_serialize_compose_group_t groups[] = {
         { .entries = entries, .n = 1, .shape = BB_SERIALIZE_COMPOSE_RAW },
     };
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_http_serialize_stream_compose(NULL, groups, 1));
+    bb_http_serialize_stream_compose_cfg_t cfg = { .groups = groups, .n_groups = 1 };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_http_serialize_stream_compose(NULL, &cfg));
+}
+
+void test_http_serialize_stream_compose_null_cfg_invalid_arg(void)
+{
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_http_serialize_stream_compose(s_req, NULL));
 }
 
 void test_http_serialize_stream_compose_null_groups_nonzero_n_invalid_arg(void)
 {
+    bb_http_serialize_stream_compose_cfg_t cfg = { .groups = NULL, .n_groups = 1 };
     cap_begin();
-    bb_err_t err = bb_http_serialize_stream_compose(s_req, NULL, 1);
+    bb_err_t err = bb_http_serialize_stream_compose(s_req, &cfg);
     cap_end();
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
     cap_free();
@@ -155,8 +166,9 @@ void test_http_serialize_stream_compose_null_groups_nonzero_n_invalid_arg(void)
 
 void test_http_serialize_stream_compose_null_groups_zero_n_ok(void)
 {
+    bb_http_serialize_stream_compose_cfg_t cfg = { .groups = NULL, .n_groups = 0 };
     cap_begin();
-    bb_err_t err = bb_http_serialize_stream_compose(s_req, NULL, 0);
+    bb_err_t err = bb_http_serialize_stream_compose(s_req, &cfg);
     cap_end();
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL_STRING("{}", s_cap.body);
@@ -176,10 +188,11 @@ void test_http_serialize_stream_compose_set_type_fail_short_circuits(void)
     const bb_serialize_compose_group_t groups[] = {
         { .entries = entries, .n = 1, .shape = BB_SERIALIZE_COMPOSE_RAW },
     };
+    bb_http_serialize_stream_compose_cfg_t cfg = { .groups = groups, .n_groups = 1 };
 
     cap_begin();
     bb_http_host_force_set_type_fail(true);
-    bb_err_t err = bb_http_serialize_stream_compose(s_req, groups, 1);
+    bb_err_t err = bb_http_serialize_stream_compose(s_req, &cfg);
     bb_http_host_force_set_type_fail(false);
     cap_end();
 
@@ -203,10 +216,11 @@ void test_http_serialize_stream_compose_send_chunk_fail_propagates_original_erro
     const bb_serialize_compose_group_t groups[] = {
         { .entries = entries, .n = 1, .shape = BB_SERIALIZE_COMPOSE_RAW },
     };
+    bb_http_serialize_stream_compose_cfg_t cfg = { .groups = groups, .n_groups = 1 };
 
     cap_begin();
     bb_http_host_force_send_chunk_fail(true);
-    bb_err_t err = bb_http_serialize_stream_compose(s_req, groups, 1);
+    bb_err_t err = bb_http_serialize_stream_compose(s_req, &cfg);
     bb_http_host_force_send_chunk_fail(false);
     size_t call_count = bb_http_host_send_chunk_call_count();
     cap_end();
@@ -220,13 +234,14 @@ void test_http_serialize_stream_compose_send_chunk_fail_propagates_original_erro
 }
 
 // ---------------------------------------------------------------------------
-// 6. bb_http_serialize_stream_compose_ex() -- f64_shortest pass-through
-// (B1-1102/B1-1100). bb_http_serialize_stream_compose() itself is a thin
-// wrapper calling _ex(..., false); these prove the flag actually reaches
-// the JSON backend through the HTTP bridge.
+// 6. cfg.f64_shortest pass-through (B1-1102/B1-1100, collapsed onto the cfg
+// struct in B1-1438). These prove the flag actually reaches the JSON
+// backend through the HTTP bridge, and that omitting the field from the cfg
+// literal (zero-init) reproduces the pre-collapse default (false ==
+// fixed-decimal) -- the zero-trap this field is documented against.
 // ---------------------------------------------------------------------------
 
-void test_http_serialize_stream_compose_ex_f64_shortest_false_is_fixed_decimal(void)
+void test_http_serialize_stream_compose_f64_shortest_false_is_fixed_decimal(void)
 {
     z_snap_t zs = { .z = 55.3 };
     const bb_serialize_compose_entry_t entries[] = {
@@ -235,9 +250,10 @@ void test_http_serialize_stream_compose_ex_f64_shortest_false_is_fixed_decimal(v
     const bb_serialize_compose_group_t groups[] = {
         { .entries = entries, .n = 1, .shape = BB_SERIALIZE_COMPOSE_RAW },
     };
+    bb_http_serialize_stream_compose_cfg_t cfg = { .groups = groups, .n_groups = 1, .f64_shortest = false };
 
     cap_begin();
-    bb_err_t err = bb_http_serialize_stream_compose_ex(s_req, groups, 1, false);
+    bb_err_t err = bb_http_serialize_stream_compose(s_req, &cfg);
     cap_end();
 
     TEST_ASSERT_EQUAL(BB_OK, err);
@@ -245,7 +261,7 @@ void test_http_serialize_stream_compose_ex_f64_shortest_false_is_fixed_decimal(v
     cap_free();
 }
 
-void test_http_serialize_stream_compose_ex_f64_shortest_true_is_shortest(void)
+void test_http_serialize_stream_compose_f64_shortest_true_is_shortest(void)
 {
     z_snap_t zs = { .z = 55.3 };
     const bb_serialize_compose_entry_t entries[] = {
@@ -254,9 +270,10 @@ void test_http_serialize_stream_compose_ex_f64_shortest_true_is_shortest(void)
     const bb_serialize_compose_group_t groups[] = {
         { .entries = entries, .n = 1, .shape = BB_SERIALIZE_COMPOSE_RAW },
     };
+    bb_http_serialize_stream_compose_cfg_t cfg = { .groups = groups, .n_groups = 1, .f64_shortest = true };
 
     cap_begin();
-    bb_err_t err = bb_http_serialize_stream_compose_ex(s_req, groups, 1, true);
+    bb_err_t err = bb_http_serialize_stream_compose(s_req, &cfg);
     cap_end();
 
     TEST_ASSERT_EQUAL(BB_OK, err);
@@ -264,7 +281,7 @@ void test_http_serialize_stream_compose_ex_f64_shortest_true_is_shortest(void)
     cap_free();
 }
 
-void test_http_serialize_stream_compose_thin_wrapper_matches_ex_false(void)
+void test_http_serialize_stream_compose_omitted_f64_shortest_defaults_fixed_decimal(void)
 {
     z_snap_t zs = { .z = 1.5 };
     const bb_serialize_compose_entry_t entries[] = {
@@ -273,9 +290,12 @@ void test_http_serialize_stream_compose_thin_wrapper_matches_ex_false(void)
     const bb_serialize_compose_group_t groups[] = {
         { .entries = entries, .n = 1, .shape = BB_SERIALIZE_COMPOSE_RAW },
     };
+    // f64_shortest deliberately omitted -- proves zero-init reproduces the
+    // pre-collapse fixed-decimal behavior.
+    bb_http_serialize_stream_compose_cfg_t cfg = { .groups = groups, .n_groups = 1 };
 
     cap_begin();
-    bb_err_t err = bb_http_serialize_stream_compose(s_req, groups, 1);
+    bb_err_t err = bb_http_serialize_stream_compose(s_req, &cfg);
     cap_end();
 
     TEST_ASSERT_EQUAL(BB_OK, err);

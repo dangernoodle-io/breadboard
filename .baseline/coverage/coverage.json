@@ -46,7 +46,7 @@
       "type": "uncovered_branch"
     },
     {
-      "id": "73",
+      "id": "72",
       "path": "components/bb_http_server/src/bb_http_serialize_stream.c",
       "type": "uncovered_branch"
     },

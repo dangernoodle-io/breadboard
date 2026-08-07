@@ -51,26 +51,33 @@ extern "C" {
 bb_err_t bb_http_serialize_stream(bb_http_request_t *req,
                                    const bb_serialize_desc_t *desc, const void *snap);
 
+// Config for bb_http_serialize_stream_compose() (B1-1438) -- collapses the
+// former bb_http_serialize_stream_compose()/bb_http_serialize_stream_compose_ex()
+// variant-ladder pair into one entry point, same idiom as
+// bb_serialize_json_stream_compose_render_cfg_t (bb_serialize_json.h,
+// B1-1437). `groups` is legitimately NULL when `n_groups == 0`.
+// `f64_shortest == false` reproduces the pre-collapse
+// bb_http_serialize_stream_compose()'s fixed behavior -- see
+// bb_serialize_json_ctx_t.f64_shortest's doc comment (bb_serialize_json.h)
+// for the fixed-decimal (false) vs shortest-round-trippable (true) contract
+// (B1-1102).
+typedef struct {
+    const bb_serialize_compose_group_t *groups;
+    size_t                              n_groups;
+    bool                                f64_shortest;
+} bb_http_serialize_stream_compose_cfg_t;
+
 // Composed-document counterpart to bb_http_serialize_stream() above -- same
 // Content-Type/chunked-finalize/abort-flag wiring, except it streams
-// `groups[0..n_groups)` (each its own entries[]/n/shape -- see
+// `cfg->groups[0..cfg->n_groups)` (each its own entries[]/n/shape -- see
 // bb_serialize_compose_group_t in bb_serialize_compose.h) via
 // bb_serialize_json_stream_compose_render() rather than a single desc/snap
 // pair via bb_serialize_json_stream_render(). Returns BB_ERR_INVALID_ARG if
-// `req` is NULL, or if `groups` is NULL while `n_groups` is nonzero --
-// checked before the Content-Type header is set, same as
+// `req` or `cfg` is NULL, or if `cfg->groups` is NULL while `cfg->n_groups`
+// is nonzero -- checked before the Content-Type header is set, same as
 // bb_http_serialize_stream() above.
 bb_err_t bb_http_serialize_stream_compose(bb_http_request_t *req,
-                                           const bb_serialize_compose_group_t *groups, size_t n_groups);
-
-// Same as bb_http_serialize_stream_compose() above, plus a trailing
-// `f64_shortest` -- see bb_serialize_json_ctx_t.f64_shortest's doc comment
-// (bb_serialize_json.h) for the contract (B1-1102). Thin-wrapper
-// relationship: bb_http_serialize_stream_compose(...) ==
-// bb_http_serialize_stream_compose_ex(..., false).
-bb_err_t bb_http_serialize_stream_compose_ex(bb_http_request_t *req,
-                                              const bb_serialize_compose_group_t *groups, size_t n_groups,
-                                              bool f64_shortest);
+                                           const bb_http_serialize_stream_compose_cfg_t *cfg);
 
 #ifdef __cplusplus
 }
