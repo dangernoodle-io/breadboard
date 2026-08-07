@@ -505,7 +505,7 @@ static esp_err_t bb_shim_handler(httpd_req_t *req)
 // Asset table used by the single wildcard handler.
 static const bb_http_asset_t *s_assets        = NULL;
 static size_t                 s_asset_count   = 0;
-// No-match fallback registered via bb_http_register_assets_with_fallback
+// No-match fallback registered via bb_http_register_assets
 // (e.g. bb_wifi_prov's captive-portal redirect). NULL means "no fallback" —
 // asset_wildcard_handler keeps the plain 404 behavior.
 static bb_http_handler_fn     s_asset_fallback = NULL;
@@ -543,7 +543,7 @@ static esp_err_t asset_wildcard_handler(httpd_req_t *req)
         if (strcmp(s_assets[i].path, uri) == 0) {
             // Provisioning gate — insertion point 3/3. This handler is
             // registered directly as "/*"'s .handler (see
-            // bb_http_register_assets_with_fallback below) and does NOT go
+            // bb_http_register_assets below) and does NOT go
             // through bb_shim_handler, so it needs its own gate check — this
             // is exactly the hole the design work behind this PR flagged:
             // gating only api_dispatch_handler + bb_shim_handler would have
@@ -579,9 +579,9 @@ static esp_err_t asset_wildcard_handler(httpd_req_t *req)
     // the gate can be active because the only in-tree non-NULL-fallback
     // caller is bb_wifi_prov_start() (bb_wifi_prov.c), which commits its
     // fallback only after ITS OWN "/*" registration wins (see
-    // bb_http_register_assets_with_fallback below, which commits state only
+    // bb_http_register_assets below, which commits state only
     // post-success) — so a live fallback here means bb_wifi_prov owns this
-    // wildcard. See bb_http_register_assets_with_fallback's own comment for
+    // wildcard. See bb_http_register_assets's own comment for
     // the obligation this places on any future non-NULL-fallback caller.
     if (s_asset_fallback) {
         return s_asset_fallback((bb_http_request_t*)req) == BB_OK ? ESP_OK : ESP_FAIL;
@@ -748,28 +748,26 @@ bb_err_t bb_http_req_get_header(bb_http_request_t *req, const char *name,
 }
 
 // WARNING for any future non-NULL-fallback caller: asset_wildcard_handler's
-// no-match branch dispatches to `fallback` UNGATED (see that handler's own
-// comment). That is safe today only because the sole caller,
+// no-match branch dispatches to `cfg->fallback` UNGATED (see that handler's
+// own comment). That is safe today only because the sole caller,
 // bb_wifi_prov_start(), is unreachable-while-ungated by construction — a new
 // caller passing non-NULL here must not be reachable while
 // bb_http_prov_gate can be active, or it reopens the hole the gate exists to
 // close.
-bb_err_t bb_http_register_assets_with_fallback(bb_http_handle_t server,
-                                               const bb_http_asset_t *assets,
-                                               size_t n,
-                                               bb_http_handler_fn fallback)
+bb_err_t bb_http_register_assets(bb_http_handle_t server,
+                                 const bb_http_register_assets_cfg_t *cfg)
 {
     httpd_handle_t h = (httpd_handle_t)server;
-    if (!h) return BB_ERR_INVALID_ARG;
+    if (!h || !cfg) return BB_ERR_INVALID_ARG;
     // assets/n must agree: either a real table (assets != NULL, n may be 0
     // for an empty table) or "no assets at all" (assets == NULL, n == 0 —
     // the fallback-only case, e.g. a captive portal with no caller-supplied
     // UI). assets == NULL with n > 0 is a mismatched/invalid call.
-    if (!assets && n > 0) return BB_ERR_INVALID_ARG;
+    if (!cfg->assets && cfg->n > 0) return BB_ERR_INVALID_ARG;
 
     // Validate entries upfront
-    for (size_t i = 0; i < n; i++) {
-        if (!assets[i].path || !assets[i].mime || !assets[i].data) {
+    for (size_t i = 0; i < cfg->n; i++) {
+        if (!cfg->assets[i].path || !cfg->assets[i].mime || !cfg->assets[i].data) {
             return BB_ERR_INVALID_ARG;
         }
     }
@@ -795,23 +793,13 @@ bb_err_t bb_http_register_assets_with_fallback(bb_http_handle_t server,
 
     // Registration succeeded — now safe to commit the new table + fallback
     // for the wildcard handler to read.
-    s_assets         = assets;
-    s_asset_count    = n;
-    s_asset_fallback = fallback;
+    s_assets         = cfg->assets;
+    s_asset_count    = cfg->n;
+    s_asset_fallback = cfg->fallback;
 
-    bb_log_i(TAG, "assets: %u files via single wildcard handler%s", (unsigned)n,
-             fallback ? " (with no-match fallback)" : "");
+    bb_log_i(TAG, "assets: %u files via single wildcard handler%s", (unsigned)cfg->n,
+             cfg->fallback ? " (with no-match fallback)" : "");
     return BB_OK;
-}
-
-bb_err_t bb_http_register_assets(bb_http_handle_t server,
-                                 const bb_http_asset_t *assets,
-                                 size_t n)
-{
-    // Back-compat: assets is required (unlike the _with_fallback entry,
-    // which additionally allows a fallback-only NULL-assets registration).
-    if (!assets) return BB_ERR_INVALID_ARG;
-    return bb_http_register_assets_with_fallback(server, assets, n, NULL);
 }
 
 bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str)

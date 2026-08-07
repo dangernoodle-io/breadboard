@@ -204,7 +204,7 @@ void test_bb_http_prov_gate_wire_shim_inactive_unaffected(void)
 void test_bb_http_prov_gate_wire_asset_active_allowlisted_serves(void)
 {
     arm_mock_active_fn();
-    bb_http_register_assets(NULL, s_assets, 1);
+    bb_http_register_assets(NULL, &(bb_http_register_assets_cfg_t){ .assets = s_assets, .n = 1 });
     TEST_ASSERT_EQUAL(BB_OK, bb_http_prov_allow(BB_HTTP_GET, "/"));
     s_mock_prov_active = true;
 
@@ -225,7 +225,7 @@ void test_bb_http_prov_gate_wire_asset_active_allowlisted_serves(void)
 void test_bb_http_prov_gate_wire_asset_active_non_allowlisted_denies_404(void)
 {
     arm_mock_active_fn();
-    bb_http_register_assets(NULL, s_assets, 1);
+    bb_http_register_assets(NULL, &(bb_http_register_assets_cfg_t){ .assets = s_assets, .n = 1 });
     // deliberately NOT allowlisted
     s_mock_prov_active = true;
 
@@ -248,7 +248,7 @@ void test_bb_http_prov_gate_wire_asset_active_non_allowlisted_denies_404(void)
 void test_bb_http_prov_gate_wire_asset_inactive_unaffected(void)
 {
     arm_mock_active_fn();
-    bb_http_register_assets(NULL, s_assets, 1);
+    bb_http_register_assets(NULL, &(bb_http_register_assets_cfg_t){ .assets = s_assets, .n = 1 });
     TEST_ASSERT_FALSE(s_mock_prov_active);
 
     bb_http_request_t *req;
@@ -293,7 +293,8 @@ static bb_err_t counting_fallback_handler(bb_http_request_t *req)
 void test_bb_http_prov_gate_wire_asset_active_miss_reaches_fallback_ungated(void)
 {
     arm_mock_active_fn();
-    bb_http_register_assets_with_fallback(NULL, s_assets, 1, counting_fallback_handler);
+    bb_http_register_assets_cfg_t cfg = { .assets = s_assets, .n = 1, .fallback = counting_fallback_handler };
+    bb_http_register_assets(NULL, &cfg);
     s_mock_prov_active = true;
     s_fallback_invoked = false;
 

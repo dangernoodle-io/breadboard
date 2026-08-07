@@ -365,33 +365,40 @@ typedef struct {
     size_t         len;
 } bb_http_asset_t;
 
-// Register a table of static GET assets on an already-started server.
-// Each entry becomes a GET handler emitting `data` with Content-Type=mime
-// and (if encoding!=NULL) Content-Encoding=encoding, plus a sensible
-// Cache-Control. Returns BB_OK on success; first registration failure aborts.
-bb_err_t bb_http_register_assets(bb_http_handle_t server,
-                                 const bb_http_asset_t *assets,
-                                 size_t n);
-
-// Register a table of static GET assets (as bb_http_register_assets) plus a
-// fallback handler invoked when the wildcard "/*" GET receives a request
-// that matches no asset path. The fallback is deliberately bound to THIS
-// call, which alone owns the "/*" registration — there is no free-floating
-// global setter, so a fallback can never be armed without a wildcard actually
-// registered to dispatch it. Used by bb_wifi_prov to serve the captive-portal
-// redirect from the same wildcard that serves provisioning assets, instead of
-// a second (and rejected — ESP-IDF allows only one handler per method+path)
-// "/*" registration.
+// Config for bb_http_register_assets() (B1-1458) — collapses the former
+// bb_http_register_assets()/bb_http_register_assets_with_fallback()
+// variant-ladder pair into one entry point. `fallback` zero-inits to NULL,
+// reproducing the pre-collapse base bb_http_register_assets()'s no-fallback
+// behavior exactly.
 //
-// assets/n follow bb_http_register_assets' contract, with one relaxation:
-// assets may be NULL when n == 0 (a fallback-only registration — e.g. a
-// captive portal with no caller-supplied UI still needs the redirect
-// reachable). assets == NULL with n > 0 is rejected as BB_ERR_INVALID_ARG.
-// Passing fallback == NULL is equivalent to bb_http_register_assets().
-bb_err_t bb_http_register_assets_with_fallback(bb_http_handle_t server,
-                                               const bb_http_asset_t *assets,
-                                               size_t n,
-                                               bb_http_handler_fn fallback);
+// `assets`/`n`: assets == NULL is legal only when n == 0. assets == NULL
+// with n > 0 is rejected as BB_ERR_INVALID_ARG.
+//
+// `fallback`: optional handler invoked when the wildcard "/*" GET receives a
+// request that matches no asset path. The fallback is deliberately bound to
+// THIS call, which alone owns the "/*" registration — there is no
+// free-floating global setter, so a fallback can never be armed without a
+// wildcard actually registered to dispatch it. Used by bb_wifi_prov to serve
+// the captive-portal redirect from the same wildcard that serves
+// provisioning assets, instead of a second (and rejected — ESP-IDF allows
+// only one handler per method+path) "/*" registration. fallback == NULL with
+// assets == NULL and n == 0 is a legal no-op registration (an empty wildcard
+// that always 404s) — same as the pre-collapse wide variant's own contract;
+// no production caller exercises this combination.
+typedef struct {
+    const bb_http_asset_t *assets;
+    size_t                 n;
+    bb_http_handler_fn     fallback;
+} bb_http_register_assets_cfg_t;
+
+// Register a table of static GET assets on an already-started server, plus
+// an optional no-match fallback (`cfg->fallback`). Each asset entry becomes
+// a GET handler emitting `data` with Content-Type=mime and (if
+// encoding!=NULL) Content-Encoding=encoding, plus a sensible Cache-Control.
+// Returns BB_OK on success; first registration failure aborts. Returns
+// BB_ERR_INVALID_ARG if `cfg` is NULL.
+bb_err_t bb_http_register_assets(bb_http_handle_t server,
+                                 const bb_http_register_assets_cfg_t *cfg);
 
 // Ensure the HTTP server is started (low-level helper; prefer bb_http_server_start).
 // Used by provisioning and other advanced features. Idempotent.

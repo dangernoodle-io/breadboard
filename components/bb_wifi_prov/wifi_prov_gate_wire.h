@@ -46,8 +46,8 @@ extern "C" {
 // (bb_wifi_prov_start(), platform/espidf/bb_wifi_prov/bb_wifi_prov.c) is the
 // one production caller.
 //
-// assets may be NULL only when n == 0 (matches bb_http_register_assets_
-// with_fallback's own contract). Returns BB_OK if every entry registered
+// assets may be NULL only when n == 0 (matches bb_http_register_assets'
+// own contract). Returns BB_OK if every entry registered
 // (fixed entries + all n assets); otherwise the FIRST non-BB_OK result from
 // bb_http_prov_allow(), after still attempting every remaining entry
 // (best-effort -- a rejected wildcard asset path, e.g., does not stop
