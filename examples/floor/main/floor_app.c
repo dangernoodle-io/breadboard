@@ -652,12 +652,13 @@ void app_main(void)
         if (err != BB_OK) {
             bb_log_w(TAG, "data_bind(%s) failed (%d)", producers[i].key, (int)err);
         }
-        // _sized: catches a producer wire type that would exceed the shared
-        // render scratch (CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES) as a
-        // loud attach-time failure instead of a silently-starved stream
-        // (B1-1045 PR-4 fix -- see bb_data_http_attach_sized()'s doc).
-        err = bb_data_http_attach_sized(producers[i].key, producers[i].key,
-                                        BB_DATA_HTTP_STATE, producers[i].desc->snap_size);
+        // snap_size: catches a producer wire type that would exceed the
+        // shared render scratch (CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES)
+        // as a loud attach-time failure instead of a silently-starved
+        // stream (B1-1045 PR-4 fix -- see bb_data_http_attach_cfg_t's doc).
+        err = bb_data_http_attach(&(bb_data_http_attach_cfg_t){
+            .key = producers[i].key, .topic = producers[i].key,
+            .kind = BB_DATA_HTTP_STATE, .snap_size = producers[i].desc->snap_size });
         if (err != BB_OK) {
             bb_log_w(TAG, "data_http_attach(%s) failed (%d)", producers[i].key, (int)err);
         }
@@ -666,7 +667,7 @@ void app_main(void)
     // B1-1418 PR-2: bind the "tasks" key rows-only (desc/gather/apply all
     // NULL, rows non-NULL) -- a pure table producer with no scalar egress
     // at all, the shape PR-1 (#1221) made legal. Deliberately NOT run
-    // through the producers[] loop or bb_data_http_attach_sized() above:
+    // through the producers[] loop or bb_data_http_attach() above:
     // this binding has no desc/gather pair for bb_data_http's SSE/WS
     // broadcaster to render (it's console-only, see bb_data_render_rows()'s
     // own doc) -- task_stack_log_tick's own bb_data_render_rows() call is

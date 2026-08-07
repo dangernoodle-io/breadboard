@@ -1106,7 +1106,7 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     // can resolve it -- no composition root does this today (see
     // bb_diag_boot_wire.h's file-header note), so this component self-binds,
     // mirroring bb_ota_check_config_bind()'s pattern. SSE/broadcast
-    // attach (bb_data_http_attach_sized()) stays a composition-root concern,
+    // attach (bb_data_http_attach()) stays a composition-root concern,
     // out of this PR's scope.
     {
         bb_err_t derr = bb_diag_boot_bind();

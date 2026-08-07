@@ -35,7 +35,7 @@
  * bb_data_http_client_acquire's bb_data_http_client_cfg_t) selects which
  * attached keys it receives: NULL/"" subscribes to every attached key; a
  * non-empty filter subscribes only to keys attached under that exact topic
- * name.
+ * name (bb_data_http_attach_cfg_t's `topic` field).
  *
  * HARD INVARIANT (the STATE lost-wakeup guarantee, KB 1443): the sweep-step's
  * detect phase writes every dirty client's poll->seen_gen to the generation
@@ -336,38 +336,56 @@ bb_err_t bb_data_http_init(const bb_data_http_cfg_t *cfg);
 // Attach table (composition-root owned)
 // ---------------------------------------------------------------------------
 
-// Attach `key` (a bb_data binding key) under `topic`, with explicit replay
-// kind. Idempotent per key -- re-attaching an already-attached key updates
-// its topic/kind in place.
+// Config struct for bb_data_http_attach() -- the single-params-struct
+// convention (never `_ex`/`_sized`): this REPLACES the old
+// bb_data_http_attach()/bb_data_http_attach_ex()/bb_data_http_attach_sized()
+// three-rung ladder rather than adding a fourth entry point (B1-1439, epic
+// B1-1434).
 //
-// Returns BB_ERR_INVALID_ARG if `key` or `topic` is NULL/empty, or either
-// exceeds its buffer bound (BB_DATA_HTTP_KEY_MAX / BB_DATA_HTTP_TOPIC_MAX).
-// Returns BB_ERR_NO_SPACE if the attach table is full
-// (BB_DATA_HTTP_MAX_ATTACH distinct keys already attached) and `key` is not
-// already attached.
-bb_err_t bb_data_http_attach_ex(const char *key, const char *topic,
-                                bb_data_http_replay_kind_t kind);
+// key/topic: same NULL/empty/length-bound contract the old ladder shared --
+// see bb_data_http_attach()'s own doc below.
+// kind: zero-default (BB_DATA_HTTP_STATE == 0, see the enum above) is safe
+// -- an omitted field reproduces exactly what the old base bb_data_http_
+// attach() hardcoded (BB_DATA_HTTP_STATE), so every former base-call site
+// converts by simply omitting this field.
+// snap_size: zero-default is safe -- 0 can never exceed
+// CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES (Kconfig `range 32 2048`, so the
+// scratch bound is never itself 0), so an omitted field never trips the
+// loud attach-time guard below, exactly matching the old base attach()/
+// attach_ex() pair, which had no snap_size parameter (and therefore no
+// guard) at all. Callers that have a bb_serialize_desc_t (the composition
+// root does, via bb_data_binding_t.desc) should set this field to
+// `desc->snap_size` so an oversized binding is caught at wire-up instead of
+// silently render-failing on every sweep (bb_data_render() returns
+// BB_ERR_NO_SPACE whenever the caller's scratch is smaller than the
+// binding's desc->snap_size -- see bb_data.h).
+typedef struct {
+    const char                 *key;
+    const char                 *topic;
+    bb_data_http_replay_kind_t  kind;
+    size_t                       snap_size;
+} bb_data_http_attach_cfg_t;
 
-// Convenience wrapper: bb_data_http_attach_ex(key, topic, BB_DATA_HTTP_STATE).
-bb_err_t bb_data_http_attach(const char *key, const char *topic);
-
-// Like bb_data_http_attach_ex(), plus a loud attach-time guard: rejects the
-// attach (BB_ERR_NO_SPACE, ESP_LOGE-level "attach-time fail loud" log) if
-// `snap_size` exceeds CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES instead of
-// silently attaching a key whose every future render would fail forever
-// (bb_data_render() returns BB_ERR_NO_SPACE whenever the caller's scratch
-// is smaller than the binding's desc->snap_size -- see bb_data.h). Callers
-// that have a bb_serialize_desc_t (the composition root does, via
-// bb_data_binding_t.desc) should pass `desc->snap_size` here rather than
-// calling bb_data_http_attach_ex() directly, so an oversized binding is
-// caught at wire-up instead of silently render-failing on every sweep.
+// Attach `cfg->key` (a bb_data binding key) under `cfg->topic`, with replay
+// kind `cfg->kind` (see the zero-default doc above). Idempotent per key --
+// re-attaching an already-attached key updates its topic/kind in place.
 //
-// Returns BB_ERR_NO_SPACE if `snap_size` exceeds the render scratch bound
-// (the key is NOT attached in this case) or if the attach table itself is
-// full. Otherwise identical to bb_data_http_attach_ex().
-bb_err_t bb_data_http_attach_sized(const char *key, const char *topic,
-                                   bb_data_http_replay_kind_t kind,
-                                   size_t snap_size);
+// The loud attach-time guard (B1-1045 PR-4 fix): rejects the attach
+// (BB_ERR_NO_SPACE, ESP_LOGE-level "attach-time fail loud" log) if
+// `cfg->snap_size` exceeds CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES instead
+// of silently attaching a key whose every future render would fail forever.
+// This check runs BEFORE key/topic validation below, so an oversized
+// `cfg->snap_size` is reported even when `cfg->key`/`cfg->topic` are also
+// invalid.
+//
+// Returns BB_ERR_INVALID_ARG if `cfg` is NULL, or `cfg->key`/`cfg->topic` is
+// NULL/empty, or either exceeds its buffer bound (BB_DATA_HTTP_KEY_MAX /
+// BB_DATA_HTTP_TOPIC_MAX).
+// Returns BB_ERR_NO_SPACE if `cfg->snap_size` exceeds the render scratch
+// bound (the key is NOT attached in this case), or if the attach table is
+// full (BB_DATA_HTTP_MAX_ATTACH distinct keys already attached) and `key` is
+// not already attached.
+bb_err_t bb_data_http_attach(const bb_data_http_attach_cfg_t *cfg);
 
 // Diagnostics: number of keys currently attached.
 size_t bb_data_http_attach_count(void);
@@ -430,7 +448,7 @@ void bb_data_http_describe_foreach(bb_data_http_describe_cb_t cb, void *ctx);
 //
 // Returns BB_ERR_INVALID_ARG if `cfg` or `out` is NULL; or if
 // `cfg->topic_filter` is non-NULL/non-empty and its length (excluding NUL)
-// is >= BB_DATA_HTTP_TOPIC_MAX -- mirrors bb_data_http_attach_ex()'s own
+// is >= BB_DATA_HTTP_TOPIC_MAX -- mirrors bb_data_http_attach()'s own
 // topic bound so an over-length filter is rejected rather than silently
 // truncated (a truncated filter can mis-subscribe a client to the wrong
 // topic).
@@ -792,8 +810,8 @@ bb_err_t bb_data_http_espidf_client_connect(bb_http_request_t *req,
 // and bb_data_http_init() before that (see its PREREQUISITE note above) --
 // a connect through this route with bb_data_http_init() never called fails
 // with BB_ERR_INVALID_STATE (bb_data_http_client_acquire()). A connect
-// before any key is attached (bb_data_http_attach()/_attach_ex()/
-// _attach_sized()) still succeeds but streams nothing for that topic.
+// before any key is attached (bb_data_http_attach()) still succeeds but
+// streams nothing for that topic.
 // bb_http_handle_t opaque handle (bb_core.h, already included above) -- no
 // platform type leaks through this declaration.
 bb_err_t bb_data_http_espidf_routes_init(bb_http_handle_t server);

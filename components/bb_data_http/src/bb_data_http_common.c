@@ -102,9 +102,33 @@ static attach_slot_t *find_free_attach_slot(void)
 // permanent index), never the BSS array position in s_attach[] (which can
 // differ once find_free_attach_slot() reuses a hole -- it never does today,
 // but nothing below relies on the two coinciding).
-bb_err_t bb_data_http_attach_ex(const char *key, const char *topic,
-                                bb_data_http_replay_kind_t kind)
+// Loud guard (B1-1045 PR-4 fix): a binding whose desc->snap_size exceeds the
+// shared render scratch (CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES) makes
+// bb_data_render() return BB_ERR_NO_SPACE on EVERY sweep, forever -- with
+// only a rate-limited WARN (bb_data_http_sweep_step()'s render-fail log).
+// That silently starves the key's stream from first render onward (root
+// cause of the "log" key never delivering a frame: 220B wire vs a 128B
+// scratch). Checking at ATTACH time instead surfaces a misconfiguration at
+// wire-up/boot as a loud, unmissable ERROR plus a rejected attach, rather
+// than a permanently-failing stream nobody notices until they go looking.
+// Runs BEFORE key/topic validation below (B1-1439 collapse preserves this
+// ordering exactly -- see bb_data_http_attach_cfg_t's own snap_size doc).
+bb_err_t bb_data_http_attach(const bb_data_http_attach_cfg_t *cfg)
 {
+    if (!cfg) return BB_ERR_INVALID_ARG;
+
+    if (cfg->snap_size > (size_t)CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES) {
+        bb_log_e(TAG, "attach('%s'): snap_size=%u exceeds render scratch=%u -- "
+                "this key would render-fail (BB_ERR_NO_SPACE) every sweep, "
+                "forever; not attaching -- bump "
+                "CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES",
+                cfg->key ? cfg->key : "(null)", (unsigned)cfg->snap_size,
+                (unsigned)CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES);
+        return BB_ERR_NO_SPACE;
+    }
+
+    const char *key = cfg->key;
+    const char *topic = cfg->topic;
     if (!key || !key[0] || !topic || !topic[0]) return BB_ERR_INVALID_ARG;
     if (strlen(key) >= BB_DATA_HTTP_KEY_MAX) return BB_ERR_INVALID_ARG;
     if (strlen(topic) >= BB_DATA_HTTP_TOPIC_MAX) return BB_ERR_INVALID_ARG;
@@ -122,38 +146,8 @@ bb_err_t bb_data_http_attach_ex(const char *key, const char *topic,
     }
 
     bb_strlcpy(slot->topic, topic, sizeof(slot->topic));
-    slot->kind = kind;
+    slot->kind = cfg->kind;
     return BB_OK;
-}
-
-bb_err_t bb_data_http_attach(const char *key, const char *topic)
-{
-    return bb_data_http_attach_ex(key, topic, BB_DATA_HTTP_STATE);
-}
-
-// Loud guard (B1-1045 PR-4 fix): a binding whose desc->snap_size exceeds the
-// shared render scratch (CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES) makes
-// bb_data_render() return BB_ERR_NO_SPACE on EVERY sweep, forever -- with
-// only a rate-limited WARN (bb_data_http_sweep_step()'s render-fail log).
-// That silently starves the key's stream from first render onward (root
-// cause of the "log" key never delivering a frame: 220B wire vs a 128B
-// scratch). Checking at ATTACH time instead surfaces a misconfiguration at
-// wire-up/boot as a loud, unmissable ERROR plus a rejected attach, rather
-// than a permanently-failing stream nobody notices until they go looking.
-bb_err_t bb_data_http_attach_sized(const char *key, const char *topic,
-                                   bb_data_http_replay_kind_t kind,
-                                   size_t snap_size)
-{
-    if (snap_size > (size_t)CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES) {
-        bb_log_e(TAG, "attach('%s'): snap_size=%u exceeds render scratch=%u -- "
-                "this key would render-fail (BB_ERR_NO_SPACE) every sweep, "
-                "forever; not attaching -- bump "
-                "CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES",
-                key ? key : "(null)", (unsigned)snap_size,
-                (unsigned)CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES);
-        return BB_ERR_NO_SPACE;
-    }
-    return bb_data_http_attach_ex(key, topic, kind);
 }
 
 size_t bb_data_http_attach_count(void)
@@ -495,7 +489,7 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
 {
     if (!cfg || !out) return BB_ERR_INVALID_ARG;
     if (!s_cfg.initialized) return BB_ERR_INVALID_STATE;
-    // Mirrors bb_data_http_attach_ex()'s own topic-length bound: an
+    // Mirrors bb_data_http_attach()'s own topic-length bound: an
     // over-length filter must be REJECTED, never silently truncated by the
     // bb_strlcpy below (a truncated filter can mis-subscribe a client to a
     // topic it never asked for).
@@ -1291,7 +1285,7 @@ size_t bb_data_http_event_ring_count_for_test(void)
 // key -> attach-table registry index, test-only. Mirrors the same linear
 // scan bb_data_http_push_pump() and friends already do internally (the
 // attach-table index is registration order, not stored on the slot itself
-// -- see bb_data_http_attach_ex()'s own doc above). Returns true and
+// -- see bb_data_http_attach()'s own doc above). Returns true and
 // writes *out_idx on a match, false (leaving *out_idx untouched) if key is
 // not attached.
 static bool find_attach_index_for_test(const char *key, uint16_t *out_idx)

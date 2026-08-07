@@ -279,7 +279,7 @@
 //     second attached key it would be an actual bug: one failed
 //     bb_data_bind() would wrongly skip starting the broadcaster for every
 //     OTHER already-attached key too). provides=data_http_started.
-//   bb_data_http_attach_sized("log", ...)  -- requires=data_http_init,
+//   bb_data_http_attach({.key="log", ...})  -- requires=data_http_init,
 //     data_log_bound (attaches "log" into bb_data_http's OWN topic table
 //     so /api/events?topic=log and /ws/events actually stream it -- without
 //     this, both endpoints would link and accept connections but carry
@@ -297,7 +297,7 @@
 
 // bbtool:init tier=regular fn=bb_data_http_espidf_start component=bb_data_http requires=data_http_init provides=data_http_started
 
-// bbtool:init tier=regular fn=bb_data_http_attach_sized component=bb_data_http requires=data_http_init,data_log_bound provides=data_log_attached args="log","log",BB_DATA_HTTP_STATE,bb_log_event_wire_desc.snap_size
+// bbtool:init tier=regular fn=bb_data_http_attach component=bb_data_http requires=data_http_init,data_log_bound provides=data_log_attached args=&(bb_data_http_attach_cfg_t){.key="log",.topic="log",.kind=BB_DATA_HTTP_STATE,.snap_size=bb_log_event_wire_desc.snap_size}
 
 // bbtool:init tier=regular fn=bb_data_http_espidf_routes_init server=true component=bb_data_http requires=data_http_started,data_log_attached
 
@@ -311,7 +311,7 @@
 //
 // Unlike the "log" key above, bind/attach here go through smoke_data_notify_
 // bind()/_attach() WRAPPER functions, not bb_data_bind()/bb_data_http_
-// attach_sized() called directly with `args=` -- `bbtool codegen` markers
+// attach() called directly with `args=` -- `bbtool codegen` markers
 // have no Kconfig gate of their own (they always fire), so the ONLY way to
 // make this binding disappear entirely on a default smoke build is to gate
 // the library calls THEMSELVES inside a wrapper (B1-1451 review fix: an

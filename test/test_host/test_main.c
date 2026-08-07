@@ -388,6 +388,8 @@ void test_bb_data_http_init_event_ring_capacity_over_cap_returns_invalid_arg(voi
 void test_bb_data_http_init_event_ring_alloc_failure_returns_error(void);
 void test_bb_data_http_init_cfg_non_null_zero_max_clients_uses_default(void);
 void test_bb_data_http_attach_round_trip(void);
+void test_bb_data_http_attach_null_cfg_returns_invalid_arg(void);
+void test_bb_data_http_attach_omitted_kind_matches_pre_collapse_base_call(void);
 void test_bb_data_http_attach_null_or_empty_args_return_invalid_arg(void);
 void test_bb_data_http_attach_key_too_long_returns_invalid_arg(void);
 void test_bb_data_http_attach_topic_too_long_returns_invalid_arg(void);
@@ -12250,6 +12252,8 @@ int main(void) {
     RUN_TEST(test_bb_data_http_init_event_ring_alloc_failure_returns_error);
     RUN_TEST(test_bb_data_http_init_cfg_non_null_zero_max_clients_uses_default);
     RUN_TEST(test_bb_data_http_attach_round_trip);
+    RUN_TEST(test_bb_data_http_attach_null_cfg_returns_invalid_arg);
+    RUN_TEST(test_bb_data_http_attach_omitted_kind_matches_pre_collapse_base_call);
     RUN_TEST(test_bb_data_http_attach_null_or_empty_args_return_invalid_arg);
     RUN_TEST(test_bb_data_http_attach_key_too_long_returns_invalid_arg);
     RUN_TEST(test_bb_data_http_attach_topic_too_long_returns_invalid_arg);
