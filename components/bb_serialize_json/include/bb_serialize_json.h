@@ -70,9 +70,10 @@ typedef struct {
     // every existing caller. true switches every F64 field this ctx renders
     // to bb_json_write_f64_shortest() -- shortest-round-trippable output
     // that is byte-identical to cJSON's own print_number() (B1-1102).
-    // Selected via the render entry points' `_ex` variants (e.g.
-    // bb_serialize_json_render_ex()), never set directly by a walker-driven
-    // caller.
+    // Selected via bb_serialize_json_render_cfg_t.f64_shortest (or the
+    // equivalent trailing param on bb_serialize_json_render_ref()/
+    // bb_serialize_json_stream_render()), never set directly by a
+    // walker-driven caller.
     bool f64_shortest;
 } bb_serialize_json_ctx_t;
 
@@ -102,43 +103,47 @@ bb_serialize_emit_t bb_serialize_json_emit(bb_serialize_json_ctx_t *ctx);
 // bbtool:init tier=early fn=bb_serialize_json_register_format
 bb_err_t bb_serialize_json_register_format(void);
 
-// One-shot entry point: walks `desc`/`snap` and writes a complete JSON
-// object (wrapped in `{`...`}`) into `buf` (capacity `cap`, including room
-// for the NUL terminator). All-or-nothing: on success, `*out_len` is the
-// written length (excluding NUL) and `buf` is NUL-terminated; on
-// BB_ERR_NO_SPACE, `*out_len` is 0 and `buf[0]` is '\0' -- never partial
-// JSON.
-bb_err_t bb_serialize_json_render(const bb_serialize_desc_t *desc, const void *snap,
-                                   char *buf, size_t cap, size_t *out_len);
+// Config for bb_serialize_json_render() (B1-1437) -- collapses the former
+// bb_serialize_json_render()/bb_serialize_json_render_ex() variant-ladder
+// pair into one entry point, mirroring bb_serialize_walk_cfg_t's own
+// collapse (B1-1459). All fields are required inputs (no zero-default
+// sentinel needed: `desc`/`snap`/`buf` are pointers whose NULL is already a
+// caller bug either way, `cap == 0` is an already-meaningful "no space"
+// input handled by the existing BB_ERR_NO_SPACE path, and `f64_shortest ==
+// false` reproduces today's fixed-decimal formatting -- the exact default
+// bb_serialize_json_render_ex() carried before this collapse).
+typedef struct {
+    const bb_serialize_desc_t *desc;
+    const void                *snap;
+    char                      *buf;
+    size_t                     cap;
+    // See bb_serialize_json_ctx_t.f64_shortest's doc comment for the
+    // fixed-decimal (false) vs shortest-round-trippable (true) contract.
+    bool                       f64_shortest;
+} bb_serialize_json_render_cfg_t;
 
-// Same as bb_serialize_json_render(), plus a trailing `f64_shortest`: false
-// reproduces bb_serialize_json_render() exactly (the default fixed-decimal
-// BB_TYPE_F64 formatting); true switches every BB_TYPE_F64 field this call
-// renders to the shortest-round-trippable, cJSON-print_number-identical
-// formatting (see bb_serialize_json_ctx_t.f64_shortest's doc comment,
-// B1-1102). bb_serialize_json_render() is a thin wrapper:
-// bb_serialize_json_render_ex(desc, snap, buf, cap, out_len, false).
-bb_err_t bb_serialize_json_render_ex(const bb_serialize_desc_t *desc, const void *snap,
-                                      char *buf, size_t cap, size_t *out_len,
-                                      bool f64_shortest);
+// One-shot entry point: walks `cfg->desc`/`cfg->snap` and writes a complete
+// JSON object (wrapped in `{`...`}`) into `cfg->buf` (capacity `cfg->cap`,
+// including room for the NUL terminator). All-or-nothing: on success,
+// `*out_len` is the written length (excluding NUL) and `cfg->buf` is
+// NUL-terminated; on BB_ERR_NO_SPACE, `*out_len` is 0 and `cfg->buf[0]` is
+// '\0' -- never partial JSON.
+bb_err_t bb_serialize_json_render(const bb_serialize_json_render_cfg_t *cfg, size_t *out_len);
 
 // Same as bb_serialize_json_render(), plus BB_TYPE_REF resolution: drives
 // bb_serialize_walk() with cfg->resolve/cfg->resolve_ctx set (rather than
 // left NULL), so a REF field's sibling section renders inline at its wire
 // key. All-or-nothing semantics and the NUL-terminator/overflow contract
-// are identical to bb_serialize_json_render().
+// are identical to bb_serialize_json_render(). `f64_shortest` selects
+// fixed-decimal (false) vs shortest-round-trippable (true) BB_TYPE_F64
+// formatting -- see bb_serialize_json_ctx_t.f64_shortest's doc comment
+// (B1-1102). NOT config-struct-shaped by deliberate choice (B1-1437): this
+// pair had zero callers outside its own former `_ex` thin wrapper, so the
+// two rungs merge into this single wider signature instead.
 bb_err_t bb_serialize_json_render_ref(const bb_serialize_desc_t *desc, const void *snap,
                                        char *buf, size_t cap, size_t *out_len,
-                                       bb_serialize_ref_resolve_fn resolve, void *resolve_ctx);
-
-// Same as bb_serialize_json_render_ref(), plus a trailing `f64_shortest` --
-// see bb_serialize_json_render_ex()'s doc comment above. Thin-wrapper
-// relationship: bb_serialize_json_render_ref(...) ==
-// bb_serialize_json_render_ref_ex(..., false).
-bb_err_t bb_serialize_json_render_ref_ex(const bb_serialize_desc_t *desc, const void *snap,
-                                          char *buf, size_t cap, size_t *out_len,
-                                          bb_serialize_ref_resolve_fn resolve, void *resolve_ctx,
-                                          bool f64_shortest);
+                                       bb_serialize_ref_resolve_fn resolve, void *resolve_ctx,
+                                       bool f64_shortest);
 
 // Streaming entry point: distinct from bb_serialize_json_render()/
 // bb_serialize_json_render_ref() above -- NOT routed through
@@ -177,18 +182,16 @@ bb_err_t bb_serialize_json_render_ref_ex(const bb_serialize_desc_t *desc, const 
 // (non-REF) walker. A descriptor containing a BB_TYPE_REF field that needs
 // pointer-indirection resolution cannot be streamed via this fn (PR-1 scope
 // limit, B1-1077). No current diag descriptor needs REF resolution.
+// `f64_shortest` selects fixed-decimal (false) vs shortest-round-trippable
+// (true) BB_TYPE_F64 formatting -- see bb_serialize_json_ctx_t.f64_shortest's
+// doc comment (B1-1102). NOT config-struct-shaped by deliberate choice
+// (B1-1437): this pair had zero callers outside its own former `_ex` thin
+// wrapper, so the two rungs merge into this single wider signature instead
+// -- see bb_serialize_json_render_ref()'s doc comment above for the same
+// reasoning.
 bb_err_t bb_serialize_json_stream_render(const bb_serialize_desc_t *desc, const void *snap,
                                           bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
-                                          const volatile bool *flush_failed);
-
-// Same as bb_serialize_json_stream_render(), plus a trailing `f64_shortest`
-// -- see bb_serialize_json_render_ex()'s doc comment above for the
-// contract (B1-1102). Thin-wrapper relationship:
-// bb_serialize_json_stream_render(...) ==
-// bb_serialize_json_stream_render_ex(..., false).
-bb_err_t bb_serialize_json_stream_render_ex(const bb_serialize_desc_t *desc, const void *snap,
-                                             bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
-                                             const volatile bool *flush_failed, bool f64_shortest);
+                                          const volatile bool *flush_failed, bool f64_shortest);
 
 // Composed-document counterpart to bb_serialize_json_stream_render() above --
 // same internal flush buffer (BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES), same
@@ -227,18 +230,28 @@ bb_err_t bb_serialize_json_stream_render_ex(const bb_serialize_desc_t *desc, con
 // bb_serialize_json_stream_render() does. `n_groups == 0` is valid and
 // renders an empty root object (`{}`); a group with `n == 0` among
 // non-empty groups is likewise a valid no-op for that group.
-bb_err_t bb_serialize_json_stream_compose_render(const bb_serialize_compose_group_t *groups, size_t n_groups,
-                                                  bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
-                                                  const volatile bool *flush_failed);
 
-// Same as bb_serialize_json_stream_compose_render(), plus a trailing
-// `f64_shortest` -- see bb_serialize_json_render_ex()'s doc comment above
-// for the contract (B1-1102). Thin-wrapper relationship:
-// bb_serialize_json_stream_compose_render(...) ==
-// bb_serialize_json_stream_compose_render_ex(..., false).
-bb_err_t bb_serialize_json_stream_compose_render_ex(const bb_serialize_compose_group_t *groups, size_t n_groups,
-                                                     bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
-                                                     const volatile bool *flush_failed, bool f64_shortest);
+// Config for bb_serialize_json_stream_compose_render() (B1-1437) --
+// collapses the former bb_serialize_json_stream_compose_render()/
+// bb_serialize_json_stream_compose_render_ex() variant-ladder pair into one
+// entry point, same idiom as bb_serialize_json_render_cfg_t above. All
+// fields are required inputs; `flush_ctx`/`flush_failed` are legitimately
+// NULL (borrowed-optional, same as the pre-collapse params), `f64_shortest
+// == false` reproduces today's fixed-decimal formatting -- the exact
+// default bb_serialize_json_stream_compose_render_ex() carried before this
+// collapse.
+typedef struct {
+    const bb_serialize_compose_group_t *groups;
+    size_t                              n_groups;
+    bb_serialize_json_flush_fn          flush_fn;
+    void                               *flush_ctx;
+    const volatile bool                *flush_failed;
+    // See bb_serialize_json_ctx_t.f64_shortest's doc comment for the
+    // fixed-decimal (false) vs shortest-round-trippable (true) contract.
+    bool                                f64_shortest;
+} bb_serialize_json_stream_compose_render_cfg_t;
+
+bb_err_t bb_serialize_json_stream_compose_render(const bb_serialize_json_stream_compose_render_cfg_t *cfg);
 
 // Computes a worst-case (upper-bound) byte count for rendering `desc` as
 // JSON via bb_serialize_json_render() -- a sizing helper for callers that

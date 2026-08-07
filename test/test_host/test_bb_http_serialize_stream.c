@@ -54,8 +54,12 @@ void test_http_serialize_stream_happy_path(void)
 
     char   bounded_buf[128];
     size_t bounded_len = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_render(&s_flat_desc, &snap,
-                                                       bounded_buf, sizeof(bounded_buf), &bounded_len));
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_flat_desc,
+        .snap = &snap,
+        .buf  = bounded_buf,
+        .cap  = sizeof(bounded_buf),
+    }, &bounded_len));
 
     cap_begin();
     bb_err_t err = bb_http_serialize_stream(s_req, &s_flat_desc, &snap);

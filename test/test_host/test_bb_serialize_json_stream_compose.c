@@ -167,7 +167,13 @@ void test_bb_serialize_json_stream_compose_object_shape_byte_identical(void)
     TEST_ASSERT_EQUAL_STRING("{\"alpha\":{\"x\":10},\"beta\":{\"y\":true}}", bounded_buf);
 
     capture_ctx_t cap = { .len = 0, .n_flushes = 0 };
-    bb_err_t stream_rc = bb_serialize_json_stream_compose_render(groups, 1, capture_flush, &cap, NULL);
+    bb_err_t stream_rc = bb_serialize_json_stream_compose_render(&(bb_serialize_json_stream_compose_render_cfg_t){
+        .groups = groups,
+        .n_groups = 1,
+        .flush_fn = capture_flush,
+        .flush_ctx = &cap,
+        .flush_failed = NULL,
+    });
     TEST_ASSERT_EQUAL(BB_OK, stream_rc);
     TEST_ASSERT_EQUAL_UINT(strlen(bounded_buf), cap.len);
     TEST_ASSERT_EQUAL_MEMORY(bounded_buf, cap.buf, cap.len);
@@ -195,7 +201,13 @@ void test_bb_serialize_json_stream_compose_raw_shape_byte_identical(void)
     TEST_ASSERT_EQUAL_STRING("{\"x\":10,\"y\":true}", bounded_buf);
 
     capture_ctx_t cap = { .len = 0, .n_flushes = 0 };
-    bb_err_t stream_rc = bb_serialize_json_stream_compose_render(groups, 1, capture_flush, &cap, NULL);
+    bb_err_t stream_rc = bb_serialize_json_stream_compose_render(&(bb_serialize_json_stream_compose_render_cfg_t){
+        .groups = groups,
+        .n_groups = 1,
+        .flush_fn = capture_flush,
+        .flush_ctx = &cap,
+        .flush_failed = NULL,
+    });
     TEST_ASSERT_EQUAL(BB_OK, stream_rc);
     TEST_ASSERT_EQUAL_UINT(strlen(bounded_buf), cap.len);
     TEST_ASSERT_EQUAL_MEMORY(bounded_buf, cap.buf, cap.len);
@@ -237,7 +249,13 @@ void test_bb_serialize_json_stream_compose_mixed_shape_raw_root_plus_object_sect
         "{\"ok\":true,\"network\":{\"up\":true},\"alpha\":{\"x\":10},\"beta\":{\"y\":true}}", bounded_buf);
 
     capture_ctx_t cap = { .len = 0, .n_flushes = 0 };
-    bb_err_t stream_rc = bb_serialize_json_stream_compose_render(groups, 2, capture_flush, &cap, NULL);
+    bb_err_t stream_rc = bb_serialize_json_stream_compose_render(&(bb_serialize_json_stream_compose_render_cfg_t){
+        .groups = groups,
+        .n_groups = 2,
+        .flush_fn = capture_flush,
+        .flush_ctx = &cap,
+        .flush_failed = NULL,
+    });
     TEST_ASSERT_EQUAL(BB_OK, stream_rc);
     TEST_ASSERT_EQUAL_UINT(strlen(bounded_buf), cap.len);
     TEST_ASSERT_EQUAL_MEMORY(bounded_buf, cap.buf, cap.len);
@@ -272,7 +290,13 @@ void test_bb_serialize_json_stream_compose_multi_flush(void)
     TEST_ASSERT_GREATER_THAN(768, (int)strlen(bounded_buf));
 
     capture_ctx_t cap = { .len = 0, .n_flushes = 0 };
-    bb_err_t stream_rc = bb_serialize_json_stream_compose_render(groups, 1, capture_flush, &cap, NULL);
+    bb_err_t stream_rc = bb_serialize_json_stream_compose_render(&(bb_serialize_json_stream_compose_render_cfg_t){
+        .groups = groups,
+        .n_groups = 1,
+        .flush_fn = capture_flush,
+        .flush_ctx = &cap,
+        .flush_failed = NULL,
+    });
     TEST_ASSERT_EQUAL(BB_OK, stream_rc);
     TEST_ASSERT_GREATER_THAN(1, (int)cap.n_flushes);
     TEST_ASSERT_EQUAL_UINT(strlen(bounded_buf), cap.len);
@@ -314,7 +338,13 @@ void test_bb_serialize_json_stream_compose_abort_sticky_no_further_flush(void)
     };
 
     abort_ctx_t ac = { .cap = { .len = 0, .n_flushes = 0 }, .failed = false };
-    bb_err_t rc = bb_serialize_json_stream_compose_render(groups, 1, abort_flush, &ac, &ac.failed);
+    bb_err_t rc = bb_serialize_json_stream_compose_render(&(bb_serialize_json_stream_compose_render_cfg_t){
+        .groups = groups,
+        .n_groups = 1,
+        .flush_fn = abort_flush,
+        .flush_ctx = &ac,
+        .flush_failed = &ac.failed,
+    });
 
     TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, rc);
@@ -349,7 +379,13 @@ void test_bb_serialize_json_stream_compose_gather_failure_propagates_and_flushes
     };
 
     capture_ctx_t cap = { .len = 0, .n_flushes = 0 };
-    bb_err_t rc = bb_serialize_json_stream_compose_render(groups, 1, capture_flush, &cap, NULL);
+    bb_err_t rc = bb_serialize_json_stream_compose_render(&(bb_serialize_json_stream_compose_render_cfg_t){
+        .groups = groups,
+        .n_groups = 1,
+        .flush_fn = capture_flush,
+        .flush_ctx = &cap,
+        .flush_failed = NULL,
+    });
 
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
     TEST_ASSERT_EQUAL_UINT(1, cap.n_flushes);
@@ -381,7 +417,13 @@ void test_bb_serialize_json_stream_compose_second_group_gather_failure_preserves
     };
 
     capture_ctx_t cap = { .len = 0, .n_flushes = 0 };
-    bb_err_t rc = bb_serialize_json_stream_compose_render(groups, 2, capture_flush, &cap, NULL);
+    bb_err_t rc = bb_serialize_json_stream_compose_render(&(bb_serialize_json_stream_compose_render_cfg_t){
+        .groups = groups,
+        .n_groups = 2,
+        .flush_fn = capture_flush,
+        .flush_ctx = &cap,
+        .flush_failed = NULL,
+    });
 
     TEST_ASSERT_EQUAL(BB_ERR_VALIDATION, rc);
     TEST_ASSERT_EQUAL_UINT(strlen("{\"alpha\":{\"x\":10}}"), cap.len);
@@ -395,7 +437,13 @@ void test_bb_serialize_json_stream_compose_second_group_gather_failure_preserves
 void test_bb_serialize_json_stream_compose_zero_groups_returns_empty_object(void)
 {
     capture_ctx_t cap = { .len = 0, .n_flushes = 0 };
-    bb_err_t rc = bb_serialize_json_stream_compose_render(NULL, 0, capture_flush, &cap, NULL);
+    bb_err_t rc = bb_serialize_json_stream_compose_render(&(bb_serialize_json_stream_compose_render_cfg_t){
+        .groups = NULL,
+        .n_groups = 0,
+        .flush_fn = capture_flush,
+        .flush_ctx = &cap,
+        .flush_failed = NULL,
+    });
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_UINT(strlen("{}"), cap.len);
     TEST_ASSERT_EQUAL_MEMORY("{}", cap.buf, cap.len);
@@ -419,7 +467,13 @@ void test_bb_serialize_json_stream_compose_empty_group_among_nonempty_groups_is_
     };
 
     capture_ctx_t cap = { .len = 0, .n_flushes = 0 };
-    bb_err_t rc = bb_serialize_json_stream_compose_render(groups, 3, capture_flush, &cap, NULL);
+    bb_err_t rc = bb_serialize_json_stream_compose_render(&(bb_serialize_json_stream_compose_render_cfg_t){
+        .groups = groups,
+        .n_groups = 3,
+        .flush_fn = capture_flush,
+        .flush_ctx = &cap,
+        .flush_failed = NULL,
+    });
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_UINT(strlen("{\"alpha\":{\"x\":10}}"), cap.len);

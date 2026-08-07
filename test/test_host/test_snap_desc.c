@@ -22,7 +22,12 @@ static void render_eq(const bb_serialize_desc_t *d, const void *snap, const char
     char   buf[768];
     size_t n = 0;
 
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_serialize_json_render(d, snap, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = d,
+        .snap = snap,
+        .buf  = buf,
+        .cap  = sizeof buf,
+    }, &n));
     TEST_ASSERT_EQUAL_STRING(golden, buf);
     TEST_ASSERT_EQUAL_UINT(strlen(golden), n);
 }
@@ -80,7 +85,12 @@ void test_snap_desc_meminfo_render_no_space_all_or_nothing(void)
     memset(buf, 0x7F, sizeof(buf));
 
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
-                           bb_serialize_json_render(&bb_meminfo_heap_snap_desc, &snap, buf, sizeof buf, &n));
+                           bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+                               .desc = &bb_meminfo_heap_snap_desc,
+                               .snap = &snap,
+                               .buf  = buf,
+                               .cap  = sizeof buf,
+                           }, &n));
     TEST_ASSERT_EQUAL_UINT(0, n);
     TEST_ASSERT_EQUAL_CHAR('\0', buf[0]);
 }
@@ -143,7 +153,12 @@ void test_snap_desc_system_render_no_space_all_or_nothing(void)
     memset(buf, 0x7F, sizeof(buf));
 
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
-                           bb_serialize_json_render(&bb_system_snap_desc, &snap, buf, sizeof buf, &n));
+                           bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+                               .desc = &bb_system_snap_desc,
+                               .snap = &snap,
+                               .buf  = buf,
+                               .cap  = sizeof buf,
+                           }, &n));
     TEST_ASSERT_EQUAL_UINT(0, n);
     TEST_ASSERT_EQUAL_CHAR('\0', buf[0]);
 }

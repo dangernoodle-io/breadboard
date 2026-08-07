@@ -28,8 +28,12 @@ static void scan_render(const bb_wifi_ap_t *aps, size_t count, char *out_buf)
     snap.aps.count = count;
 
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&bb_wifi_http_scan_wire_desc, &snap,
-                                            out_buf, RENDER_BUF_BYTES, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &bb_wifi_http_scan_wire_desc,
+        .snap = &snap,
+        .buf  = out_buf,
+        .cap  = RENDER_BUF_BYTES,
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
 }
 

@@ -159,8 +159,12 @@ void test_wifi_prov_scan_wire_expected_json_zero_aps_not_started(void)
 
     char buf[RENDER_BUF_BYTES];
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&bb_wifi_prov_scan_wire_desc, &snap,
-                                            buf, RENDER_BUF_BYTES, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &bb_wifi_prov_scan_wire_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = RENDER_BUF_BYTES,
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"aps\":[],\"state\":\"not_started\"}", buf);
 }
@@ -176,8 +180,12 @@ void test_wifi_prov_scan_wire_expected_json_one_ap_ready(void)
 
     char buf[RENDER_BUF_BYTES];
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&bb_wifi_prov_scan_wire_desc, &snap,
-                                            buf, RENDER_BUF_BYTES, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &bb_wifi_prov_scan_wire_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = RENDER_BUF_BYTES,
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING(
         "{\"aps\":[{\"ssid\":\"Solo\",\"rssi\":-60,\"secure\":true}],\"state\":\"ready\"}", buf);
@@ -190,8 +198,12 @@ void test_wifi_prov_scan_wire_expected_json_pending(void)
 
     char buf[RENDER_BUF_BYTES];
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&bb_wifi_prov_scan_wire_desc, &snap,
-                                            buf, RENDER_BUF_BYTES, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &bb_wifi_prov_scan_wire_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = RENDER_BUF_BYTES,
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"aps\":[],\"state\":\"pending\"}", buf);
 }

@@ -802,11 +802,7 @@ void test_bb_data_commit_stale_parse_after_rebind_rows_only_returns_unsupported(
     };
     TEST_ASSERT_EQUAL(BB_OK, bb_data_bind(&scalar_with_apply));
 
-    static const bb_serialize_format_entry_t json_entry = {
-        .render = bb_serialize_json_render,
-        .parse  = bb_serialize_json_parse_bytes,
-    };
-    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_register(BB_FORMAT_JSON, &json_entry));
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_register_format());
 
     static char parse_scratch[4096];
     const char *body = "{\"n\":5}";

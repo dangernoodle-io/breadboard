@@ -27,8 +27,12 @@ static void delete_render(const char names[][BB_STORAGE_HTTP_DELETE_NS_LEN], siz
     bb_storage_http_delete_wire_fill(&snap, names, count, key, has_key);
 
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&bb_storage_http_delete_wire_desc, &snap,
-                                            out_buf, RENDER_BUF_BYTES, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &bb_storage_http_delete_wire_desc,
+        .snap = &snap,
+        .buf  = out_buf,
+        .cap  = RENDER_BUF_BYTES,
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
 }
 

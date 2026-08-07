@@ -517,38 +517,22 @@ static bb_err_t bb_json_render_impl(const bb_serialize_desc_t *desc, const void 
     return BB_OK;
 }
 
-// Thin wrapper: bb_serialize_json_render_ex(desc, snap, buf, cap, out_len,
-// false) -- same "_ex adds a trailing opt-in param, original keeps today's
-// default" idiom as e.g. bb_queue_create_ex() (bb_cache took the other
-// approach for its own opt-in first-time reporting: a nullable
-// cfg->out_first_time field folded into bb_cache_register() itself, no _ex
-// variant -- see bb_cache.h, B1-1118).
-bb_err_t bb_serialize_json_render(const bb_serialize_desc_t *desc, const void *snap,
-                                   char *buf, size_t cap, size_t *out_len)
+// B1-1437: collapsed bb_serialize_json_render()/bb_serialize_json_render_ex()
+// into one cfg-struct entry point -- see bb_serialize_json_render_cfg_t's
+// doc comment in bb_serialize_json.h.
+bb_err_t bb_serialize_json_render(const bb_serialize_json_render_cfg_t *cfg, size_t *out_len)
 {
-    return bb_serialize_json_render_ex(desc, snap, buf, cap, out_len, false);
+    return bb_json_render_impl(cfg->desc, cfg->snap, cfg->buf, cfg->cap, out_len,
+                                NULL, NULL, cfg->f64_shortest);
 }
 
-bb_err_t bb_serialize_json_render_ex(const bb_serialize_desc_t *desc, const void *snap,
-                                      char *buf, size_t cap, size_t *out_len,
-                                      bool f64_shortest)
-{
-    return bb_json_render_impl(desc, snap, buf, cap, out_len, NULL, NULL, f64_shortest);
-}
-
-// Thin wrapper: bb_serialize_json_render_ref_ex(..., false) -- see
-// bb_serialize_json_render()'s doc comment above for the idiom.
+// B1-1437: bb_serialize_json_render_ref_ex() merged into this fn (a trailing
+// f64_shortest param, not a cfg struct -- this pair had zero callers outside
+// its own former thin wrapper, see the header's doc comment).
 bb_err_t bb_serialize_json_render_ref(const bb_serialize_desc_t *desc, const void *snap,
                                        char *buf, size_t cap, size_t *out_len,
-                                       bb_serialize_ref_resolve_fn resolve, void *resolve_ctx)
-{
-    return bb_serialize_json_render_ref_ex(desc, snap, buf, cap, out_len, resolve, resolve_ctx, false);
-}
-
-bb_err_t bb_serialize_json_render_ref_ex(const bb_serialize_desc_t *desc, const void *snap,
-                                          char *buf, size_t cap, size_t *out_len,
-                                          bb_serialize_ref_resolve_fn resolve, void *resolve_ctx,
-                                          bool f64_shortest)
+                                       bb_serialize_ref_resolve_fn resolve, void *resolve_ctx,
+                                       bool f64_shortest)
 {
     return bb_json_render_impl(desc, snap, buf, cap, out_len, resolve, resolve_ctx, f64_shortest);
 }
@@ -559,19 +543,14 @@ bb_err_t bb_serialize_json_render_ref_ex(const bb_serialize_desc_t *desc, const 
 // flushing through `flush_fn` whenever it fills, so an arbitrarily large
 // document renders through a small, bounded working set. See the header's
 // doc comment for the abort/error-code contract.
+//
+// B1-1437: bb_serialize_json_stream_render_ex() merged into this fn (a
+// trailing f64_shortest param, not a cfg struct -- this pair had zero
+// callers outside its own former thin wrapper, see the header's doc
+// comment).
 bb_err_t bb_serialize_json_stream_render(const bb_serialize_desc_t *desc, const void *snap,
                                           bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
-                                          const volatile bool *flush_failed)
-{
-    return bb_serialize_json_stream_render_ex(desc, snap, flush_fn, flush_ctx, flush_failed, false);
-}
-
-// bb_serialize_json_stream_render() is a thin wrapper: this fn with
-// f64_shortest == false. See bb_json_render_impl()'s doc comment above for
-// the f64_shortest contract.
-bb_err_t bb_serialize_json_stream_render_ex(const bb_serialize_desc_t *desc, const void *snap,
-                                             bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
-                                             const volatile bool *flush_failed, bool f64_shortest)
+                                          const volatile bool *flush_failed, bool f64_shortest)
 {
     char buf[BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES];
     bb_serialize_json_ctx_t ctx;
@@ -601,34 +580,27 @@ bb_err_t bb_serialize_json_stream_render_ex(const bb_serialize_desc_t *desc, con
 // bb_serialize_compose_walk() call can express on its own. See the header's
 // doc comment for the mixed-shape rationale and the compose_err/ctx.err
 // precedence contract.
-bb_err_t bb_serialize_json_stream_compose_render(const bb_serialize_compose_group_t *groups, size_t n_groups,
-                                                  bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
-                                                  const volatile bool *flush_failed)
-{
-    return bb_serialize_json_stream_compose_render_ex(groups, n_groups, flush_fn, flush_ctx, flush_failed, false);
-}
-
-// bb_serialize_json_stream_compose_render() is a thin wrapper: this fn with
-// f64_shortest == false. See bb_json_render_impl()'s doc comment above for
-// the f64_shortest contract.
-bb_err_t bb_serialize_json_stream_compose_render_ex(const bb_serialize_compose_group_t *groups, size_t n_groups,
-                                                     bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
-                                                     const volatile bool *flush_failed, bool f64_shortest)
+//
+// B1-1437: collapsed bb_serialize_json_stream_compose_render()/
+// bb_serialize_json_stream_compose_render_ex() into one cfg-struct entry
+// point -- see bb_serialize_json_stream_compose_render_cfg_t's doc comment
+// in bb_serialize_json.h.
+bb_err_t bb_serialize_json_stream_compose_render(const bb_serialize_json_stream_compose_render_cfg_t *cfg)
 {
     char buf[BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES];
     bb_serialize_json_ctx_t ctx;
     bb_serialize_json_ctx_init(&ctx, buf, sizeof(buf));
-    ctx.flush_fn = flush_fn;
-    ctx.flush_ctx = flush_ctx;
-    ctx.flush_failed = flush_failed;
-    ctx.f64_shortest = f64_shortest;
+    ctx.flush_fn = cfg->flush_fn;
+    ctx.flush_ctx = cfg->flush_ctx;
+    ctx.flush_failed = cfg->flush_failed;
+    ctx.f64_shortest = cfg->f64_shortest;
 
     bb_serialize_emit_t emit = bb_serialize_json_emit(&ctx);
 
     bb_json_putc(&ctx, '{');
     bb_err_t compose_err = BB_OK;
-    for (size_t i = 0; i < n_groups; i++) {
-        const bb_serialize_compose_group_t *g = &groups[i];
+    for (size_t i = 0; i < cfg->n_groups; i++) {
+        const bb_serialize_compose_group_t *g = &cfg->groups[i];
         compose_err = bb_serialize_compose_walk(g->entries, g->n, g->shape, &emit);
         if (compose_err != BB_OK) break;
     }

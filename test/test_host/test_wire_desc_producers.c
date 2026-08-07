@@ -46,7 +46,12 @@ static void render_eq(const bb_serialize_desc_t *d, const void *snap, const char
     char   buf[1024];
     size_t n = 0;
 
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_serialize_json_render(d, snap, buf, sizeof buf, &n));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = d,
+        .snap = snap,
+        .buf  = buf,
+        .cap  = sizeof buf,
+    }, &n));
     TEST_ASSERT_EQUAL_STRING(golden, buf);
     TEST_ASSERT_EQUAL_UINT(strlen(golden), n);
 }

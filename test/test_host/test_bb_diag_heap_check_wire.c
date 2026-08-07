@@ -25,8 +25,12 @@ static void heap_check_render(bool integrity_ok, char *out_buf)
     bb_diag_heap_check_wire_fill(&snap, integrity_ok);
 
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&bb_diag_heap_check_wire_desc, &snap,
-                                            out_buf, RENDER_BUF_BYTES, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &bb_diag_heap_check_wire_desc,
+        .snap = &snap,
+        .buf  = out_buf,
+        .cap  = RENDER_BUF_BYTES,
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
 }
 

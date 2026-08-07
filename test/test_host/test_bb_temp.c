@@ -163,7 +163,12 @@ void test_bb_temp_health_desc_wire_shape_absent_omits_soc_c(void)
     char buf[128];
     size_t len = 0;
     TEST_ASSERT_EQUAL(BB_OK,
-        bb_serialize_json_render(&bb_temp_health_desc, &snap, buf, sizeof(buf), &len));
+        bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+            .desc = &bb_temp_health_desc,
+            .snap = &snap,
+            .buf  = buf,
+            .cap  = sizeof(buf),
+        }, &len));
 
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"present\":false"));
     TEST_ASSERT_NULL_MESSAGE(strstr(buf, "\"soc_c\""),
@@ -181,7 +186,12 @@ void test_bb_temp_health_desc_wire_shape_present_includes_soc_c(void)
     char buf[128];
     size_t len = 0;
     TEST_ASSERT_EQUAL(BB_OK,
-        bb_serialize_json_render(&bb_temp_health_desc, &snap, buf, sizeof(buf), &len));
+        bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+            .desc = &bb_temp_health_desc,
+            .snap = &snap,
+            .buf  = buf,
+            .cap  = sizeof(buf),
+        }, &len));
 
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"present\":true"));
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "\"soc_c\""),

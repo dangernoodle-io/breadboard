@@ -32,8 +32,12 @@ static void render_snap(const bb_diag_tasks_get_wire_row_t *rows, size_t n_rows,
     bb_diag_tasks_get_wire_fill_snap(&snap, rows, n_rows, count, capacity, dropped);
 
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&bb_diag_tasks_get_wire_desc, &snap,
-                                            out_buf, RENDER_BUF_BYTES, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &bb_diag_tasks_get_wire_desc,
+        .snap = &snap,
+        .buf  = out_buf,
+        .cap  = RENDER_BUF_BYTES,
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
 }
 

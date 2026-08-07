@@ -98,7 +98,12 @@ void test_bb_serialize_nested_arr_render_matches_golden(void)
 
     char buf[512];
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&s_outer_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_outer_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING(s_golden, buf);
@@ -351,7 +356,12 @@ void test_bb_serialize_nested_arr_at_max_depth_render_populate_roundtrip(void)
 
     char buf[1024];
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&s_chain_at_max_desc, &nodes[0], buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_chain_at_max_desc,
+        .snap = &nodes[0],
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
 
     // Expected string built mechanically, independent of the writer. The

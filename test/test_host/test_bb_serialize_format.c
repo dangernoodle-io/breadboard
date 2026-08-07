@@ -258,7 +258,12 @@ void test_bb_serialize_format_render_json_matches_direct_call(void)
     char direct[64];
     size_t direct_len = 0;
     TEST_ASSERT_EQUAL(BB_OK,
-                       bb_serialize_json_render(&s_rt_desc, &snap, direct, sizeof(direct), &direct_len));
+                       bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+                           .desc = &s_rt_desc,
+                           .snap = &snap,
+                           .buf  = direct,
+                           .cap  = sizeof(direct),
+                       }, &direct_len));
 
     TEST_ASSERT_EQUAL_UINT(direct_len, registry_len);
     TEST_ASSERT_EQUAL_MEMORY(direct, via_registry, direct_len);
