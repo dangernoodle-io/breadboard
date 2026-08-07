@@ -72,35 +72,15 @@ typedef enum {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-// bb_queue_create — allocate a new ring with an explicit full-ring policy and
-//   a diagnostic name.
+// bb_queue_cfg_t — configuration for bb_queue_create().
 //
 //   capacity_entries : maximum number of entries the ring holds at once.
 //   max_entry_bytes  : maximum payload size for a single entry (inclusive).
 //   policy           : BB_QUEUE_EVICT_OLDEST or BB_QUEUE_REJECT_NEW.
-//   name             : short diagnostic label (copied internally, truncated to
-//                      BB_QUEUE_NAME_MAX - 1 chars). NULL stores "".
-//   out              : receives the allocated handle on BB_OK.
-//
-// Returns BB_ERR_INVALID_ARG if capacity_entries or max_entry_bytes is zero,
-//   out is NULL, or policy is not a recognised value.
-// Returns BB_ERR_NO_SPACE    if allocation fails.
-bb_err_t bb_queue_create(size_t capacity_entries, size_t max_entry_bytes,
-                        bb_queue_full_policy_t policy, const char *name,
-                        bb_queue_t *out);
-
-// bb_queue_cfg_t — configuration for bb_queue_create_ex(), extending
-// bb_queue_create() with an optional total-byte budget and age-based
-// eviction (B1-1031).
-//
-//   capacity_entries : maximum number of entries the ring holds at once.
-//   max_entry_bytes  : maximum payload size for a single entry (inclusive).
-//   policy           : BB_QUEUE_EVICT_OLDEST or BB_QUEUE_REJECT_NEW.
-//   name             : short diagnostic label (see bb_queue_create). NULL
-//                      stores "".
+//   name             : short diagnostic label (copied internally, truncated
+//                      to BB_QUEUE_NAME_MAX - 1 chars). NULL stores "".
 //   max_bytes        : total payload-byte budget across all entries.
-//                      0 disables the byte budget (identical to
-//                      bb_queue_create()'s behavior).
+//                      0 disables the byte budget.
 //   max_age          : maximum entry age before it is evicted. 0 disables
 //                      age-based eviction. bb_queue is clock-agnostic: this
 //                      value MUST be in the SAME UNIT as the `ts` passed to
@@ -116,16 +96,18 @@ typedef struct {
     uint32_t               max_age;
 } bb_queue_cfg_t;
 
-// bb_queue_create_ex — allocate a new ring with the full bb_queue_cfg_t
-// configuration (byte budget + age eviction). bb_queue_create() is a thin
-// wrapper over this with max_bytes=0, max_age=0.
+// bb_queue_create — allocate a new ring from a bb_queue_cfg_t (byte budget
+// and age eviction are opt-in via max_bytes/max_age; leave both 0 for the
+// plain entry-count-bounded ring).
+//
+//   out : receives the allocated handle on BB_OK.
 //
 // Returns BB_ERR_INVALID_ARG if cfg is NULL, capacity_entries or
 //   max_entry_bytes is zero, out is NULL, policy is not a recognised value,
 //   or max_bytes is non-zero and smaller than max_entry_bytes (a byte
 //   budget that could never accept even one max-size entry).
 // Returns BB_ERR_NO_SPACE    if allocation fails.
-bb_err_t bb_queue_create_ex(const bb_queue_cfg_t *cfg, bb_queue_t *out);
+bb_err_t bb_queue_create(const bb_queue_cfg_t *cfg, bb_queue_t *out);
 
 // bb_queue_destroy — free all resources. Safe to call with NULL (no-op).
 void bb_queue_destroy(bb_queue_t r);
@@ -148,12 +130,12 @@ const char *bb_queue_name(bb_queue_t r);
 // If len > max_entry_bytes: returns BB_ERR_INVALID_ARG, increments truncated
 // counter. Entry is NOT written (same for all policies).
 //
-// Note: bb_queue_create_ex() rejects (at config time) any max_bytes smaller
+// Note: bb_queue_create() rejects (at config time) any max_bytes smaller
 // than max_entry_bytes, so len alone can never exceed a configured byte
 // budget once past the max_entry_bytes check above -- there is no separate
 // per-push "outright reject" for this case.
 //
-// If an age budget is configured (bb_queue_create_ex max_age > 0): before
+// If an age budget is configured (bb_queue_create cfg max_age > 0): before
 // the space check, every existing entry aged out relative to this push's own
 // `ts` is evicted (oldest first), each incrementing the dropped counter. A
 // backward/out-of-order `ts` (ts earlier than an entry's stored timestamp)
@@ -253,7 +235,7 @@ size_t bb_queue_truncated(bb_queue_t r);
 void bb_queue_clear(bb_queue_t r);
 
 // bb_queue_evict_expired — explicitly sweep entries older than the ring's
-// configured max_age (bb_queue_create_ex), relative to caller-supplied
+// configured max_age (bb_queue_create), relative to caller-supplied
 // `now`. bb_queue never reads a clock itself; `now` must be supplied in the
 // same units/epoch as the timestamps passed to bb_queue_push.
 //
