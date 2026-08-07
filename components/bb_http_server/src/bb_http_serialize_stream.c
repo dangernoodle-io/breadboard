@@ -44,24 +44,23 @@ bb_err_t bb_http_serialize_stream(bb_http_request_t *req,
     return fin_err;
 }
 
-bb_err_t bb_http_serialize_stream_compose_ex(bb_http_request_t *req,
-                                              const bb_serialize_compose_group_t *groups, size_t n_groups,
-                                              bool f64_shortest)
+bb_err_t bb_http_serialize_stream_compose(bb_http_request_t *req,
+                                           const bb_http_serialize_stream_compose_cfg_t *cfg)
 {
-    if (!req) return BB_ERR_INVALID_ARG;
-    if (!groups && n_groups) return BB_ERR_INVALID_ARG;
+    if (!req || !cfg) return BB_ERR_INVALID_ARG;
+    if (!cfg->groups && cfg->n_groups) return BB_ERR_INVALID_ARG;
 
     bb_err_t type_err = bb_http_resp_set_type(req, "application/json");
     if (type_err != BB_OK) return type_err;
 
     flush_ctx_t fc = { .req = req, .failed = false, .err = BB_OK };
     bb_serialize_json_stream_compose_render_cfg_t render_cfg = {
-        .groups       = groups,
-        .n_groups     = n_groups,
+        .groups       = cfg->groups,
+        .n_groups     = cfg->n_groups,
         .flush_fn     = http_flush,
         .flush_ctx    = &fc,
         .flush_failed = &fc.failed,
-        .f64_shortest = f64_shortest,
+        .f64_shortest = cfg->f64_shortest,
     };
     bb_err_t render_err = bb_serialize_json_stream_compose_render(&render_cfg);
 
@@ -72,10 +71,4 @@ bb_err_t bb_http_serialize_stream_compose_ex(bb_http_request_t *req,
     if (fc.failed) return fc.err;
     if (render_err != BB_OK) return render_err;
     return fin_err;
-}
-
-bb_err_t bb_http_serialize_stream_compose(bb_http_request_t *req,
-                                           const bb_serialize_compose_group_t *groups, size_t n_groups)
-{
-    return bb_http_serialize_stream_compose_ex(req, groups, n_groups, false);
 }
