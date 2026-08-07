@@ -383,10 +383,15 @@ bb_err_t bb_wifi_prov_start(const bb_http_asset_t *assets, size_t n,
     // won the single "/*" httpd registration below — wifi_prov_policy.c's
     // wp_active_on_entry (which flips the gate active) runs only after
     // act_try_prov_start observes that success. Do not pass a non-NULL
-    // fallback to bb_http_register_assets_with_fallback() from anywhere
-    // that can be reached while the gate is active without re-checking that
-    // ordering (see that function's own warning).
-    bb_err_t assets_err = bb_http_register_assets_with_fallback(server, assets, n, prov_redirect_handler);
+    // fallback to bb_http_register_assets() from anywhere that can be
+    // reached while the gate is active without re-checking that ordering
+    // (see that function's own warning).
+    bb_http_register_assets_cfg_t assets_cfg = {
+        .assets   = assets,
+        .n        = n,
+        .fallback = prov_redirect_handler,
+    };
+    bb_err_t assets_err = bb_http_register_assets(server, &assets_cfg);
     if (assets_err != BB_OK) {
         bb_log_e(TAG, "failed to register asset/captive-portal wildcard: %d", (int)assets_err);
         return assets_err;

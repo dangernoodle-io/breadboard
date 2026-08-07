@@ -94,7 +94,7 @@ void test_wifi_prov_gate_wire_register_allows_every_custom_asset_path(void)
 
 void test_wifi_prov_gate_wire_register_zero_assets_still_allows_fixed_entries(void)
 {
-    // Matches bb_http_register_assets_with_fallback's own contract: assets
+    // Matches bb_http_register_assets' own contract: assets
     // may be NULL only when n == 0 (a fallback-only / no-caller-UI portal).
     TEST_ASSERT_EQUAL(BB_OK, wifi_prov_gate_wire_register(NULL, 0));
 
@@ -255,7 +255,8 @@ void test_wifi_prov_gate_wire_active_allowlisted_index_asset_serves(void)
 {
     arm_mock_active_fn();
     TEST_ASSERT_EQUAL(BB_OK, wifi_prov_gate_wire_register(s_single_asset, 1));
-    bb_http_register_assets(NULL, s_single_asset, 1);
+    bb_http_register_assets_cfg_t cfg = { .assets = s_single_asset, .n = 1 };
+    bb_http_register_assets(NULL, &cfg);
     s_mock_prov_active = true;
 
     bb_http_request_t *req;

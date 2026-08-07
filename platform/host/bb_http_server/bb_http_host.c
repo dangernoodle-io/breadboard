@@ -303,41 +303,34 @@ void bb_http_server_poll(void) {}
 
 static const bb_http_asset_t *s_assets        = NULL;
 static size_t                 s_asset_count   = 0;
-// No-match fallback registered via bb_http_register_assets_with_fallback;
+// No-match fallback registered via bb_http_register_assets' cfg->fallback;
 // mirrors the espidf backend's s_asset_fallback for host-side test coverage.
 static bb_http_handler_fn     s_asset_fallback = NULL;
 
 // WARNING (mirrors bb_http.c's espidf-side warning at this same function
-// name): any non-NULL `fallback` is dispatched ungated on a wildcard miss —
-// a caller must not be reachable while bb_http_prov_gate can be active.
-bb_err_t bb_http_register_assets_with_fallback(bb_http_handle_t server,
-                                               const bb_http_asset_t *assets,
-                                               size_t n,
-                                               bb_http_handler_fn fallback)
+// name): any non-NULL `cfg->fallback` is dispatched ungated on a wildcard
+// miss — a caller must not be reachable while bb_http_prov_gate can be
+// active.
+bb_err_t bb_http_register_assets(bb_http_handle_t server,
+                                 const bb_http_register_assets_cfg_t *cfg)
 {
     (void)server;
-    if (!assets && n > 0) return BB_ERR_INVALID_ARG;
+    if (!cfg) return BB_ERR_INVALID_ARG;
+    if (!cfg->assets && cfg->n > 0) return BB_ERR_INVALID_ARG;
 
     // Validate entries upfront — mirrors the espidf backend so host tests can
     // actually exercise this rejection path (previously host silently
     // accepted malformed entries the real backend would reject).
-    for (size_t i = 0; i < n; i++) {
-        if (!assets[i].path || !assets[i].mime || !assets[i].data) {
+    for (size_t i = 0; i < cfg->n; i++) {
+        if (!cfg->assets[i].path || !cfg->assets[i].mime || !cfg->assets[i].data) {
             return BB_ERR_INVALID_ARG;
         }
     }
 
-    s_assets         = assets;
-    s_asset_count    = n;
-    s_asset_fallback = fallback;
+    s_assets         = cfg->assets;
+    s_asset_count    = cfg->n;
+    s_asset_fallback = cfg->fallback;
     return BB_OK;
-}
-
-bb_err_t bb_http_register_assets(bb_http_handle_t server,
-                                 const bb_http_asset_t *assets,
-                                 size_t n)
-{
-    return bb_http_register_assets_with_fallback(server, assets, n, NULL);
 }
 
 // Serve a single asset via the capture harness.

@@ -311,17 +311,8 @@ bb_err_t bb_http_unregister_route(bb_http_handle_t server,
 }
 
 bb_err_t bb_http_register_assets(bb_http_handle_t server,
-                                 const bb_http_asset_t *assets,
-                                 size_t n) {
-    (void)server; (void)assets; (void)n;
-    return BB_ERR_INVALID_STATE;
-}
-
-bb_err_t bb_http_register_assets_with_fallback(bb_http_handle_t server,
-                                               const bb_http_asset_t *assets,
-                                               size_t n,
-                                               bb_http_handler_fn fallback) {
-    (void)server; (void)assets; (void)n; (void)fallback;
+                                 const bb_http_register_assets_cfg_t *cfg) {
+    (void)server; (void)cfg;
     return BB_ERR_INVALID_STATE;
 }
 

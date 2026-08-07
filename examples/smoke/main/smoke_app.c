@@ -211,7 +211,8 @@ void smoke_app_setup(void) {
     {
         size_t n = 0;
         const bb_http_asset_t *assets = demo_site_get(&n);
-        bb_err_t rc = bb_http_register_assets(bb_http_server_get_handle(), assets, n);
+        bb_http_register_assets_cfg_t assets_cfg = { .assets = assets, .n = n };
+        bb_err_t rc = bb_http_register_assets(bb_http_server_get_handle(), &assets_cfg);
         if (rc == BB_OK) {
             bb_log_i(TAG, "bb_embed_site: registered %u demo_site assets", (unsigned)n);
         } else {
