@@ -25,8 +25,12 @@ static void sockets_render(uint32_t lwip_max_sockets, uint32_t in_use,
     bb_diag_sockets_get_wire_fill(&snap, lwip_max_sockets, in_use, by_state, rows, n_rows);
 
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&bb_diag_sockets_get_wire_desc, &snap,
-                                            out_buf, RENDER_BUF_BYTES, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &bb_diag_sockets_get_wire_desc,
+        .snap = &snap,
+        .buf  = out_buf,
+        .cap  = RENDER_BUF_BYTES,
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
 }
 

@@ -92,12 +92,8 @@ static bb_err_t dt_gather_query(void *dst, const bb_data_gather_args_t *args)
 // registry first.
 static void dt_register_format(void)
 {
-    static const bb_serialize_format_entry_t entry = {
-        .render = bb_serialize_json_render,
-        .parse  = bb_serialize_json_parse_bytes,
-    };
     bb_serialize_format_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_register(BB_FORMAT_JSON, &entry));
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_register_format());
 }
 
 static void dt_reset(void)

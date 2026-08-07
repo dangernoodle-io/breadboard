@@ -179,12 +179,8 @@ static void bind_bb_data(void)
 {
     bb_data_test_reset();
 
-    static const bb_serialize_format_entry_t entry = {
-        .render = bb_serialize_json_render,
-        .parse  = bb_serialize_json_parse_bytes,
-    };
     bb_serialize_format_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_register(BB_FORMAT_JSON, &entry));
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_register_format());
 
     TEST_ASSERT_EQUAL(BB_OK, bb_storage_http_delete_bind_for_test());
 }

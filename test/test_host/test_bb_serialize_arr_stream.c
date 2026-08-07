@@ -63,7 +63,12 @@ void test_bb_serialize_arr_stream_render_zero_rows(void)
 
     char buf[64];
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&s_outer_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_outer_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"items\":[]}", buf);
@@ -81,7 +86,12 @@ void test_bb_serialize_arr_stream_render_forty_rows_no_truncation(void)
 
     char buf[2048];
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&s_outer_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_outer_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
 
     // Golden built mechanically, independent of the writer.
@@ -112,7 +122,12 @@ void test_bb_serialize_arr_stream_null_next_emits_empty_array(void)
 
     char buf[64];
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&s_outer_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_outer_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"items\":[]}", buf);
@@ -169,7 +184,12 @@ void test_bb_serialize_arr_stream_depth_guard_bails_past_max_depth(void)
 
     char buf[1024];
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&s_chain_desc, &levels[0], buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_chain_desc,
+        .snap = &levels[0],
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
 
     // At depth == BB_SERIALIZE_MAX_DEPTH the STREAM guard bails before

@@ -102,12 +102,8 @@ static void reset_all(void)
     fake_nvs_reset();
     bb_storage_register_backend("nvs", &s_fake_nvs_vtable, NULL);
 
-    static const bb_serialize_format_entry_t entry = {
-        .render = bb_serialize_json_render,
-        .parse  = bb_serialize_json_parse_bytes,
-    };
     bb_serialize_format_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_format_register(BB_FORMAT_JSON, &entry));
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_register_format());
 
     memset(&s_captured, 0, sizeof(s_captured));
     s_apply_called = false;

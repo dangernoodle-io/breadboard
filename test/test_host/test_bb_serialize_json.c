@@ -40,7 +40,12 @@ void test_bb_serialize_json_flat_scalars(void)
     char buf[128];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render(&s_flat2_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_flat2_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"a\":1,\"b\":true,\"c\":\"x\"}", buf);
@@ -80,7 +85,12 @@ void test_bb_serialize_json_nested_obj(void)
     char buf[64];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render(&s_obj_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_obj_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"o\":{\"n\":5}}", buf);
@@ -105,7 +115,12 @@ void test_bb_serialize_json_empty_obj(void)
     char buf[64];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render(&s_empty_obj_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_empty_obj_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"o\":{}}", buf);
@@ -137,7 +152,12 @@ void test_bb_serialize_json_array_of_strings(void)
     char buf[64];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render(&s_arr_str_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_arr_str_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"a\":[\"x\",\"y\"]}", buf);
@@ -150,7 +170,12 @@ void test_bb_serialize_json_array_empty(void)
     char buf[64];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render(&s_arr_str_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_arr_str_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"a\":[]}", buf);
@@ -190,7 +215,12 @@ void test_bb_serialize_json_array_of_obj(void)
     char buf[64];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render(&s_arr_obj_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_arr_obj_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"a\":[{\"n\":1},{\"n\":2}]}", buf);
@@ -224,7 +254,12 @@ void test_bb_serialize_json_present_gate_omits_field(void)
     char buf[64];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render(&s_gated_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_gated_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"b\":2}", buf);
@@ -252,7 +287,12 @@ static void render_str(const char *raw, size_t raw_len, char *buf, size_t cap)
 {
     str_snap_t snap = { .s = { .ptr = raw, .len = raw_len } };
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&s_str_desc, &snap, buf, cap, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_str_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = cap,
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
 }
 
@@ -329,7 +369,12 @@ void test_bb_serialize_json_str_strnlen_bound_truncates(void)
     char buf[64];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render(&s_embedded_str_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_embedded_str_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"st\":\"abcd\"}", buf);
@@ -343,7 +388,12 @@ void test_bb_serialize_json_str_n_null_ptr_emits_null(void)
     char buf[64];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render(&s_str_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_str_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"s\":null}", buf);
@@ -355,7 +405,12 @@ void test_bb_serialize_json_str_n_empty_non_null_emits_empty_string(void)
     char buf[64];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render(&s_str_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_str_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"s\":\"\"}", buf);
@@ -385,7 +440,12 @@ void test_bb_serialize_json_i64_negative(void)
     int_snap_t snap = { .i = -42, .u = 0 };
     char buf[64];
     size_t out_len = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_render(&s_int_desc, &snap, buf, sizeof(buf), &out_len));
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_int_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len));
     TEST_ASSERT_EQUAL_STRING("{\"i\":-42,\"u\":0}", buf);
 }
 
@@ -394,7 +454,12 @@ void test_bb_serialize_json_i64_min(void)
     int_snap_t snap = { .i = INT64_MIN, .u = 0 };
     char buf[64];
     size_t out_len = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_render(&s_int_desc, &snap, buf, sizeof(buf), &out_len));
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_int_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len));
     TEST_ASSERT_EQUAL_STRING("{\"i\":-9223372036854775808,\"u\":0}", buf);
 }
 
@@ -403,7 +468,12 @@ void test_bb_serialize_json_u64_max(void)
     int_snap_t snap = { .i = 0, .u = UINT64_MAX };
     char buf[64];
     size_t out_len = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_render(&s_int_desc, &snap, buf, sizeof(buf), &out_len));
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_int_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len));
     TEST_ASSERT_EQUAL_STRING("{\"i\":0,\"u\":18446744073709551615}", buf);
 }
 
@@ -428,7 +498,12 @@ static void render_f64(double v, char *buf, size_t cap)
 {
     f64_snap_t snap = { .f = v };
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&s_f64_desc, &snap, buf, cap, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_f64_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = cap,
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_TRUE(out_len <= bb_serialize_json_bound(&s_f64_desc));
 }
@@ -518,7 +593,12 @@ void test_bb_serialize_json_bool_false(void)
     bool_snap_t snap = { .b = false };
     char buf[64];
     size_t out_len = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_render(&s_bool_desc, &snap, buf, sizeof(buf), &out_len));
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_bool_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len));
     TEST_ASSERT_EQUAL_STRING("{\"b\":false}", buf);
 }
 
@@ -530,7 +610,12 @@ void test_bb_serialize_json_overflow_too_small_cap(void)
     buf[5] = (char)0xAA;  // sentinel: index cap-1, must stay untouched
     size_t out_len = 123;
 
-    bb_err_t rc = bb_serialize_json_render(&s_int_desc, &(int_snap_t){ .i = 1, .u = 0 }, buf, 5, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_int_desc,
+        .snap = &(int_snap_t){ .i = 1, .u = 0 },
+        .buf  = buf,
+        .cap  = 5,
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, rc);
     TEST_ASSERT_EQUAL_UINT(0, out_len);
@@ -543,7 +628,12 @@ void test_bb_serialize_json_render_cap_zero(void)
     char buf[1] = { (char)0xAA };
     size_t out_len = 123;
 
-    bb_err_t rc = bb_serialize_json_render(&s_int_desc, &(int_snap_t){ .i = 1, .u = 0 }, buf, 0, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_int_desc,
+        .snap = &(int_snap_t){ .i = 1, .u = 0 },
+        .buf  = buf,
+        .cap  = 0,
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, rc);
     // cap==0 bails before touching buf/out_len -- out_len untouched.
@@ -556,7 +646,12 @@ void test_bb_serialize_json_render_null_out_len_on_success(void)
     int_snap_t snap = { .i = 1, .u = 2 };
     char buf[64];
 
-    bb_err_t rc = bb_serialize_json_render(&s_int_desc, &snap, buf, sizeof(buf), NULL);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_int_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, NULL);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"i\":1,\"u\":2}", buf);
@@ -565,7 +660,12 @@ void test_bb_serialize_json_render_null_out_len_on_success(void)
 void test_bb_serialize_json_render_null_out_len_on_overflow(void)
 {
     char buf[4];
-    bb_err_t rc = bb_serialize_json_render(&s_int_desc, &(int_snap_t){ .i = 1, .u = 0 }, buf, sizeof(buf), NULL);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_int_desc,
+        .snap = &(int_snap_t){ .i = 1, .u = 0 },
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, NULL);
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, rc);
 }
 
@@ -581,7 +681,12 @@ void test_bb_serialize_json_overflow_mid_string_stays_sticky(void)
     str_snap_t snap = { .s = { .ptr = "\n\"\\", .len = 3 } };
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render(&s_str_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_str_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, rc);
     TEST_ASSERT_EQUAL_UINT(0, out_len);
@@ -908,7 +1013,12 @@ void test_bb_serialize_json_render_deep_obj(void)
     char buf[512];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render(&s_deep_obj_render_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_deep_obj_render_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
 
@@ -969,7 +1079,12 @@ void test_bb_serialize_json_render_deep_arr_of_obj(void)
     char buf[1024];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render(&s_deep_arr_render_desc, &levels[0], buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_deep_arr_render_desc,
+        .snap = &levels[0],
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
 
@@ -1117,8 +1232,7 @@ void test_v2_golden_ref_resolves_inline(void)
     char buf[128];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render_ref(&s_v2_system_desc, &snap, buf, sizeof(buf),
-                                                &out_len, v2_stub_resolve, NULL);
+    bb_err_t rc = bb_serialize_json_render_ref(&s_v2_system_desc, &snap, buf, sizeof(buf), &out_len, v2_stub_resolve, NULL, false);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"uptime\":42,\"wifi\":{\"rssi\":-60}}", buf);
@@ -1132,8 +1246,7 @@ void test_v2_golden_ref_unregistered_sibling_omits_field(void)
     size_t out_len = 0;
 
     // Resolver never matches -- same as an unregistered sibling.
-    bb_err_t rc = bb_serialize_json_render_ref(&s_v2_system_desc, &snap, buf, sizeof(buf),
-                                                &out_len, stub_resolve_never_matches, NULL);
+    bb_err_t rc = bb_serialize_json_render_ref(&s_v2_system_desc, &snap, buf, sizeof(buf), &out_len, stub_resolve_never_matches, NULL, false);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"uptime\":42}", buf);
@@ -1147,7 +1260,12 @@ void test_v2_golden_ref_null_resolver_omits_field(void)
 
     // Plain bb_serialize_json_render() drives resolve==NULL internally --
     // proves the two entry points agree byte-for-byte on a REF-bearing desc.
-    bb_err_t rc = bb_serialize_json_render(&s_v2_system_desc, &snap, buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_v2_system_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"uptime\":42}", buf);
@@ -1158,7 +1276,7 @@ void test_v2_golden_ref_null_resolver_omits_field(void)
 // print_number(). Reuses s_f64_desc/f64_snap_t from section 10 above.
 // ---------------------------------------------------------------------------
 
-// Renders `v` via bb_serialize_json_render_ex(..., f64_shortest=true) and
+// Renders `v` via bb_serialize_json_render(cfg.f64_shortest=true) and
 // asserts BYTE-IDENTICAL agreement with cJSON's own number rendering
 // (cJSON_CreateNumber + cJSON_PrintUnformatted) for the same double -- the
 // exact call bb_json_cjson.c's bb_json_obj_set_number()/
@@ -1170,7 +1288,13 @@ static void assert_f64_shortest_matches_cjson(double v)
     char       buf[96];
     size_t     out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render_ex(&s_f64_desc, &snap, buf, sizeof(buf), &out_len, true);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_f64_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+        .f64_shortest = true,
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
 
     cJSON *num = cJSON_CreateNumber(v);
@@ -1349,7 +1473,13 @@ void test_bb_serialize_json_f64_shortest_flag_off_matches_default(void)
     char       buf[64];
     size_t     out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render_ex(&s_f64_desc, &snap, buf, sizeof(buf), &out_len, false);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_f64_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+        .f64_shortest = false,
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"f\":1.500000}", buf);

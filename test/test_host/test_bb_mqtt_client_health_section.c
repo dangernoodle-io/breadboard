@@ -185,7 +185,12 @@ void test_bb_mqtt_health_section_desc_wire_shape_disabled(void)
     char buf[128];
     size_t len = 0;
     TEST_ASSERT_EQUAL(BB_OK,
-        bb_serialize_json_render(&bb_mqtt_client_health_section_desc, &snap, buf, sizeof(buf), &len));
+        bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+            .desc = &bb_mqtt_client_health_section_desc,
+            .snap = &snap,
+            .buf  = buf,
+            .cap  = sizeof(buf),
+        }, &len));
 
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"enabled\":false"));
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"connected\":false"));
@@ -205,7 +210,12 @@ void test_bb_mqtt_health_section_desc_wire_shape_enabled_connected(void)
     char buf[128];
     size_t len = 0;
     TEST_ASSERT_EQUAL(BB_OK,
-        bb_serialize_json_render(&bb_mqtt_client_health_section_desc, &snap, buf, sizeof(buf), &len));
+        bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+            .desc = &bb_mqtt_client_health_section_desc,
+            .snap = &snap,
+            .buf  = buf,
+            .cap  = sizeof(buf),
+        }, &len));
 
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"enabled\":true"));
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"connected\":true"));

@@ -88,13 +88,16 @@ void test_bb_serialize_json_stream_byte_identical_to_render(void)
 
     char   bounded_buf[128];
     size_t bounded_len = 0;
-    bb_err_t bounded_rc = bb_serialize_json_render(&s_flat_desc, &snap,
-                                                    bounded_buf, sizeof(bounded_buf), &bounded_len);
+    bb_err_t bounded_rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_flat_desc,
+        .snap = &snap,
+        .buf  = bounded_buf,
+        .cap  = sizeof(bounded_buf),
+    }, &bounded_len);
     TEST_ASSERT_EQUAL(BB_OK, bounded_rc);
 
     capture_ctx_t cap = { .len = 0, .n_flushes = 0 };
-    bb_err_t stream_rc = bb_serialize_json_stream_render(&s_flat_desc, &snap,
-                                                          capture_flush, &cap, NULL);
+    bb_err_t stream_rc = bb_serialize_json_stream_render(&s_flat_desc, &snap, capture_flush, &cap, NULL, false);
     TEST_ASSERT_EQUAL(BB_OK, stream_rc);
     TEST_ASSERT_EQUAL_UINT(bounded_len, cap.len);
     TEST_ASSERT_EQUAL_MEMORY(bounded_buf, cap.buf, bounded_len);
@@ -117,8 +120,12 @@ void test_bb_serialize_json_stream_multi_flush(void)
 
     char   bounded_buf[CAPTURE_BUF_BYTES];
     size_t bounded_len = 0;
-    bb_err_t bounded_rc = bb_serialize_json_render(&s_arr_desc, &snap,
-                                                    bounded_buf, sizeof(bounded_buf), &bounded_len);
+    bb_err_t bounded_rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &s_arr_desc,
+        .snap = &snap,
+        .buf  = bounded_buf,
+        .cap  = sizeof(bounded_buf),
+    }, &bounded_len);
     TEST_ASSERT_EQUAL(BB_OK, bounded_rc);
     // Sanity: this fixture must actually exceed the flush buffer to prove
     // the multi-flush path -- if this ever shrinks below the flush buffer
@@ -126,8 +133,7 @@ void test_bb_serialize_json_stream_multi_flush(void)
     TEST_ASSERT_GREATER_THAN(768, (int)bounded_len);
 
     capture_ctx_t cap = { .len = 0, .n_flushes = 0 };
-    bb_err_t stream_rc = bb_serialize_json_stream_render(&s_arr_desc, &snap,
-                                                          capture_flush, &cap, NULL);
+    bb_err_t stream_rc = bb_serialize_json_stream_render(&s_arr_desc, &snap, capture_flush, &cap, NULL, false);
     TEST_ASSERT_EQUAL(BB_OK, stream_rc);
     TEST_ASSERT_GREATER_THAN(1, (int)cap.n_flushes);
     TEST_ASSERT_EQUAL_UINT(bounded_len, cap.len);
@@ -162,8 +168,7 @@ void test_bb_serialize_json_stream_abort_sticky_no_further_flush(void)
     arr_snap_t snap = { .a = { .items = items, .count = STREAM_ARR_COUNT } };
 
     abort_ctx_t ac = { .cap = { .len = 0, .n_flushes = 0 }, .failed = false };
-    bb_err_t rc = bb_serialize_json_stream_render(&s_arr_desc, &snap,
-                                                   abort_flush, &ac, &ac.failed);
+    bb_err_t rc = bb_serialize_json_stream_render(&s_arr_desc, &snap, abort_flush, &ac, &ac.failed, false);
 
     TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, rc);

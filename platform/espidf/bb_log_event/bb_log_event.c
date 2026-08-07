@@ -109,8 +109,13 @@ static void s_forwarder_task(void *arg)
         bb_strlcpy(snap.msg, msgbuf, sizeof(snap.msg));
 
         size_t out_len = 0;
-        bb_err_t rc = bb_serialize_json_render(&bb_log_event_line_wire_desc, &snap,
-                                                s_render_buf, sizeof(s_render_buf), &out_len);
+        bb_serialize_json_render_cfg_t render_cfg = {
+            .desc = &bb_log_event_line_wire_desc,
+            .snap = &snap,
+            .buf  = s_render_buf,
+            .cap  = sizeof(s_render_buf),
+        };
+        bb_err_t rc = bb_serialize_json_render(&render_cfg, &out_len);
         if (rc != BB_OK) continue;
 
         // B1-1045 PR-4: stash first, THEN bump the "log" bb_data generation

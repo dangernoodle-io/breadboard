@@ -35,8 +35,12 @@ static void line_render(int64_t ts, char level, const char *tag, const char *msg
     strncpy(snap.msg, msg, sizeof(snap.msg) - 1);
 
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&bb_log_event_line_wire_desc, &snap,
-                                            out_buf, RENDER_BUF_BYTES, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &bb_log_event_line_wire_desc,
+        .snap = &snap,
+        .buf  = out_buf,
+        .cap  = RENDER_BUF_BYTES,
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
 }
 
@@ -185,8 +189,12 @@ void test_log_event_line_wire_max_length_both_renders_and_stash_truncates(void)
     bb_strlcpy(snap.msg, msg, sizeof(snap.msg));
 
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&bb_log_event_line_wire_desc, &snap,
-                                            buf, sizeof(buf), &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &bb_log_event_line_wire_desc,
+        .snap = &snap,
+        .buf  = buf,
+        .cap  = sizeof(buf),
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
 
     char expected[BB_LOG_EVENT_LINE_JSON_MAX];

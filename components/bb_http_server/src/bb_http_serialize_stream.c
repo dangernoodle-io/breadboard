@@ -33,7 +33,7 @@ bb_err_t bb_http_serialize_stream(bb_http_request_t *req,
     if (type_err != BB_OK) return type_err;
 
     flush_ctx_t fc = { .req = req, .failed = false, .err = BB_OK };
-    bb_err_t render_err = bb_serialize_json_stream_render(desc, snap, http_flush, &fc, &fc.failed);
+    bb_err_t render_err = bb_serialize_json_stream_render(desc, snap, http_flush, &fc, &fc.failed, false);
 
     // Always finalize the chunked response, even on error -- an
     // unterminated chunked body can hang a strict client.
@@ -55,8 +55,15 @@ bb_err_t bb_http_serialize_stream_compose_ex(bb_http_request_t *req,
     if (type_err != BB_OK) return type_err;
 
     flush_ctx_t fc = { .req = req, .failed = false, .err = BB_OK };
-    bb_err_t render_err = bb_serialize_json_stream_compose_render_ex(groups, n_groups, http_flush, &fc, &fc.failed,
-                                                                      f64_shortest);
+    bb_serialize_json_stream_compose_render_cfg_t render_cfg = {
+        .groups       = groups,
+        .n_groups     = n_groups,
+        .flush_fn     = http_flush,
+        .flush_ctx    = &fc,
+        .flush_failed = &fc.failed,
+        .f64_shortest = f64_shortest,
+    };
+    bb_err_t render_err = bb_serialize_json_stream_compose_render(&render_cfg);
 
     // Always finalize the chunked response, even on error -- an
     // unterminated chunked body can hang a strict client.

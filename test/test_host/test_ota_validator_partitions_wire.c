@@ -30,8 +30,12 @@ static void partitions_render(const bb_ota_validator_partition_src_t *rows, size
     snap.partitions.count = count;
 
     size_t out_len = 0;
-    bb_err_t rc = bb_serialize_json_render(&bb_ota_validator_partitions_wire_desc, &snap,
-                                            out_buf, RENDER_BUF_BYTES, &out_len);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc = &bb_ota_validator_partitions_wire_desc,
+        .snap = &snap,
+        .buf  = out_buf,
+        .cap  = RENDER_BUF_BYTES,
+    }, &out_len);
     TEST_ASSERT_EQUAL(BB_OK, rc);
 }
 
