@@ -4917,10 +4917,10 @@ void test_bb_queue_name_returns_stored_name(void);
 void test_bb_queue_name_null_ring_returns_empty(void);
 void test_bb_queue_name_null_name_stores_empty(void);
 void test_bb_queue_name_truncated_at_limit(void);
-void test_bb_queue_create_ex_null_cfg_returns_invalid_arg(void);
-void test_bb_queue_create_ex_zero_capacity_returns_invalid_arg(void);
-void test_bb_queue_create_ex_invalid_policy_returns_invalid_arg(void);
-void test_bb_queue_disabled_matches_legacy(void);
+void test_bb_queue_create_null_cfg_returns_invalid_arg(void);
+void test_bb_queue_create_zero_capacity_explicit_budget_returns_invalid_arg(void);
+void test_bb_queue_create_invalid_policy_explicit_budget_returns_invalid_arg(void);
+void test_bb_queue_zero_budget_fields_disable_eviction(void);
 void test_bb_queue_budget_evict_oldest(void);
 void test_bb_queue_budget_evict_multi_entry_to_fit(void);
 void test_bb_queue_budget_reject_new(void);
@@ -4931,7 +4931,7 @@ void test_bb_queue_evict_expired_noop_disabled(void);
 void test_bb_queue_evict_expired_noop_empty(void);
 void test_bb_queue_evict_expired_null_ring_returns_zero(void);
 void test_bb_queue_age_backward_ts_no_purge(void);
-void test_bb_queue_create_ex_max_bytes_below_max_entry_rejected(void);
+void test_bb_queue_create_max_bytes_below_max_entry_rejected(void);
 
 // Forward declarations from test_bb_age.c
 void test_bb_age_classify_table(void);
@@ -9291,10 +9291,10 @@ int main(void) {
     RUN_TEST(test_bb_queue_name_null_ring_returns_empty);
     RUN_TEST(test_bb_queue_name_null_name_stores_empty);
     RUN_TEST(test_bb_queue_name_truncated_at_limit);
-    RUN_TEST(test_bb_queue_create_ex_null_cfg_returns_invalid_arg);
-    RUN_TEST(test_bb_queue_create_ex_zero_capacity_returns_invalid_arg);
-    RUN_TEST(test_bb_queue_create_ex_invalid_policy_returns_invalid_arg);
-    RUN_TEST(test_bb_queue_disabled_matches_legacy);
+    RUN_TEST(test_bb_queue_create_null_cfg_returns_invalid_arg);
+    RUN_TEST(test_bb_queue_create_zero_capacity_explicit_budget_returns_invalid_arg);
+    RUN_TEST(test_bb_queue_create_invalid_policy_explicit_budget_returns_invalid_arg);
+    RUN_TEST(test_bb_queue_zero_budget_fields_disable_eviction);
     RUN_TEST(test_bb_queue_budget_evict_oldest);
     RUN_TEST(test_bb_queue_budget_evict_multi_entry_to_fit);
     RUN_TEST(test_bb_queue_budget_reject_new);
@@ -9305,7 +9305,7 @@ int main(void) {
     RUN_TEST(test_bb_queue_evict_expired_noop_empty);
     RUN_TEST(test_bb_queue_evict_expired_null_ring_returns_zero);
     RUN_TEST(test_bb_queue_age_backward_ts_no_purge);
-    RUN_TEST(test_bb_queue_create_ex_max_bytes_below_max_entry_rejected);
+    RUN_TEST(test_bb_queue_create_max_bytes_below_max_entry_rejected);
 
     // bb_queue_registry tests
     RUN_TEST(test_bb_queue_registry_register_deregister_roundtrip);

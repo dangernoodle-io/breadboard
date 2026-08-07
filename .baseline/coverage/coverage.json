@@ -2376,12 +2376,12 @@
       "type": "uncovered_branch"
     },
     {
-      "id": "365",
+      "id": "350",
       "path": "platform/host/bb_queue/bb_queue.c",
       "type": "uncovered_branch"
     },
     {
-      "id": "426",
+      "id": "411",
       "path": "platform/host/bb_queue/bb_queue.c",
       "type": "uncovered_branch"
     },

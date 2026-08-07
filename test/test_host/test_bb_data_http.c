@@ -595,7 +595,7 @@ void test_bb_data_http_client_acquire_exhaustion_returns_no_space(void)
 
 // B1-1447 review LOW 2: proving the error code alone is a weak test -- it
 // passes whether or not the poll/push pool slots claimed before the failing
-// bb_queue_create_ex() call are actually unwound (bb_data_http_common.c's
+// bb_queue_create() call are actually unwound (bb_data_http_common.c's
 // acquire()'s poll_free(c->poll)/push_free(c->push) pair). Since this cfg
 // uses the default (ALL) mask, BOTH pools are claimed before the queue
 // create fails, so a leaked slot here is a leaked slot in EITHER pool, in a
@@ -635,7 +635,7 @@ void test_bb_data_http_client_acquire_outbound_alloc_failure_returns_error(void)
 
     // B1-1447 review LOW 2: the error code alone is a weak test -- it passes
     // whether or not the poll/push pool slots claimed before the failing
-    // bb_queue_create_ex() call are actually unwound
+    // bb_queue_create() call are actually unwound
     // (bb_data_http_common.c's acquire()'s poll_free(c->poll)/
     // push_free(c->push) pair). Since this cfg uses the default (ALL) mask,
     // BOTH pools' single slot are claimed before the queue create fails --

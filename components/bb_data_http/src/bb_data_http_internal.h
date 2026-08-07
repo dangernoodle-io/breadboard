@@ -71,7 +71,7 @@ typedef struct {
 // bb_data_http_sweep_step()'s drain phase, which gates
 // drain_client_events() on `push != NULL`).
 //
-// outbound_max_bytes mirrors the byte budget passed to bb_queue_create_ex()
+// outbound_max_bytes mirrors the byte budget passed to bb_queue_create()
 // for `outbound` at acquire time. bb_queue exposes no "would this push fit"
 // query, so the EVENT drain path (which must NOT rely on outbound's
 // BB_QUEUE_EVICT_OLDEST auto-eviction -- see the drop-not-evict rationale

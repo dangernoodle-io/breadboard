@@ -97,7 +97,7 @@ struct bb_queue {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_queue_create_ex(const bb_queue_cfg_t *cfg, bb_queue_t *out)
+bb_err_t bb_queue_create(const bb_queue_cfg_t *cfg, bb_queue_t *out)
 {
     if (!cfg || !cfg->capacity_entries || !cfg->max_entry_bytes || !out) {
         return BB_ERR_INVALID_ARG;
@@ -161,21 +161,6 @@ bb_err_t bb_queue_create_ex(const bb_queue_cfg_t *cfg, bb_queue_t *out)
 
     *out = r;
     return BB_OK;
-}
-
-bb_err_t bb_queue_create(size_t capacity_entries, size_t max_entry_bytes,
-                        bb_queue_full_policy_t policy, const char *name,
-                        bb_queue_t *out)
-{
-    bb_queue_cfg_t cfg = {
-        .capacity_entries = capacity_entries,
-        .max_entry_bytes  = max_entry_bytes,
-        .policy           = policy,
-        .name             = name,
-        .max_bytes        = 0,
-        .max_age          = 0,
-    };
-    return bb_queue_create_ex(&cfg, out);
 }
 
 void bb_queue_destroy(bb_queue_t r)
@@ -260,7 +245,7 @@ bb_err_t bb_queue_push(bb_queue_t r, const void *data, size_t len,
     }
 
     // NOTE: an entry whose own len alone could never fit under max_bytes is
-    // rejected at CONFIG time, not here -- bb_queue_create_ex() requires
+    // rejected at CONFIG time, not here -- bb_queue_create() requires
     // max_bytes >= max_entry_bytes (B1-1031 review), and the truncate check
     // above already bounds len <= max_entry_bytes, so len <= max_bytes is
     // guaranteed for every entry that reaches this point. No separate

@@ -459,7 +459,7 @@ bb_err_t bb_data_http_init(const bb_data_http_cfg_t *cfg)
         .max_age          = 0,
     };
     bb_queue_t event_ring;
-    bb_err_t   event_err = bb_queue_create_ex(&event_cfg, &event_ring);
+    bb_err_t   event_err = bb_queue_create(&event_cfg, &event_ring);
     if (event_err != BB_OK) return event_err;
 
     // Every validation/allocation step above succeeded -- commit s_cfg (and
@@ -571,7 +571,7 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
             // needs it. Byte budget alone still bounds worst-case memory.
             .max_age          = 0,
         };
-        bb_err_t err = bb_queue_create_ex(&qcfg, &c->outbound);
+        bb_err_t err = bb_queue_create(&qcfg, &c->outbound);
         if (err != BB_OK) {
             // `c` is still not `in_use` -- unwind the pool slots claimed
             // above before propagating the error, same "leave nothing

@@ -1011,11 +1011,13 @@ static void bb_mdns_init_locked(void)
         }
     }
     if (!s_batch_ring) {
-        bb_err_t err = bb_queue_create(BB_MDNS_BATCH_RING_DEPTH,
-                                      sizeof(bb_mdns_batch_item_t),
-                                      BB_QUEUE_REJECT_NEW,
-                                      "mdns_batch",
-                                      &s_batch_ring);
+        bb_queue_cfg_t batch_cfg = {
+            .capacity_entries = BB_MDNS_BATCH_RING_DEPTH,
+            .max_entry_bytes  = sizeof(bb_mdns_batch_item_t),
+            .policy           = BB_QUEUE_REJECT_NEW,
+            .name             = "mdns_batch",
+        };
+        bb_err_t err = bb_queue_create(&batch_cfg, &s_batch_ring);
         if (err != BB_OK) {
             bb_log_e(TAG, "bb_queue_create(mdns_batch) failed: %d — aborting init",
                      (int)err);

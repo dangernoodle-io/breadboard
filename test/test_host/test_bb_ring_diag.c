@@ -11,8 +11,14 @@
 
 static bb_queue_t make_ring(const char *name)
 {
+    bb_queue_cfg_t cfg = {
+        .capacity_entries = 4,
+        .max_entry_bytes  = 8,
+        .policy           = BB_QUEUE_EVICT_OLDEST,
+        .name             = name,
+    };
     bb_queue_t r = NULL;
-    bb_err_t err = bb_queue_create(4, 8, BB_QUEUE_EVICT_OLDEST, name, &r);
+    bb_err_t err = bb_queue_create(&cfg, &r);
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_NOT_NULL(r);
     return r;
