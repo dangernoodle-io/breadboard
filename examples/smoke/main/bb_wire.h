@@ -297,17 +297,34 @@
 
 // bbtool:init tier=regular fn=bb_data_http_espidf_start component=bb_data_http requires=data_http_init provides=data_http_started
 
-// bbtool:init tier=regular fn=bb_data_http_attach component=bb_data_http requires=data_http_init,data_log_bound provides=data_log_attached args=&(bb_data_http_attach_cfg_t){.key="log",.topic="log",.kind=BB_DATA_HTTP_STATE,.snap_size=bb_log_event_wire_desc.snap_size}
+// B1-1440: EVENT-kind, not STATE -- "log" is per-occurrence payload that
+// varies and matters individually (EVENT-vs-STATE reconstructibility rule,
+// case (a): a log line does not fold into a counter + latest-value field).
+// STATE's coalescing dirty-mask silently collapsed a burst of lines to just
+// the last one.
+//
+// Residual loss, accepted: this fix moves loss from "every burst" to "a
+// burst that outruns a lagging client" -- CONFIG_BB_DATA_HTTP_EVENT_RING_
+// CAPACITY (default 16) is a SINGLE ring SHARED across every EVENT-kind key
+// on the board, not per-key. A burst that leaves more than ~16 entries
+// unconsumed by a slow/absent client still evicts oldest-first, even though
+// bb_log_event's own forwarder queue (BB_LOG_EVENT_QUEUE_LEN, 24/48 with
+// SPIRAM) held every line. Hardware-verified for a realistic burst with a
+// live draining client: 40/40 distinct sequence-numbered lines, zero
+// missing (33/40 before this fix). Raising the ring's default costs RAM on
+// every board with ANY EVENT binding, not just this one -- not done here;
+// see the Kconfig help for BB_DATA_HTTP_EVENT_RING_CAPACITY.
+// bbtool:init tier=regular fn=bb_data_http_attach component=bb_data_http requires=data_http_init,data_log_bound provides=data_log_attached args=&(bb_data_http_attach_cfg_t){.key="log",.topic="log",.kind=BB_DATA_HTTP_EVENT,.snap_size=bb_log_event_wire_desc.snap_size}
 
 // bbtool:init tier=regular fn=bb_data_http_espidf_routes_init server=true component=bb_data_http requires=data_http_started,data_log_attached
 
 // bbtool:init tier=regular fn=bb_data_http_espidf_ws_routes_init server=true component=bb_data_http requires=data_http_started,data_log_attached
 
 // B1-1451 (epic B1-1123): "smoke_notify" is a SECOND bb_data_http-attached
-// key, EVENT-kind (unlike "log" above, which is STATE-kind) -- the on-device
-// proof harness for bb_data_http_notify_push() (examples/smoke/main/
-// smoke_data_notify.c/.h; see that file's own header comment for the full
-// rationale + off-board verification recipe).
+// key, also EVENT-kind (B1-1440 made "log" above EVENT-kind too) -- the
+// on-device proof harness for bb_data_http_notify_push() (examples/smoke/
+// main/smoke_data_notify.c/.h; see that file's own header comment for the
+// full rationale + off-board verification recipe).
 //
 // Unlike the "log" key above, bind/attach here go through smoke_data_notify_
 // bind()/_attach() WRAPPER functions, not bb_data_bind()/bb_data_http_

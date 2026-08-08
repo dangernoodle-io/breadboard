@@ -656,9 +656,29 @@ void app_main(void)
         // shared render scratch (CONFIG_BB_DATA_HTTP_RENDER_SCRATCH_BYTES)
         // as a loud attach-time failure instead of a silently-starved
         // stream (B1-1045 PR-4 fix -- see bb_data_http_attach_cfg_t's doc).
+        // B1-1440: EVENT-kind, not STATE -- "log" is per-occurrence payload
+        // that varies and matters individually (EVENT-vs-STATE
+        // reconstructibility rule, case (a): a log line, like a
+        // block-found record, does not fold into a counter + latest-value
+        // field). STATE's coalescing dirty-mask silently collapsed a burst
+        // of lines to just the last one.
+        //
+        // Residual loss, accepted: this fix moves loss from "every burst"
+        // to "a burst that outruns a lagging client" -- CONFIG_BB_DATA_
+        // HTTP_EVENT_RING_CAPACITY (default 16) is a SINGLE ring SHARED
+        // across every EVENT-kind key on the board, not per-key. A burst
+        // that leaves more than ~16 entries unconsumed by a slow/absent
+        // client still evicts oldest-first, even though bb_log_event's own
+        // forwarder queue (BB_LOG_EVENT_QUEUE_LEN, 24/48 with SPIRAM) held
+        // every line. Hardware-verified for a realistic burst with a live
+        // draining client: 40/40 distinct sequence-numbered lines, zero
+        // missing (33/40 before this fix). Raising the ring's default
+        // costs RAM on every board with ANY EVENT binding, not just this
+        // one -- not done here; see the Kconfig help for
+        // BB_DATA_HTTP_EVENT_RING_CAPACITY.
         err = bb_data_http_attach(&(bb_data_http_attach_cfg_t){
             .key = producers[i].key, .topic = producers[i].key,
-            .kind = BB_DATA_HTTP_STATE, .snap_size = producers[i].desc->snap_size });
+            .kind = BB_DATA_HTTP_EVENT, .snap_size = producers[i].desc->snap_size });
         if (err != BB_OK) {
             bb_log_w(TAG, "data_http_attach(%s) failed (%d)", producers[i].key, (int)err);
         }

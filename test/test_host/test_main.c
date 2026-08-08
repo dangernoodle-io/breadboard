@@ -431,6 +431,7 @@ void test_bb_data_http_event_client_outbound_full_drops_with_marker(void);
 void test_bb_data_http_event_pending_marker_flushes_on_quiet_sweep(void);
 void test_bb_data_http_event_slow_client_does_not_affect_other_clients(void);
 void test_bb_data_http_push_pump_called_twice_directly_feeds_ring_twice(void);
+void test_bb_data_http_push_pump_n_sequential_bumps_feed_n_distinct_entries(void);
 void test_bb_data_http_push_pump_twice_then_sweep_step_delivers_both_in_order(void);
 void test_bb_data_http_push_pump_generation_fn_failure_skips_event_key(void);
 void test_bb_data_http_push_pump_revoke_leaves_newer_concurrent_claim_alone(void);
@@ -12312,6 +12313,7 @@ int main(void) {
     RUN_TEST(test_bb_data_http_event_pending_marker_flushes_on_quiet_sweep);
     RUN_TEST(test_bb_data_http_event_slow_client_does_not_affect_other_clients);
     RUN_TEST(test_bb_data_http_push_pump_called_twice_directly_feeds_ring_twice);
+    RUN_TEST(test_bb_data_http_push_pump_n_sequential_bumps_feed_n_distinct_entries);
     RUN_TEST(test_bb_data_http_push_pump_twice_then_sweep_step_delivers_both_in_order);
     RUN_TEST(test_bb_data_http_push_pump_generation_fn_failure_skips_event_key);
     RUN_TEST(test_bb_data_http_push_pump_revoke_leaves_newer_concurrent_claim_alone);
