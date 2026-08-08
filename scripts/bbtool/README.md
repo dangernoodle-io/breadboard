@@ -54,14 +54,15 @@ python3 scripts/bbtool.py lint [--root DIR] [--profile consumer|library] [--rule
 Unified ratchet-fence lint over one or more marker **families**. A family
 (`scripts/bbtool/fence/<family>.py`) is a group of `_scan_*` marker-detection
 functions plus its own committed baseline at
-`.baseline/bbtool/fence/<family>.json`. Eight families exist today:
+`.baseline/bbtool/fence/<family>.json`. Families include:
 `di_legacy` (breadboard's legacy DI/self-registration glue surface), `clamp`
 (hand-rolled reimplementations of `bb_num`'s two-sided clamp),
 `scalar_parse` (hand-rolled reimplementations of `bb_scalar`'s parsers),
 `sat_sub` (hand-rolled one-sided saturating-subtract idioms),
 `callback_slot` (hand-rolled reimplementations of `bb_core`'s single-slot
 injected-callback helper), `new_component` (the "no unauthorized
-components" guardrail — see below), and `warning_fence_host` /
+components" guardrail — see below), `variant_ladder` (the "no variant
+ladders" API-convention guardrail — see below), and `warning_fence_host` /
 `warning_fence_firmware` (the `-Wall` backlog ratchet, B1-1420 — see below;
 **not** a source-text scan like the rest, a live-build-report scan, with
 its own SKIP/`--update-baseline` semantics) — one family per shared
@@ -313,6 +314,57 @@ commit is also treated as a rename (and passes) — a genuinely new,
 unapproved component alongside an unrelated deletion only stays guarded
 as long as either side has more than one entry. See `rename_pairs()` in
 `scripts/bbtool/fence/new_component.py`.
+
+### `variant_ladder` family (B1-1461)
+
+Guards the "no variant ladders" API convention (wiki
+[Conventions#api-conventions](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#api-conventions)):
+a public API gets ONE entry point, extended by adding config-struct
+fields, never a differently-suffixed sibling. Epic B1-1434 removed every
+known ladder in the tree, so this family's committed baseline starts
+**empty** — unlike every drain-shaped family above, this is a pure
+"stop new ladders" gate, not a shrink-only list of pre-existing
+exceptions.
+
+Scans `components/*/include/*.h` for a public function declaration whose
+name carries a ladder-shaped suffix (`_ex`, `_ex2`, `_ex3`, ..., `_named`,
+`_with_*`, `_handle`, `_ref`, `_sized`, `_full`) **and** whose un-suffixed
+base name is ALSO declared public in the same component's header set —
+both rungs must exist for it to be a ladder, so e.g.
+`bb_http_server_get_handle()` (no `bb_http_server_get()` sibling) never
+fires. Typed-accessor families (`_u8`/`_u16`/`_u32`/`_i32`/`_f32`/etc.)
+are excluded before any suffix pattern is even tried — legitimate type
+overloading, not a ladder. See `scripts/bbtool/fence/variant_ladder.py`
+for the full detector rule and its stated ceiling.
+
+**Ceiling, stated plainly.** This is a cheap regex scan, not a parser, and
+a green result is NOT full compliance with the no-variant-ladders
+convention. B1-558 is the standing human sweep that covers the gaps
+below:
+
+- **Multi-line declarations** — the scan is column-0, single-line only
+  (same heuristic as `bb-prefix`'s lint rule); a return type wrapped onto
+  its own line above the function name is never matched, ladder or not.
+- **Suffixes outside the fixed list** — the suffix set above is fixed and
+  hand-maintained; a ladder sibling spelled with any other suffix (e.g.
+  `_opts`, `_v2`, `_advanced`) is invisible until the list is extended.
+- **Un-suffixed thin wrappers — the case the convention actually
+  defines** — the convention bans the SHAPE (a base call and a wider
+  sibling coexisting as two public entry points), not the suffix
+  spelling. An UN-SUFFIXED thin wrapper (two public functions sharing a
+  name prefix where one forwards into the other with extra parameters)
+  carries no suffix at all, so it is PERMANENTLY invisible to any suffix
+  scanner, this fence included.
+- **A `(` before the function's own name** — the recognizer requires the
+  function name to sit immediately before its own parameter-list `(`; any
+  earlier `(` on the line makes the whole declaration invisible. Two known
+  (verified, currently latent — zero occurrences in this tree) shapes: a
+  function returning a function pointer (`int (*bb_foo_get(void))(int);`,
+  this codebase typedefs callback types instead) and a LEADING call-style
+  macro/attribute ahead of the return type
+  (`__attribute__((deprecated)) bb_err_t bb_foo_get(void);` — a TRAILING
+  `__attribute__((...))` or a bare, parenless macro prefix like
+  `BB_EXPORT` both match normally and are unaffected).
 
 ### `warning_fence_host` / `warning_fence_firmware` families — live-build-report ratchet, not a source scan
 
