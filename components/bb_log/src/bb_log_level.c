@@ -68,6 +68,19 @@ const char *bb_log_level_to_str(bb_log_level_t level)
     }
 }
 
+char bb_log_level_console_letter(bb_log_level_t level)
+{
+    switch (level) {
+        case BB_LOG_LEVEL_ERROR:   return 'E';
+        case BB_LOG_LEVEL_WARN:    return 'W';
+        case BB_LOG_LEVEL_INFO:    return 'I';
+        case BB_LOG_LEVEL_DEBUG:   return 'D';
+        case BB_LOG_LEVEL_VERBOSE: return 'V';
+        case BB_LOG_LEVEL_NONE:
+        default:                   return '?';
+    }
+}
+
 static int _find_registry_entry(const char *tag)
 {
     for (int i = 0; i < BB_LOG_REGISTRY_MAX; i++) {

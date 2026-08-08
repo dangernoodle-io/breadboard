@@ -1242,6 +1242,7 @@ void test_bb_log_info(void);
 void test_bb_log_debug(void);
 void test_bb_log_verbose(void);
 void test_bb_log_zero_args(void);
+void test_bb_log_null_tag_normalizes_instead_of_crashing(void);
 void test_bb_log_flush_returns_ok(void);
 void test_bb_log_level_from_str_error(void);
 void test_bb_log_level_from_str_warn(void);
@@ -1266,12 +1267,32 @@ void test_bb_log_level_to_str_info(void);
 void test_bb_log_level_to_str_debug(void);
 void test_bb_log_level_to_str_verbose(void);
 void test_bb_log_level_to_str_unknown(void);
+void test_bb_log_level_console_letter_error(void);
+void test_bb_log_level_console_letter_warn(void);
+void test_bb_log_level_console_letter_info(void);
+void test_bb_log_level_console_letter_debug(void);
+void test_bb_log_level_console_letter_verbose(void);
+void test_bb_log_level_console_letter_none(void);
+void test_bb_log_level_console_letter_out_of_range(void);
 void test_bb_log_level_from_str_long_input(void);
 void test_bb_log_level_set_null_tag(void);
 void test_bb_log_tag_register_null_tag(void);
 void test_bb_log_tag_level_null_args(void);
 void test_bb_log_tag_at_null_args(void);
 void test_bb_log_registry_full(void);
+void test_bb_log_emit_build_line_basic(void);
+void test_bb_log_emit_build_line_null_out(void);
+void test_bb_log_emit_build_line_zero_cap(void);
+void test_bb_log_emit_build_line_null_tag_normalizes(void);
+void test_bb_log_emit_build_line_null_msg_is_empty(void);
+void test_bb_log_emit_build_line_truncates_to_out_cap(void);
+void test_bb_log_emit_build_line_has_no_ansi_escape_bytes(void);
+void test_bb_log_emit_build_event_msg_basic(void);
+void test_bb_log_emit_build_event_msg_null_emsg_does_not_crash(void);
+void test_bb_log_emit_build_event_msg_null_tag_normalizes(void);
+void test_bb_log_emit_build_event_msg_null_msg_is_empty(void);
+void test_bb_log_emit_build_event_msg_tag_truncates(void);
+void test_bb_log_emit_build_event_msg_msg_truncates(void);
 
 // Forward declarations from test_bb_log_config.c
 void test_bb_log_level_from_name_none(void);
@@ -6549,6 +6570,7 @@ int main(void) {
     RUN_TEST(test_bb_log_debug);
     RUN_TEST(test_bb_log_verbose);
     RUN_TEST(test_bb_log_zero_args);
+    RUN_TEST(test_bb_log_null_tag_normalizes_instead_of_crashing);
     RUN_TEST(test_bb_log_flush_returns_ok);
 
     // bb_log level conversion tests
@@ -6569,6 +6591,13 @@ int main(void) {
     RUN_TEST(test_bb_log_level_to_str_debug);
     RUN_TEST(test_bb_log_level_to_str_verbose);
     RUN_TEST(test_bb_log_level_to_str_unknown);
+    RUN_TEST(test_bb_log_level_console_letter_error);
+    RUN_TEST(test_bb_log_level_console_letter_warn);
+    RUN_TEST(test_bb_log_level_console_letter_info);
+    RUN_TEST(test_bb_log_level_console_letter_debug);
+    RUN_TEST(test_bb_log_level_console_letter_verbose);
+    RUN_TEST(test_bb_log_level_console_letter_none);
+    RUN_TEST(test_bb_log_level_console_letter_out_of_range);
     RUN_TEST(test_bb_log_level_from_str_long_input);
     RUN_TEST(test_bb_log_level_set_null_tag);
     RUN_TEST(test_bb_log_tag_register_null_tag);
@@ -6583,6 +6612,19 @@ int main(void) {
     RUN_TEST(test_bb_log_tag_level_not_found);
     RUN_TEST(test_bb_log_tag_at_iteration);
     RUN_TEST(test_bb_log_registry_full);
+    RUN_TEST(test_bb_log_emit_build_line_basic);
+    RUN_TEST(test_bb_log_emit_build_line_null_out);
+    RUN_TEST(test_bb_log_emit_build_line_zero_cap);
+    RUN_TEST(test_bb_log_emit_build_line_null_tag_normalizes);
+    RUN_TEST(test_bb_log_emit_build_line_null_msg_is_empty);
+    RUN_TEST(test_bb_log_emit_build_line_truncates_to_out_cap);
+    RUN_TEST(test_bb_log_emit_build_line_has_no_ansi_escape_bytes);
+    RUN_TEST(test_bb_log_emit_build_event_msg_basic);
+    RUN_TEST(test_bb_log_emit_build_event_msg_null_emsg_does_not_crash);
+    RUN_TEST(test_bb_log_emit_build_event_msg_null_tag_normalizes);
+    RUN_TEST(test_bb_log_emit_build_event_msg_null_msg_is_empty);
+    RUN_TEST(test_bb_log_emit_build_event_msg_tag_truncates);
+    RUN_TEST(test_bb_log_emit_build_event_msg_msg_truncates);
 
     // bb_log_config tests
     RUN_TEST(test_bb_log_level_from_name_none);

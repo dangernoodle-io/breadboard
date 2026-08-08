@@ -142,11 +142,53 @@ void bb_log_secret(bb_log_level_t level, const char *tag, const char *label, con
 
 #ifdef ESP_PLATFORM
   #include "esp_log.h"
-  #define bb_log_e(tag, fmt, ...) ESP_LOGE(tag, fmt, ##__VA_ARGS__)
-  #define bb_log_w(tag, fmt, ...) ESP_LOGW(tag, fmt, ##__VA_ARGS__)
-  #define bb_log_i(tag, fmt, ...) ESP_LOGI(tag, fmt, ##__VA_ARGS__)
-  #define bb_log_d(tag, fmt, ...) ESP_LOGD(tag, fmt, ##__VA_ARGS__)
-  #define bb_log_v(tag, fmt, ...) ESP_LOGV(tag, fmt, ##__VA_ARGS__)
+
+  /**
+   * B1-1443 PR-1: the single producer for OUR OWN (bb_log_e/w/i/d/v) log
+   * lines -- stamps ts at the call site (bb_clock_now_ms64()), formats the
+   * message exactly once (bb_log_stream_format()), and fans out the real
+   * level/tag/msg directly to every downstream consumer (console writer
+   * queue, the optional bb_diag panic tap, the optional UDP mirror, and the
+   * bb_log_event forwarder) -- see platform/espidf/bb_log/bb_log.c. This
+   * bypasses ESP_LOGx/the vprintf hook entirely for our own calls, so the
+   * bb_log_event forwarder no longer has to reconstruct level/tag/msg by
+   * re-parsing already-formatted console text for lines that originated
+   * here (foreign/vendored ESP_LOGx output is untouched -- it still flows
+   * through the vprintf hook and is still parsed exactly as before). Not
+   * called directly -- BB_LOG_X()/bb_log_e/w/i/d/v below are the call-site
+   * API, and their two-layer gate (compile-time LOG_LOCAL_LEVEL, then
+   * runtime esp_log_level_get(tag)) decides whether this is even invoked,
+   * so a below-threshold call never pays for formatting.
+   */
+  void bb_log_emit(bb_log_level_t bb_level, const char *tag, const char *fmt, ...)
+      __attribute__((format(printf, 3, 4)));
+
+  /**
+   * Two-layer call-site gate, shared by bb_log_e/w/i/d/v below.
+   * Layer A (LOG_LOCAL_LEVEL >= esp_level) is a compile-time constant fold:
+   * below LOG_LOCAL_LEVEL, the whole body -- including the fmt string
+   * literal -- is dead code, so the compiler strips it exactly as it does
+   * for a raw ESP_LOGx call today. Layer B (esp_log_level_get(tag) >=
+   * esp_level) is the SAME per-tag registry lookup (cache + linked-list,
+   * under the log lock) that ESP-IDF's own esp_log_va()/
+   * esp_log_is_tag_loggable() already perform internally before touching
+   * the vprintf hook -- this relocates that cost to the call site instead
+   * of adding a new one.
+   */
+  #define BB_LOG_X(esp_level, bb_level, tag, fmt, ...)                       \
+      do {                                                                   \
+          if (LOG_LOCAL_LEVEL >= (esp_level)) {                              \
+              if (esp_log_level_get(tag) >= (esp_level)) {                   \
+                  bb_log_emit((bb_level), (tag), (fmt), ##__VA_ARGS__);      \
+              }                                                              \
+          }                                                                  \
+      } while (0)
+
+  #define bb_log_e(tag, fmt, ...) BB_LOG_X(ESP_LOG_ERROR,   BB_LOG_LEVEL_ERROR,   tag, fmt, ##__VA_ARGS__)
+  #define bb_log_w(tag, fmt, ...) BB_LOG_X(ESP_LOG_WARN,    BB_LOG_LEVEL_WARN,    tag, fmt, ##__VA_ARGS__)
+  #define bb_log_i(tag, fmt, ...) BB_LOG_X(ESP_LOG_INFO,    BB_LOG_LEVEL_INFO,    tag, fmt, ##__VA_ARGS__)
+  #define bb_log_d(tag, fmt, ...) BB_LOG_X(ESP_LOG_DEBUG,   BB_LOG_LEVEL_DEBUG,   tag, fmt, ##__VA_ARGS__)
+  #define bb_log_v(tag, fmt, ...) BB_LOG_X(ESP_LOG_VERBOSE, BB_LOG_LEVEL_VERBOSE, tag, fmt, ##__VA_ARGS__)
 #elif defined(ARDUINO)
   #include <Arduino.h>
   #ifdef __cplusplus
@@ -162,10 +204,17 @@ void bb_log_secret(bb_log_level_t level, const char *tag, const char *label, con
   #define bb_log_d(tag, fmt, ...) ((void)0)
   #define bb_log_v(tag, fmt, ...) ((void)0)
 #else
-  #include <stdio.h>
-  #define bb_log_e(tag, fmt, ...) fprintf(stderr, "E (%s) " fmt "\n", (tag), ##__VA_ARGS__)
-  #define bb_log_w(tag, fmt, ...) fprintf(stderr, "W (%s) " fmt "\n", (tag), ##__VA_ARGS__)
-  #define bb_log_i(tag, fmt, ...) fprintf(stdout, "I (%s) " fmt "\n", (tag), ##__VA_ARGS__)
+  #ifdef __cplusplus
+  extern "C" {
+  #endif
+  void bb_log_emit(bb_log_level_t bb_level, const char *tag, const char *fmt, ...)
+      __attribute__((format(printf, 3, 4)));
+  #ifdef __cplusplus
+  }
+  #endif
+  #define bb_log_e(tag, fmt, ...) bb_log_emit(BB_LOG_LEVEL_ERROR, (tag), (fmt), ##__VA_ARGS__)
+  #define bb_log_w(tag, fmt, ...) bb_log_emit(BB_LOG_LEVEL_WARN,  (tag), (fmt), ##__VA_ARGS__)
+  #define bb_log_i(tag, fmt, ...) bb_log_emit(BB_LOG_LEVEL_INFO,  (tag), (fmt), ##__VA_ARGS__)
   #define bb_log_d(tag, fmt, ...) ((void)0)
   #define bb_log_v(tag, fmt, ...) ((void)0)
 #endif
