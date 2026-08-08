@@ -15,6 +15,7 @@
 #include "bb_str.h"
 
 #include <inttypes.h>
+#include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "bb_data_http";

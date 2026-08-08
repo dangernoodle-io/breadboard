@@ -1,6 +1,8 @@
 #include "unity.h"
 #include "bb_log.h"
 
+#include <stdio.h>
+
 void test_bb_log_error(void) {
     bb_log_e("TAG", "msg %d", 1);
     TEST_PASS();
