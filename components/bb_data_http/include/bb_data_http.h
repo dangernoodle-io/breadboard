@@ -80,6 +80,17 @@ typedef enum {
     BB_DATA_HTTP_EVENT = 1,
 } bb_data_http_replay_kind_t;
 
+// Consumer lifetime (B1-1465/B1-1466): whether a fatal send_fn failure tears
+// this client down, or leaves it in place for a future reconnect to re-arm.
+// See bb_data_http_client_cfg_t's `lifetime` doc below for the full contract
+// and bb_data_http_sweep_step()'s flush-phase doc (this header) for exactly
+// where this gates behavior -- the fatal-send branch only, never the
+// retriable (BB_ERR_TIMEOUT) path.
+typedef enum {
+    BB_DATA_HTTP_LIFETIME_EPHEMERAL = 0,
+    BB_DATA_HTTP_LIFETIME_DURABLE   = 1,
+} bb_data_http_client_lifetime_t;
+
 // Kind-subscription bitmask (B1-1445, epic B1-1123). Bit `1u <<
 // slot->kind` for each bb_data_http_replay_kind_t a client wants delivered
 // to it -- see bb_data_http_client_cfg_t's `subscribe_mask` doc below for
@@ -303,13 +314,50 @@ void bb_data_http_set_abort_fn(bb_data_http_abort_fn fn, void *ctx);
 // every existing call site (which never sets this field) already had -- a
 // bitmask has no valid-looking zero to collide with, so a bare 0
 // unambiguously means "caller didn't ask for a kind filter".
+//
+// lifetime (B1-1465/B1-1466): gates ONLY what a FATAL (non-BB_ERR_TIMEOUT)
+// send_fn failure does to this client -- the retriable path is unaffected
+// either way. Zero-default (BB_DATA_HTTP_LIFETIME_EPHEMERAL) is safe and
+// matches the behavior every existing consumer (SSE, WS) already has, since
+// none of them set this field:
+//   - EPHEMERAL: unchanged from before this field existed -- the fatal-send
+//     branch resolves abort_fn (per-client override else the module-wide
+//     default) and calls it, or calls bb_data_http_client_release()
+//     directly if no abort_fn is installed either way.
+//   - DURABLE: the client survives a fatal send. abort_fn/abort_ctx is NOT
+//     invoked and bb_data_http_client_release() is NOT called -- the slot
+//     stays `in_use`, its poll/push (STATE/EVENT) bookkeeping is left
+//     untouched, and only send_fail_count is reset. This is a NOTE, not a
+//     bug report: a DURABLE client's abort_fn is reserved for an explicit
+//     bb_data_http_client_request_release() and is deliberately never
+//     invoked on a fatal send. c->outbound is RETAINED (not drained) on
+//     this path: by the time a frame reaches the flush phase, the detect
+//     phase has already advanced push->cursor past it (EVENT) or cleared
+//     its dirty bit (STATE) -- that bookkeeping means "queued, will be
+//     delivered". Draining here would make it a lie: the client would look
+//     caught up while the peer never received the bytes, and for STATE an
+//     unchanging key would then never be re-queued, so the loss could be
+//     permanent. Retaining the queue is what makes a DURABLE reconnect
+//     resume delivery rather than silently skip it. This is NOT the
+//     store-and-forward feature B1-1432 / design KB 1525 gate opt-in --
+//     that is a separate persistence layer; this is simply not discarding
+//     work already accepted into the bounded per-client queue every
+//     consumer has. If sends keep failing, the bound still applies --
+//     growth is capped by CONFIG_BB_DATA_HTTP_OUTBOUND_CAPACITY /
+//     OUTBOUND_MAX_BYTES either way. EVENT-ring drain drops are counted
+//     and reachable via bb_data_http_client_dropped_count(); STATE-path
+//     eviction under a sustained-fatal DURABLE client is bounded but not
+//     currently surfaced through any public accessor -- a known
+//     observability gap, tracked separately, not the unbounded growth
+//     this retention scheme otherwise prevents.
 typedef struct {
-    const char            *topic_filter;
-    bb_data_http_send_fn   send_fn;
-    void                  *send_ctx;
-    bb_data_http_abort_fn  abort_fn;
-    void                  *abort_ctx;
-    uint32_t               subscribe_mask;
+    const char                     *topic_filter;
+    bb_data_http_send_fn            send_fn;
+    void                            *send_ctx;
+    bb_data_http_abort_fn           abort_fn;
+    void                            *abort_ctx;
+    uint32_t                        subscribe_mask;
+    bb_data_http_client_lifetime_t  lifetime;
 } bb_data_http_client_cfg_t;
 
 // ---------------------------------------------------------------------------

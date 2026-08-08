@@ -153,41 +153,47 @@ typedef struct {
 // ring's own module-level statics gained the claim/commit/revoke lock, not
 // the per-client drain/flush path.
 struct bb_data_http_client {
-    bool                        in_use;
-    char                        topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
-    uint32_t                    subscribe_mask;  // resolved kind bitmask; see bb_data_http_client_cfg_t's doc (bb_data_http.h)
-    bb_data_http_poll_state_t  *poll;  // NULL unless subscribe_mask includes STATE -- see its own doc above
-    bb_data_http_push_state_t  *push;  // NULL unless subscribe_mask includes EVENT -- see its own doc above
-    bb_queue_t                  outbound;
-    size_t                      outbound_max_bytes;
-    uint32_t                    send_fail_count;
-    atomic_bool                 pending_release;
-    bb_data_http_send_fn        send_fn;   // NULL -> module-wide default (s_send_fn)
-    void                       *send_ctx;
-    bb_data_http_abort_fn       abort_fn;  // NULL -> module-wide default (s_abort_fn)
-    void                       *abort_ctx;
+    bool                            in_use;
+    char                            topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
+    uint32_t                        subscribe_mask;  // resolved kind bitmask; see bb_data_http_client_cfg_t's doc (bb_data_http.h)
+    bb_data_http_poll_state_t      *poll;  // NULL unless subscribe_mask includes STATE -- see its own doc above
+    bb_data_http_push_state_t      *push;  // NULL unless subscribe_mask includes EVENT -- see its own doc above
+    bb_queue_t                      outbound;
+    size_t                          outbound_max_bytes;
+    uint32_t                        send_fail_count;
+    atomic_bool                     pending_release;
+    bb_data_http_send_fn            send_fn;   // NULL -> module-wide default (s_send_fn)
+    void                           *send_ctx;
+    bb_data_http_abort_fn           abort_fn;  // NULL -> module-wide default (s_abort_fn)
+    void                           *abort_ctx;
+    bb_data_http_client_lifetime_t  lifetime;  // resolved at acquire; see bb_data_http_client_cfg_t's doc (bb_data_http.h)
 };
 
-// Pinned shrink proof (B1-1447, re-pinned B1-1448): splitting STATE/EVENT
-// bookkeeping into pool-allocated poll/push pointers, and later dropping the
-// last HTTP-specific fd/is_ws fields (B1-1448, epic B1-1123), must actually
+// Pinned shrink proof (B1-1447, re-pinned B1-1448, re-pinned B1-1465/B1-1466
+// for the `lifetime` field above): splitting STATE/EVENT bookkeeping into
+// pool-allocated poll/push pointers, and later dropping the last
+// HTTP-specific fd/is_ws fields (B1-1448, epic B1-1123), must actually
 // SHRINK this struct, not just rename fields around the same footprint --
 // see bb_serialize_json_tok.c for this repo's identical pinned-sizeof
 // convention. A future field added here (or a future revert) that changes
 // this size needs a deliberate, reviewed edit to this assert, not a silent
 // drift. Pointer-width-dependent (this struct carries several pointer-sized
-// fields): 112 bytes on a 64-bit host build (native test envs), 80 bytes on
+// fields): 120 bytes on a 64-bit host build (native test envs), 84 bytes on
 // a 32-bit target (ESP32/xtensa ILP32) -- both pinned here rather than
-// assuming one ABI, since this header is compiled by both. PRECONDITION:
-// this two-arm ternary only distinguishes ILP32 (4-byte pointers, e.g.
-// ESP32/xtensa) from LP64 (8-byte pointers, e.g. native host); it does NOT
-// cover a 16-bit-pointer target (e.g. an AVR/Arduino backend, which this
-// workspace does have as a family, though bb_data_http itself is
-// realistically ESP32/host-only) -- such a build would spuriously trip this
-// assert and need a third arm added, not silently pass under either
-// existing one.
-_Static_assert(sizeof(struct bb_data_http_client) == (sizeof(void *) == 8 ? 112 : 80),
-               "bb_data_http_client_t size changed -- update this pin (B1-1448 fd/is_ws removal)");
+// assuming one ABI, since this header is compiled by both. `lifetime` is a
+// single-enumerator-width field (4 bytes) appended at the end of the
+// struct, so it grew both ABIs by exactly one pointer-independent word
+// (8 bytes on LP64 due to trailing struct-alignment padding to the next
+// 8-byte boundary, 4 bytes on ILP32 with no such padding needed) -- from
+// 112/80 (B1-1448) to 120/84. PRECONDITION: this two-arm ternary only
+// distinguishes ILP32 (4-byte pointers, e.g. ESP32/xtensa) from LP64
+// (8-byte pointers, e.g. native host); it does NOT cover a 16-bit-pointer
+// target (e.g. an AVR/Arduino backend, which this workspace does have as a
+// family, though bb_data_http itself is realistically ESP32/host-only) --
+// such a build would spuriously trip this assert and need a third arm
+// added, not silently pass under either existing one.
+_Static_assert(sizeof(struct bb_data_http_client) == (sizeof(void *) == 8 ? 120 : 84),
+               "bb_data_http_client_t size changed -- update this pin (B1-1465/B1-1466 lifetime field)");
 
 #ifdef BB_DATA_HTTP_TESTING
 // Test accessors -- expose fd-table/attach-table internals without widening

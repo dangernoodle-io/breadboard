@@ -565,6 +565,11 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
         c->send_ctx  = cfg->send_ctx;
         c->abort_fn  = cfg->abort_fn;
         c->abort_ctx = cfg->abort_ctx;
+        // Zero-default -> EPHEMERAL (B1-1465/B1-1466): a cfg that never sets
+        // this field resolves to the same fatal-send teardown behavior
+        // every existing consumer (SSE, WS) already has -- see
+        // bb_data_http_client_cfg_t's lifetime doc (bb_data_http.h).
+        c->lifetime  = cfg->lifetime;
 
         c->outbound_max_bytes = CONFIG_BB_DATA_HTTP_OUTBOUND_MAX_BYTES;
         bb_queue_cfg_t qcfg = {
@@ -1167,10 +1172,15 @@ void bb_data_http_sweep_step(void)
         //     than immediately attempting the next queued frame: a
         //     bound-exceeded drop is exactly as terminal for this sweep as
         //     an under-bound failure is, it just also advances the queue.
-        //   - Any other non-BB_OK code (fatal): the client is released
-        //     immediately via the installed abort_fn (or
-        //     bb_data_http_client_release() directly if none is installed)
-        //     and the flush stops -- there is no client left to flush for.
+        //   - Any other non-BB_OK code (fatal): for an EPHEMERAL client
+        //     (the default -- see bb_data_http_client_cfg_t's lifetime
+        //     doc, bb_data_http.h), the client is released immediately via
+        //     the installed abort_fn (or bb_data_http_client_release()
+        //     directly if none is installed) and the flush stops -- there
+        //     is no client left to flush for. A DURABLE client instead
+        //     survives: its outbound queue is RETAINED and the flush still
+        //     stops for this sweep, but the slot stays `in_use` for a
+        //     future reconnect to re-arm and resume delivery.
         char    frame[CONFIG_BB_DATA_HTTP_OUTBOUND_ENTRY_MAX];
         size_t  frame_len = 0;
         int64_t ts        = 0;
@@ -1201,11 +1211,48 @@ void bb_data_http_sweep_step(void)
 
             // Fatal: send_fn cannot rule out that some bytes already
             // reached the peer with no way to resync -- see
-            // bb_data_http_send_fn's return contract. Never retried; the
-            // frame is left in the queue (irrelevant -- the client is
-            // about to be released, which destroys the queue too).
-            bb_log_w(TAG, "send failed fatally for key '%s' (client=%p): %d, aborting client",
-                    resolve_outbound_key(id), (void *)c, (int)send_rc);
+            // bb_data_http_send_fn's return contract. Never retried.
+            //
+            // DURABLE (B1-1465/B1-1466): this client is deliberately kept
+            // alive across a fatal send failure -- see
+            // bb_data_http_client_cfg_t's lifetime doc (bb_data_http.h) for
+            // the full contract. abort_fn is NOT resolved/invoked and
+            // bb_data_http_client_release() is NOT called; only
+            // send_fail_count resets. c->outbound is RETAINED, not
+            // drained: by the time a frame reaches this flush phase, the
+            // detect phase has already advanced c->push->cursor past it
+            // (EVENT) or cleared its slot's dirty bit (STATE) -- that
+            // bookkeeping means "queued, will be delivered". Retaining the
+            // queue is what makes that true, since a DURABLE client is
+            // never released and re-acquired; draining it would silently
+            // lose data -- the client would look caught up while the peer
+            // got nothing, and an unchanging STATE key would never be
+            // re-queued to cover the loss. This is NOT the store-and-
+            // forward feature B1-1432/design KB 1525 gate opt-in -- that is
+            // a separate persistence layer; this is simply not discarding
+            // work already accepted into the bounded per-client queue every
+            // consumer already has. If sends keep failing, the bound still
+            // applies -- growth is capped by
+            // CONFIG_BB_DATA_HTTP_OUTBOUND_CAPACITY / OUTBOUND_MAX_BYTES
+            // either way. EVENT-ring drain drops are counted and reachable
+            // via bb_data_http_client_dropped_count(); STATE-path eviction
+            // under a sustained-fatal DURABLE client is bounded but not
+            // currently surfaced through any public accessor -- a known
+            // observability gap, tracked separately. poll/push cursor/
+            // seen-gen state is untouched, so a reconnect resumes delivery
+            // from where it left off.
+            bb_log_w(TAG, "send failed fatally for key '%s' (client=%p): %d, %s",
+                    resolve_outbound_key(id), (void *)c, (int)send_rc,
+                    c->lifetime == BB_DATA_HTTP_LIFETIME_DURABLE ? "re-arming durable client" : "aborting client");
+
+            if (c->lifetime == BB_DATA_HTTP_LIFETIME_DURABLE) {
+                c->send_fail_count = 0;
+                break;
+            }
+
+            // EPHEMERAL (unchanged): the frame is left in the queue
+            // (irrelevant -- the client is about to be released, which
+            // destroys the queue too).
             bb_data_http_abort_fn abort_fn  = c->abort_fn  ? c->abort_fn  : s_abort_fn;
             void                 *abort_ctx = c->abort_fn  ? c->abort_ctx : s_abort_ctx;
             if (abort_fn) {
