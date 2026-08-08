@@ -1155,6 +1155,16 @@ void test_bb_ota_hooks_wire_meta_golden_matches_hand_literal(void);
 void test_bb_log_event_line_wire_meta_validates_against_desc(void);
 void test_bb_log_event_line_wire_meta_golden_matches_hand_literal(void);
 
+// Forward declarations from test_bb_log_event_line_wire_build.c
+// (B1-1443 PR-2 review round 2, finding 2)
+void test_bb_log_event_line_wire_build_foreign_wraps_opaque(void);
+void test_bb_log_event_line_wire_build_foreign_truncates_safely(void);
+void test_bb_log_event_line_wire_build_foreign_null_line_is_empty_msg(void);
+void test_bb_log_event_line_wire_build_foreign_zero_length_is_empty_msg(void);
+void test_bb_log_event_line_wire_build_foreign_null_snap_does_not_crash(void);
+void test_bb_log_event_line_wire_build_foreign_respects_line_len_shorter_than_strlen(void);
+void test_bb_log_event_line_wire_build_foreign_overwrites_stale_snap_contents(void);
+
 // Forward declarations from test_bb_ota_check_wire_meta_golden.c
 // (B1-1059 PR-2b-i-2)
 void test_bb_ota_check_wire_meta_validates_against_desc(void);
@@ -1352,9 +1362,6 @@ void test_bb_log_telem_route_wide_empty_tag_routes_wide(void);
 void test_bb_log_telem_route_wide_superstring_tag_routes_wide(void);
 void test_bb_log_telem_route_wide_prefix_tag_routes_wide(void);
 void test_bb_log_telem_route_wide_case_sensitive_mismatch_routes_wide(void);
-void test_bb_log_telem_should_route_wide_telem_tag_console_only_by_default(void);
-void test_bb_log_telem_should_route_wide_non_telem_tag_always_routes_wide(void);
-void test_bb_log_telem_should_route_wide_events_enabled_routes_telem_wide(void);
 void test_bb_log_telem_route_set_toggles_runtime_gate(void);
 
 // Forward declarations from test_log_stream.c
@@ -6243,25 +6250,6 @@ void test_bb_bqueue_deadline_remaining_ms_past_deadline_is_expired(void);
 void test_bb_bqueue_validate_cfg_null_returns_invalid_arg(void);
 void test_bb_bqueue_validate_cfg_valid_returns_ok(void);
 
-// Forward declarations from test_bb_log_line_parse.c
-void test_bb_log_line_parse_info(void);
-void test_bb_log_line_parse_warning(void);
-void test_bb_log_line_parse_error(void);
-void test_bb_log_line_parse_debug(void);
-void test_bb_log_line_parse_verbose(void);
-void test_bb_log_line_parse_ansi_prefix(void);
-void test_bb_log_line_parse_malformed_level(void);
-void test_bb_log_line_parse_no_paren(void);
-void test_bb_log_line_parse_no_colon_space(void);
-void test_bb_log_line_parse_empty_line(void);
-void test_bb_log_line_parse_null_line(void);
-void test_bb_log_line_parse_strips_newline(void);
-void test_bb_log_line_parse_strips_crlf(void);
-void test_bb_log_line_parse_msg_truncation(void);
-void test_bb_log_line_parse_tag_truncation(void);
-void test_bb_log_line_parse_colon_in_msg(void);
-void test_bb_log_line_parse_zero_cap(void);
-
 // Forward declarations from test_bb_attrs.c
 void test_bb_attrs_container_of_round_trip(void);
 void test_bb_attrs_delivery_class_constants(void);
@@ -6684,9 +6672,6 @@ int main(void) {
     RUN_TEST(test_bb_log_telem_route_wide_superstring_tag_routes_wide);
     RUN_TEST(test_bb_log_telem_route_wide_prefix_tag_routes_wide);
     RUN_TEST(test_bb_log_telem_route_wide_case_sensitive_mismatch_routes_wide);
-    RUN_TEST(test_bb_log_telem_should_route_wide_telem_tag_console_only_by_default);
-    RUN_TEST(test_bb_log_telem_should_route_wide_non_telem_tag_always_routes_wide);
-    RUN_TEST(test_bb_log_telem_should_route_wide_events_enabled_routes_telem_wide);
     RUN_TEST(test_bb_log_telem_route_set_toggles_runtime_gate);
 
     // Log stream tests
@@ -11198,25 +11183,6 @@ int main(void) {
     RUN_TEST(test_bb_bqueue_validate_cfg_null_returns_invalid_arg);
     RUN_TEST(test_bb_bqueue_validate_cfg_valid_returns_ok);
 
-    // bb_log_event parser
-    RUN_TEST(test_bb_log_line_parse_info);
-    RUN_TEST(test_bb_log_line_parse_warning);
-    RUN_TEST(test_bb_log_line_parse_error);
-    RUN_TEST(test_bb_log_line_parse_debug);
-    RUN_TEST(test_bb_log_line_parse_verbose);
-    RUN_TEST(test_bb_log_line_parse_ansi_prefix);
-    RUN_TEST(test_bb_log_line_parse_malformed_level);
-    RUN_TEST(test_bb_log_line_parse_no_paren);
-    RUN_TEST(test_bb_log_line_parse_no_colon_space);
-    RUN_TEST(test_bb_log_line_parse_empty_line);
-    RUN_TEST(test_bb_log_line_parse_null_line);
-    RUN_TEST(test_bb_log_line_parse_strips_newline);
-    RUN_TEST(test_bb_log_line_parse_strips_crlf);
-    RUN_TEST(test_bb_log_line_parse_msg_truncation);
-    RUN_TEST(test_bb_log_line_parse_tag_truncation);
-    RUN_TEST(test_bb_log_line_parse_colon_in_msg);
-    RUN_TEST(test_bb_log_line_parse_zero_cap);
-
     // bb_mdns_cache pure key-format + result-validity test seam
     RUN_TEST(test_bb_mdns_cache_build_key_default_prefix);
     RUN_TEST(test_bb_mdns_cache_build_key_empty_prefix_defaults);
@@ -11955,6 +11921,13 @@ int main(void) {
     RUN_TEST(test_bb_ota_hooks_wire_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_log_event_line_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_log_event_line_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_log_event_line_wire_build_foreign_wraps_opaque);
+    RUN_TEST(test_bb_log_event_line_wire_build_foreign_truncates_safely);
+    RUN_TEST(test_bb_log_event_line_wire_build_foreign_null_line_is_empty_msg);
+    RUN_TEST(test_bb_log_event_line_wire_build_foreign_zero_length_is_empty_msg);
+    RUN_TEST(test_bb_log_event_line_wire_build_foreign_null_snap_does_not_crash);
+    RUN_TEST(test_bb_log_event_line_wire_build_foreign_respects_line_len_shorter_than_strlen);
+    RUN_TEST(test_bb_log_event_line_wire_build_foreign_overwrites_stale_snap_contents);
     RUN_TEST(test_bb_ota_check_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_ota_check_wire_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_diag_boot_wire_meta_validates_against_desc);

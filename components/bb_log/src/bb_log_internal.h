@@ -14,7 +14,8 @@ void _bb_log_level_set_backend(const char *tag, bb_log_level_t level);
  * testable (components/bb_log/src/bb_log_level.c) -- used by bb_log_emit()
  * (B1-1443 PR-1) to build a console-shaped line without going through
  * ESP_LOGx/LOG_FORMAT. BB_LOG_LEVEL_NONE or any out-of-range value maps to
- * '?', mirroring bb_log_line_parse()'s own fallback level char.
+ * '?', the same fallback level char foreign/vendored lines get wrapped
+ * with opaque (bb_log_event.c's forwarder, B1-1443 PR-2).
  */
 char bb_log_level_console_letter(bb_log_level_t level);
 
@@ -84,45 +85,26 @@ bb_log_flush_wait_step_t bb_log_flush_wait_decide(bool take_succeeded,
 uint32_t bb_log_flush_remaining_ms(uint32_t budget_ms, uint32_t elapsed_ms);
 
 // ---------------------------------------------------------------------------
-// bb_log_line_parse() -- pure, portable, host-testable parser for the
-// console-format log line s_log_vprintf produces (components/bb_log/src/
-// bb_log_line_parse.c). Relocated here from bb_log_event (B1-831 PR-1) so
-// bb_log itself can reuse it in a later PR without bb_log depending back on
-// bb_log_event -- see the REQUIRES comment at the top of this component's
-// CMakeLists.txt (KB #708/#704) for why that dependency direction is fixed.
-// ---------------------------------------------------------------------------
-
-/**
- * Pure log-line parser. Compiled on both host and ESP-IDF (no platform deps).
- * Parses ESP-IDF console format: "<L> (<ts>) <tag>: <msg>"
- * Strips leading ANSI CSI escape sequences and trailing CR/LF.
- * On parse failure: level_out='?', tag_out="", msg_out=<trimmed line>.
- * msg is bounded to 160 bytes before copying into msg_out.
- */
-void bb_log_line_parse(const char *line, size_t len,
-                       char *level_out,
-                       char *tag_out, size_t tag_cap,
-                       char *msg_out, size_t msg_cap);
-
-// ---------------------------------------------------------------------------
 // bb_log_telem_route_wide() -- pure, portable, host-testable TELEM
 // wide-routing decision core (components/bb_log/src/bb_log_telem_route.c).
 // B1-831 PR-2 shipped the knobs + this decision function, no call site.
-// B1-831 PR-3 wires bb_log_telem_should_route_wide() into s_log_vprintf
-// (platform/espidf/bb_log/bb_log.c) so a TELEM-tagged line can stay
-// console-only instead of also fanning out to the wide sinks: the
+// B1-831 PR-3 wired a since-removed bb_log_telem_should_route_wide() wrapper
+// into s_log_vprintf so a TELEM-tagged line could stay console-only instead
+// of also fanning out to the wide sinks. B1-1443 PR-2 deleted that wrapper
+// (it depended on bb_log_line_parse(), also deleted): s_log_vprintf now only
+// ever sees FOREIGN/vendored ESP_LOGx output (our own bb_log_e/w/i/d/v calls
+// bypass it entirely via bb_log_emit(), B1-1443 PR-1), which is wrapped
+// opaque with no parsed tag -- so the TELEM gate can never apply to it and
+// s_log_vprintf routes every foreign line wide unconditionally. This
+// decision core is still called directly by bb_log_emit() for OUR OWN
+// lines, which carry a real tag natively (no parse needed): the
 // bb_log_event forwarder queue (the live GET /api/events?topic=log
-// consumer) and the optional UDP mirror (CONFIG_BB_LOG_UDP_SINK) -- both
-// are gated on the same route_wide decision in s_log_vprintf. The console
-// writer and the optional bb_diag tap are NEVER gated -- every line always
-// reaches them. (The SSE ring this comment used to also mention was
-// removed, B1-1409 -- it had zero in-tree callers and no live consumer.)
+// consumer) and the optional UDP mirror (CONFIG_BB_LOG_UDP_SINK) are gated
+// on that route_wide decision. The console writer and the optional bb_diag
+// tap are NEVER gated -- every line always reaches them. (The SSE ring this
+// comment used to also mention was removed, B1-1409 -- it had zero in-tree
+// callers and no live consumer.)
 // ---------------------------------------------------------------------------
-
-// Tag buffer capacity for bb_log_telem_should_route_wide()'s internal parse
-// -- mirrors bb_log_event's own forwarder tag[48] (platform/espidf/
-// bb_log_event/bb_log_event.c).
-#define BB_LOG_TELEM_TAG_PARSE_CAP 48
 
 /**
  * Should this log line also be routed to the wide sinks (ring buffer,
@@ -163,17 +145,6 @@ void bb_log_telem_route_set(bool route_events_enabled);
  */
 bool bb_log_telem_route_get(void);
 
-/**
- * Should this already-formatted console log line (as s_log_vprintf produces
- * it: "<L> (<ts>) <tag>: <msg>") also route wide, using the CURRENT runtime
- * gate (bb_log_telem_route_get())? Parses just the tag out of `line`
- * (bb_log_line_parse, msg/level discarded) and defers the actual decision to
- * bb_log_telem_route_wide(). This is the single function the s_log_vprintf
- * call site uses -- host tests exercise the exact same path via
- * bb_log_telem_route_set() to drive the runtime gate.
- */
-bool bb_log_telem_should_route_wide(const char *line, size_t len);
-
 // ---------------------------------------------------------------------------
 // bb_log_event forwarder queue item (B1-1443 PR-1) -- the single item type
 // for the queue bb_log_event_set_queue() installs (below, ESP-IDF only),
@@ -183,9 +154,9 @@ bool bb_log_telem_should_route_wide(const char *line, size_t len);
 // (platform/espidf/bb_log_event/bb_log_event.c s_forwarder_task) branches on
 // `structured`:
 //   - false (foreign): `line`/`len` hold an already-formatted, possibly
-//     ANSI-colored console line ("<L> (<ts>) <tag>: <msg>") -- the forwarder
-//     still runs it through bb_log_line_parse(), byte-for-byte the same as
-//     before this struct existed. `level`/`tag`/`ts_ms` are unused.
+//     ANSI-colored console line ("<L> (<ts>) <tag>: <msg>") -- B1-1443 PR-2:
+//     the forwarder never parses it. It's wrapped opaque instead (level="?",
+//     tag="", msg=the raw line, truncated). `level`/`tag`/`ts_ms` are unused.
 //   - true (ours): `level`, `tag`, `ts_ms`, and `line`/`len` (holding just
 //     the formatted MESSAGE text, no console decoration) are the real
 //     fields bb_log_emit() built at the call site -- no parsing, no

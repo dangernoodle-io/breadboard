@@ -199,21 +199,27 @@ static int s_log_vprintf(const char *fmt, va_list args)
         s_writer_dropped++;
     }
 
-    /* B1-831 PR-3: should this line also reach the wide sinks (the
-     * bb_log_event forwarder queue and the optional UDP mirror), or stay
-     * console-only? Gated by its own #if CONFIG_BB_LOG_TELEM_ROUTING --
-     * bb_log_telem_route.c (and therefore bb_log_telem_should_route_wide) is
-     * compiled OUT of the SRCS list entirely when the knob is off
-     * (components/bb_log/CMakeLists.txt), so an unguarded call here would
-     * fail to link on a board that disables it. When the gate is compiled
-     * out, routing is unconditionally wide -- identical to pre-B1-831
-     * behavior. The console writer (step 1) and the bb_diag tap (step 2) are
-     * NEVER gated -- every line always reaches them regardless of route_wide. */
-#if CONFIG_BB_LOG_TELEM_ROUTING
-    bool route_wide = bb_log_telem_should_route_wide(msg.line, msg.len);
-#else
+    /* B1-1443 PR-2: this call site only ever sees FOREIGN/vendored ESP_LOGx
+     * output now -- our own bb_log_e/w/i/d/v calls bypass s_log_vprintf
+     * entirely via bb_log_emit() (B1-1443 PR-1). Foreign lines are wrapped
+     * opaque downstream (no parse, no extracted tag -- see bb_log_event.c's
+     * forwarder), so the TELEM console-only gate (bb_log_telem_route_wide(),
+     * bb_log_internal.h) can never apply to them: a tag-less line always
+     * routes wide, regardless of CONFIG_BB_LOG_TELEM_ROUTE_EVENTS. The TELEM
+     * gate still applies to OUR OWN lines, via bb_log_emit()'s own direct
+     * bb_log_telem_route_wide() call below. The console writer (step 1) and
+     * the bb_diag tap (step 2) are NEVER gated -- every line always reaches
+     * them regardless of route_wide.
+     *
+     * `route_wide` is DELIBERATELY kept as a variable here, not inlined as
+     * a literal `true` at each of its two guard sites below (steps 3/4) --
+     * it is a compile-time constant today (foreign lines always route wide
+     * by design, as above), but keeping the same name/shape as
+     * bb_log_emit()'s real conditional `route_wide` (which genuinely varies
+     * per call) is purely for symmetry between the two producers'
+     * near-identical fan-out code. This is vestigial by design, not a bug or
+     * dead code left behind by accident. */
     bool route_wide = true;
-#endif
 
     /* 2. Notify the optional tap (e.g. bb_diag panic mirror) — unaffected by
      *    TELEM routing, same as the console writer. */
@@ -222,11 +228,10 @@ static int s_log_vprintf(const char *fmt, va_list args)
 
     /* 3. Enqueue for bb_log_event forwarder — non-blocking, drop on full.
      *    s_event_q is NULL until bb_log_event_set_queue() is called, so this
-     *    step is free until the forwarder is initialized. B1-1443 PR-1:
-     *    this line originated from ESP_LOGx (foreign/vendored output, or a
-     *    bb_log_* call before this PR's macro rewrite reached it) -- wrap
-     *    the already-formatted console text as structured=false so the
-     *    forwarder still runs it through bb_log_line_parse(), unchanged. */
+     *    step is free until the forwarder is initialized. B1-1443 PR-2: this
+     *    line always originates from foreign/vendored ESP_LOGx output now --
+     *    wrap the already-formatted console text as structured=false; the
+     *    forwarder wraps it opaque (no parse), see bb_log_event.c. */
     QueueHandle_t eq = s_event_q;
     if (route_wide && eq) {
         bb_log_event_msg_t emsg = { .structured = false };
@@ -326,10 +331,11 @@ void bb_log_emit(bb_log_level_t bb_level, const char *tag, const char *fmt, ...)
     bb_log_stream_tap_fn tap = atomic_load(&s_tap);
     if (tap) tap(line_msg.line, line_msg.len);
 
-    // Same TELEM wide-routing decision s_log_vprintf makes -- the tag is
-    // already known here, so no re-parse of the console line is needed
-    // (bb_log_telem_route_wide is the pure decision core
-    // bb_log_telem_should_route_wide itself defers to after parsing).
+    // TELEM wide-routing decision for OUR OWN lines -- the tag is already
+    // known here (the call site's own argument), so no parse is ever
+    // needed. s_log_vprintf's foreign-line path can no longer make this
+    // same decision (B1-1443 PR-2 removed its tag source); it always
+    // routes wide instead.
 #if CONFIG_BB_LOG_TELEM_ROUTING
     bool route_wide = bb_log_telem_route_wide(bb_log_telem_route_get(), tag);
 #else

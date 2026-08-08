@@ -22,6 +22,7 @@
 
 #include "bb_serialize.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -89,6 +90,43 @@ extern const bb_serialize_desc_meta_t bb_log_event_line_wire_meta;
 // bb_serialize_json_bound(&bb_log_event_line_wire_desc) call at init time
 // as a belt-and-suspenders guard against drift.
 #define BB_LOG_EVENT_LINE_JSON_MAX 1431
+
+// ---------------------------------------------------------------------------
+// bb_log_event_line_wire_build_foreign() -- B1-1443 PR-2 pure record-
+// construction helper for s_forwarder_task's foreign/vendored-line branch
+// (platform/espidf/bb_log_event/bb_log_event.c). Compiled on both host and
+// ESP-IDF (no platform headers, no I/O), same testability convention
+// bb_log_emit_build.c's pair of helpers already follow for the structured
+// side (components/bb_log/src/bb_log_emit_build.c, rules/embedded.md:
+// "Factor decode/classify/compute logic into pure functions... compiled for
+// host + device"). s_forwarder_task itself stays a thin ESP-IDF-only
+// wrapper: it drains the queue, stamps the drain-time ts, and calls this to
+// build the wire snap it renders through bb_log_event_line_wire_desc.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a bb_log_event_line_wire_t snap for a foreign/vendored ESP_LOGx
+ * line -- the opaque wrap B1-1443 PR-2 introduced: no re-parse is ever
+ * attempted, so level is always the '?' fallback letter (bb_log_internal.h's
+ * BB_LOG_LEVEL_NONE/out-of-range mapping) and tag is always empty. `line`
+ * (the already-formatted, possibly ANSI-colored console line) is copied into
+ * snap->msg verbatim, truncated to sizeof(snap->msg) - 1 bytes and always
+ * NUL-terminated -- no ANSI stripping, no CRLF trimming, no field
+ * extraction.
+ *
+ * `line_len` invariant: the caller must not pass a length exceeding
+ * strlen(line) -- enforced defensively via strnlen(line, line_len), mirroring
+ * bb_log_emit_build_line()'s/bb_log_emit_build_event_msg()'s identical
+ * guard (components/bb_log/src/bb_log_internal.h) -- so a stale/oversized
+ * line_len reads at most strlen(line) bytes rather than walking past the
+ * caller's buffer.
+ *
+ * `snap` is fully overwritten (memset first) -- every field the caller had
+ * set before this call is discarded. No-op if snap is NULL. `line` NULL is
+ * treated as a zero-length line (snap->msg becomes "").
+ */
+void bb_log_event_line_wire_build_foreign(bb_log_event_line_wire_t *snap, int64_t ts,
+                                           const char *line, size_t line_len);
 
 // ---------------------------------------------------------------------------
 // SSE topic schema for "log" (B1-1059 SSE batch PR-3). Portable (no
