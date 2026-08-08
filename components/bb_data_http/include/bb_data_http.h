@@ -68,6 +68,12 @@ typedef struct bb_data_http_client bb_data_http_client_t;
 // ---------------------------------------------------------------------------
 // Replay kind (B1-1032) -- both STATE (coalesced dirty-mask) and EVENT
 // (shared ring + per-client cursor) are fully implemented.
+//
+// This enum is the MECHANICAL replay-semantics split only. For which kind to
+// pick for a given binding (B1-1441): a binding may be EVENT-kind only if its
+// information is NOT reconstructible from STATE -- most event-shaped things
+// fold into a monotonic counter + a latest-value field instead. Full rule +
+// worked examples: wiki Conventions#bb_data-binding-kind-event-vs-state-reconstructibility-rule
 // ---------------------------------------------------------------------------
 typedef enum {
     BB_DATA_HTTP_STATE = 0,
