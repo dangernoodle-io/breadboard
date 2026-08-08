@@ -283,7 +283,4 @@ void bb_log_emit_build_event_msg(bb_log_event_msg_t *emsg, char level_ch, const 
 // Called once by bb_log_event.c during its init. Pass NULL to disable.
 // Non-blocking enqueue (drop-on-full) so the IDF log mutex is never held long.
 void bb_log_event_set_queue(QueueHandle_t q);
-
-// Retrieve dropped-enqueue counter for the event forwarder queue.
-uint32_t bb_log_event_dropped(void);
 #endif

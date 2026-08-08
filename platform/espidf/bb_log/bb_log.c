@@ -67,7 +67,6 @@ typedef struct {
 static vprintf_like_t s_orig_vprintf = NULL;
 static bool s_ready = false;
 static bool s_initialized = false;
-static uint32_t s_dropped_lines = 0;
 
 static QueueHandle_t s_writer_q = NULL;
 static TaskHandle_t  s_writer_task = NULL;
@@ -176,11 +175,6 @@ static volatile uint32_t s_event_dropped = 0;
 void bb_log_event_set_queue(QueueHandle_t q)
 {
     s_event_q = q;
-}
-
-uint32_t bb_log_event_dropped(void)
-{
-    return s_event_dropped;
 }
 
 static int s_log_vprintf(const char *fmt, va_list args)
@@ -543,11 +537,11 @@ bb_err_t bb_log_flush(void)
 
 /**
  * Count of bb_log_flush() calls that gave up (BB_ERR_TIMEOUT) before their
- * own marker was confirmed drained -- mirrors bb_log_stream_dropped_lines().
- * A nonzero count means at least one flush caller can no longer be sure its
- * preceding log lines reached the wire before it returned (the exact
- * forensic gap bb_log_flush exists to close) -- surfaced here rather than
- * only discarded at call sites like the boot banner's.
+ * own marker was confirmed drained. A nonzero count means at least one
+ * flush caller can no longer be sure its preceding log lines reached the
+ * wire before it returned (the exact forensic gap bb_log_flush exists to
+ * close) -- surfaced here rather than only discarded at call sites like the
+ * boot banner's.
  */
 uint32_t bb_log_flush_timeouts(void)
 {
@@ -559,9 +553,21 @@ bool bb_log_stream_ready(void)
     return s_ready;
 }
 
-uint32_t bb_log_stream_dropped_lines(void)
+void bb_log_drop_stats_get(bb_log_drop_stats_t *out)
 {
-    return s_dropped_lines;
+    if (!out) return;
+
+    // Each field is read exactly once from its own volatile counter -- see
+    // bb_log_drop_stats_t's doc comment in bb_log.h for why this is
+    // per-field atomic but not a mutually consistent cross-field snapshot.
+    out->writer_dropped = s_writer_dropped;
+    out->event_dropped  = s_event_dropped;
+#if CONFIG_BB_LOG_UDP_SINK
+    out->udp_dropped = s_udp_dropped;
+#else
+    out->udp_dropped = 0;
+#endif
+    out->flush_timeouts = s_flush_timeouts;
 }
 
 #elif !defined(ARDUINO)
@@ -574,5 +580,17 @@ bb_err_t bb_log_flush(void)
 {
     fflush(stdout);
     return BB_OK;
+}
+
+// Host has no async writer/UDP/event forwarder queue or flush-timeout
+// mechanism (see bb_log_flush() above) -- every field always reads 0.
+void bb_log_drop_stats_get(bb_log_drop_stats_t *out)
+{
+    if (!out) return;
+
+    out->writer_dropped = 0;
+    out->udp_dropped     = 0;
+    out->event_dropped   = 0;
+    out->flush_timeouts  = 0;
 }
 #endif /* ESP_PLATFORM */

@@ -402,6 +402,38 @@ void test_bb_log_emit_build_line_has_no_ansi_escape_bytes(void) {
     }
 }
 
+// ============================================================================
+// bb_log_drop_stats_get() (B1-1444 PR-1) -- the four real counters
+// (writer/udp/event drops, flush timeouts) live entirely inside
+// `#ifdef ESP_PLATFORM` in platform/espidf/bb_log/bb_log.c (FreeRTOS
+// queues/semaphores), which the native host env never compiles (ESP_PLATFORM
+// is never defined here) -- host gets its own always-zero implementation
+// (see bb_log.c's non-ESP_PLATFORM branch). None of the four fields'
+// increment paths are reachable from a host test as a result; only the
+// NULL-tolerance contract is host-testable.
+// ============================================================================
+
+void test_bb_log_drop_stats_get_null_out_is_noop(void) {
+    bb_log_drop_stats_get(NULL);
+    TEST_PASS();
+}
+
+// Not a substitute for testing any field's increment path (host has none to
+// force -- see the block comment above) -- this exercises the host stub's
+// only real behavior (the four field assignments) for line coverage, and
+// pins the documented host contract that every field always reads 0 there.
+void test_bb_log_drop_stats_get_all_zero_on_host(void) {
+    bb_log_drop_stats_t stats;
+    memset(&stats, 0xAA, sizeof(stats));
+
+    bb_log_drop_stats_get(&stats);
+
+    TEST_ASSERT_EQUAL_UINT32(0, stats.writer_dropped);
+    TEST_ASSERT_EQUAL_UINT32(0, stats.udp_dropped);
+    TEST_ASSERT_EQUAL_UINT32(0, stats.event_dropped);
+    TEST_ASSERT_EQUAL_UINT32(0, stats.flush_timeouts);
+}
+
 void test_bb_log_emit_build_event_msg_msg_truncates(void) {
     bb_log_event_msg_t emsg;
     char long_msg[BB_LOG_EVENT_MSG_LINE_MAX + 64];

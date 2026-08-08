@@ -30,8 +30,8 @@ wire surface lives under `components/bb_log_event/include/bb_log_event_wire.h`:
 `bb_log_event_wire_t` / `bb_log_event_wire_desc` (the `bb_serialize_desc_t`
 SSOT for the "log" key) and `bb_log_event_gather()` (ESP-IDF only -- copies
 the most recently forwarded payload into the caller's `bb_data_gather_fn`
-scratch). Consumers also reach `bb_log_event_dropped()` (declared in
-`bb_log.h`) for the forwarder's drop counter.
+scratch). Consumers also reach the forwarder's drop counter via
+`bb_log_drop_stats_get()`'s `event_dropped` field (declared in `bb_log.h`).
 
 ## Config knobs
 
