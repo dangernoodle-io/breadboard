@@ -744,7 +744,9 @@ void bb_data_http_push_pump(void);
 // bb_data_http_reset_for_test()). A render_fn that fails leaves the
 // offending key's dirty bit set for a retry rather than dropping the update
 // (see bb_data_http_sweep_step() above) -- this counter is what makes a
-// persistently-failing render_fn observable instead of silently stuck.
+// persistently-failing render_fn observable instead of silently stuck. This
+// counter wraps to 0, never saturates (size_t) — consumers should treat
+// successive reads as deltas, not as an absolute lifetime total.
 size_t bb_data_http_render_fail_count(void);
 
 // Diagnostics: cumulative count of push_pump()'s COMMIT-step discards --

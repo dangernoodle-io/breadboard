@@ -58,6 +58,12 @@
 # gather -- see bb_diag_tasks_get_wire_priv.h). The wire file itself
 # carries no FreeRTOS/ESP-IDF symbols (portable); only tasks_get_handler in
 # bb_diag_http_routes.c below touches FreeRTOS/bb_task_registry directly.
+# bb_diag_drops_wire.c (B1-1444 PR3): same always-built, host-testable
+# posture -- GET /api/diag/drops' bb_serialize descriptor (unconditional,
+# six BB_TYPE_I64 fields, no Kconfig fork -- see bb_diag_drops_wire_priv.h).
+# Sources bb_log_drop_stats_get() (bb_log, already a PRIV_REQUIRES below)
+# and bb_data_http_render_fail_count()/bb_data_http_stale_discard_count()
+# (bb_data_http, already a PRIV_REQUIRES below) -- adds no new dep edge.
 set(_diag_http_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_http_boot_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_storage_http_delete_wire.c"
@@ -65,6 +71,7 @@ set(_diag_http_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_panic_get_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_sockets_get_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_tasks_get_wire.c"
+    "${CMAKE_CURRENT_LIST_DIR}/bb_diag_drops_wire.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_storage_http_routes.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_log_http.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag_http/bb_diag_http_routes.c"

@@ -14,6 +14,7 @@
 #include "bb_diag_boot_wire.h"
 #include "bb_diag_event_priv.h"
 #include "../../../components/bb_diag_http/bb_diag_http_boot_wire_priv.h"
+#include "../../../components/bb_diag_http/bb_diag_drops_wire_priv.h"
 #include "../../../components/bb_diag_http/bb_diag_heap_check_wire_priv.h"
 #include "../../../components/bb_diag_http/bb_diag_panic_get_wire_priv.h"
 #include "../../../components/bb_diag_http/bb_diag_sockets_get_wire_priv.h"
@@ -659,6 +660,67 @@ static const bb_route_t s_heap_check_get_route = {
     .handler   = heap_check_get_handler,
 };
 
+// --- drops ---
+
+// GET /api/diag/drops — one place to see every drop/failure counter in the
+// log + egress path (B1-1444 PR3): bb_log's writer/UDP/event queue drops and
+// flush timeouts (bb_log_drop_stats_get()), plus bb_data_http's render_fn
+// failures and push_pump() COMMIT-step discards
+// (bb_data_http_render_fail_count()/bb_data_http_stale_discard_count()).
+// Driven via the bb_serialize descriptor (mirrors heap_check_get_handler's
+// pattern above) rather than hand-streamed cJSON -- see
+// bb_diag_drops_wire_priv.h for the six-field shape.
+static bb_err_t drops_get_handler(bb_http_request_t *req)
+{
+    bb_log_drop_stats_t log_stats;
+    bb_log_drop_stats_get(&log_stats);
+
+    bb_diag_drops_wire_t snap;
+    bb_diag_drops_wire_fill(&snap, log_stats.writer_dropped, log_stats.udp_dropped,
+                             log_stats.event_dropped, log_stats.flush_timeouts,
+                             bb_data_http_render_fail_count(), bb_data_http_stale_discard_count());
+
+    return bb_http_serialize_stream(req, &bb_diag_drops_wire_desc, &snap);
+}
+
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+
+static bb_route_response_t s_drops_get_responses[] = {
+    { 200, "application/json", NULL /* patched at init */,
+      "cumulative wrapping counters (uint32_t/size_t, never saturate -- "
+      "consumers should treat successive reads as deltas, not an absolute "
+      "lifetime total), not rates: writer_dropped/udp_dropped/event_dropped/"
+      "flush_timeouts from bb_log_drop_stats_get(); render_fail from "
+      "bb_data_http_render_fail_count(); stale_discard from "
+      "bb_data_http_stale_discard_count()" },
+    { 0 },
+};
+
+#else
+
+static const bb_route_response_t s_drops_get_responses[] = {
+    { 200, "application/json",
+      BB_DIAG_DROPS_SCHEMA_LITERAL,
+      "cumulative wrapping counters (uint32_t/size_t, never saturate -- "
+      "consumers should treat successive reads as deltas, not an absolute "
+      "lifetime total), not rates: writer_dropped/udp_dropped/event_dropped/"
+      "flush_timeouts from bb_log_drop_stats_get(); render_fail from "
+      "bb_data_http_render_fail_count(); stale_discard from "
+      "bb_data_http_stale_discard_count()" },
+    { 0 },
+};
+
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+static const bb_route_t s_drops_get_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/drops",
+    .tag       = "diag",
+    .summary   = "Cumulative wrapping drop/failure counters across the log and egress path",
+    .responses = s_drops_get_responses,
+    .handler   = drops_get_handler,
+};
+
 // --- tasks ---
 // Requires CONFIG_FREERTOS_USE_TRACE_FACILITY=y (provides uxTaskGetSystemState).
 
@@ -1047,6 +1109,21 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
     err = bb_http_register_described_route(server, &s_heap_check_get_route);
+    if (err != BB_OK) return err;
+
+    // Doc-only schema compose (config ON only) -- see the panic-get site
+    // above for the full rationale (mirrored here): degrade and continue on
+    // a compose failure, leaving this response's schema unpatched (NULL).
+#if defined(CONFIG_BB_OPENAPI_RUNTIME_META)
+    bb_err_t drops_schema_rc = bb_diag_drops_wire_ensure_schema_patched();
+    if (drops_schema_rc != BB_OK) {
+        bb_log_w(TAG, "diag drops schema compose failed: %d", (int)drops_schema_rc);
+    } else {
+        s_drops_get_responses[0].schema = bb_diag_drops_wire_get_schema();
+    }
+#endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
+
+    err = bb_http_register_described_route(server, &s_drops_get_route);
     if (err != BB_OK) return err;
 
 #if CONFIG_FREERTOS_USE_TRACE_FACILITY

@@ -1093,6 +1093,11 @@ void test_bb_storage_http_delete_wire_meta_golden_matches_hand_literal(void);
 void test_bb_diag_heap_check_wire_meta_validates_against_desc(void);
 void test_bb_diag_heap_check_wire_meta_golden_matches_hand_literal(void);
 
+// Forward declarations from test_bb_diag_drops_wire_meta_golden.c
+// (B1-1444 PR3)
+void test_bb_diag_drops_wire_meta_validates_against_desc(void);
+void test_bb_diag_drops_wire_meta_golden_matches_hand_literal(void);
+
 // Forward declarations from test_bb_diag_panic_get_wire_meta_golden.c
 // (B1-1188 diag conversion)
 void test_bb_diag_panic_get_wire_meta_validates_against_desc(void);
@@ -1125,6 +1130,10 @@ void test_bb_diag_heap_check_wire_schema_default_matches_literal(void);
 void test_bb_diag_tasks_get_wire_schema_default_matches_literal(void);
 void test_bb_diag_sockets_get_wire_schema_default_matches_literal(void);
 void test_bb_storage_http_delete_wire_schema_default_matches_literal(void);
+
+// Forward declaration from test_bb_diag_drops_wire_schema_default.c
+// (B1-1444 PR3)
+void test_bb_diag_drops_wire_schema_default_matches_literal(void);
 
 // Forward declaration from test_bb_diag_http_boot_wire_schema_default.c
 // (B1-1059 emit boot) -- config-OFF byte-identity: GET /api/diag/boot's REST
@@ -1764,6 +1773,12 @@ void test_bb_storage_http_delete_wire_key_included_when_present(void);
 void test_bb_diag_heap_check_wire_expected_json_true(void);
 void test_bb_diag_heap_check_wire_expected_json_false(void);
 void test_bb_diag_heap_check_wire_fill_zero_inits(void);
+
+// Forward declarations from test_bb_diag_drops_wire.c
+void test_bb_diag_drops_wire_fill_maps_each_field(void);
+void test_bb_diag_drops_wire_expected_json(void);
+void test_bb_diag_drops_wire_expected_json_uint32_max(void);
+void test_bb_diag_drops_wire_fill_zero_inits(void);
 
 // Forward declarations from test_bb_diag_panic_get_wire.c
 void test_bb_diag_panic_get_wire_nothing_available(void);
@@ -7299,6 +7314,17 @@ int main(void) {
     RUN_TEST(test_bb_diag_heap_check_wire_meta_validates_against_desc);
     RUN_TEST(test_bb_diag_heap_check_wire_meta_golden_matches_hand_literal);
     RUN_TEST(test_bb_diag_heap_check_wire_schema_default_matches_literal);
+
+    // GET /api/diag/drops response emit (bb_serialize wire descriptor,
+    // B1-1444 PR3)
+    RUN_TEST(test_bb_diag_drops_wire_fill_maps_each_field);
+    RUN_TEST(test_bb_diag_drops_wire_expected_json);
+    RUN_TEST(test_bb_diag_drops_wire_expected_json_uint32_max);
+    RUN_TEST(test_bb_diag_drops_wire_fill_zero_inits);
+    RUN_TEST(test_bb_diag_drops_wire_meta_validates_against_desc);
+    RUN_TEST(test_bb_diag_drops_wire_meta_golden_matches_hand_literal);
+    RUN_TEST(test_bb_diag_drops_wire_schema_default_matches_literal);
+
     RUN_TEST(test_bb_diag_panic_get_wire_nothing_available);
     RUN_TEST(test_bb_diag_panic_get_wire_available_only);
     RUN_TEST(test_bb_diag_panic_get_wire_available_with_log_tail);
