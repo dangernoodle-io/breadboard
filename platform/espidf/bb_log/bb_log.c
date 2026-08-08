@@ -23,7 +23,9 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "bb_task.h"
+#include "bb_clock.h"
 #include <stdatomic.h>
+#include <string.h>
 
 // bb_log_flush()'s wait-loop decision core (sequence-number/stale-give
 // protocol) -- pure and portable, see bb_log_internal.h. Only the FreeRTOS
@@ -220,10 +222,19 @@ static int s_log_vprintf(const char *fmt, va_list args)
 
     /* 3. Enqueue for bb_log_event forwarder — non-blocking, drop on full.
      *    s_event_q is NULL until bb_log_event_set_queue() is called, so this
-     *    step is free until the forwarder is initialized. */
+     *    step is free until the forwarder is initialized. B1-1443 PR-1:
+     *    this line originated from ESP_LOGx (foreign/vendored output, or a
+     *    bb_log_* call before this PR's macro rewrite reached it) -- wrap
+     *    the already-formatted console text as structured=false so the
+     *    forwarder still runs it through bb_log_line_parse(), unchanged. */
     QueueHandle_t eq = s_event_q;
-    if (route_wide && eq && xQueueSend(eq, &msg, 0) != pdTRUE) {
-        s_event_dropped++;
+    if (route_wide && eq) {
+        bb_log_event_msg_t emsg = { .structured = false };
+        emsg.len = (msg.len < sizeof(emsg.line)) ? msg.len : sizeof(emsg.line) - 1;
+        memcpy(emsg.line, msg.line, emsg.len);
+        if (xQueueSend(eq, &emsg, 0) != pdTRUE) {
+            s_event_dropped++;
+        }
     }
 
 #if CONFIG_BB_LOG_UDP_SINK
@@ -237,6 +248,113 @@ static int s_log_vprintf(const char *fmt, va_list args)
 #endif
 
     return n;
+}
+
+// Message-text-only cap for bb_log_emit()'s single bb_log_stream_format()
+// call -- mirrors bb_log_event's own forwarder msgbuf[168] ("160 + some
+// margin for safe_copy", platform/espidf/bb_log_event/bb_log_event.c). This
+// is deliberately smaller than LOG_STREAM_LINE_MAX (192): the console line
+// built from it still has to fit decoration (level/ts/tag) in that same
+// 192-byte buffer, so a generous-but-bounded message cap here leaves room.
+#define LOG_EMIT_MSG_MAX 168
+
+/**
+ * B1-1443 PR-1 single producer for OUR OWN (bb_log_e/w/i/d/v) log lines --
+ * see the doc comment on the declaration in bb_log.h for the full design.
+ * Never called directly from below LOG_LOCAL_LEVEL / the per-tag runtime
+ * gate (see BB_LOG_X in bb_log.h) -- by the time this runs, both checks
+ * have already passed.
+ */
+void bb_log_emit(bb_log_level_t bb_level, const char *tag, const char *fmt, ...)
+{
+    if (!tag) tag = "?";
+
+    // Stamp ts at the call site, not later in the forwarder task -- fixes
+    // the fidelity gap the old bb_log_event.c forwarder had (it stamped ts
+    // when it happened to drain the queue, not when the line was logged).
+    uint64_t ts_ms = bb_clock_now_ms64();
+    char level_ch = bb_log_level_console_letter(bb_level);
+
+    // Format the message exactly once; every consumer below reuses this
+    // buffer instead of re-formatting or re-parsing.
+    char msgbuf[LOG_EMIT_MSG_MAX];
+    va_list args;
+    va_start(args, fmt);
+    int n = bb_log_stream_format(msgbuf, sizeof(msgbuf), fmt, args);
+    va_end(args);
+    size_t msg_len = (n > 0) ? (size_t)n : 0;
+
+    // ---- 1. Console writer queue -- build a console-shaped line
+    //         ("L (ts) tag: msg\n"), the same shape ESP_LOGx's LOG_FORMAT()
+    //         has always produced, so console output is unaffected. Every
+    //         line always reaches this queue, regardless of TELEM routing.
+    log_writer_msg_t line_msg;
+    line_msg.is_flush_marker = false;
+    line_msg.len = bb_log_emit_build_line(line_msg.line, sizeof(line_msg.line),
+                                           level_ch, ts_ms, tag, msgbuf, msg_len);
+
+    if (s_writer_q) {
+        if (xQueueSend(s_writer_q, &line_msg, 0) != pdTRUE) {
+            s_writer_dropped++;
+        }
+    } else {
+        // Stream not yet initialized (early boot, before bb_log_stream_init
+        // runs) or its writer task failed to come up: print synchronously
+        // rather than silently dropping the line. Mirrors what a bb_log_*
+        // call issued this early got for free before this PR -- ESP-IDF's
+        // own default (pre-hook) vprintf, which writes straight to stdout.
+        // fflush() immediately, matching every other stdout write site in
+        // this file (s_writer_task_fn, s_log_vprintf's default backend,
+        // bb_log_flush) -- this fallback exists specifically so an early
+        // line isn't lost, which a missing flush would otherwise defeat if
+        // a crash follows shortly after.
+        fwrite(line_msg.line, 1, line_msg.len, stdout);
+        fflush(stdout);
+    }
+
+    // ---- 2. bb_diag panic tap -- unaffected by TELEM routing, same as the
+    //         console writer (mirrors s_log_vprintf's step 2). Called
+    //         unconditionally, gated only by the tap itself being NULL: the
+    //         only setter is bb_diag_panic_init() (bb_log_stream_set_tap(),
+    //         see bb_log.h), and that function calls bb_log_stream_init()
+    //         itself, idempotently, immediately before installing the tap
+    //         (platform/espidf/bb_diag/bb_diag_panic.c) -- so a non-NULL tap
+    //         here can never be observed before the writer-queue state step
+    //         1 above depends on has already settled, regardless of which
+    //         order a composition root's generated init list happens to run
+    //         bb_log_stream_init() and bb_diag_panic_init() in.
+    bb_log_stream_tap_fn tap = atomic_load(&s_tap);
+    if (tap) tap(line_msg.line, line_msg.len);
+
+    // Same TELEM wide-routing decision s_log_vprintf makes -- the tag is
+    // already known here, so no re-parse of the console line is needed
+    // (bb_log_telem_route_wide is the pure decision core
+    // bb_log_telem_should_route_wide itself defers to after parsing).
+#if CONFIG_BB_LOG_TELEM_ROUTING
+    bool route_wide = bb_log_telem_route_wide(bb_log_telem_route_get(), tag);
+#else
+    bool route_wide = true;
+#endif
+
+    // ---- 3. bb_log_event forwarder -- structured, no parse: the real
+    //         level/tag/msg/ts this call site already has, handed straight
+    //         to the same queue s_log_vprintf's step 3 feeds.
+    QueueHandle_t eq = s_event_q;
+    if (route_wide && eq) {
+        bb_log_event_msg_t emsg;
+        bb_log_emit_build_event_msg(&emsg, level_ch, tag, ts_ms, msgbuf, msg_len);
+        if (xQueueSend(eq, &emsg, 0) != pdTRUE) {
+            s_event_dropped++;
+        }
+    }
+
+#if CONFIG_BB_LOG_UDP_SINK
+    // ---- 4. UDP mirror -- same decorated console line as the writer
+    //         queue (step 1), gated by route_wide same as step 3.
+    if (route_wide && s_udp_enabled && s_udp_q && xQueueSend(s_udp_q, &line_msg, 0) != pdTRUE) {
+        s_udp_dropped++;
+    }
+#endif
 }
 
 #if CONFIG_BB_LOG_UDP_SINK

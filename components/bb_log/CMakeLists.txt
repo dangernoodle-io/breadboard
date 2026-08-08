@@ -4,7 +4,8 @@ set(_log_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log.c"
               "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_config.c"
               "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_flush_wait.c"
               "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_line_parse.c"
-              "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_secret.c")
+              "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_secret.c"
+              "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_emit_build.c")
 set(_log_reqs bb_core)
 # Core deps: genuinely referenced by the always-built sources (bb_log.c,
 # bb_log_level_backend.c, bb_log_level.c, bb_log_config.c,

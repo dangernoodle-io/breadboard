@@ -44,15 +44,14 @@
 #define LOG_EVENT_TASK_STACK   3072
 #define LOG_EVENT_TASK_PRIO    1    /* same as console writer — very low */
 
-#define LOG_STREAM_LINE_MAX    192  /* mirrors bb_log.c */
-
 static const char *TAG = "bb_log_event";
 
-typedef struct {
-    char   line[LOG_STREAM_LINE_MAX];
-    size_t len;
-} log_event_msg_t;
-
+// B1-1443 PR-1: the forwarder queue's item type is now the single
+// bb_log_internal.h-shared bb_log_event_msg_t (both s_log_vprintf and
+// bb_log_emit in platform/espidf/bb_log/bb_log.c enqueue onto it) -- see
+// that type's doc comment for the structured/foreign split. Replaces the
+// former private log_event_msg_t, which relied on a struct-prefix layout
+// match with bb_log.c's log_writer_msg_t rather than a shared type.
 static QueueHandle_t    s_q         = NULL;
 static TaskHandle_t     s_task      = NULL;
 
@@ -84,18 +83,32 @@ static char s_render_buf[BB_LOG_EVENT_LINE_JSON_MAX];
 static void s_forwarder_task(void *arg)
 {
     (void)arg;
-    log_event_msg_t msg;
+    bb_log_event_msg_t msg;
     char level;
-    char tag[48];
+    char tag[BB_LOG_EVENT_MSG_TAG_MAX];
     char msgbuf[168]; /* 160 + some margin for safe_copy */
+    uint64_t ts;
 
     for (;;) {
         if (xQueueReceive(s_q, &msg, portMAX_DELAY) != pdTRUE) continue;
 
-        bb_log_line_parse(msg.line, msg.len, &level, tag, sizeof(tag),
-                          msgbuf, sizeof(msgbuf));
-
-        uint64_t ts = bb_clock_now_ms64();
+        if (msg.structured) {
+            // B1-1443 PR-1: this line came from bb_log_emit() (our own
+            // bb_log_e/w/i/d/v calls) -- level/tag/msg/ts are the real
+            // fields the call site already had; no re-parse needed.
+            level = msg.level;
+            bb_strlcpy(tag, msg.tag, sizeof(tag));
+            bb_strlcpy(msgbuf, msg.line, sizeof(msgbuf));
+            ts = msg.ts_ms;
+        } else {
+            // Foreign/vendored ESP_LOGx output -- unchanged from before
+            // this PR: parse the already-formatted console text, and stamp
+            // ts at drain time (this path's own fidelity gap is PR-2 scope,
+            // not this one).
+            bb_log_line_parse(msg.line, msg.len, &level, tag, sizeof(tag),
+                              msgbuf, sizeof(msgbuf));
+            ts = bb_clock_now_ms64();
+        }
 
         bb_log_event_line_wire_t snap;
         memset(&snap, 0, sizeof(snap));
@@ -214,7 +227,7 @@ bb_err_t bb_log_event_init(bb_http_handle_t server)
     }
 #endif /* CONFIG_BB_OPENAPI_RUNTIME_META */
 
-    s_q = xQueueCreate(BB_LOG_EVENT_QUEUE_LEN, sizeof(log_event_msg_t));
+    s_q = xQueueCreate(BB_LOG_EVENT_QUEUE_LEN, sizeof(bb_log_event_msg_t));
     if (!s_q) {
         bb_log_e(TAG, "queue alloc failed");
         return ESP_ERR_NO_MEM;
