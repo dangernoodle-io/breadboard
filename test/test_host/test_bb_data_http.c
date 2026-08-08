@@ -2703,6 +2703,7 @@ void test_bb_data_http_for_test_helpers_defend_against_null_and_out_of_range(voi
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dropped_count(NULL));
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_event_cursor_for_test(NULL));
     TEST_ASSERT_FALSE(bb_data_http_client_pending_release_for_test(NULL));
+    TEST_ASSERT_FALSE(bb_data_http_client_warned_no_send_fn_for_test(NULL));  // B1-1452
     bb_data_http_client_request_release(NULL);  // no-op, must not crash
     // B1-1449: before init() (or after reset_for_test(), as here) the shared
     // EVENT ring does not exist yet -- the ring-not-created branch.
@@ -2931,6 +2932,169 @@ void test_bb_data_http_sweep_step_client_with_no_send_fn_override_uses_module_wi
     bb_data_http_sweep_step();
 
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+}
+
+// ---------------------------------------------------------------------------
+// No-send-seam guard (B1-1452): a client acquired with neither a per-client
+// send_fn NOR a module-wide default installed can never flush its outbound
+// queue -- see the flush loop's own doc (bb_data_http_common.c). A hard
+// reject at bb_data_http_client_acquire() time was considered and rejected
+// (see that comment): bb_data_http_set_send_fn() is deliberately decoupled
+// from client lifetime and several tests in THIS file (e.g.
+// test_bb_data_http_sweep_step_event_kind_key_without_render_fn_advances_gen
+// above) acquire a client before installing it. So the guard here is a
+// one-shot WARN plus a host-testable flag (warned_no_send_fn), not a reject
+// -- and it only fires once the client is ALSO holding queued frames it can
+// never send: a seamless client with an EMPTY outbound queue is the
+// legitimate delayed-install shape (see the EMPTY-queue no-warn test below,
+// and the flush loop's own doc) and must never warn on that path alone.
+// ---------------------------------------------------------------------------
+
+// A client that never gets either seam, but DOES accumulate a rendered frame
+// in `outbound` (never sent), flips the flush loop's one-shot flag true on
+// its first sweep -- proving the "silent forever" failure mode this ticket
+// is about, and that the guard actually observes it once there is something
+// stuck to observe.
+void test_bb_data_http_sweep_step_client_with_no_send_seam_and_queued_frames_warns_once(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+    fake_gen_set("k1", 1);
+
+    // No bb_data_http_host_install_send() call anywhere in this test -- the
+    // module-wide seam is never installed.
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
+    TEST_ASSERT_FALSE(bb_data_http_client_warned_no_send_fn_for_test(c));
+
+    bb_data_http_sweep_step();  // fresh-render-on-connect renders k1 into outbound, then flush finds no seam AND a queued frame
+
+    TEST_ASSERT_TRUE(bb_data_http_client_warned_no_send_fn_for_test(c));
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_client_outbound_count_for_test(c));  // queued, never sent
+
+    // A second sweep with still no seam must not crash or misbehave -- the
+    // one-shot flag stays true (idempotent), the queue is still not flushed.
+    bb_data_http_sweep_step();
+    TEST_ASSERT_TRUE(bb_data_http_client_warned_no_send_fn_for_test(c));
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
+}
+
+// The false-positive this PR removes: a client with no send seam but an
+// EMPTY outbound queue must NOT warn -- this is indistinguishable from the
+// legitimate delayed-install path (B1-1126-shaped MQTT consumer: acquire an
+// EVENT-only slot, install the publish seam only once the broker connects;
+// its first sweep(s) before that would otherwise WARN on a perfectly healthy
+// startup path). Mirrors the MQTT-shaped acquire test above
+// (test_bb_data_http_mqtt_shaped_client_acquires_and_delivers_with_no_socket_field)
+// but never bumps ev1's generation, so push_pump() never renders anything
+// into the ring and this client's own drain never queues a frame.
+void test_bb_data_http_sweep_step_client_with_no_send_seam_and_empty_queue_does_not_warn(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
+
+    // No bb_data_http_host_install_send() call, and ev1's generation is
+    // never bumped -- so this client's outbound queue stays empty across
+    // every sweep below, the delayed-install shape this fix protects.
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.subscribe_mask = BB_DATA_HTTP_SUBSCRIBE_EVENT}, &c));
+    TEST_ASSERT_FALSE(bb_data_http_client_warned_no_send_fn_for_test(c));
+
+    bb_data_http_sweep_step();
+    bb_data_http_sweep_step();  // repeat -- a healthy pre-install boot sweeps many times, never once should warn
+
+    TEST_ASSERT_FALSE(bb_data_http_client_warned_no_send_fn_for_test(c));
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_client_outbound_count_for_test(c));
+}
+
+// The stuck-forever case above is recoverable: once a module-wide seam is
+// installed (even after the client already warned), the SAME client's
+// already-queued frame flushes normally on the next sweep -- the warned flag
+// does not permanently disable delivery, it only announces the earlier gap.
+void test_bb_data_http_sweep_step_client_with_no_send_seam_recovers_once_module_wide_installed(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+    fake_gen_set("k1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
+
+    bb_data_http_sweep_step();  // no seam yet -- frame queued, not sent, flag flips true
+    TEST_ASSERT_TRUE(bb_data_http_client_warned_no_send_fn_for_test(c));
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
+
+    bb_data_http_host_install_send();
+    bb_data_http_sweep_step();  // now flushes the already-queued frame
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+}
+
+// A client acquired WITH its own per-client send_fn never has a warned
+// no-send-seam gap at all, even with no module-wide default installed --
+// the mirror image of the two tests above.
+void test_bb_data_http_sweep_step_client_with_per_client_send_fn_never_warns(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+    fake_gen_set("k1", 1);
+
+    capture_calls_t calls = {0};
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.send_fn = capture_a, .send_ctx = &calls}, &c));
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_FALSE(bb_data_http_client_warned_no_send_fn_for_test(c));
+    TEST_ASSERT_EQUAL_INT(1, calls.count);
+}
+
+// bb_data_http_client_acquire() must reset warned_no_send_fn on slot reuse:
+// a client that warned, then released its slot, must not hand a stale
+// "already warned" flag to the NEXT occupant of that same slot -- otherwise
+// a fresh, correctly-configured client could inherit a prior occupant's
+// warned state (or, symmetrically, mask a genuine new gap that happens to
+// reuse a slot which never warned before).
+void test_bb_data_http_client_acquire_resets_warned_no_send_fn_on_slot_reuse(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+    fake_gen_set("k1", 1);
+
+    bb_data_http_client_t *stuck = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &stuck));
+    bb_data_http_sweep_step();  // no seam -- warns and queues, never sends
+    TEST_ASSERT_TRUE(bb_data_http_client_warned_no_send_fn_for_test(stuck));
+
+    bb_data_http_client_release(stuck);
+
+    capture_calls_t calls = {0};
+    bb_data_http_client_t *reused = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.send_fn = capture_a, .send_ctx = &calls}, &reused));
+
+    // Same underlying slot (fd-table scan finds the just-freed slot first),
+    // but a brand-new client identity -- must start unwarned.
+    TEST_ASSERT_EQUAL_PTR(stuck, reused);
+    TEST_ASSERT_FALSE(bb_data_http_client_warned_no_send_fn_for_test(reused));
 }
 
 // B1-1448 (epic B1-1123 acceptance test): the epic's stated goal is that a
