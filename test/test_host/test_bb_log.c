@@ -220,9 +220,8 @@ void test_bb_log_level_to_str_unknown(void) {
 
 // B1-1443 PR-1: bb_log_level_console_letter() -- the pure mapping
 // bb_log_emit() uses to build a console-shaped line ("<L> (<ts>) <tag>:
-// <msg>") without going through ESP_LOGx/LOG_FORMAT. Mirrors
-// bb_log_line_parse()'s own accepted level chars (I/W/E/D/V) plus the '?'
-// fallback for BB_LOG_LEVEL_NONE/out-of-range.
+// <msg>") without going through ESP_LOGx/LOG_FORMAT. Accepted level chars
+// (I/W/E/D/V) plus the '?' fallback for BB_LOG_LEVEL_NONE/out-of-range.
 void test_bb_log_level_console_letter_error(void) {
     TEST_ASSERT_EQUAL_CHAR('E', bb_log_level_console_letter(BB_LOG_LEVEL_ERROR));
 }

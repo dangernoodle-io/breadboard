@@ -83,11 +83,12 @@ config BB_LOG_TELEM_TAG
         The exact tag (case-sensitive, exact match -- "TELEMETRY" is a
         different tag) bb_log_telem_route_wide() compares against. Inert
         when BB_LOG_TELEM_ROUTING is disabled (the function that reads it is
-        compiled out). Must be 47 characters or fewer -- the call site parses
-        the tag into a fixed BB_LOG_TELEM_TAG_PARSE_CAP-byte buffer
-        (components/bb_log/src/bb_log_internal.h); a longer value fails the
-        build via a _Static_assert in bb_log_telem_route.c rather than
-        silently truncating and going inert at runtime.
+        compiled out). The comparison is a plain unbounded strcmp against
+        this string as-is (components/bb_log/src/bb_log_telem_route.c) --
+        there is no length cap and no fixed-buffer copy of the tag anywhere
+        in the call chain, so an arbitrarily long value is accepted as-is; it
+        simply never matches a real (much shorter) ESP_LOGx tag, so the TELEM
+        gate stays permanently open for it rather than failing the build.
 
 config BB_LOG_TELEM_ROUTE_EVENTS
     bool "Route TELEM-tagged log lines to the wide sinks by default"

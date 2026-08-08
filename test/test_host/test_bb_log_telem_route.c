@@ -1,8 +1,6 @@
 #include "unity.h"
 #include "bb_log_internal.h"
 
-#include <string.h>
-
 // ---------------------------------------------------------------------------
 // bb_log_telem_route_wide -- TELEM wide-routing decision core. Host build
 // default: BB_LOG_TELEM_TAG_STR="TELEM" (matches the Kconfig default, no
@@ -53,41 +51,23 @@ void test_bb_log_telem_route_wide_case_sensitive_mismatch_routes_wide(void) {
 }
 
 // ---------------------------------------------------------------------------
-// bb_log_telem_should_route_wide -- the exact function s_log_vprintf calls
-// (B1-831 PR-3). Drives the runtime gate via bb_log_telem_route_set() so the
-// call-site path and these tests share one code path, not a mirrored one.
-// Formatted lines mirror ESP-IDF's console format: "<L> (<ts>) <tag>: <msg>".
+// bb_log_telem_route_set/get -- the runtime gate bb_log_emit() reads via
+// bb_log_telem_route_get() before calling bb_log_telem_route_wide() directly
+// with the call site's own tag (B1-1443 PR-2: the former line-parsing
+// combinator bb_log_telem_should_route_wide() was deleted along with
+// bb_log_line_parse() -- see bb_log_internal.h). Exercises the same
+// route_wide decision core as above, driven through the runtime gate rather
+// than a literal bool, so the toggle itself is proven to affect the outcome.
 // ---------------------------------------------------------------------------
 
-void test_bb_log_telem_should_route_wide_telem_tag_console_only_by_default(void) {
-    bb_log_telem_route_set(false);
-    const char *line = "I (1234) TELEM: hashrate=500";
-    TEST_ASSERT_FALSE(bb_log_telem_should_route_wide(line, strlen(line)));
-}
-
-void test_bb_log_telem_should_route_wide_non_telem_tag_always_routes_wide(void) {
-    bb_log_telem_route_set(false);
-    const char *line = "I (1234) wifi: connected";
-    TEST_ASSERT_TRUE(bb_log_telem_should_route_wide(line, strlen(line)));
-}
-
-void test_bb_log_telem_should_route_wide_events_enabled_routes_telem_wide(void) {
-    bb_log_telem_route_set(true);
-    const char *line = "I (1234) TELEM: hashrate=500";
-    TEST_ASSERT_TRUE(bb_log_telem_should_route_wide(line, strlen(line)));
-    bb_log_telem_route_set(false);  // restore default for later tests
-}
-
 void test_bb_log_telem_route_set_toggles_runtime_gate(void) {
-    const char *line = "I (1234) TELEM: hashrate=500";
-
     bb_log_telem_route_set(false);
     TEST_ASSERT_FALSE(bb_log_telem_route_get());
-    TEST_ASSERT_FALSE(bb_log_telem_should_route_wide(line, strlen(line)));
+    TEST_ASSERT_FALSE(bb_log_telem_route_wide(bb_log_telem_route_get(), "TELEM"));
 
     bb_log_telem_route_set(true);
     TEST_ASSERT_TRUE(bb_log_telem_route_get());
-    TEST_ASSERT_TRUE(bb_log_telem_should_route_wide(line, strlen(line)));
+    TEST_ASSERT_TRUE(bb_log_telem_route_wide(bb_log_telem_route_get(), "TELEM"));
 
     bb_log_telem_route_set(false);  // restore default for later tests
     TEST_ASSERT_FALSE(bb_log_telem_route_get());

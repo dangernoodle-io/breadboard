@@ -1,11 +1,14 @@
 // bb_log's TELEM wide-routing decision core -- pure, portable (no platform
 // dependency), host-testable. See bb_log_internal.h for the full rationale.
-// B1-831 PR-2 built the decision function + its Kconfig bridge. B1-831 PR-3
-// adds the runtime enable/disable state plus the line-level combinator
-// (bb_log_telem_should_route_wide) that the s_log_vprintf call site
-// (platform/espidf/bb_log/bb_log.c) actually calls -- the same function is
-// exercised directly by host tests, so the call site and the tests share one
-// code path rather than a mirrored one.
+// B1-831 PR-2 built the decision function (bb_log_telem_route_wide) + its
+// Kconfig bridge. B1-831 PR-3 added the runtime enable/disable state plus a
+// now-deleted line-level combinator (bb_log_telem_should_route_wide) that
+// parsed a tag out of the raw console line for the s_log_vprintf call site.
+// B1-1443 PR-2 removed that combinator along with bb_log_line_parse(): our
+// own bb_log_e/w/i/d/v lines call bb_log_telem_route_wide() directly with
+// their real tag (bb_log_emit(), platform/espidf/bb_log/bb_log.c) -- no
+// parse needed -- and foreign/vendored ESP_LOGx lines are wrapped opaque
+// with no tag, so they always route wide (see bb_log_internal.h).
 #include "bb_log_internal.h"
 
 #include <string.h>
@@ -23,16 +26,6 @@
 #ifndef BB_LOG_TELEM_TAG_STR
 #define BB_LOG_TELEM_TAG_STR "TELEM"
 #endif
-
-// CONFIG_BB_LOG_TELEM_TAG is a free-form Kconfig string with no length
-// bound, but bb_log_telem_should_route_wide() parses the line's tag into a
-// fixed BB_LOG_TELEM_TAG_PARSE_CAP-byte buffer (bb_log_internal.h). An
-// over-long configured tag would silently truncate on parse and never match
-// via strcmp() below, making the TELEM gate permanently, silently inert
-// (every line routes wide, no build warning, no runtime log). Fail the build
-// loudly instead.
-_Static_assert(sizeof(BB_LOG_TELEM_TAG_STR) <= BB_LOG_TELEM_TAG_PARSE_CAP,
-                "BB_LOG_TELEM_TAG must fit in BB_LOG_TELEM_TAG_PARSE_CAP bytes (see Kconfig help)");
 
 bool bb_log_telem_route_wide(bool route_events_enabled, const char *tag)
 {
@@ -75,14 +68,4 @@ void bb_log_telem_route_set(bool route_events_enabled)
 bool bb_log_telem_route_get(void)
 {
     return s_route_events_enabled;
-}
-
-bool bb_log_telem_should_route_wide(const char *line, size_t len)
-{
-    // Tag-only parse -- level_out and msg_out are optional (bb_log_line_parse
-    // tolerates NULL for both), so the hot s_log_vprintf call site never pays
-    // for the ~160-byte message copy just to make a routing decision.
-    char tag[BB_LOG_TELEM_TAG_PARSE_CAP];
-    bb_log_line_parse(line, len, NULL, tag, sizeof(tag), NULL, 0);
-    return bb_log_telem_route_wide(s_route_events_enabled, tag);
 }

@@ -92,6 +92,8 @@ static void s_forwarder_task(void *arg)
     for (;;) {
         if (xQueueReceive(s_q, &msg, portMAX_DELAY) != pdTRUE) continue;
 
+        bb_log_event_line_wire_t snap;
+
         if (msg.structured) {
             // B1-1443 PR-1: this line came from bb_log_emit() (our own
             // bb_log_e/w/i/d/v calls) -- level/tag/msg/ts are the real
@@ -100,26 +102,39 @@ static void s_forwarder_task(void *arg)
             bb_strlcpy(tag, msg.tag, sizeof(tag));
             bb_strlcpy(msgbuf, msg.line, sizeof(msgbuf));
             ts = msg.ts_ms;
-        } else {
-            // Foreign/vendored ESP_LOGx output -- unchanged from before
-            // this PR: parse the already-formatted console text, and stamp
-            // ts at drain time (this path's own fidelity gap is PR-2 scope,
-            // not this one).
-            bb_log_line_parse(msg.line, msg.len, &level, tag, sizeof(tag),
-                              msgbuf, sizeof(msgbuf));
-            ts = bb_clock_now_ms64();
-        }
 
-        bb_log_event_line_wire_t snap;
-        memset(&snap, 0, sizeof(snap));
-        // Exact-decimal int64 render (not cJSON's double-cast path) --
-        // deliberate: identical digit output for realistic ms-epoch values,
-        // with none of double's precision loss at large magnitudes.
-        snap.ts = (int64_t)ts;
-        char level_str[2] = { level, '\0' };
-        bb_strlcpy(snap.level, level_str, sizeof(snap.level));
-        bb_strlcpy(snap.tag, tag, sizeof(snap.tag));
-        bb_strlcpy(snap.msg, msgbuf, sizeof(snap.msg));
+            memset(&snap, 0, sizeof(snap));
+            // Exact-decimal int64 render (not cJSON's double-cast path) --
+            // deliberate: identical digit output for realistic ms-epoch
+            // values, with none of double's precision loss at large
+            // magnitudes.
+            snap.ts = (int64_t)ts;
+            char level_str[2] = { level, '\0' };
+            bb_strlcpy(snap.level, level_str, sizeof(snap.level));
+            bb_strlcpy(snap.tag, tag, sizeof(snap.tag));
+            bb_strlcpy(snap.msg, msgbuf, sizeof(snap.msg));
+        } else {
+            // Foreign/vendored ESP_LOGx output -- B1-1443 PR-2: no parse is
+            // ever attempted anymore. bb_log_event_line_wire_build_foreign()
+            // (bb_log_event_line_wire_build.c, pure/host-testable) wraps the
+            // already-formatted (possibly ANSI-colored) console line opaque:
+            // level='?', tag="", msg=the raw line verbatim (truncated to the
+            // wire snap's msg cap).
+            //
+            // ts fidelity: stamped HERE, at forwarder-drain time, not at the
+            // point s_log_vprintf actually formatted the line (bb_log.c) --
+            // this is observation time, not emission time, and can lag the
+            // real log event by however long the line sat in the forwarder
+            // queue. This is the same behavior the forwarder had before this
+            // PR. It now differs from OUR OWN lines (bb_log_emit(), same
+            // file, `structured` branch above), which stamp ts at the
+            // bb_log_e/w/i/d/v call site and carry it through the queue
+            // untouched -- closing that gap for foreign lines too was called
+            // out as PR-2 scope in a prior PR's comment, but is explicitly
+            // NOT done here; it remains open, tracked separately.
+            ts = bb_clock_now_ms64();
+            bb_log_event_line_wire_build_foreign(&snap, (int64_t)ts, msg.line, msg.len);
+        }
 
         size_t out_len = 0;
         bb_serialize_json_render_cfg_t render_cfg = {
