@@ -84,6 +84,17 @@ config BB_DATA_HTTP_EVENT_RING_CAPACITY
         bb_data_http_client_dropped_count()). bb_data_http_cfg_t may only
         shrink this at runtime, never grow it.
 
+        B1-1440: a producer that pushes every occurrence into the ring
+        (e.g. bb_log_event's per-line log forwarding) still loses data to
+        this eviction for a burst that outruns a lagging or absent client
+        -- a burst larger than this many UNCONSUMED entries evicts
+        oldest-first regardless of how faithfully the producer queued
+        every occurrence upstream. This capacity is SHARED across every
+        EVENT-kind key on the board, not per-key, so raising the default
+        costs RAM on every board with any EVENT binding at all, not just
+        the one that needed more headroom -- weigh that board-wide cost
+        before raising it.
+
 config BB_DATA_HTTP_SEND_FAIL_MAX
     int "Consecutive RETRIABLE send failures before a client's head-of-queue frame is dropped"
     default 3

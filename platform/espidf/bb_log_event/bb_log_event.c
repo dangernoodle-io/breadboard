@@ -41,7 +41,18 @@
 #define BB_LOG_EVENT_QUEUE_LEN 24
 #endif
 
-#define LOG_EVENT_TASK_STACK   3072
+// B1: sized from an on-device measurement, not a guess -- the original
+// 3072B budget was measured to leave only ~56 bytes of headroom under
+// sustained load (a 1000-line burst at concurrency 30, with a connected
+// SSE /api/events?topic=log client so bb_data_http_notify_push()'s
+// push_pump() path is actually exercised) and it DID overflow the stack
+// (Guru Meditation "Unhandled debug exception", the FreeRTOS stack-
+// overflow watchpoint trip) partway through the run. Doubling to 6144B
+// was re-measured the same way (1500+ lines, same conditions): steady-
+// state uxTaskGetStackHighWaterMark() free stack settles at ~3080 bytes,
+// ~50% headroom, with zero panics/resets across the whole run -- a
+// comfortable margin, not sized further.
+#define LOG_EVENT_TASK_STACK   6144
 #define LOG_EVENT_TASK_PRIO    1    /* same as console writer — very low */
 
 static const char *TAG = "bb_log_event";
@@ -67,11 +78,12 @@ static char s_last_log_json[BB_LOG_EVENT_LOG_TEXT_MAX];
 // BB_LOG_EVENT_LINE_JSON_MAX (bb_log_event_line_wire_priv.h) -- the
 // descriptor's true worst case, so render can never return
 // BB_ERR_NO_SPACE. FILE-SCOPE STATIC, not a stack local: at 1431 bytes it
-// would eat ~47% of s_forwarder_task's LOG_EVENT_TASK_STACK (3072 bytes)
-// on top of that task's existing locals (tag[48] + msgbuf[168] + the
+// would eat a large fraction of s_forwarder_task's LOG_EVENT_TASK_STACK on
+// top of that task's existing locals (tag[48] + msgbuf[168] + the
 // bb_log_event_line_wire_t snap, ~226B already) plus the
-// bb_serialize_json_render()/bb_data_touch() call chain -- too little
-// headroom. s_forwarder_task is the only reader/writer (single dedicated
+// bb_serialize_json_render()/bb_data_touch() call chain -- see
+// LOG_EVENT_TASK_STACK's own comment above for the measured headroom this
+// buys back. s_forwarder_task is the only reader/writer (single dedicated
 // task, no reentrancy), same rationale as the existing static
 // s_last_log_json stash above.
 static char s_render_buf[BB_LOG_EVENT_LINE_JSON_MAX];
@@ -146,15 +158,48 @@ static void s_forwarder_task(void *arg)
         bb_err_t rc = bb_serialize_json_render(&render_cfg, &out_len);
         if (rc != BB_OK) continue;
 
-        // B1-1045 PR-4: stash first, THEN bump the "log" bb_data generation
-        // -- a consumer that observes the new generation must always see the
-        // fresh stash, never a stale one (mirrors every other producer's
-        // stash-then-touch ordering). bb_strlcpy truncates a line whose full
-        // render exceeds the 220-byte stash -- parity with the old cJSON
-        // path, which built the full string then truncated on copy; never
+        // B1-1440: stash first, THEN bump the "log" bb_data generation and
+        // push it into the shared EVENT ring immediately -- a consumer that
+        // observes the new generation must always see the fresh stash,
+        // never a stale one (mirrors every other producer's stash-then-
+        // touch ordering). bb_strlcpy truncates a line whose full render
+        // exceeds the 220-byte stash -- parity with the old cJSON path,
+        // which built the full string then truncated on copy; never
         // dropped.
+        //
+        // bb_data_http_notify_push() (not a bare bb_data_touch()) is the
+        // fix itself: "log" is an EVENT-kind bb_data_http binding (see the
+        // composition roots' .kind=BB_DATA_HTTP_EVENT attach args), and
+        // bb_data_http_push_pump()'s generation-compare CLAIM step only
+        // ever sees the LATEST generation for a key -- a plain touch()
+        // between two lines with no push_pump() in between coalesces both
+        // into a single ring entry, exactly like STATE's dirty-mask does.
+        // Calling notify_push() HERE, per line, drains this line's claim
+        // into the ring before the next xQueueReceive() can stash a new
+        // value over s_last_log_json -- this forwarder task is the single
+        // writer of that stash and blocks serially on the queue (see the
+        // top of this loop), so push_pump()'s unlocked render_fn call is
+        // guaranteed to read exactly this line's stash. ORDER MATTERS: the
+        // stash write above must complete before this call, never after.
         bb_strlcpy(s_last_log_json, s_render_buf, sizeof(s_last_log_json));
         bb_data_touch("log");
+        // B1-1440 accepted trade: this call replaces what used to be a
+        // bare O(1) bb_data_touch(). notify_push() -> push_pump() walks
+        // every attached EVENT key, renders into a ~512B stack buffer, and
+        // takes two portMUX critical sections -- per LINE, not per batch.
+        // Bounded but no longer trivial. Under sustained heavy logging the
+        // observable failure mode this could in principle shift is FROM
+        // silent ring-coalescing (this PR's fix) TO this forwarder's own
+        // queue filling and dropping via its existing drop-on-full counter
+        // (BB_LOG_EVENT_QUEUE_LEN) -- a visible drop instead of an
+        // invisible one, in principle. That counter is currently
+        // UNREACHABLE (tracked by B1-1444) -- it is not wired to any
+        // metric or log today, so this failure mode is NOT observable in
+        // practice yet; do not treat it as monitored. Hardware-exercised
+        // at 1500+ lines across 3 waves at concurrency 30 with a client
+        // attached throughout: no panics, no resets, stack high-water flat
+        // at 3080 bytes free of 6144 (see LOG_EVENT_TASK_STACK above).
+        bb_data_http_notify_push();
     }
 }
 

@@ -1326,6 +1326,50 @@ void test_bb_data_http_push_pump_called_twice_directly_feeds_ring_twice(void)
     TEST_ASSERT_EQUAL_UINT(2, bb_data_http_event_ring_count_for_test());
 }
 
+// B1-1440: generalizes the two-call proof above to N sequential lines,
+// modeling bb_log_event's forwarder task pattern (platform/espidf/
+// bb_log_event/bb_log_event.c s_forwarder_task) -- stash a new value, bump
+// the generation, then push_pump() BEFORE the next line's stash overwrites
+// it. This is the fast host-level proof that per-line notify_push() (which
+// wraps exactly this bump-then-pump sequence) preserves every line as a
+// distinct ring entry: a fix that instead bumps N times and pumps ONCE at
+// the end (the bug this ticket fixes -- see the STATE-binding regression it
+// replaced) would coalesce to a single entry, same as STATE's dirty-mask.
+// fake_render_fn() embeds the observed generation in each frame's own JSON
+// body, so entry COUNT and per-entry CONTENT both prove no coalescing.
+void test_bb_data_http_push_pump_n_sequential_bumps_feed_n_distinct_entries(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="log",.topic="log",.kind=BB_DATA_HTTP_EVENT});
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
+
+    const int kLines = 5;
+    for (int i = 0; i < kLines; i++) {
+        fake_gen_bump("log");     // per-line stash write (generation is the stand-in payload)
+        bb_data_http_push_pump(); // per-line drain -- the notify_push() half of the fix
+    }
+    TEST_ASSERT_EQUAL_UINT((unsigned)kLines, bb_data_http_event_ring_count_for_test());
+
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT((unsigned)kLines, bb_data_http_host_frame_count());
+
+    char buf[128];
+    size_t len = 0;
+    for (int i = 0; i < kLines; i++) {
+        TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(i, NULL, buf, sizeof(buf), &len));
+        buf[len] = '\0';
+        char expect[64];
+        snprintf(expect, sizeof(expect), "{\"key\":\"log\",\"gen\":%d}", i + 1);
+        TEST_ASSERT_EQUAL_STRING(expect, buf);
+    }
+}
+
 // After two direct bb_data_http_push_pump() calls (no sweep_step() in
 // between -- see above), a SINGLE subsequent sweep_step() call must deliver
 // BOTH ring entries to a subscribed client, in order -- proving the feed
