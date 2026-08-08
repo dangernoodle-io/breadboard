@@ -1857,6 +1857,13 @@ void test_bb_data_http_sweep_step_send_failure_fatal_invokes_abort_fn(void)
 // -- active_client_count() would still read 1 (the client leaked, queued
 // forever with no send_fn ever able to reach it again since the frame stays
 // at the head of a queue nothing drains).
+//
+// This cfg also never sets `lifetime` (B1-1465/B1-1466), so it doubles as
+// direct proof that the zero-default (BB_DATA_HTTP_LIFETIME_EPHEMERAL)
+// behaves exactly like today's pre-lifetime-field code: released, not
+// re-armed. Mutation evidence: flipping the zero-default to DURABLE (or the
+// enum's `= 0` to the DURABLE arm) makes this FAIL -- active_client_count()
+// would read 1 instead of 0.
 void test_bb_data_http_sweep_step_send_failure_fatal_without_abort_fn_releases_client(void)
 {
     reset_all();
@@ -1913,6 +1920,146 @@ void test_bb_data_http_sweep_step_send_failure_fatal_uses_per_client_abort_fn_ov
     TEST_ASSERT_EQUAL_PTR(c, s_per_client_aborted);
     TEST_ASSERT_NULL(bb_data_http_host_last_aborted_client());  // module-wide abort_fn never invoked
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_active_client_count());
+}
+
+// ---------------------------------------------------------------------------
+// Consumer lifetime (B1-1465/B1-1466): DURABLE vs EPHEMERAL gates ONLY what
+// a FATAL send_fn failure does to the client -- see
+// bb_data_http_client_cfg_t's lifetime doc (bb_data_http.h).
+// ---------------------------------------------------------------------------
+
+// A DURABLE client survives a fatal send: abort_fn is never resolved/
+// invoked, bb_data_http_client_release() is never called, and the client
+// stays active with its STATE seen_gen and EVENT cursor untouched -- only
+// send_fail_count resets. Its outbound queue is RETAINED (never drained):
+// by the time a frame reaches this flush phase, the detect phase has
+// already advanced its cursor/dirty-mask bookkeeping past it, so draining
+// here would silently lose data the bookkeeping already claims was
+// delivered (see the DURABLE branch's comment, bb_data_http_common.c, and
+// bb_data_http_client_cfg_t's lifetime doc, bb_data_http.h). Mutation
+// evidence: dropping the `lifetime == DURABLE` branch (falling through to
+// the EPHEMERAL abort/release path unconditionally) makes this FAIL --
+// active_client_count() would read 0 and last_aborted_client() would be
+// non-NULL. Inverting the branch (EPHEMERAL clients take the durable
+// re-arm path instead) is covered by the EPHEMERAL regression tests above,
+// which would then FAIL the same way. Re-introducing
+// bb_queue_clear(c->outbound) in the durable branch makes THIS test's
+// outbound_count assertion FAIL (0 instead of 2) -- see the delivery-
+// continuity test below for the end-to-end regression guard.
+void test_bb_data_http_sweep_step_send_failure_fatal_durable_survives_and_retains_outbound(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_host_install_abort();  // must NOT fire for a DURABLE client
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.b",.kind=BB_DATA_HTTP_EVENT});
+    fake_gen_set("k1", 5);
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.lifetime = BB_DATA_HTTP_LIFETIME_DURABLE}, &c));
+    // fresh-render-on-connect dirties k1 (STATE); cursor starts at the
+    // ring's current head (0, nothing pushed yet).
+    fake_gen_bump("ev1");  // queues a second, EVENT-kind frame into this same sweep
+
+    // Only the FIRST send call fails -- k1 renders/queues first (STATE
+    // drain precedes EVENT drain in sweep_step()'s per-client loop), so
+    // this is the frame the fatal failure lands on; ev1's frame is queued
+    // behind it and must survive (not be sent, not be discarded) along
+    // with it.
+    bb_data_http_host_fail_next(BB_ERR_INVALID_ARG, 1);  // non-BB_ERR_TIMEOUT == fatal
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());  // NOT released
+    TEST_ASSERT_NULL(bb_data_http_host_last_aborted_client());      // abort_fn NOT invoked
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());     // nothing delivered yet
+    TEST_ASSERT_EQUAL_UINT(2, bb_data_http_client_outbound_count_for_test(c));  // retained, not drained
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_send_fail_count_for_test(c));
+    TEST_ASSERT_EQUAL_UINT32(5u, bb_data_http_client_seen_gen_for_test(c, 0));   // STATE bookkeeping survives
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_event_cursor_for_test(c));  // EVENT bookkeeping survives
+}
+
+// The whole point of DURABLE: a fatal send failure must not be permanent
+// data loss. Once send_fn recovers, the NEXT sweep_step() call delivers the
+// frames that failed the first time -- proving the retained queue actually
+// reaches the peer, not just that it survives in memory. This is the
+// regression guard for the CRITICAL finding this pair of tests replaces
+// (previously: drain-on-fatal silently lost queued-but-unsent frames while
+// cursor/dirty-mask bookkeeping claimed they were delivered). Mutation
+// evidence: re-introducing bb_queue_clear(c->outbound) in the durable
+// branch makes this FAIL -- host_frame_count() stays 0 and
+// outbound_count_for_test() stays 0 after the second sweep, because the
+// frame was discarded on the first (failing) sweep instead of retained for
+// redelivery.
+void test_bb_data_http_sweep_step_send_failure_fatal_durable_delivers_retained_frame_on_next_sweep(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+
+    bb_data_http_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.lifetime = BB_DATA_HTTP_LIFETIME_DURABLE}, &c));
+    // fresh-render-on-connect dirties k1 (STATE) and queues its frame.
+
+    bb_data_http_host_fail_next(BB_ERR_INVALID_ARG, 1);  // fatal, applies to this ONE send_fn call only
+
+    bb_data_http_sweep_step();  // fatal send fails; client re-armed, frame retained
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());  // not yet delivered
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_client_outbound_count_for_test(c));
+
+    // No further failure injected -- send_fn "recovers". k1's generation is
+    // unchanged (STATE, no re-dirty), so this frame reaching the peer can
+    // ONLY be the one retained from the failed sweep above.
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());  // delivered on retry
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_client_outbound_count_for_test(c));
+    char   buf[128];
+    size_t len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_host_frame_at(0, NULL, buf, sizeof(buf), &len));
+    buf[len] = '\0';
+    // The peer actually received k1's frame -- the exact bytes that failed
+    // to send on the first sweep, not a fresh render (k1's generation never
+    // changed, so nothing re-dirtied it).
+    TEST_ASSERT_EQUAL_STRING("{\"key\":\"k1\",\"gen\":0}", buf);
+}
+
+// The retriable (BB_ERR_TIMEOUT) path is NOT lifetime-gated -- a DURABLE
+// client's queued frame is retried exactly like an EPHEMERAL client's,
+// never drained early. Mutation evidence: widening the new DURABLE branch's
+// condition to also catch BB_ERR_TIMEOUT (or moving it above the
+// BB_ERR_TIMEOUT check) makes this FAIL -- outbound_count would read 0
+// (drained) instead of 1 (retained for retry).
+void test_bb_data_http_sweep_step_send_failure_retriable_ignores_lifetime(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="k1",.topic="topic.a"});
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.lifetime = BB_DATA_HTTP_LIFETIME_DURABLE}, &c);
+
+    bb_data_http_host_fail_next(BB_ERR_TIMEOUT, 1);
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());  // never delivered
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_client_outbound_count_for_test(c));  // still queued, not drained
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_send_fail_count_for_test(c));
 }
 
 // ---------------------------------------------------------------------------
