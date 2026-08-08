@@ -747,6 +747,17 @@ void bb_data_http_push_pump(void);
 // persistently-failing render_fn observable instead of silently stuck.
 size_t bb_data_http_render_fail_count(void);
 
+// Diagnostics: cumulative count of push_pump()'s COMMIT-step discards --
+// a successfully-rendered frame thrown away because a concurrent newer
+// claim already superseded this generation before the push (see
+// bb_data_http_push_pump()'s own step 4a doc above). Not a render failure
+// (bb_data_http_render_fail_count() is unaffected) and not logged per-
+// occurrence -- a persistently-racing producer can hit this path at high
+// frequency, so this counter is the observability mechanism instead.
+// This counter wraps to 0, never saturates (uint32_t) — consumers should
+// treat successive reads as deltas, not as an absolute lifetime total.
+uint32_t bb_data_http_stale_discard_count(void);
+
 // Diagnostics: cumulative count of EVENT-kind entries dropped for client `c`
 // because its own outbound queue had no room when drained (see
 // bb_data_http_sweep_step()'s EVENT drain doc). Cumulative -- never resets

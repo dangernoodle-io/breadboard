@@ -268,6 +268,17 @@ static bb_queue_t s_event_ring;
 static uint32_t   s_event_total_pushed;
 static uint32_t   s_event_last_gen[BB_DATA_HTTP_MAX_ATTACH];
 
+// s_stale_discard_count (B1-1444): cumulative count of push_pump()'s COMMIT-
+// step discards -- a successfully-rendered frame thrown away because a
+// concurrent newer claim already superseded this generation (see
+// push_pump()'s own step 4a doc). Guarded by the same s_event_ring_mux as
+// s_event_total_pushed, incremented in the same locked compare-and-discard
+// section rather than a second lock. Not a per-discard log: a persistently-
+// racing producer can hit this path at high frequency, and logging every
+// occurrence would be its own throughput problem -- the counter is the
+// observability mechanism instead.
+static uint32_t s_stale_discard_count;
+
 // BB_DATA_HTTP_EVENT_ENTRY_MAX -- single source of truth for BOTH the event
 // ring's max_entry_bytes (event_cfg, bb_data_http_init() below) AND
 // bb_data_http_push_pump()'s ev_buf stack buffer, so the two structurally
@@ -466,6 +477,7 @@ bb_err_t bb_data_http_init(const bb_data_http_cfg_t *cfg)
     s_cfg.max_push_clients = max_push_clients;
     s_event_ring           = event_ring;
     s_event_total_pushed   = 0;
+    s_stale_discard_count  = 0;
     memset(s_event_last_gen, 0, sizeof(s_event_last_gen));
 
     for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
@@ -951,6 +963,8 @@ void bb_data_http_push_pump(void)
         if (s_event_last_gen[k] == gen) {
             bb_queue_push(s_event_ring, ev_buf, ev_len, 0, (uint32_t)k);
             s_event_total_pushed++;
+        } else {
+            s_stale_discard_count++;
         }
         BB_DATA_HTTP_EVENT_RING_UNLOCK();
     }
@@ -1209,6 +1223,11 @@ size_t bb_data_http_render_fail_count(void)
     return s_render_fail_count;
 }
 
+uint32_t bb_data_http_stale_discard_count(void)
+{
+    return s_stale_discard_count;
+}
+
 uint32_t bb_data_http_client_dropped_count(const bb_data_http_client_t *c)
 {
     return (c && c->push) ? c->push->dropped : 0;
@@ -1246,6 +1265,7 @@ void bb_data_http_reset_for_test(void)
     bb_queue_destroy(s_event_ring);
     s_event_ring = NULL;
     s_event_total_pushed = 0;
+    s_stale_discard_count = 0;
     memset(s_event_last_gen, 0, sizeof(s_event_last_gen));
 }
 

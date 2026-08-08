@@ -1504,6 +1504,52 @@ void test_bb_data_http_push_pump_commit_discards_stale_render_after_newer_concur
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_event_ring_count_for_test());
     TEST_ASSERT_EQUAL_UINT(0, bb_data_http_render_fail_count());  // a discard is not a render failure
     TEST_ASSERT_EQUAL_UINT32(2u, bb_data_http_event_last_gen_for_test("ev1"));  // the newer claim stands, untouched
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_stale_discard_count());  // B1-1444: the discard itself is counted
+}
+
+// B1-1444: the success path (no concurrent claim racing in) must NOT touch
+// bb_data_http_stale_discard_count() -- distinct from the discard test above,
+// which proves the counter's positive case. Modeled on
+// test_bb_data_http_push_pump_called_twice_directly_feeds_ring_twice above:
+// two ordinary, uncontended push_pump() calls, both landing in the ring.
+void test_bb_data_http_push_pump_success_does_not_increment_stale_discard_count(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
+
+    fake_gen_bump("ev1");
+    bb_data_http_push_pump();
+    fake_gen_bump("ev1");
+    bb_data_http_push_pump();
+
+    TEST_ASSERT_EQUAL_UINT(2, bb_data_http_event_ring_count_for_test());
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_stale_discard_count());
+}
+
+// B1-1444: bb_data_http_reset_for_test() must zero
+// s_stale_discard_count -- mirrors the other cumulative counters' own
+// reset-for-test contract (e.g. s_event_total_pushed, s_render_fail_count).
+// Drives a real discard first (reusing the COMMIT-discard fixture above) so
+// this proves an actual reset-to-zero, not merely "still zero because
+// nothing ever incremented it".
+void test_bb_data_http_reset_for_test_zeroes_stale_discard_count(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(concurrent_claim_then_succeed_render_fn, NULL);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key="ev1",.topic="topic.a",.kind=BB_DATA_HTTP_EVENT});
+
+    fake_gen_bump("ev1");  // gen=1
+    bb_data_http_push_pump();
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_stale_discard_count());  // sanity: the discard actually happened
+
+    bb_data_http_reset_for_test();
+
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_stale_discard_count());
 }
 
 // Tick-driven behavior is unchanged (mutation-test target, B1-1449): with no
