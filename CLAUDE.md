@@ -69,6 +69,7 @@ Conventions are lint-enforced — the lint is the canonical rule; full detail + 
 - Portability (platform-header fencing) — `public-header-leak` — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#portability)
 - Public API surface — `bb-prefix`, `public-header-inline-platform-call`, `no-arduino-string` — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#api-conventions)
 - No variant ladders — one entry point per public API, extend via config-struct fields; no lint — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#api-conventions)
+- `bb_data` binding kind: EVENT vs STATE — a binding may only be EVENT-kind if its info isn't reconstructible from STATE; most event-shaped things fold into a counter + latest-value field; no lint — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#bb_data-binding-kind-event-vs-state-reconstructibility-rule)
 - Layout — no lint — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#layout)
 - Header visibility & coupling (REQUIRES vs PRIV_REQUIRES) — `public-requires-unused`, `pragma-once` — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#header-visibility-and-component-coupling)
 - Embedding assets — no lint — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#embedding-assets)
