@@ -875,6 +875,7 @@ void test_bb_serialize_json_parse_bytes_misaligned_scratch_cap_still_parses_esca
 void test_v2_golden_ref_resolves_inline(void);
 void test_v2_golden_ref_unregistered_sibling_omits_field(void);
 void test_v2_golden_ref_null_resolver_omits_field(void);
+void test_v2_golden_ref_null_resolver_nonnull_ctx_omits_field(void);
 
 void test_bb_serialize_json_f64_shortest_zero(void);
 void test_bb_serialize_json_f64_shortest_negative_zero(void);
@@ -11730,6 +11731,7 @@ int main(void) {
     RUN_TEST(test_v2_golden_ref_resolves_inline);
     RUN_TEST(test_v2_golden_ref_unregistered_sibling_omits_field);
     RUN_TEST(test_v2_golden_ref_null_resolver_omits_field);
+    RUN_TEST(test_v2_golden_ref_null_resolver_nonnull_ctx_omits_field);
 
     RUN_TEST(test_bb_serialize_json_f64_shortest_zero);
     RUN_TEST(test_bb_serialize_json_f64_shortest_negative_zero);
