@@ -2,6 +2,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include "bb_core.h"  // bb_err_t/BB_OK -- extern "C"-wrapped, safe to include from a .cpp
+#include "bb_log.h"   // bb_log_drop_stats_t -- extern "C"-wrapped, safe to include from a .cpp
 
 extern "C" void bb_log_arduino_emit(char level, const char *tag, const char *fmt, ...) {
     char buf[64];
@@ -37,4 +38,17 @@ extern "C" bb_err_t bb_log_flush(void)
 {
     Serial.flush();
     return BB_OK;
+}
+
+// Arduino has no async writer/UDP/event forwarder queue or flush-timeout
+// mechanism (bb_log_arduino_emit above writes synchronously) -- every field
+// always reads 0.
+extern "C" void bb_log_drop_stats_get(bb_log_drop_stats_t *out)
+{
+    if (!out) return;
+
+    out->writer_dropped = 0;
+    out->udp_dropped     = 0;
+    out->event_dropped   = 0;
+    out->flush_timeouts  = 0;
 }

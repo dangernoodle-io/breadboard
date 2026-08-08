@@ -1304,6 +1304,8 @@ void test_bb_log_emit_build_event_msg_null_tag_normalizes(void);
 void test_bb_log_emit_build_event_msg_null_msg_is_empty(void);
 void test_bb_log_emit_build_event_msg_tag_truncates(void);
 void test_bb_log_emit_build_event_msg_msg_truncates(void);
+void test_bb_log_drop_stats_get_null_out_is_noop(void);
+void test_bb_log_drop_stats_get_all_zero_on_host(void);
 
 // Forward declarations from test_bb_log_config.c
 void test_bb_log_level_from_name_none(void);
@@ -6614,6 +6616,8 @@ int main(void) {
     RUN_TEST(test_bb_log_emit_build_event_msg_null_msg_is_empty);
     RUN_TEST(test_bb_log_emit_build_event_msg_tag_truncates);
     RUN_TEST(test_bb_log_emit_build_event_msg_msg_truncates);
+    RUN_TEST(test_bb_log_drop_stats_get_null_out_is_noop);
+    RUN_TEST(test_bb_log_drop_stats_get_all_zero_on_host);
 
     // bb_log_config tests
     RUN_TEST(test_bb_log_level_from_name_none);

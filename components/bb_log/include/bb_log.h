@@ -46,6 +46,35 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
  */
 bb_err_t bb_log_flush(void);
 
+/**
+ * Snapshot of bb_log's internal drop/loss counters -- the read surface for
+ * otherwise counter-only diagnostics (console/writer queue drops, the
+ * optional UDP mirror's queue drops, the event-forwarder queue drops, and
+ * bb_log_flush() timeouts). Every field is copied from its own counter with
+ * a single read -- per-field atomic, but the four fields together are NOT a
+ * mutually consistent point-in-time snapshot: a drop can land between two
+ * of the reads bb_log_drop_stats_get() performs, so don't treat this struct
+ * as one atomic transaction across fields.
+ *
+ * udp_dropped is always 0 when CONFIG_BB_LOG_UDP_SINK is off -- the field
+ * exists unconditionally so the wire shape stays config-invariant.
+ */
+typedef struct {
+    uint32_t writer_dropped;   // console/writer queue full
+    uint32_t udp_dropped;      // UDP sink queue full (always 0 when the sink is compiled out)
+    uint32_t event_dropped;    // event-forwarder queue full
+    uint32_t flush_timeouts;   // bb_log_flush() lock or marker-wait timeouts
+} bb_log_drop_stats_t;
+
+/**
+ * Fill *out with the current drop/loss counters (see bb_log_drop_stats_t
+ * above). No-op if out is NULL. Portable across ESP-IDF/host/Arduino --
+ * host and Arduino builds have no async writer/UDP/event forwarder queue or
+ * flush-timeout mechanism at all (bb_log_i/e/w write synchronously there),
+ * so every field always reads 0 on those backends.
+ */
+void bb_log_drop_stats_get(bb_log_drop_stats_t *out);
+
 typedef enum {
     BB_LOG_LEVEL_NONE,
     BB_LOG_LEVEL_ERROR,
@@ -234,21 +263,13 @@ bb_err_t bb_log_stream_init(void);
 bool bb_log_stream_ready(void);
 
 /**
- * Returns the count of lines that could not be sent despite the drop-oldest
- * loop. Vestigial since the SSE ring (its only writer) was removed
- * (B1-1409) -- always 0 now. Kept as public API; not deleted without a
- * ticket of its own.
- */
-uint32_t bb_log_stream_dropped_lines(void);
-
-/**
  * Returns the count of bb_log_flush() calls (on this ESP-IDF async-writer
  * backend) that gave up with BB_ERR_TIMEOUT before their own marker was
  * confirmed drained. A nonzero count means at least one flush caller could
  * no longer be sure its preceding log lines had reached the wire before it
  * returned -- exactly the forensic gap bb_log_flush exists to close, so a
  * caller that only does `(void)bb_log_flush();` can still notice via this
- * counter. Mirrors bb_log_stream_dropped_lines().
+ * counter. Also readable via bb_log_drop_stats_get()'s flush_timeouts field.
  */
 uint32_t bb_log_flush_timeouts(void);
 
