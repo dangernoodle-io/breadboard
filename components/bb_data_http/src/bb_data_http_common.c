@@ -560,6 +560,11 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
             c->push->cursor = s_event_total_pushed;
         }
         c->send_fail_count = 0;
+        // B1-1452: a reused slot must not inherit a prior occupant's
+        // already-warned state -- otherwise a fresh client that also lands
+        // with no usable send seam would silently skip its own one-shot
+        // WARN (see the flush loop below).
+        c->warned_no_send_fn = false;
         atomic_store(&c->pending_release, false);
         c->send_fn   = cfg->send_fn;
         c->send_ctx  = cfg->send_ctx;
@@ -1147,7 +1152,40 @@ void bb_data_http_sweep_step(void)
         // per-client override) already relied on before this PR.
         bb_data_http_send_fn  send_fn  = c->send_fn  ? c->send_fn  : s_send_fn;
         void                 *send_ctx = c->send_fn  ? c->send_ctx : s_send_ctx;
-        if (!send_fn) continue;
+        if (!send_fn) {
+            // B1-1452: neither seam is installed. Rejecting this at
+            // bb_data_http_client_acquire() time was considered and
+            // rejected: bb_data_http_set_send_fn() (the module-wide
+            // fallback) is deliberately decoupled from client lifetime and
+            // CAN be installed after a client is already acquired -- several
+            // host tests in this suite acquire a client while s_send_fn is
+            // still NULL and only install it later, before the client's
+            // first real flush. A hard reject at acquire time would reject
+            // that legitimate, load-bearing ordering along with the genuine
+            // bug.
+            //
+            // A seamless client with an EMPTY outbound queue is
+            // indistinguishable from that legitimate delayed-install
+            // window (B1-1033/MQTT-shaped consumers acquire a slot, then
+            // install their publish seam only once a broker connects --
+            // their first sweep or several would otherwise WARN on a
+            // perfectly healthy startup path) -- so this only warns once
+            // the client is ALSO holding queued frames it can never send:
+            // that is the actual silent-death this guard exists to catch,
+            // a client stuck occupying a slot with data that will never
+            // reach the wire. Gated by a per-client one-shot flag (reset on
+            // acquire, see bb_data_http_client_acquire()) so it still logs
+            // exactly once per client, never once per sweep, and never
+            // re-fires once the condition it caught is gone.
+            if (!c->warned_no_send_fn && bb_queue_count(c->outbound) > 0) {
+                c->warned_no_send_fn = true;
+                bb_log_w(TAG, "client=%p has no send seam (no per-client send_fn, no module-wide default) "
+                              "and %u queued frame(s) it can never flush -- install a send seam or this "
+                              "client's outbound queue will never drain",
+                         (void *)c, (unsigned)bb_queue_count(c->outbound));
+            }
+            continue;
+        }
 
         // Flush phase (B1-1424/B1-1429): drains c->outbound oldest-first,
         // one send_fn call per queued frame, for as long as each call
@@ -1414,6 +1452,15 @@ bool bb_data_http_client_poll_is_null_for_test(const bb_data_http_client_t *c)
 bool bb_data_http_client_push_is_null_for_test(const bb_data_http_client_t *c)
 {
     return !c || c->push == NULL;
+}
+
+// B1-1452: current value of client `c`'s warned_no_send_fn flag -- lets a
+// test assert the flush loop's one-shot no-send-seam WARN fired exactly
+// once (set true) rather than inferring it indirectly from log output.
+// Returns false if `c` is NULL.
+bool bb_data_http_client_warned_no_send_fn_for_test(const bb_data_http_client_t *c)
+{
+    return c ? c->warned_no_send_fn : false;
 }
 #endif
 

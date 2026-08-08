@@ -154,6 +154,24 @@ typedef struct {
 // the per-client drain/flush path.
 struct bb_data_http_client {
     bool                            in_use;
+    // B1-1452: placed here, immediately after `in_use`, rather than
+    // appended after the pointer-heavy tail below -- both are single-byte
+    // bools, so grouping them lands warned_no_send_fn in alignment padding
+    // that already existed ahead of topic_filter on BOTH ABIs this struct
+    // is compiled under (ILP32 and LP64), instead of costing a whole extra
+    // 4-byte-aligned word on ILP32 (which a tail append would have -- see
+    // the pinned-sizeof assert below). Measured, not assumed: verified by
+    // direct sizeof() probe on both widths after this placement.
+    //
+    // Set the first time the flush loop resolves BOTH send seams
+    // (per-client send_fn AND the module-wide s_send_fn fallback) to NULL
+    // for this client AND finds queued frames it can never flush -- see
+    // bb_data_http_sweep_step()'s flush-loop doc. Gates the one-shot WARN
+    // there so a client stuck with no usable send seam announces itself
+    // exactly once, never once-per-sweep-per-client. Reset to false on
+    // every bb_data_http_client_acquire() (fresh slot reuse must not
+    // inherit a prior occupant's warned state).
+    bool                            warned_no_send_fn;
     char                            topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
     uint32_t                        subscribe_mask;  // resolved kind bitmask; see bb_data_http_client_cfg_t's doc (bb_data_http.h)
     bb_data_http_poll_state_t      *poll;  // NULL unless subscribe_mask includes STATE -- see its own doc above
@@ -170,30 +188,38 @@ struct bb_data_http_client {
 };
 
 // Pinned shrink proof (B1-1447, re-pinned B1-1448, re-pinned B1-1465/B1-1466
-// for the `lifetime` field above): splitting STATE/EVENT bookkeeping into
-// pool-allocated poll/push pointers, and later dropping the last
-// HTTP-specific fd/is_ws fields (B1-1448, epic B1-1123), must actually
-// SHRINK this struct, not just rename fields around the same footprint --
-// see bb_serialize_json_tok.c for this repo's identical pinned-sizeof
-// convention. A future field added here (or a future revert) that changes
-// this size needs a deliberate, reviewed edit to this assert, not a silent
-// drift. Pointer-width-dependent (this struct carries several pointer-sized
-// fields): 120 bytes on a 64-bit host build (native test envs), 84 bytes on
-// a 32-bit target (ESP32/xtensa ILP32) -- both pinned here rather than
-// assuming one ABI, since this header is compiled by both. `lifetime` is a
-// single-enumerator-width field (4 bytes) appended at the end of the
-// struct, so it grew both ABIs by exactly one pointer-independent word
-// (8 bytes on LP64 due to trailing struct-alignment padding to the next
-// 8-byte boundary, 4 bytes on ILP32 with no such padding needed) -- from
-// 112/80 (B1-1448) to 120/84. PRECONDITION: this two-arm ternary only
-// distinguishes ILP32 (4-byte pointers, e.g. ESP32/xtensa) from LP64
-// (8-byte pointers, e.g. native host); it does NOT cover a 16-bit-pointer
-// target (e.g. an AVR/Arduino backend, which this workspace does have as a
-// family, though bb_data_http itself is realistically ESP32/host-only) --
-// such a build would spuriously trip this assert and need a third arm
-// added, not silently pass under either existing one.
+// for the `lifetime` field, re-pinned again below for `warned_no_send_fn`):
+// splitting STATE/EVENT bookkeeping into pool-allocated poll/push pointers,
+// and later dropping the last HTTP-specific fd/is_ws fields (B1-1448, epic
+// B1-1123), must actually SHRINK this struct, not just rename fields around
+// the same footprint -- see bb_serialize_json_tok.c for this repo's
+// identical pinned-sizeof convention. A future field added here (or a
+// future revert) that changes this size needs a deliberate, reviewed edit
+// to this assert, not a silent drift. Pointer-width-dependent (this struct
+// carries several pointer-sized fields): 120 bytes on a 64-bit host build
+// (native test envs), 84 bytes on a 32-bit target (ESP32/xtensa ILP32) --
+// both pinned here rather than assuming one ABI, since this header is
+// compiled by both. `warned_no_send_fn` (B1-1452) is a single-byte `bool`
+// placed immediately after `in_use` (see the struct's own field comment)
+// rather than appended after the pointer-heavy tail: on LP64 it lands in
+// alignment padding that already existed ahead of `topic_filter`, so the
+// footprint is UNCHANGED (still 120); on ILP32 that same padding exists too
+// (the field was NOT free there when appended at the tail -- an append grew
+// ILP32 84 -> 88 -- but IS free here), so ILP32 stays at 84, unchanged from
+// before this field existed. Both values verified by direct sizeof() probe:
+// LP64 via a native gcc-16 host compile, ILP32 via the real
+// xtensa-esp32-elf-gcc cross toolchain (not `-m32`, which this host's
+// arm64 gcc cannot target) -- and ILP32 is additionally load-bearing on a
+// green `make smoke-esp32`, a real xtensa build where this
+// `_Static_assert` is compile-time-enforced. PRECONDITION: this two-arm
+// ternary only distinguishes ILP32 (4-byte pointers, e.g. ESP32/xtensa)
+// from LP64 (8-byte pointers, e.g. native host); it does NOT cover a
+// 16-bit-pointer target (e.g. an AVR/Arduino backend, which this workspace
+// does have as a family, though bb_data_http itself is realistically
+// ESP32/host-only) -- such a build would spuriously trip this assert and
+// need a third arm added, not silently pass under either existing one.
 _Static_assert(sizeof(struct bb_data_http_client) == (sizeof(void *) == 8 ? 120 : 84),
-               "bb_data_http_client_t size changed -- update this pin (B1-1465/B1-1466 lifetime field)");
+               "bb_data_http_client_t size changed -- update this pin (B1-1452 warned_no_send_fn field, moved next to in_use to stay in existing ILP32 padding)");
 
 #ifdef BB_DATA_HTTP_TESTING
 // Test accessors -- expose fd-table/attach-table internals without widening
@@ -236,6 +262,12 @@ bool bb_data_http_client_poll_is_null_for_test(const bb_data_http_client_t *c);
 // Mirror of bb_data_http_client_poll_is_null_for_test() for `push`. Returns
 // true if `c` is NULL.
 bool bb_data_http_client_push_is_null_for_test(const bb_data_http_client_t *c);
+
+// B1-1452: current value of client `c`'s warned_no_send_fn flag (see
+// bb_data_http_client_t's own doc) -- lets a test assert the flush loop's
+// one-shot no-send-seam WARN fired exactly once. Returns false if `c` is
+// NULL.
+bool bb_data_http_client_warned_no_send_fn_for_test(const bb_data_http_client_t *c);
 
 // B1-1449: current occupancy of the shared EVENT ring -- lets a test assert
 // bb_data_http_push_pump() fed the ring directly, independent of any
