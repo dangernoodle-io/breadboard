@@ -222,6 +222,11 @@ void test_bb_diag_sockets_get_wire_schema_offline_on_compose_failure(void);
 void test_bb_diag_sockets_get_wire_schema_matches_expected_content(void);
 void test_bb_diag_sockets_get_wire_schema_idempotent_pointer_stable(void);
 
+// From test_bb_diag_drops_wire_route_wiring.c (B1-1444 PR3)
+void test_bb_diag_drops_wire_schema_offline_on_compose_failure(void);
+void test_bb_diag_drops_wire_schema_matches_expected_content(void);
+void test_bb_diag_drops_wire_schema_idempotent_pointer_stable(void);
+
 // From test_bb_storage_http_delete_response_route_wiring.c (B1-1059 emit
 // batch C, site C5) -- distinct from test_bb_storage_http_delete_route_
 // wiring.c's REQUEST-schema pair above (own wire.c, own sentinel; this is
@@ -472,6 +477,9 @@ int main(void)
     RUN_TEST(test_bb_diag_sockets_get_wire_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_diag_sockets_get_wire_schema_matches_expected_content);
     RUN_TEST(test_bb_diag_sockets_get_wire_schema_idempotent_pointer_stable);
+    RUN_TEST(test_bb_diag_drops_wire_schema_offline_on_compose_failure);
+    RUN_TEST(test_bb_diag_drops_wire_schema_matches_expected_content);
+    RUN_TEST(test_bb_diag_drops_wire_schema_idempotent_pointer_stable);
     RUN_TEST(test_bb_storage_http_delete_response_schema_offline_on_compose_failure);
     RUN_TEST(test_bb_storage_http_delete_response_schema_matches_expected_content);
     RUN_TEST(test_bb_storage_http_delete_response_schema_idempotent_pointer_stable);
