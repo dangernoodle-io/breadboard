@@ -617,15 +617,65 @@ def _check_ticket_ref_in_log(ctx: Context) -> list:
 # Function declarations at column 0: return-type word(s) then a name not starting with bb_
 # Conservative: match only lowercase-starting bare identifiers (not ALL_CAPS macros here,
 # those are handled by the macro branch below).
+#
+# Ported from fence/variant_ladder.py's `_FN_DECL_RE` (B1-1470) -- that
+# regex went through three rounds of fixes for blind spots shared by this
+# one (same column-0, single-line heuristic): (1) a pointer star attached
+# directly to the function name with no separating space (`char *foo(`)
+# was never matched at all -- the star could only attach to the FIRST
+# return-type word, and a mandatory whitespace separator before the name
+# meant `*foo(` with no space never matched; (2) `const`/`volatile`/
+# `register` were unconditionally treated as disqualifying keywords, so a
+# `const bb_foo_t *bb_foo_get(void);`-shaped declaration was silently
+# skipped even though it's an ordinary public accessor; (3) `struct`/
+# `enum`/`union` were likewise unconditionally skip-keywords, blind to a
+# real `struct bb_foo *bb_foo_get(void);`-shaped accessor (as opposed to a
+# genuine type definition/forward-decl like `struct bb_foo { ... };`,
+# which must still be skipped -- disambiguated structurally, see
+# `_is_type_definition_line` below).
 _BB_PREFIX_FN_RE = re.compile(
-    r'^([A-Za-z_]\w*(?:\s*\*)?(?:\s+\w+)*\s+)'  # return type (may include pointer/qualifier)
+    r'^([A-Za-z_]\w*(?:\s*\*)?(?:\s+[A-Za-z_]\w*(?:\s*\*)?)*(?:\s*\*\s*|\s+))'
     r'([a-z][a-zA-Z0-9_]*)'                       # function name (lowercase-start)
     r'\s*\('                                       # opening paren
 )
 _BB_PREFIX_SKIP_KW = frozenset({
-    'static', 'inline', 'extern', 'typedef', 'struct', 'enum', 'union',
-    'if', 'while', 'for', 'return', 'const', 'volatile', 'register',
+    'static', 'inline', 'extern', 'typedef',
+    'if', 'while', 'for', 'return',
 })
+# `const`/`volatile`/`register` are deliberately NOT skip keywords -- see
+# the regex comment above. `struct`/`enum`/`union` are handled separately
+# below (`_BB_PREFIX_TYPE_KW`/`_is_type_definition_line`) since they're
+# ambiguous rather than a flat disqualifier.
+_BB_PREFIX_TYPE_KW = frozenset({'struct', 'enum', 'union'})
+
+
+def _is_type_definition_line(stripped: str) -> bool:
+    """True when `stripped` (a line whose prefix carries `struct`/`enum`/
+    `union`) is a type DEFINITION or forward-declaration rather than a
+    function declaration merely using one of those keywords as a
+    return-type qualifier. Same structural disambiguation as
+    `fence/variant_ladder.py`'s `_is_type_definition_line`: a `(` before
+    any `{` (or no `{` at all) looks like a real declaration
+    (`struct bb_foo *bb_foo_get(void);`); no `(`, or a `{` before the
+    first `(`, is a type body (`struct bb_foo { ... };`).
+
+    NOTE: given `_BB_PREFIX_FN_RE`'s character class, this function is
+    currently UNREACHABLE with a non-False result: by the time it's called,
+    a `(` is guaranteed present (the `paren == -1` branch can't fire) and
+    it's provably the first `(` on the line, so no `{` can precede it (the
+    `brace < paren` branch can't fire either) -- it can only ever return
+    False. Retained anyway for parity with `fence/variant_ladder.py`, which
+    has the identical property. CRITICAL: do NOT "simplify" by folding
+    `struct`/`enum`/`union` back into `_BB_PREFIX_SKIP_KW` -- that isn't an
+    equivalent simplification, it restores the original blindness and makes
+    `struct bb_foo *bad_name(void);` invisible again. The correct
+    simplification is to delete this function and keep those keywords OUT
+    of the skip set."""
+    paren = stripped.find('(')
+    if paren == -1:
+        return True
+    brace = stripped.find('{')
+    return brace != -1 and brace < paren
 
 # Macros: #define NAME — uppercase-start, not starting with BB_, not a header guard
 _BB_PREFIX_MACRO_RE = re.compile(r'^#define\s+([A-Z][A-Z0-9_]*)\b')
@@ -648,7 +698,10 @@ def _check_bb_prefix(ctx: Context) -> list:
                 prefix_words = m.group(1).split()
                 name = m.group(2)
                 # skip if any keyword present in return-type tokens
-                if not any(w in _BB_PREFIX_SKIP_KW for w in prefix_words):
+                is_skip = any(w in _BB_PREFIX_SKIP_KW for w in prefix_words)
+                if not is_skip and any(w in _BB_PREFIX_TYPE_KW for w in prefix_words):
+                    is_skip = _is_type_definition_line(line.strip())
+                if not is_skip:
                     if not name.startswith('bb_') and name not in allowlist:
                         violations.append(ctx.violation(path, i, f"function '{name}'"))
                         continue  # don't double-report same line
