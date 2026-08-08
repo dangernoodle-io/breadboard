@@ -734,6 +734,137 @@ class TestBbPrefix(unittest.TestCase):
             self.assertFalse(violations, "bb_display_ek79007 must be exempt")
 
 
+class TestBbPrefixPreviouslyBlindDeclStyles(unittest.TestCase):
+    """B1-1470: `_BB_PREFIX_FN_RE` shares the same three blind spots
+    `fence/variant_ladder.py`'s `_FN_DECL_RE` went through three rounds of
+    fixes for (see `TestPointerReturnLadderFires` there) -- ported the same
+    fix here. Each positive case below is a mutation test in spirit: it
+    only proves something if it fails against the OLD (pre-fix) regex/skip
+    logic; see the scout report for the before/after table."""
+
+    def _make_header(self, tmpdir: str, comp: str, filename: str, content: str) -> str:
+        comp_dir = os.path.join(tmpdir, "components", comp)
+        inc = os.path.join(comp_dir, "include")
+        os.makedirs(inc, exist_ok=True)
+        Path(os.path.join(comp_dir, "CMakeLists.txt")).write_text("")
+        Path(os.path.join(inc, filename)).write_text(content)
+        return tmpdir
+
+    def _ctx(self, tmpdir: str, config: dict = None) -> Context:
+        return Context(root=tmpdir, config=config or {})
+
+    # --- positive cases: a non-bb_-prefixed declaration in each
+    # previously-blind style must fire ---
+
+    def test_fires_on_pointer_attached_star(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'char *bad_name(void);\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertTrue(violations, "pointer-attached-star declaration must fire")
+            self.assertIn("bad_name", violations[0]["detail"])
+
+    def test_fires_on_const_qualifier(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'const bb_foo_t bad_name(void);\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertTrue(violations, "const-qualified declaration must fire")
+            self.assertIn("bad_name", violations[0]["detail"])
+
+    def test_fires_on_struct_return(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'struct bb_foo bad_name(void);\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertTrue(violations, "struct-returning declaration must fire")
+            self.assertIn("bad_name", violations[0]["detail"])
+
+    def test_fires_on_enum_return(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'enum bb_state bad_name(void);\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertTrue(violations, "enum-returning declaration must fire")
+            self.assertIn("bad_name", violations[0]["detail"])
+
+    def test_fires_on_union_return(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'union bb_value bad_name(void);\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertTrue(violations, "union-returning declaration must fire")
+            self.assertIn("bad_name", violations[0]["detail"])
+
+    # --- negative cases: a correctly bb_-prefixed declaration in each of
+    # the same styles must NOT fire, and a true type definition/
+    # forward-decl (not a function declaration at all) must still be
+    # skipped even after widening the const/struct/enum/union handling ---
+
+    def test_no_fire_on_prefixed_pointer_attached_star(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'char *bb_fake_get(void);\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertFalse(violations, "bb_-prefixed pointer-star declaration must NOT fire")
+
+    def test_no_fire_on_prefixed_const_qualifier(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'const bb_foo_t bb_fake_get(void);\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertFalse(violations, "bb_-prefixed const-qualified declaration must NOT fire")
+
+    def test_no_fire_on_prefixed_struct_return(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'struct bb_foo bb_fake_get(void);\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertFalse(violations, "bb_-prefixed struct-returning declaration must NOT fire")
+
+    def test_no_fire_on_struct_type_definition_no_paren(self):
+        """A genuine struct type definition has no `(` before the name, so
+        `_BB_PREFIX_FN_RE` itself never matches -- it's rejected outright,
+        not via `_is_type_definition_line`'s disambiguation (which is
+        unreachable, see that function's docstring)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'struct bb_foo {\n'
+                '    int x;\n'
+                '};\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertFalse(violations, "a struct type definition must NOT fire")
+
+    def test_no_fire_on_struct_forward_decl_no_paren(self):
+        """No `(` before the name -- `_BB_PREFIX_FN_RE` rejects the line
+        outright; a forward-declaration is never considered a function."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'struct bb_foo;\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertFalse(violations, "a struct forward-declaration must NOT fire")
+
+    def test_no_fire_on_enum_type_definition_no_paren(self):
+        """No `(` before the name -- `_BB_PREFIX_FN_RE` rejects the line
+        outright; an enum type definition is never considered a function."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'enum bb_state { BB_STATE_A, BB_STATE_B };\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertFalse(violations, "an enum type definition must NOT fire")
+
+
 class TestPragmaOnce(unittest.TestCase):
     def _make_header(self, tmpdir: str, comp: str, filename: str, content: str) -> str:
         comp_dir = os.path.join(tmpdir, "components", comp)
