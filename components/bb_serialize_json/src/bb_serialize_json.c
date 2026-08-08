@@ -519,22 +519,14 @@ static bb_err_t bb_json_render_impl(const bb_serialize_desc_t *desc, const void 
 
 // B1-1437: collapsed bb_serialize_json_render()/bb_serialize_json_render_ex()
 // into one cfg-struct entry point -- see bb_serialize_json_render_cfg_t's
-// doc comment in bb_serialize_json.h.
+// doc comment in bb_serialize_json.h. Further widened (12th ladder finding
+// off the B1-1434 audit) to fold bb_serialize_json_render_ref()'s
+// resolve/resolve_ctx fields into this same cfg struct rather than keeping
+// it a separate public entry point.
 bb_err_t bb_serialize_json_render(const bb_serialize_json_render_cfg_t *cfg, size_t *out_len)
 {
     return bb_json_render_impl(cfg->desc, cfg->snap, cfg->buf, cfg->cap, out_len,
-                                NULL, NULL, cfg->f64_shortest);
-}
-
-// B1-1437: bb_serialize_json_render_ref_ex() merged into this fn (a trailing
-// f64_shortest param, not a cfg struct -- this pair had zero callers outside
-// its own former thin wrapper, see the header's doc comment).
-bb_err_t bb_serialize_json_render_ref(const bb_serialize_desc_t *desc, const void *snap,
-                                       char *buf, size_t cap, size_t *out_len,
-                                       bb_serialize_ref_resolve_fn resolve, void *resolve_ctx,
-                                       bool f64_shortest)
-{
-    return bb_json_render_impl(desc, snap, buf, cap, out_len, resolve, resolve_ctx, f64_shortest);
+                                cfg->resolve, cfg->resolve_ctx, cfg->f64_shortest);
 }
 
 // Distinct entry point from bb_json_render_impl() above -- NOT routed

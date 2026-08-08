@@ -71,9 +71,8 @@ typedef struct {
     // to bb_json_write_f64_shortest() -- shortest-round-trippable output
     // that is byte-identical to cJSON's own print_number() (B1-1102).
     // Selected via bb_serialize_json_render_cfg_t.f64_shortest (or the
-    // equivalent trailing param on bb_serialize_json_render_ref()/
-    // bb_serialize_json_stream_render()), never set directly by a
-    // walker-driven caller.
+    // equivalent trailing param on bb_serialize_json_stream_render()), never
+    // set directly by a walker-driven caller.
     bool f64_shortest;
 } bb_serialize_json_ctx_t;
 
@@ -103,14 +102,18 @@ bb_serialize_emit_t bb_serialize_json_emit(bb_serialize_json_ctx_t *ctx);
 // bbtool:init tier=early fn=bb_serialize_json_register_format
 bb_err_t bb_serialize_json_register_format(void);
 
-// Config for bb_serialize_json_render() (B1-1437) -- collapses the former
+// Config for bb_serialize_json_render() (B1-1437, widened further by the
+// B1-1434 ladder audit's 12th finding) -- collapses the former
 // bb_serialize_json_render()/bb_serialize_json_render_ex() variant-ladder
 // pair into one entry point, mirroring bb_serialize_walk_cfg_t's own
-// collapse (B1-1459). All fields are required inputs (no zero-default
-// sentinel needed: `desc`/`snap`/`buf` are pointers whose NULL is already a
-// caller bug either way, `cap == 0` is an already-meaningful "no space"
-// input handled by the existing BB_ERR_NO_SPACE path, and `f64_shortest ==
-// false` reproduces today's fixed-decimal formatting -- the exact default
+// collapse (B1-1459), then folds in bb_serialize_json_render_ref()'s
+// resolve/resolve_ctx fields so that a second public entry point never
+// needs to exist for REF resolution. All fields are required inputs except
+// `resolve`/`resolve_ctx` (no zero-default sentinel needed for the required
+// ones: `desc`/`snap`/`buf` are pointers whose NULL is already a caller bug
+// either way, `cap == 0` is an already-meaningful "no space" input handled
+// by the existing BB_ERR_NO_SPACE path, and `f64_shortest == false`
+// reproduces today's fixed-decimal formatting -- the exact default
 // bb_serialize_json_render_ex() carried before this collapse).
 typedef struct {
     const bb_serialize_desc_t *desc;
@@ -120,6 +123,20 @@ typedef struct {
     // See bb_serialize_json_ctx_t.f64_shortest's doc comment for the
     // fixed-decimal (false) vs shortest-round-trippable (true) contract.
     bool                       f64_shortest;
+    // Optional REF resolution -- same zero-init contract as
+    // bb_serialize_walk_cfg_t.resolve/.resolve_ctx (bb_serialize.h): NULL
+    // `resolve` (the zero-init default) means no resolver, so any
+    // BB_TYPE_REF field encountered is omitted entirely -- byte-identical
+    // to the plain, pre-B1-1434 bb_serialize_json_render() behavior. A
+    // non-NULL `resolve` with a NULL `resolve_ctx` is a legitimate, common
+    // case (a stateless resolver); `resolve_ctx` is only ever passed
+    // through to `resolve` and is never itself null-checked or
+    // dereferenced by this layer, so a non-NULL `resolve_ctx` alongside a
+    // NULL `resolve` is inert (resolve_ctx is simply never used, matching
+    // bb_serialize_walk_cfg_t's own convention), not a state this fn
+    // rejects.
+    bb_serialize_ref_resolve_fn resolve;
+    void                       *resolve_ctx;
 } bb_serialize_json_render_cfg_t;
 
 // One-shot entry point: walks `cfg->desc`/`cfg->snap` and writes a complete
@@ -128,26 +145,18 @@ typedef struct {
 // `*out_len` is the written length (excluding NUL) and `cfg->buf` is
 // NUL-terminated; on BB_ERR_NO_SPACE, `*out_len` is 0 and `cfg->buf[0]` is
 // '\0' -- never partial JSON.
+//
+// BB_TYPE_REF resolution: if `cfg->resolve` is non-NULL, a REF field's
+// sibling section renders inline at its wire key -- see
+// `bb_serialize_json_render_cfg_t.resolve`'s doc comment above for the full
+// contract. Leaving `cfg->resolve` NULL (the zero-init default) omits any
+// BB_TYPE_REF field entirely, exactly as before this fn's REF-resolution
+// fields existed.
 bb_err_t bb_serialize_json_render(const bb_serialize_json_render_cfg_t *cfg, size_t *out_len);
 
-// Same as bb_serialize_json_render(), plus BB_TYPE_REF resolution: drives
-// bb_serialize_walk() with cfg->resolve/cfg->resolve_ctx set (rather than
-// left NULL), so a REF field's sibling section renders inline at its wire
-// key. All-or-nothing semantics and the NUL-terminator/overflow contract
-// are identical to bb_serialize_json_render(). `f64_shortest` selects
-// fixed-decimal (false) vs shortest-round-trippable (true) BB_TYPE_F64
-// formatting -- see bb_serialize_json_ctx_t.f64_shortest's doc comment
-// (B1-1102). NOT config-struct-shaped by deliberate choice (B1-1437): this
-// pair had zero callers outside its own former `_ex` thin wrapper, so the
-// two rungs merge into this single wider signature instead.
-bb_err_t bb_serialize_json_render_ref(const bb_serialize_desc_t *desc, const void *snap,
-                                       char *buf, size_t cap, size_t *out_len,
-                                       bb_serialize_ref_resolve_fn resolve, void *resolve_ctx,
-                                       bool f64_shortest);
-
-// Streaming entry point: distinct from bb_serialize_json_render()/
-// bb_serialize_json_render_ref() above -- NOT routed through
-// bb_serialize_format_render() (that dispatch stays bounded/unchanged).
+// Streaming entry point: distinct from bb_serialize_json_render() above --
+// NOT routed through bb_serialize_format_render() (that dispatch stays
+// bounded/unchanged).
 // Drives the walker against an internal, fixed-size stack buffer
 // (BB_SERIALIZE_JSON_STREAM_FLUSH_BUF_BYTES) and invokes `flush_fn(flush_ctx,
 // data, len)` each time that buffer fills, rather than failing NO_SPACE --
@@ -177,18 +186,17 @@ bb_err_t bb_serialize_json_render_ref(const bb_serialize_desc_t *desc, const voi
 // accepted tradeoff, not a bug -- a caller that needs a guaranteed error
 // status for every failure mode must use the buffered render path instead.
 //
-// SCOPE LIMIT: unlike bb_serialize_json_render_ref(), this entry point does
-// NOT accept `resolve`/`resolve_ctx` -- it always drives the plain
-// (non-REF) walker. A descriptor containing a BB_TYPE_REF field that needs
-// pointer-indirection resolution cannot be streamed via this fn (PR-1 scope
-// limit, B1-1077). No current diag descriptor needs REF resolution.
+// SCOPE LIMIT: unlike bb_serialize_json_render()'s cfg->resolve/
+// cfg->resolve_ctx fields, this entry point does NOT accept `resolve`/
+// `resolve_ctx` -- it always drives the plain (non-REF) walker. A
+// descriptor containing a BB_TYPE_REF field that needs pointer-indirection
+// resolution cannot be streamed via this fn (PR-1 scope limit, B1-1077). No
+// current diag descriptor needs REF resolution.
 // `f64_shortest` selects fixed-decimal (false) vs shortest-round-trippable
 // (true) BB_TYPE_F64 formatting -- see bb_serialize_json_ctx_t.f64_shortest's
 // doc comment (B1-1102). NOT config-struct-shaped by deliberate choice
 // (B1-1437): this pair had zero callers outside its own former `_ex` thin
-// wrapper, so the two rungs merge into this single wider signature instead
-// -- see bb_serialize_json_render_ref()'s doc comment above for the same
-// reasoning.
+// wrapper, so the two rungs merge into this single wider signature instead.
 bb_err_t bb_serialize_json_stream_render(const bb_serialize_desc_t *desc, const void *snap,
                                           bb_serialize_json_flush_fn flush_fn, void *flush_ctx,
                                           const volatile bool *flush_failed, bool f64_shortest);

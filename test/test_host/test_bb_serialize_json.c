@@ -1168,10 +1168,10 @@ void test_bb_serialize_json_pop_level_underflow_guard(void)
 }
 
 // ---------------------------------------------------------------------------
-// 19. BB_TYPE_REF JSON golden -- bb_serialize_json_render_ref() over a
-// synthetic parent+sibling document (a "system" parent referencing a
-// "wifi" sibling section by ref_key), plus resolve==NULL /
-// unregistered-sibling omission via the same render path.
+// 19. BB_TYPE_REF JSON golden -- bb_serialize_json_render() with
+// cfg->resolve set over a synthetic parent+sibling document (a "system"
+// parent referencing a "wifi" sibling section by ref_key), plus
+// resolve==NULL / unregistered-sibling omission via the same render path.
 // ---------------------------------------------------------------------------
 
 typedef struct {
@@ -1232,7 +1232,13 @@ void test_v2_golden_ref_resolves_inline(void)
     char buf[128];
     size_t out_len = 0;
 
-    bb_err_t rc = bb_serialize_json_render_ref(&s_v2_system_desc, &snap, buf, sizeof(buf), &out_len, v2_stub_resolve, NULL, false);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc    = &s_v2_system_desc,
+        .snap    = &snap,
+        .buf     = buf,
+        .cap     = sizeof(buf),
+        .resolve = v2_stub_resolve,
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"uptime\":42,\"wifi\":{\"rssi\":-60}}", buf);
@@ -1246,7 +1252,13 @@ void test_v2_golden_ref_unregistered_sibling_omits_field(void)
     size_t out_len = 0;
 
     // Resolver never matches -- same as an unregistered sibling.
-    bb_err_t rc = bb_serialize_json_render_ref(&s_v2_system_desc, &snap, buf, sizeof(buf), &out_len, stub_resolve_never_matches, NULL, false);
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc    = &s_v2_system_desc,
+        .snap    = &snap,
+        .buf     = buf,
+        .cap     = sizeof(buf),
+        .resolve = stub_resolve_never_matches,
+    }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_STRING("{\"uptime\":42}", buf);
@@ -1265,6 +1277,32 @@ void test_v2_golden_ref_null_resolver_omits_field(void)
         .snap = &snap,
         .buf  = buf,
         .cap  = sizeof(buf),
+    }, &out_len);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL_STRING("{\"uptime\":42}", buf);
+}
+
+// Zero-default trap pin: a non-NULL cfg->resolve_ctx alongside a NULL
+// cfg->resolve is inert -- bb_serialize_walk() (bb_serialize.h) gates REF
+// resolution on `resolve` alone and never dereferences `resolve_ctx` unless
+// `resolve` is also non-NULL, so this combination must produce the exact
+// same omitted-field output as leaving both fields at their zero-init
+// default, not a crash or a spuriously-resolved REF field.
+void test_v2_golden_ref_null_resolver_nonnull_ctx_omits_field(void)
+{
+    v2_system_snap_t snap = { .uptime = 42 };
+    char buf[128];
+    size_t out_len = 0;
+    int   unused_ctx = 0;
+
+    bb_err_t rc = bb_serialize_json_render(&(bb_serialize_json_render_cfg_t){
+        .desc        = &s_v2_system_desc,
+        .snap        = &snap,
+        .buf         = buf,
+        .cap         = sizeof(buf),
+        .resolve     = NULL,
+        .resolve_ctx = &unused_ctx,
     }, &out_len);
 
     TEST_ASSERT_EQUAL(BB_OK, rc);
