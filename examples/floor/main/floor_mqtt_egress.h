@@ -1,14 +1,44 @@
 #pragma once
 
 // floor_mqtt_egress — MQTT egress consumer for bb_data_http's shared drain
-// (B1-1126 PR-1 of 2). examples/floor is a hand-wired composition root, not
-// a component (see CLAUDE.md's composition-only model) -- floor_app.c
-// acquires a DURABLE bb_data_http client mirroring the already-attached
-// "log" key and wires its send_fn/abort_fn to the functions declared here,
-// and test/test_host/test_floor_mqtt_egress.c #includes floor_mqtt_egress.c
-// directly (examples are not part of the native scaffold's component graph,
-// so this is the only way to reach it from a host test) -- one code path,
-// no mirror.
+// (B1-1126 PR-1 of 2).
+//
+// NOT CURRENTLY COMPOSED (B1-1483): floor_app.c no longer acquires a
+// bb_data_http client wired to these functions. Hardware validation of
+// PR1 (#1263) found that mirroring the "log" key to MQTT is
+// self-amplifying against a bounded outbox: when esp-mqtt's outbox fills,
+// bb_mqtt_client logs a WARNING ("enqueue rejected: outbox full") -- that
+// warning is itself a log line, so it re-enters the mirrored stream, is
+// rejected, logs again. Measured on hardware: writer_dropped 1874/s and
+// event_dropped 504/s sustained with MQTT enabled, vs 0.17/s and 0/s with
+// it disabled (same board, same firmware, only the NVS enabled flag
+// differing). USER DECISION: logs are diagnostic exhaust -- unbounded,
+// human-oriented, already served by SSE and by bb_log's UDP sink -- not an
+// MQTT payload. MQTT carries device state and domain events, not logs.
+//
+// This module is KEPT, uncomposed, as the reusable seam for when a genuine
+// domain-event key needs MQTT egress: floor_mqtt_send_rc_to_bb(),
+// floor_mqtt_egress_send_fn(), floor_mqtt_egress_abort_fn(), and
+// floor_mqtt_egress_should_acquire() are correct, host-tested, and
+// mutation-verified against bb_data_http's send_fn/abort_fn contracts --
+// they are not specific to "log", only the composition (the "log"
+// topic_filter + the acquire call site) has been removed from
+// floor_app.c.
+//
+// CRITICAL PRECONDITION for whoever wires the next key onto this seam:
+// bb_mqtt_client's enqueue-rejection warning MUST be rate-limited (or
+// otherwise prevented from reaching the mirrored stream) BEFORE that key
+// is composed. The storm above is structurally impossible today only
+// because nothing is mirrored -- attaching any key without first fixing
+// that warning reproduces it. Do not skip this.
+//
+// examples/floor is a hand-wired composition root, not a component (see
+// CLAUDE.md's composition-only model) -- when composed, floor_app.c
+// acquires a DURABLE bb_data_http client and wires its send_fn/abort_fn to
+// the functions declared here, and test/test_host/test_floor_mqtt_egress.c
+// #includes floor_mqtt_egress.c directly (examples are not part of the
+// native scaffold's component graph, so this is the only way to reach it
+// from a host test) -- one code path, no mirror.
 //
 // Reuses the existing bb_mqtt_client component (already composed in
 // floor_app.c via bb_mqtt_client_init_default(), configured from NVS

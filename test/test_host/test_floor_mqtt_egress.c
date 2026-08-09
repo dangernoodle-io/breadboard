@@ -1,11 +1,12 @@
-// Host tests for floor's MQTT egress consumer (B1-1126 PR-1 of 2).
+// Host tests for floor's MQTT egress consumer seam (B1-1126 PR-1 of 2).
 // examples/floor is an example, not a component, so it is not part of the
 // native scaffold's component graph and cannot be reached the normal way --
 // this test #includes floor_mqtt_egress.c directly (a relative path into
-// examples/floor/main/), the SAME translation unit floor_app.c links
-// against, not a hand-mirrored copy. See floor_mqtt_egress.h's doc for the
-// full contract and floor_app.c's B1-1126 PR-1 wiring for the live call
-// site.
+// examples/floor/main/), the SAME translation unit floor_app.c compiles,
+// not a hand-mirrored copy. B1-1483: this seam is currently NOT composed
+// by floor_app.c (see floor_mqtt_egress.h's doc for why + the precondition
+// for re-composing it) -- these tests still exercise the seam's functions
+// directly and remain the load-bearing coverage for it.
 #include "unity.h"
 #include "../../examples/floor/main/floor_mqtt_egress.c"
 

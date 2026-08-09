@@ -50,7 +50,6 @@
 #include "bb_system.h"
 #include "floor_prov_reboot.h"
 #include "floor_task_stack.h"
-#include "floor_mqtt_egress.h"
 #include <inttypes.h>
 #include <stdbool.h>
 
@@ -725,42 +724,14 @@ void app_main(void)
         if (err != BB_OK) {
             bb_log_w(TAG, "mqtt_client_init_default failed (%d)", (int)err);
         }
-        // B1-1126 PR-1: acquire the MQTT egress consumer -- a DURABLE
-        // bb_data_http client mirroring the already-attached "log" key
-        // (see the producers[] attach loop above), never a new bb_data_http
-        // attach of its own. Acquired once, here, after
-        // bb_mqtt_client_init_default() so bb_mqtt_client_default() has a
-        // chance to resolve non-NULL by the time the broadcaster's first
-        // sweep drains this client -- though floor_mqtt_egress_send_fn()
-        // resolves it fresh every call regardless and degrades to retriable
-        // if it's still NULL. DURABLE: a fatal MQTT send must not silently
-        // drop this client the way an EPHEMERAL (SSE/WS) one would -- see
-        // bb_data_http_client_cfg_t's lifetime doc.
+        // B1-1483: floor no longer acquires a durable bb_data_http client
+        // mirroring the "log" key onto MQTT -- see floor_mqtt_egress.h for
+        // why (logs are diagnostic exhaust, not an MQTT payload; hardware
+        // validation of B1-1126 PR1 measured a self-amplifying log storm).
+        // bb_mqtt_client itself stays composed/initialized here for when a
+        // real domain-event key is wired onto it; also consumed by bb_health's
+        // MQTT health section.
         //
-        // GATED on bb_mqtt_client_default() resolving non-NULL right here,
-        // composition-time, not deferred: bb_mqtt_client_init_default()
-        // returns BB_OK even when NVS "bb_mqtt".enabled != 1 (no-op, no
-        // client created) -- acquiring unconditionally would permanently
-        // claim one of bb_data_http's compile-time client slots for a
-        // client that can only ever return BB_ERR_TIMEOUT from send_fn and
-        // never deliver anything, on any board with MQTT off. This is a
-        // composition-time decision only: if MQTT is enabled later via a
-        // portal re-provision + reboot, that next boot re-runs app_main()
-        // and re-evaluates this gate fresh -- there is no runtime
-        // "acquire later" path here.
-        if (floor_mqtt_egress_should_acquire(bb_mqtt_client_default())) {
-            bb_data_http_client_t *mqtt_log_client = NULL;
-            err = bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){
-                .topic_filter = "log",
-                .send_fn      = floor_mqtt_egress_send_fn,
-                .abort_fn     = floor_mqtt_egress_abort_fn,
-                .lifetime     = BB_DATA_HTTP_LIFETIME_DURABLE }, &mqtt_log_client);
-            if (err != BB_OK) {
-                bb_log_w(TAG, "data_http_client_acquire(mqtt log) failed (%d)", (int)err);
-            }
-        } else {
-            bb_log_i(TAG, "mqtt egress: no MQTT client configured -- not acquiring a durable bb_data_http slot");
-        }
         // Wire the stored hostname into bb_mdns BEFORE bb_mdns_init() below --
         // bb_mdns_init() is a bb_once (idempotent first-call-wins), and
         // mdns_init_impl() reads s_mdns_hostname/s_mdns_hostname_set exactly
