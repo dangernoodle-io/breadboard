@@ -1603,6 +1603,23 @@ void test_floor_task_stack_warns_when_emitted_equals_max_rows(void);
 void test_floor_task_stack_no_warn_when_emitted_below_max_rows(void);
 void test_floor_task_stack_already_warned_no_fire(void);
 void test_floor_task_stack_zero_max_rows_no_fire(void);
+void test_floor_mqtt_send_rc_to_bb_ok_maps_to_ok(void);
+void test_floor_mqtt_send_rc_to_bb_no_space_maps_to_timeout(void);
+void test_floor_mqtt_send_rc_to_bb_invalid_state_maps_to_timeout(void);
+void test_floor_mqtt_send_rc_to_bb_validation_passes_through_fatal(void);
+void test_floor_mqtt_send_rc_to_bb_other_code_passes_through_fatal(void);
+void test_floor_mqtt_egress_send_fn_null_default_client_returns_timeout(void);
+void test_floor_mqtt_egress_send_fn_builds_prefixed_topic_and_enqueues(void);
+void test_floor_mqtt_egress_send_fn_outbox_full_returns_timeout(void);
+void test_floor_mqtt_egress_send_fn_validation_reject_returns_fatal(void);
+void test_floor_mqtt_egress_send_fn_oversized_key_returns_validation(void);
+void test_floor_mqtt_egress_send_fn_key_at_slack_boundary_fits(void);
+void test_floor_mqtt_egress_should_acquire_false_when_no_client(void);
+void test_floor_mqtt_egress_should_acquire_true_when_client_present(void);
+void test_floor_mqtt_egress_abort_fn_releases_client(void);
+void test_floor_mqtt_egress_sweep_outbox_full_retries_then_delivers(void);
+void test_floor_mqtt_egress_sweep_null_handle_retries_no_teardown(void);
+void test_floor_mqtt_egress_sweep_validation_reject_survives_and_stops_flush(void);
 
 // Forward declarations from test_bb_http_json_obj_stream.c
 void test_resp_no_content_sets_204_empty_body(void);
@@ -7138,6 +7155,23 @@ int main(void) {
     RUN_TEST(test_floor_task_stack_no_warn_when_emitted_below_max_rows);
     RUN_TEST(test_floor_task_stack_already_warned_no_fire);
     RUN_TEST(test_floor_task_stack_zero_max_rows_no_fire);
+    RUN_TEST(test_floor_mqtt_send_rc_to_bb_ok_maps_to_ok);
+    RUN_TEST(test_floor_mqtt_send_rc_to_bb_no_space_maps_to_timeout);
+    RUN_TEST(test_floor_mqtt_send_rc_to_bb_invalid_state_maps_to_timeout);
+    RUN_TEST(test_floor_mqtt_send_rc_to_bb_validation_passes_through_fatal);
+    RUN_TEST(test_floor_mqtt_send_rc_to_bb_other_code_passes_through_fatal);
+    RUN_TEST(test_floor_mqtt_egress_send_fn_null_default_client_returns_timeout);
+    RUN_TEST(test_floor_mqtt_egress_send_fn_builds_prefixed_topic_and_enqueues);
+    RUN_TEST(test_floor_mqtt_egress_send_fn_outbox_full_returns_timeout);
+    RUN_TEST(test_floor_mqtt_egress_send_fn_validation_reject_returns_fatal);
+    RUN_TEST(test_floor_mqtt_egress_send_fn_oversized_key_returns_validation);
+    RUN_TEST(test_floor_mqtt_egress_send_fn_key_at_slack_boundary_fits);
+    RUN_TEST(test_floor_mqtt_egress_should_acquire_false_when_no_client);
+    RUN_TEST(test_floor_mqtt_egress_should_acquire_true_when_client_present);
+    RUN_TEST(test_floor_mqtt_egress_abort_fn_releases_client);
+    RUN_TEST(test_floor_mqtt_egress_sweep_outbox_full_retries_then_delivers);
+    RUN_TEST(test_floor_mqtt_egress_sweep_null_handle_retries_no_teardown);
+    RUN_TEST(test_floor_mqtt_egress_sweep_validation_reject_survives_and_stops_flush);
 
     // JSON walker and HTTP send_json tests
 
