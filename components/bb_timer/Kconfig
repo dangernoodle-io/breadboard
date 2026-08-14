@@ -29,6 +29,14 @@ config BB_TIMER_DISP_CORE
         specifically want it off the esp_timer service core (core 0) can still
         pin it explicitly via CONFIG_BB_TIMER_DISP_CORE.
 
+        A dispatcher that is merely starved -- not hung -- for longer than
+        CONFIG_ESP_TASK_WDT_TIMEOUT_S trips BB_TIMER_DISP_WDT_ENABLE's same
+        path as a genuine hang. Today, with CONFIG_ESP_TASK_WDT_PANIC unset
+        by default, that only produces a spurious warning; a board owner who
+        later enables CONFIG_ESP_TASK_WDT_PANIC should check the core and
+        priority layout here first, or a starvation spell can trigger an
+        unwanted reboot.
+
 config BB_TIMER_DISP_QUEUE_DEPTH
     int "Shared dispatcher coalescing queue depth"
     default 16
@@ -41,7 +49,7 @@ config BB_TIMER_DISP_QUEUE_DEPTH
 
 config BB_TIMER_DISP_WDT_ENABLE
     bool "Subscribe bb_timer_disp to the Task Watchdog Timer"
-    default n
+    default y
     depends on ESP_TASK_WDT_EN
     help
         When enabled, the shared dispatcher task (bb_timer_disp) subscribes
@@ -49,16 +57,32 @@ config BB_TIMER_DISP_WDT_ENABLE
         and after each work_fn returns.
 
         A work_fn that blocks longer than CONFIG_ESP_TASK_WDT_TIMEOUT_S
-        (the global Task WDT timeout) will trigger a TWDT panic and a clean
-        reboot with reset_reason task_wdt. This converts a silent WiFi-zombie
-        stall into an observable reboot.
+        (the global Task WDT timeout) trips the TWDT ISR, which logs the
+        stuck task by name. With CONFIG_ESP_TASK_WDT_PANIC unset -- the
+        default in every sdkconfig shipped in this repo -- that is ALL it
+        does: the ISR re-arms and the dispatcher stays wedged exactly as
+        before, just no longer silent. This is NOT a reboot and NOT
+        self-recovery; it only gets you a reboot with reset_reason task_wdt
+        if the board also has CONFIG_ESP_TASK_WDT_PANIC enabled.
 
-        The effective stall-to-reboot bound is CONFIG_ESP_TASK_WDT_TIMEOUT_S,
-        not BB_TIMER_DISP_WDT_FEED_MS. The feed interval only controls how
-        often the dispatcher feeds on idle (queue empty) ticks; it must be
-        shorter than the global WDT timeout.
+        The warning is expected to stay visible even if bb_log itself is
+        wedged, since the TWDT ISR logs via a direct ROM-UART print path
+        that bypasses bb_log's writer queue -- not through the same queue a
+        stuck dispatcher could be blocking.
 
-        Default n — opt-in; the default build is unchanged.
+        The effective stall-to-reboot bound (when PANIC is also on) is
+        CONFIG_ESP_TASK_WDT_TIMEOUT_S, not BB_TIMER_DISP_WDT_FEED_MS. The
+        feed interval only controls how often the dispatcher feeds on idle
+        (queue empty) ticks; it must be shorter than the global WDT timeout.
+
+        Default y — bb_timer_disp runs every MODE_SHARED work_fn
+        synchronously with no per-callback timeout of its own, so a single
+        hung callback previously parked every periodic job on the
+        dispatcher silently forever: no warning, no reset_reason, nothing
+        to attribute a hang to. Subscribing it to the Task WDT gives that
+        hang a name in the log, even though the dispatcher itself remains
+        wedged unless CONFIG_ESP_TASK_WDT_PANIC is also on. Turn this off
+        only if even the attributed warning is unwanted.
 
 config BB_TIMER_DISP_WDT_FEED_MS
     int "Dispatcher WDT idle feed interval (ms)"
