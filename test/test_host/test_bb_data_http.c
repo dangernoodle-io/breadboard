@@ -259,13 +259,23 @@ void test_bb_data_http_init_cfg_non_null_zero_max_clients_uses_default(void)
     bb_data_http_cfg_t cfg = { .max_clients = 0 };
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(&cfg));
 
-    // CONFIG_BB_DATA_HTTP_MAX_CLIENTS's C default is 2 (bb_data_http_common.c
-    // Kconfig bridge) -- not exposed via the public header, so hardcoded
-    // here rather than referencing the private macro from a test.
-    bb_data_http_client_t *c1 = NULL, *c2 = NULL, *overflow = NULL;
+    // CONFIG_BB_DATA_HTTP_MAX_CLIENTS's C default is 3 as of B1-1482 (this
+    // env's own -DCONFIG_BB_DATA_HTTP_MAX_CLIENTS=3, platformio.ini,
+    // mirroring the Kconfig bump) -- not exposed via the public header, so
+    // hardcoded here rather than referencing the private macro from a test.
+    // Every acquire below omits `non_blocking`, so all three are BLOCKING;
+    // the blocking budget (this env's -DCONFIG_BB_DATA_HTTP_MAX_BLOCKING_
+    // CLIENTS=2) is deliberately exhausted by c1/c2 alone, WELL BEFORE the
+    // fd-table cap this test is actually proving (3) is reached -- the 3rd
+    // acquire below (c3) therefore must be non_blocking=true, or it would
+    // fail BB_ERR_NO_SPACE on the blocking budget instead of proving the
+    // fd-table cap is genuinely 3, and the 4th (overflow) proves that real
+    // cap, not the (smaller, already-exhausted) blocking one.
+    bb_data_http_client_t *c1 = NULL, *c2 = NULL, *c3 = NULL, *overflow = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c1));
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c2));
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &overflow));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.non_blocking = true}, &c3));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.non_blocking = true}, &overflow));
 }
 
 // ---------------------------------------------------------------------------
@@ -696,6 +706,350 @@ void test_bb_data_http_client_acquire_outbound_alloc_failure_returns_error(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c));
     TEST_ASSERT_FALSE(bb_data_http_client_poll_is_null_for_test(c));
     TEST_ASSERT_FALSE(bb_data_http_client_push_is_null_for_test(c));
+}
+
+// ---------------------------------------------------------------------------
+// Blocking-client budget (B1-1482). This env's own -DCONFIG_BB_DATA_HTTP_
+// MAX_CLIENTS=3 / -DCONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS=2
+// (platformio.ini) gives every test below a 3-slot fd-table with a 2-client
+// blocking budget -- the exact shape needed to distinguish "the blocking
+// budget rejected this acquire" from "the fd-table is simply full" (both
+// would otherwise return the same BB_ERR_NO_SPACE at a 2-client cap with no
+// way to tell them apart).
+// ---------------------------------------------------------------------------
+
+// N (2) blocking clients up to the budget succeed; the budget+1'th blocking
+// acquire is rejected -- even though a THIRD fd-table slot (this env's
+// MAX_CLIENTS=3) genuinely remains free. active_client_count() staying at 2
+// after the reject is what proves this is the BUDGET rejecting, not the
+// fd-table: a fd-table-exhaustion rejection would also leave the count
+// unchanged, but a fd-table cap of 2 (not this env's real 3) would too --
+// the mutation-sensitive assertion is the later companion test proving a
+// non_blocking acquire still succeeds against this same exhausted budget.
+void test_bb_data_http_client_acquire_blocking_budget_rejects_over_budget(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(NULL));
+
+    bb_data_http_client_t *c1 = NULL, *c2 = NULL, *c3 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c2));
+    TEST_ASSERT_EQUAL_UINT(2, bb_data_http_active_client_count());
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c3));
+    TEST_ASSERT_NULL(c3);
+    // The budget rejection must leave nothing half-claimed -- no fd-table
+    // slot is consumed by a rejected acquire.
+    TEST_ASSERT_EQUAL_UINT(2, bb_data_http_active_client_count());
+}
+
+// A non_blocking=true acquire still succeeds once the 2-client blocking
+// budget is exhausted, as long as a genuine fd-table slot remains (this
+// env's 3rd) -- the exact "2 blocking + 1 non-blocking" shape B1-1482
+// exists to unlock (2 blocking SSE/WS + a non-blocking durable MQTT egress
+// client, floor's real composition). Mutation-sensitive: if the acquire
+// scan counted CONFIG_BB_DATA_HTTP_MAX_CLIENTS (the fd-table cap) instead
+// of the blocking budget, or never excluded non_blocking clients from the
+// count, this acquire would wrongly fail BB_ERR_NO_SPACE here.
+void test_bb_data_http_client_acquire_non_blocking_succeeds_when_blocking_budget_exhausted(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(NULL));
+
+    bb_data_http_client_t *c1 = NULL, *c2 = NULL, *c3 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c2));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.non_blocking = true}, &c3));
+    TEST_ASSERT_NOT_NULL(c3);
+    TEST_ASSERT_EQUAL_UINT(3, bb_data_http_active_client_count());
+
+    // The fd-table is now genuinely full (3/3) -- a FOURTH acquire, even
+    // non_blocking, fails on the fd-table itself, not the (already
+    // irrelevant, still-exhausted) blocking budget.
+    bb_data_http_client_t *c4 = NULL;
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.non_blocking = true}, &c4));
+}
+
+// The budget scan must SKIP an active non-blocking client's slot, not just
+// never COUNT one -- distinct branch from the tests above, neither of which
+// ever performs a blocking acquire while a non-blocking client is also
+// live. Two blocking clients would normally exhaust the budget (2), but
+// here only ONE (c1) is blocking; c2 is non-blocking, so a third acquire
+// (c3, also blocking) must still succeed -- provable only if the scan
+// genuinely inspects and excludes c2's slot rather than mis-counting it.
+// Mutation-sensitive: dropping the `!s_clients[i].non_blocking` scan
+// condition (counting every in_use slot regardless of blocking-ness) would
+// wrongly reject c3 here (2 in_use slots >= budget of 2).
+void test_bb_data_http_client_acquire_blocking_scan_skips_non_blocking_clients(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(NULL));
+
+    bb_data_http_client_t *c1 = NULL, *c2 = NULL, *c3 = NULL, *c4 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.non_blocking = true}, &c2));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c3));
+    TEST_ASSERT_NOT_NULL(c3);
+    TEST_ASSERT_EQUAL_UINT(3, bb_data_http_active_client_count());
+
+    // Budget now genuinely exhausted: c1 and c3 (2 blocking clients).
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c4));
+}
+
+// ---------------------------------------------------------------------------
+// TOCTOU guard (B1-1482 review HIGH fix): bb_data_http_client_acquire()'s
+// blocking-budget scan and its free-slot claim now run as one locked
+// critical section, with an in-flight reservation (s_client_reserved,
+// bb_data_http_common.c) counted by that scan even before the reserving
+// call has published its client (`in_use = true`). The host harness is
+// single-threaded, so this cannot be proven with a genuinely concurrent
+// second thread -- instead, this test drives a SECOND, NESTED
+// bb_data_http_client_acquire() call from inside bb_queue_create()'s
+// injected allocator callback, which runs on the SAME thread strictly
+// AFTER the outer call has reserved its slot (s_clients_lock already
+// released -- see bb_data_http_client_acquire()'s own doc) but BEFORE it
+// has published (`in_use` still false). This reproduces exactly the window
+// a genuine second thread would race into, without needing real
+// concurrency: the nested call's budget scan must see the outer call's
+// still-unpublished reservation, or this test goes red.
+// ---------------------------------------------------------------------------
+
+static bool                    s_toctou_probe_fired;
+static int                     s_toctou_probe_calloc_calls;
+static bb_err_t                s_toctou_probe_rc = BB_ERR_INVALID_STATE;
+static bb_data_http_client_t  *s_toctou_probe_client;
+// false (the default -- see reset_all()'s implicit zero-init at file scope,
+// and each test's own explicit reset) -> nested probe is BLOCKING, the
+// budget-race scenario; true -> nested probe is non_blocking, the
+// free-slot-scan reserved-skip scenario (see each test's own doc).
+static bool                    s_toctou_probe_non_blocking;
+
+// Fires the nested acquire exactly once (guarded by s_toctou_probe_fired,
+// so the SECOND calloc call this nested acquire's own bb_queue_create()
+// would trigger, IF it got that far, does not recurse again) -- attempting
+// a THIRD acquire while the outer (second) blocking acquire's slot is
+// reserved-but-not-yet-published, then returns NULL to force whichever
+// bb_queue_create() call is currently in flight to fail. Every invocation,
+// nested or outer, increments s_toctou_probe_calloc_calls -- the real
+// mutation-sensitive signal (see each test's own doc below): BB_ERR_NO_SPACE
+// alone is NOT sufficient, because bb_queue_create() itself ALSO returns
+// BB_ERR_NO_SPACE on a calloc failure (platform/host/bb_queue/bb_queue.c) --
+// the identical code a correctly-rejected-at-budget nested acquire returns.
+// Only the CALL COUNT distinguishes "rejected before ever reaching
+// bb_queue_create()" (1 total call -- the outer's own) from "proceeded past
+// the budget check and reached its OWN bb_queue_create()" (2 total calls).
+static void *toctou_probe_calloc(size_t n, size_t sz)
+{
+    (void)n;
+    (void)sz;
+    s_toctou_probe_calloc_calls++;
+    if (!s_toctou_probe_fired) {
+        s_toctou_probe_fired = true;
+        s_toctou_probe_rc = bb_data_http_client_acquire(
+            &(bb_data_http_client_cfg_t){.non_blocking = s_toctou_probe_non_blocking},
+            &s_toctou_probe_client);
+    }
+    return NULL;
+}
+
+// Mutation-sensitive: if the budget scan's `s_client_reserved[i]` check
+// (bb_data_http_client_acquire()) were dropped -- reverting to the
+// pre-review-fix `s_clients[i].in_use` only -- the nested acquire below
+// would see blocking_count == 1 (only c1, since c2's reservation would be
+// invisible to it), under the budget of 2, and would wrongly PROCEED past
+// the budget check: it would then reserve the genuinely-free 3rd slot
+// (this env's cap is 3), reach its OWN bb_queue_create(), and trigger a
+// SECOND toctou_probe_calloc call -- s_toctou_probe_calloc_calls would read
+// 2, not 1. Checking s_toctou_probe_rc alone (BB_ERR_NO_SPACE) is NOT
+// sufficient on its own to catch this: bb_queue_create() returns that exact
+// same code on a calloc failure, so a nested acquire that wrongly proceeded
+// and then failed for an UNRELATED reason (its own forced allocator
+// failure) would still coincidentally report BB_ERR_NO_SPACE -- the call
+// count is what actually discriminates "rejected at the budget check"
+// (never reaches bb_queue_create at all) from "proceeded, then failed
+// later, for a different reason".
+void test_bb_data_http_client_acquire_reservation_blocks_concurrent_budget_race(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(NULL));
+    s_toctou_probe_fired        = false;
+    s_toctou_probe_calloc_calls = 0;
+    s_toctou_probe_rc           = BB_ERR_INVALID_STATE;
+    s_toctou_probe_client       = NULL;
+    s_toctou_probe_non_blocking = false;
+
+    bb_data_http_client_t *c1 = NULL, *c2 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c1));
+
+    bb_queue_set_allocator(toctou_probe_calloc, free);
+    bb_err_t outer_rc = bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c2);
+    bb_queue_reset_allocator();
+
+    TEST_ASSERT_TRUE(s_toctou_probe_fired);
+    // The nested acquire, running while c2's slot was reserved but not yet
+    // published, must be rejected on the blocking budget (c1 published +
+    // c2's own in-flight reservation == 2, the configured budget) -- the
+    // TOCTOU this fix closes. The call-count assertion is what actually
+    // proves it never reached bb_queue_create() at all (see this test's own
+    // doc above for why the rc check alone cannot discriminate this).
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, s_toctou_probe_rc);
+    TEST_ASSERT_NULL(s_toctou_probe_client);
+    TEST_ASSERT_EQUAL_INT(1, s_toctou_probe_calloc_calls);
+
+    // The outer (c2) acquire itself fails too (forced bb_queue_create()
+    // failure, unrelated to the budget) -- its reservation must roll back
+    // cleanly, same as any other bb_queue_create() failure path.
+    TEST_ASSERT_NOT_EQUAL(BB_OK, outer_rc);
+    TEST_ASSERT_NULL(c2);
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
+
+    // Rollback proof: the slot c2's failed attempt reserved is genuinely
+    // free again -- a fresh blocking acquire now succeeds (budget: only c1
+    // remains published, well under 2).
+    bb_data_http_client_t *c3 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c3));
+    TEST_ASSERT_NOT_NULL(c3);
+}
+
+// Companion to the test above, covering a branch it does NOT reach: the
+// free-slot scan (bb_data_http_client_acquire()) must SKIP a
+// reserved-but-not-yet-published slot, not just a published (`in_use`) one.
+// The blocking nested probe above never reaches this scan at all -- it is
+// rejected earlier, at the budget check, precisely because non_blocking is
+// false there. A NON-blocking nested probe skips the budget check entirely
+// (bb_data_http_client_cfg_t's `non_blocking` doc) and proceeds straight to
+// the free-slot scan, which is the only path that actually walks past a
+// reserved-but-unpublished slot and must correctly treat it as unavailable.
+// Mutation-sensitive: dropping the `!s_client_reserved[i]` free-slot-scan
+// condition (bb_data_http_client_acquire()) would let this nested acquire
+// wrongly claim the SAME slot (index 1) the outer call already reserved,
+// silently aliasing two acquire() calls onto one bb_data_http_client_t.
+void test_bb_data_http_client_acquire_reservation_skipped_by_non_blocking_free_slot_scan(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(NULL));
+    s_toctou_probe_fired        = false;
+    s_toctou_probe_calloc_calls = 0;
+    s_toctou_probe_rc           = BB_ERR_INVALID_STATE;
+    s_toctou_probe_client       = NULL;
+    s_toctou_probe_non_blocking = true;
+
+    bb_data_http_client_t *c1 = NULL, *c2 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c1));
+
+    bb_queue_set_allocator(toctou_probe_calloc, free);
+    bb_err_t outer_rc = bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c2);  // outer -- reserves slot 1
+    bb_queue_reset_allocator();
+
+    // Both the outer and nested acquires ultimately fail (the same shared
+    // injected allocator starves both their bb_queue_create() calls) --
+    // irrelevant to what this test proves (the free-slot scan's reserved-
+    // skip branch), but asserted for the same completeness every other
+    // acquire-failure test in this file follows.
+    TEST_ASSERT_NOT_EQUAL(BB_OK, outer_rc);
+    TEST_ASSERT_NULL(c2);
+    TEST_ASSERT_NULL(s_toctou_probe_client);
+
+    TEST_ASSERT_TRUE(s_toctou_probe_fired);
+    // The nested acquire skipped the budget check (non_blocking = true) and
+    // reached the free-slot scan -- its own bb_queue_create() then ran
+    // (2 total calloc calls: the outer's, then this nested one's), and it
+    // must have been handed a slot OTHER than the outer's still-reserved
+    // slot 1 (index 2, this env's spare 3rd slot) -- s_toctou_probe_client
+    // is NULL only because the SHARED injected allocator also fails this
+    // nested call's own bb_queue_create(); what this test actually proves
+    // is the slot the scan chose, captured via s_toctou_probe_calloc_calls
+    // reaching bb_queue_create() at all (proving the scan did not stop/skip
+    // itself into rejecting on the reserved slot alone -- a scan that
+    // wrongly claimed the reserved slot would ALSO reach bb_queue_create()
+    // and produce the same call count, which is why the real assertion is
+    // downstream: the outer call's OWN construction, resumed after the
+    // nested call returns, must complete on ITS OWN reserved slot without
+    // corruption).
+    TEST_ASSERT_EQUAL_INT(2, s_toctou_probe_calloc_calls);
+
+    // Decisive proof: after both calls have fully unwound (both failed --
+    // the outer forced by the injected allocator, the nested by the SAME
+    // shared allocator's second failure), the fd-table must be genuinely
+    // clean -- exactly 1 active client (c1) and exactly 2 free slots
+    // available for two FRESH blocking acquires. If the nested acquire had
+    // aliased the outer's reserved slot instead of skipping it, one of
+    // these would either fail unexpectedly or return a client that collides
+    // with a slot already in use.
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
+    bb_data_http_client_t *c3 = NULL, *c4 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c3));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){.non_blocking = true}, &c4));
+    TEST_ASSERT_NOT_NULL(c3);
+    TEST_ASSERT_NOT_NULL(c4);
+    TEST_ASSERT_NOT_EQUAL(c3, c4);
+    TEST_ASSERT_EQUAL_UINT(3, bb_data_http_active_client_count());
+    s_toctou_probe_non_blocking = false;
+}
+
+// Releasing a blocking client frees blocking budget -- proves
+// bb_data_http_client_acquire()'s budget check is a genuine SCAN of live
+// slots (bb_data_http_client_t.non_blocking), not a separate running counter
+// that could drift out of sync with release/pending_release. Two-phase:
+// bb_data_http_client_request_release() (the cross-task-safe DEFERRED
+// release) must NOT free the budget immediately -- the client stays
+// `in_use` (bb_data_http_client_t's TASK OWNERSHIP doc,
+// bb_data_http_internal.h) until the owning task's next
+// bb_data_http_sweep_step() reaps it -- only the actual
+// bb_data_http_client_release() (what that reap calls) does.
+void test_bb_data_http_client_acquire_release_frees_blocking_budget(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(NULL));
+
+    bb_data_http_client_t *c1 = NULL, *c2 = NULL, *c3 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c2));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c3));
+
+    // Deferred release request alone must not free the budget -- c1 is
+    // still `in_use` (active_client_count() still counts it) until reaped.
+    bb_data_http_client_request_release(c1);
+    TEST_ASSERT_EQUAL_UINT(2, bb_data_http_active_client_count());
+    bb_data_http_client_t *still_rejected = NULL;
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &still_rejected));
+
+    // The actual release (what the owning task's reap calls) DOES free it.
+    bb_data_http_client_release(c1);
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c3));
+    TEST_ASSERT_NOT_NULL(c3);
+}
+
+// ZERO-DEFAULT GUARD (KB 619): a client acquired with the `non_blocking`
+// field OMITTED (a designated initializer that never mentions it, mirroring
+// every real SSE/WS call site -- bb_data_http_espidf.c's
+// bb_data_http_client_cfg_t literals) must be counted as BLOCKING, not
+// silently escape the budget. Distinct from the two budget tests above
+// (which already rely on this implicitly via `{0}`): this test names the
+// zero-default guard as its own assertion, using a cfg literal that sets an
+// UNRELATED field (topic_filter) while still omitting non_blocking, so a
+// reviewer cannot mistake `{0}`'s effect for some other field's default.
+// Mutation-sensitive: inverting the field's polarity (e.g. treating an
+// omitted/false value as "non-blocking") would make this acquire wrongly
+// SUCCEED instead of hitting BB_ERR_NO_SPACE.
+void test_bb_data_http_client_acquire_omitted_non_blocking_counts_as_blocking(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_init(NULL));
+
+    bb_data_http_client_t *c1 = NULL, *c2 = NULL, *c3 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c2));
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_data_http_client_acquire(
+        &(bb_data_http_client_cfg_t){.topic_filter = "some.topic"}, &c3));
+    TEST_ASSERT_NULL(c3);
 }
 
 // ---------------------------------------------------------------------------

@@ -2,14 +2,23 @@
 // bb_data_http.h for the full seam/invariant contract. This file has no
 // FreeRTOS, httpd, or bb_data/bb_ws_server dependency -- everything it needs
 // beyond bb_queue/bb_core/bb_registry/bb_str/bb_log is reached through the
-// three injected seams (render/generation/send). ONE narrow exception
-// (B1-1450): the shared EVENT ring's write-side lock below is a raw
-// portMUX spinlock on ESP-IDF, self-contained behind its own #ifdef
-// ESP_PLATFORM block -- see that block's own doc for why a raw spinlock
-// rather than bb_lock_t.
+// three injected seams (render/generation/send). TWO narrow exceptions to
+// "no locking primitive dependency" here: (1, B1-1450) the shared EVENT
+// ring's write-side lock below is a raw portMUX spinlock on ESP-IDF,
+// self-contained behind its own #ifdef ESP_PLATFORM block -- see that
+// block's own doc for why a raw spinlock rather than bb_lock_t there; (2,
+// B1-1482) bb_data_http_client_acquire()'s own s_clients_lock (below) IS a
+// bb_lock_t (a blocking mutex, portable host+ESP-IDF, unlike the event
+// ring's ESP-IDF-only portMUX) -- it guards two SHORT critical sections
+// (blocking-budget scan + slot reservation; final publish + reservation
+// clear), never the pool-alloc/bb_queue_create() work in between, which can
+// genuinely block/allocate -- see s_clients_lock's own doc for the full
+// rationale and why a portMUX spinlock is the wrong tool for this hazard.
 #include "bb_data_http.h"
 #include "bb_data_http_internal.h"
 
+#include "bb_lock.h"
+#include "bb_lock_once.h"
 #include "bb_log.h"
 #include "bb_registry.h"
 #include "bb_str.h"
@@ -28,8 +37,34 @@ static const char *TAG = "bb_data_http";
 // boolean-feature-flag shadowing trap the Kconfig-bridge convention warns
 // against (see bb_lifecycle_async.c for that pattern).
 // ---------------------------------------------------------------------------
+// B1-1482 review MEDIUM fix: this literal MUST equal components/bb_data_http/
+// Kconfig's own `default 3` for BB_DATA_HTTP_MAX_CLIENTS -- the two are not
+// mechanically tied (Kconfig's DSL default has no C-visible symbol this
+// #ifndef could reference instead of a bare literal), so keeping them
+// numerically equal here is a manual sync, same as every other Kconfig/
+// C-fallback pair in this bridge block. Inert on every build this repo's own
+// tooling exercises today (every native test env AND every real ESP-IDF
+// board either sets Kconfig or -D's this symbol explicitly -- see
+// platformio.ini's env:native), but NOT merely a stale comment asserting
+// that: CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS's own bridge below is
+// structurally tied to THIS symbol's resolved value (never a second bare
+// literal), so a future edit that silently drops env:native's -D overrides
+// would fall back to this pair's LITERAL values, not the Kconfig-default
+// pair -- and test/test_host/test_bb_data_http.c's blocking-budget tests
+// (test_bb_data_http_client_acquire_non_blocking_succeeds_when_blocking_budget_exhausted
+// in particular, which asserts a 3rd acquire SUCCEEDS once the 2-client
+// budget is exhausted) go RED the instant that fallback pair no longer has
+// a genuine spare 3rd slot to prove -- a loud, already-load-bearing
+// failure mode, not a silent one.
 #ifndef CONFIG_BB_DATA_HTTP_MAX_CLIENTS
-#define CONFIG_BB_DATA_HTTP_MAX_CLIENTS 2
+#define CONFIG_BB_DATA_HTTP_MAX_CLIENTS 3
+#endif
+// B1-1482: defaults to CONFIG_BB_DATA_HTTP_MAX_CLIENTS (never a bare
+// literal) so every existing board's effective blocking-client budget stays
+// byte-for-byte what it was before this option existed -- see the Kconfig
+// help text's identical rationale.
+#ifndef CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS
+#define CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS CONFIG_BB_DATA_HTTP_MAX_CLIENTS
 #endif
 #ifndef CONFIG_BB_DATA_HTTP_OUTBOUND_CAPACITY
 #define CONFIG_BB_DATA_HTTP_OUTBOUND_CAPACITY 8
@@ -377,6 +412,71 @@ static struct {
 
 static bb_data_http_client_t s_clients[CONFIG_BB_DATA_HTTP_MAX_CLIENTS];
 
+// s_client_reserved (B1-1482): a PARALLEL array to s_clients, NOT a new
+// field on bb_data_http_client_t (that struct's sizeof is pinned --
+// bb_data_http_internal.h -- and this is a purely internal, acquire()-local
+// coordination flag with no reason to grow every client's own footprint).
+// true for the narrow window between "this slot has been chosen by an
+// in-flight bb_data_http_client_acquire() call" and "that call has either
+// published it (in_use = true) or rolled back (a pool/queue-create failure)"
+// -- see s_clients_lock's own doc immediately below for why this exists and
+// exactly what it closes. A slot with s_client_reserved[i] == true is NOT
+// yet a real client: sweep_step()/active_client_count()/every other reader
+// in this file keys off `in_use` alone, exactly as before this PR --
+// s_client_reserved is consulted ONLY by bb_data_http_client_acquire()
+// itself (both the blocking-budget scan and the free-slot scan), under
+// s_clients_lock, to keep a SECOND concurrent acquire() from double-booking
+// a slot or over-committing the blocking budget while a FIRST acquire()'s
+// construction (pool alloc, bb_queue_create()) is still in flight and
+// unlocked.
+static bool s_client_reserved[CONFIG_BB_DATA_HTTP_MAX_CLIENTS];
+
+// s_clients_lock (B1-1482, review HIGH fix): closes a genuine TOCTOU between
+// bb_data_http_client_acquire()'s blocking-budget scan and its slot claim --
+// two concurrent callers could each observe the budget as not-yet-exhausted
+// before either claimed a slot, both proceed, and the compile-time
+// MAX_BLOCKING_CLIENTS*SEND_TIMEOUT_MS<SWEEP_INTERVAL_MS invariant
+// (bb_data_http_espidf.c) the runtime budget exists to promise would then
+// silently not hold. The pre-existing free-slot scan just below has the
+// IDENTICAL structural race, but before this PR the only thing it could
+// violate was a hard array bound (s_cfg.max_clients), which is structurally
+// impossible to exceed regardless of how the race resolves -- this PR adds
+// a LOGICAL cap (the blocking budget) whose correctness now depends on that
+// race never firing, so both scans are covered by the same lock together
+// (the free-slot claim is the mechanism the budget claim is published
+// through -- see below).
+//
+// A bb_lock_t (blocking mutex), not a portMUX critical section like the
+// event ring's s_event_ring_mux above: the two hold-time-bounded scan+claim
+// critical sections this lock guards (below) never call anything that can
+// block (no bb_queue_create(), no pool alloc, no logging, no callback) --
+// deliberately mirroring the event ring's own "hold-time-bounded,
+// no-blocking-inside" discipline -- but this lock's CALLERS (task-context
+// only: bb_data_http_client_acquire() is documented called from the SSE
+// route handler / WS connect callback, never an ISR) can tolerate briefly
+// BLOCKING to acquire it, which a portMUX critical section's caller cannot
+// (disables the scheduler/interrupts for its duration). bb_lock_t is also
+// portable host+ESP-IDF (unlike s_event_ring_mux's ESP-IDF-only portMUX),
+// so this lock is real -- not a host no-op -- even though the host test
+// harness is documented single-threaded and therefore never contends it.
+//
+// Lazily bb_lock_init()'d exactly once (bb_lock_once_ensure(), mirrors
+// bb_wdt_core_claim.c's identical idiom) rather than eagerly at
+// bb_data_http_init() time: this keeps the lock's own construction
+// independent of this component's init/reset-for-test lifecycle (see
+// bb_data_http_reset_for_test(), below) -- a lock, once initialized, stays
+// valid and reusable across repeated init()/reset_for_test() cycles in the
+// SAME process, exactly the property a host test suite running thousands of
+// acquire() calls across many tests needs.
+static bb_once_t s_clients_lock_once = BB_ONCE_INIT;
+static bb_lock_t s_clients_lock;
+
+static inline bb_err_t ensure_clients_lock(void)
+{
+    bb_lock_config_t cfg = { .name = "bb_data_http_clients" };
+    return bb_lock_once_ensure(&s_clients_lock_once, &cfg, &s_clients_lock);
+}
+
 // ---------------------------------------------------------------------------
 // STATE (poll) / EVENT (push) bookkeeping pools (B1-1447, epic B1-1123).
 // Separately sized from s_clients above -- a client whose subscribe_mask
@@ -481,10 +581,16 @@ bb_err_t bb_data_http_init(const bb_data_http_cfg_t *cfg)
     memset(s_event_last_gen, 0, sizeof(s_event_last_gen));
 
     for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
-        s_clients[i].in_use = false;
+        atomic_store(&s_clients[i].in_use, false);
     }
     memset(s_poll_in_use, 0, sizeof(s_poll_in_use));
     memset(s_push_in_use, 0, sizeof(s_push_in_use));
+    // B1-1482: bb_data_http_init() is idempotent (see the s_cfg.initialized
+    // guard above) and a second call returns BB_OK without reaching here, so
+    // this only ever runs at genuine first-init -- no in-flight acquire()
+    // reservation can possibly exist yet. Cleared anyway for the same
+    // full-reset discipline the other bitmaps above already follow.
+    memset(s_client_reserved, 0, sizeof(s_client_reserved));
 
     s_cfg.initialized = true;
     bb_log_i(TAG, "initialized: max_clients=%u event_ring_capacity=%u max_poll_clients=%u max_push_clients=%u",
@@ -497,6 +603,16 @@ bb_err_t bb_data_http_init(const bb_data_http_cfg_t *cfg)
 // Client lifecycle
 // ---------------------------------------------------------------------------
 
+// Caller must hold s_clients_lock. Clears the in-flight reservation on any
+// failure path below (bb_data_http_client_acquire()'s own doc, and
+// s_client_reserved's doc above, for why this is a separate flag from
+// `in_use` and why clearing it must go through the same lock every setter
+// of it does).
+static void release_client_reservation_locked(size_t idx)
+{
+    s_client_reserved[idx] = false;
+}
+
 bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
                                      bb_data_http_client_t **out)
 {
@@ -508,129 +624,230 @@ bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,
     // topic it never asked for).
     if (cfg->topic_filter && strlen(cfg->topic_filter) >= BB_DATA_HTTP_TOPIC_MAX) return BB_ERR_INVALID_ARG;
 
-    for (size_t i = 0; i < s_cfg.max_clients; i++) {
-        bb_data_http_client_t *c = &s_clients[i];
-        if (c->in_use) continue;
-
-        // Zero-default -> ALL (B1-1445): a cfg that never sets this
-        // field resolves to the same "receive everything" behavior every
-        // existing call site already had -- see bb_data_http_client_cfg_t's
-        // subscribe_mask doc (bb_data_http.h) for why a bare 0 is
-        // unambiguously safe here.
-        uint32_t mask = cfg->subscribe_mask ? cfg->subscribe_mask : BB_DATA_HTTP_SUBSCRIBE_ALL;
-
-        // Pool-first (B1-1447): resolve this client's STATE/EVENT
-        // bookkeeping BEFORE touching `c` or creating its outbound queue --
-        // a client with a kind bit set but no pool slot to back it must
-        // never come into existence (see bb_data_http_client_acquire()'s
-        // doc, bb_data_http.h: acquire fails BB_ERR_NO_SPACE cleanly rather
-        // than returning a client with an unexpectedly-NULL poll/push). `c`
-        // (the free fd-table slot found above) is left completely untouched
-        // on either failure path below -- still available for a later
-        // acquire attempt, no partial state to unwind.
-        bb_data_http_poll_state_t *poll_state = NULL;
-        if (mask & BB_DATA_HTTP_SUBSCRIBE_STATE) {
-            poll_state = poll_alloc();
-            if (!poll_state) return BB_ERR_NO_SPACE;
-        }
-        bb_data_http_push_state_t *push_state = NULL;
-        if (mask & BB_DATA_HTTP_SUBSCRIBE_EVENT) {
-            push_state = push_alloc();
-            if (!push_state) {
-                poll_free(poll_state);
-                return BB_ERR_NO_SPACE;
-            }
-        }
-
-        if (cfg->topic_filter) {
-            bb_strlcpy(c->topic_filter, cfg->topic_filter, sizeof(c->topic_filter));
-        } else {
-            c->topic_filter[0] = '\0';
-        }
-        c->subscribe_mask = mask;
-        c->poll           = poll_state;
-        c->push           = push_state;
-        if (c->push) {
-            // Fresh EVENT clients start at the ring's current head -- they
-            // receive only EVENTs pushed AFTER they connect, never ring
-            // backlog (unlike STATE's fresh-render-on-connect below; see
-            // bb_data_http_push_state_t's cursor doc). poll_alloc()/
-            // push_alloc() already zero-initialize the block, so only the
-            // one non-zero field needs setting here.
-            c->push->cursor = s_event_total_pushed;
-        }
-        c->send_fail_count = 0;
-        // B1-1452: a reused slot must not inherit a prior occupant's
-        // already-warned state -- otherwise a fresh client that also lands
-        // with no usable send seam would silently skip its own one-shot
-        // WARN (see the flush loop below).
-        c->warned_no_send_fn = false;
-        atomic_store(&c->pending_release, false);
-        c->send_fn   = cfg->send_fn;
-        c->send_ctx  = cfg->send_ctx;
-        c->abort_fn  = cfg->abort_fn;
-        c->abort_ctx = cfg->abort_ctx;
-        // Zero-default -> EPHEMERAL (B1-1465/B1-1466): a cfg that never sets
-        // this field resolves to the same fatal-send teardown behavior
-        // every existing consumer (SSE, WS) already has -- see
-        // bb_data_http_client_cfg_t's lifetime doc (bb_data_http.h).
-        c->lifetime  = cfg->lifetime;
-
-        c->outbound_max_bytes = CONFIG_BB_DATA_HTTP_OUTBOUND_MAX_BYTES;
-        bb_queue_cfg_t qcfg = {
-            .capacity_entries = CONFIG_BB_DATA_HTTP_OUTBOUND_CAPACITY,
-            .max_entry_bytes  = CONFIG_BB_DATA_HTTP_OUTBOUND_ENTRY_MAX,
-            .policy           = BB_QUEUE_EVICT_OLDEST,
-            .name             = "bbdhttp",
-            .max_bytes        = c->outbound_max_bytes,
-            // No age budget: this pure core has no injected clock seam --
-            // age-based eviction is left to a future PR if a real cadence
-            // needs it. Byte budget alone still bounds worst-case memory.
-            .max_age          = 0,
-        };
-        bb_err_t err = bb_queue_create(&qcfg, &c->outbound);
-        if (err != BB_OK) {
-            // `c` is still not `in_use` -- unwind the pool slots claimed
-            // above before propagating the error, same "leave nothing
-            // half-claimed" discipline as the pool-exhaustion returns above.
-            poll_free(c->poll);
-            push_free(c->push);
-            c->poll = NULL;
-            c->push = NULL;
-            return err;
-        }
-
-        // Fresh-render-on-connect: force every subscribed STATE key dirty
-        // now, independent of generation comparison. A key that has never
-        // been touched (generation still at its initial value) would
-        // otherwise never look "dirty" to the generation-diff detect logic
-        // in bb_data_http_sweep_step() -- seen_gen defaults to 0 here, which
-        // can legitimately equal an untouched key's real generation.
-        //
-        // Hoisted mask check (B1-1446, now a direct poll!=NULL check post-
-        // B1-1447): a client with no poll block (mask excludes STATE, or
-        // the poll pool was exhausted -- unreachable here, since exhaustion
-        // already returned above) skips this walk entirely -- not just the
-        // per-key client_subscribes() gate below the walk, but the walk
-        // itself. Visiting it for a NULL-poll client would dereference
-        // c->poll->dirty_mask.
-        if (c->poll) {
-            uint16_t count = bb_registry_count(&s_attach_registry);
-            for (uint16_t k = 0; k < count; k++) {
-                bb_registry_entry_t e;
-                if (bb_registry_get_by_index(&s_attach_registry, k, &e) != BB_OK) continue;  // LCOV_EXCL_BR_LINE -- k < count by construction
-                attach_slot_t *slot = (attach_slot_t *)e.value;
-                if (slot->kind != BB_DATA_HTTP_STATE) continue;
-                if (!client_subscribes(c, slot->topic, slot->kind)) continue;
-                c->poll->dirty_mask |= (1u << k);
-            }
-        }
-
-        c->in_use = true;
-        *out = c;
-        return BB_OK;
+    bb_err_t lock_rc = ensure_clients_lock();
+    // LCOV_EXCL_START -- bb_lock_init() failure is not host-reproducible
+    // (mirrors bb_wdt_core_claim.c's identical comment). Defensive path, not
+    // a real branch the test suite can drive.
+    if (lock_rc != BB_OK) {
+        return lock_rc;
     }
-    return BB_ERR_NO_SPACE;
+    // LCOV_EXCL_STOP
+
+    // B1-1482 (review HIGH fix): the blocking-budget scan and the free-slot
+    // claim run as ONE locked critical section -- see s_clients_lock's own
+    // doc above for the TOCTOU this closes (two concurrent acquire() callers
+    // could otherwise both observe budget/slot headroom before either
+    // claimed anything, silently exceeding CONFIG_BB_DATA_HTTP_
+    // MAX_BLOCKING_CLIENTS). Deliberately reject-at-acquire, not
+    // warn-and-accept (unlike the module-wide send_fn seam's own B1-1452
+    // precedent -- see this function's flush-loop doc further down, and
+    // bb_data_http_client_cfg_t's `non_blocking` doc, bb_data_http.h, for
+    // why that precedent's ordering concern does not apply to this field:
+    // `non_blocking` is resolved synchronously right here from `cfg`, never
+    // installed later via a deferred setter). Counted by SCANNING live
+    // client slots -- both genuinely published ones (`in_use`) and
+    // in-flight reservations (`s_client_reserved`, this same lock) -- rather
+    // than a separate running counter, which could otherwise drift out of
+    // sync with bb_data_http_client_release()/pending_release.
+    bool non_blocking = cfg->non_blocking;
+
+    bb_lock_lock(&s_clients_lock);
+
+    if (!non_blocking) {
+        size_t blocking_count = 0;
+        for (size_t i = 0; i < s_cfg.max_clients; i++) {
+            if ((atomic_load(&s_clients[i].in_use) || s_client_reserved[i]) && !s_clients[i].non_blocking) blocking_count++;
+        }
+        if (blocking_count >= (size_t)CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS) {
+            bb_lock_unlock(&s_clients_lock);
+            return BB_ERR_NO_SPACE;
+        }
+    }
+
+    // Free-slot claim: the SAME pre-existing scan this function has always
+    // done, just now under the lock above (closing the free-slot scan's own
+    // identical structural race alongside the budget one -- see
+    // s_clients_lock's own doc). `claim_idx == s_cfg.max_clients` is the
+    // "no free slot" sentinel -- every real index is strictly less.
+    size_t claim_idx = s_cfg.max_clients;
+    for (size_t i = 0; i < s_cfg.max_clients; i++) {
+        if (!atomic_load(&s_clients[i].in_use) && !s_client_reserved[i]) {
+            claim_idx = i;
+            break;
+        }
+    }
+    if (claim_idx == s_cfg.max_clients) {
+        bb_lock_unlock(&s_clients_lock);
+        return BB_ERR_NO_SPACE;
+    }
+    // Reserve the slot AND record its blocking-ness together, still under
+    // the lock -- a concurrent acquire()'s budget scan (above) must see a
+    // reserved-but-not-yet-published blocking client the instant it exists,
+    // not only once this call eventually publishes it (`in_use = true`,
+    // below). `non_blocking` is otherwise read ONLY by this same scan, so
+    // setting it early (before the rest of this slot's construction runs,
+    // unlocked) is safe -- nothing else consults it while `in_use` is still
+    // false.
+    s_client_reserved[claim_idx]  = true;
+    s_clients[claim_idx].non_blocking = non_blocking;
+
+    bb_lock_unlock(&s_clients_lock);
+
+    // Everything below runs UNLOCKED, on the slot this call alone now owns
+    // (reserved, not yet free for a concurrent acquire() to re-claim) -- the
+    // exact "no I/O, no callbacks, no blocking work" boundary s_clients_lock's
+    // own doc describes: pool alloc and bb_queue_create()'s heap allocation
+    // both happen out here, never inside a held critical section.
+    bb_data_http_client_t *c = &s_clients[claim_idx];
+
+    // Zero-default -> ALL (B1-1445): a cfg that never sets this
+    // field resolves to the same "receive everything" behavior every
+    // existing call site already had -- see bb_data_http_client_cfg_t's
+    // subscribe_mask doc (bb_data_http.h) for why a bare 0 is
+    // unambiguously safe here.
+    uint32_t mask = cfg->subscribe_mask ? cfg->subscribe_mask : BB_DATA_HTTP_SUBSCRIBE_ALL;
+
+    // Pool-first (B1-1447): resolve this client's STATE/EVENT
+    // bookkeeping BEFORE touching `c` or creating its outbound queue --
+    // a client with a kind bit set but no pool slot to back it must
+    // never come into existence (see bb_data_http_client_acquire()'s
+    // doc, bb_data_http.h: acquire fails BB_ERR_NO_SPACE cleanly rather
+    // than returning a client with an unexpectedly-NULL poll/push). On
+    // either failure path below, the reservation above is rolled back
+    // (release_client_reservation_locked()) so the slot is genuinely free
+    // again for a later acquire attempt, no partial state left claimed.
+    bb_data_http_poll_state_t *poll_state = NULL;
+    if (mask & BB_DATA_HTTP_SUBSCRIBE_STATE) {
+        poll_state = poll_alloc();
+        if (!poll_state) {
+            bb_lock_lock(&s_clients_lock);
+            release_client_reservation_locked(claim_idx);
+            bb_lock_unlock(&s_clients_lock);
+            return BB_ERR_NO_SPACE;
+        }
+    }
+    bb_data_http_push_state_t *push_state = NULL;
+    if (mask & BB_DATA_HTTP_SUBSCRIBE_EVENT) {
+        push_state = push_alloc();
+        if (!push_state) {
+            poll_free(poll_state);
+            bb_lock_lock(&s_clients_lock);
+            release_client_reservation_locked(claim_idx);
+            bb_lock_unlock(&s_clients_lock);
+            return BB_ERR_NO_SPACE;
+        }
+    }
+
+    if (cfg->topic_filter) {
+        bb_strlcpy(c->topic_filter, cfg->topic_filter, sizeof(c->topic_filter));
+    } else {
+        c->topic_filter[0] = '\0';
+    }
+    c->subscribe_mask = mask;
+    c->poll           = poll_state;
+    c->push           = push_state;
+    if (c->push) {
+        // Fresh EVENT clients start at the ring's current head -- they
+        // receive only EVENTs pushed AFTER they connect, never ring
+        // backlog (unlike STATE's fresh-render-on-connect below; see
+        // bb_data_http_push_state_t's cursor doc). poll_alloc()/
+        // push_alloc() already zero-initialize the block, so only the
+        // one non-zero field needs setting here.
+        c->push->cursor = s_event_total_pushed;
+    }
+    c->send_fail_count = 0;
+    // B1-1452: a reused slot must not inherit a prior occupant's
+    // already-warned state -- otherwise a fresh client that also lands
+    // with no usable send seam would silently skip its own one-shot
+    // WARN (see the flush loop below).
+    c->warned_no_send_fn = false;
+    // c->non_blocking was already set above, under the lock, as part of
+    // the reservation itself -- not re-set here.
+    atomic_store(&c->pending_release, false);
+    c->send_fn   = cfg->send_fn;
+    c->send_ctx  = cfg->send_ctx;
+    c->abort_fn  = cfg->abort_fn;
+    c->abort_ctx = cfg->abort_ctx;
+    // Zero-default -> EPHEMERAL (B1-1465/B1-1466): a cfg that never sets
+    // this field resolves to the same fatal-send teardown behavior
+    // every existing consumer (SSE, WS) already has -- see
+    // bb_data_http_client_cfg_t's lifetime doc (bb_data_http.h).
+    c->lifetime  = cfg->lifetime;
+
+    c->outbound_max_bytes = CONFIG_BB_DATA_HTTP_OUTBOUND_MAX_BYTES;
+    bb_queue_cfg_t qcfg = {
+        .capacity_entries = CONFIG_BB_DATA_HTTP_OUTBOUND_CAPACITY,
+        .max_entry_bytes  = CONFIG_BB_DATA_HTTP_OUTBOUND_ENTRY_MAX,
+        .policy           = BB_QUEUE_EVICT_OLDEST,
+        .name             = "bbdhttp",
+        .max_bytes        = c->outbound_max_bytes,
+        // No age budget: this pure core has no injected clock seam --
+        // age-based eviction is left to a future PR if a real cadence
+        // needs it. Byte budget alone still bounds worst-case memory.
+        .max_age          = 0,
+    };
+    bb_err_t err = bb_queue_create(&qcfg, &c->outbound);
+    if (err != BB_OK) {
+        // `c` is still not `in_use` -- unwind the pool slots claimed
+        // above before propagating the error, same "leave nothing
+        // half-claimed" discipline as the pool-exhaustion returns above,
+        // AND roll back the reservation itself so the slot is free again.
+        poll_free(c->poll);
+        push_free(c->push);
+        c->poll = NULL;
+        c->push = NULL;
+        bb_lock_lock(&s_clients_lock);
+        release_client_reservation_locked(claim_idx);
+        bb_lock_unlock(&s_clients_lock);
+        return err;
+    }
+
+    // Fresh-render-on-connect: force every subscribed STATE key dirty
+    // now, independent of generation comparison. A key that has never
+    // been touched (generation still at its initial value) would
+    // otherwise never look "dirty" to the generation-diff detect logic
+    // in bb_data_http_sweep_step() -- seen_gen defaults to 0 here, which
+    // can legitimately equal an untouched key's real generation.
+    //
+    // Hoisted mask check (B1-1446, now a direct poll!=NULL check post-
+    // B1-1447): a client with no poll block (mask excludes STATE, or
+    // the poll pool was exhausted -- unreachable here, since exhaustion
+    // already returned above) skips this walk entirely -- not just the
+    // per-key client_subscribes() gate below the walk, but the walk
+    // itself. Visiting it for a NULL-poll client would dereference
+    // c->poll->dirty_mask.
+    if (c->poll) {
+        uint16_t count = bb_registry_count(&s_attach_registry);
+        for (uint16_t k = 0; k < count; k++) {
+            bb_registry_entry_t e;
+            if (bb_registry_get_by_index(&s_attach_registry, k, &e) != BB_OK) continue;  // LCOV_EXCL_BR_LINE -- k < count by construction
+            attach_slot_t *slot = (attach_slot_t *)e.value;
+            if (slot->kind != BB_DATA_HTTP_STATE) continue;
+            if (!client_subscribes(c, slot->topic, slot->kind)) continue;
+            c->poll->dirty_mask |= (1u << k);
+        }
+    }
+
+    // Publish: `in_use = true` and the reservation clear happen together,
+    // under the same lock every other s_client_reserved touch uses -- from
+    // this point on, `in_use` alone is authoritative again (sweep_step(),
+    // active_client_count(), and every other reader in this file already
+    // key off it exclusively; s_client_reserved is now false and stays
+    // irrelevant to this client for the rest of its lifetime). The store
+    // itself is atomic (in_use is atomic_bool -- see the struct's own doc,
+    // bb_data_http_internal.h) independent of s_clients_lock: the lock here
+    // protects the PAIRING with release_client_reservation_locked() (both
+    // must become visible together, not the store's own atomicity, which
+    // the type already guarantees against bb_data_http_client_release()'s
+    // own UNLOCKED store on the sweep-owning task -- see that function's
+    // doc immediately below).
+    bb_lock_lock(&s_clients_lock);
+    atomic_store(&c->in_use, true);
+    release_client_reservation_locked(claim_idx);
+    bb_lock_unlock(&s_clients_lock);
+
+    *out = c;
+    return BB_OK;
 }
 
 void bb_data_http_client_release(bb_data_http_client_t *c)
@@ -642,7 +859,17 @@ void bb_data_http_client_release(bb_data_http_client_t *c)
     c->poll = NULL;
     push_free(c->push);
     c->push = NULL;
-    c->in_use = false;
+    // B1-1482 review MEDIUM+LOW fix: deliberately UNLOCKED (never
+    // s_clients_lock) -- this function runs on the sweep-owning task only
+    // (see this struct's TASK OWNERSHIP doc, bb_data_http_internal.h; this
+    // function's own NOT-CROSS-TASK-SAFE doc, bb_data_http.h), a different
+    // task from bb_data_http_client_acquire()'s SSE-route/WS-connect-
+    // callback caller -- taking s_clients_lock here would extend the
+    // mutex's reach into the sweep task's own single-task-owned territory
+    // for no reason: `in_use` being atomic_bool is what makes this store
+    // safe against acquire()'s locked reads without that. Same discipline
+    // as pending_release's own atomic_store immediately below.
+    atomic_store(&c->in_use, false);
     atomic_store(&c->pending_release, false);
 }
 
@@ -661,7 +888,7 @@ size_t bb_data_http_active_client_count(void)
 {
     size_t active = 0;
     for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
-        if (s_clients[i].in_use) active++;
+        if (atomic_load(&s_clients[i].in_use)) active++;
     }
     return active;
 }
@@ -1015,7 +1242,7 @@ void bb_data_http_sweep_step(void)
         // is what makes that split safe.
         bool state_eligible[CONFIG_BB_DATA_HTTP_MAX_CLIENTS];
         for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
-            state_eligible[i] = s_clients[i].in_use && s_clients[i].poll != NULL;
+            state_eligible[i] = atomic_load(&s_clients[i].in_use) && s_clients[i].poll != NULL;
         }
 
         for (uint16_t k = 0; k < attach_count; k++) {
@@ -1060,7 +1287,7 @@ void bb_data_http_sweep_step(void)
     // Once both are resolved, the outbound queue is flushed via send_fn.
     for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
         bb_data_http_client_t *c = &s_clients[i];
-        if (!c->in_use) continue;
+        if (!atomic_load(&c->in_use)) continue;
 
         // Deferred-reap (B1-1424 HIGH fix): a foreign task (e.g. an async
         // transport's own disconnect callback) may have called
@@ -1326,7 +1553,7 @@ uint32_t bb_data_http_client_dropped_count(const bb_data_http_client_t *c)
 void bb_data_http_reset_for_test(void)
 {
     for (size_t i = 0; i < CONFIG_BB_DATA_HTTP_MAX_CLIENTS; i++) {
-        if (s_clients[i].in_use) bb_data_http_client_release(&s_clients[i]);
+        if (atomic_load(&s_clients[i].in_use)) bb_data_http_client_release(&s_clients[i]);
     }
     // Defensive belt-and-suspenders (B1-1447): every live client's release
     // above already frees its own poll/push pool slot, but clear both pools'
@@ -1336,6 +1563,12 @@ void bb_data_http_reset_for_test(void)
     // every later test in the same process.
     memset(s_poll_in_use, 0, sizeof(s_poll_in_use));
     memset(s_push_in_use, 0, sizeof(s_push_in_use));
+    // B1-1482: same belt-and-suspenders as the pool bitmaps above -- every
+    // acquire() call already clears its own slot's reservation on every exit
+    // path (publish or rollback), so this should already be all-false, but a
+    // future acquire-path bug leaking a reservation must not silently
+    // poison every later test's blocking-budget scan in the same process.
+    memset(s_client_reserved, 0, sizeof(s_client_reserved));
     memset(s_attach, 0, sizeof(s_attach));
     bb_registry_reset(&s_attach_registry);
     memset(s_describe, 0, sizeof(s_describe));

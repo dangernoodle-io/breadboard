@@ -350,6 +350,38 @@ void bb_data_http_set_abort_fn(bb_data_http_abort_fn fn, void *ctx);
 //     currently surfaced through any public accessor -- a known
 //     observability gap, tracked separately, not the unbounded growth
 //     this retention scheme otherwise prevents.
+// non_blocking (B1-1482): declares whether THIS client's send_fn can ever
+// genuinely block the shared broadcaster task (e.g. a socket write bounded
+// by SO_SNDTIMEO) or is guaranteed non-blocking (e.g. an MQTT egress client
+// wired to bb_mqtt_client_enqueue(), which never blocks). Gates ONLY the
+// compile-time blocking-client budget (CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS,
+// bb_data_http_espidf.c's SEND_TIMEOUT_MS*budget < SWEEP_INTERVAL_MS check) --
+// it has no effect on delivery, retry, or teardown behavior.
+//
+// ZERO-DEFAULT POLARITY IS DELIBERATE AND LOAD-BEARING: false ("may block")
+// is what an omitted field resolves to, because every existing consumer
+// (SSE, WS) genuinely blocks (a socket write bounded by SO_SNDTIMEO) and
+// none of them set this field. Naming/polarizing it the other way around
+// (e.g. a `blocking` field defaulting to true meaning "may block") would
+// require every existing call site to opt in explicitly to keep being
+// counted -- exactly the zero-default trap this field's polarity exists to
+// avoid: an omitted field must never silently escape the budget it is meant
+// to be counted against. Only a consumer that KNOWS its send_fn cannot block
+// (documented at that send_fn's own definition, e.g.
+// examples/floor/main/floor_mqtt_egress.c's floor_mqtt_egress_send_fn())
+// should ever set this true.
+//
+// bb_data_http_client_acquire() rejects (BB_ERR_NO_SPACE) a blocking acquire
+// (non_blocking == false) once CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS
+// blocking clients are already active -- counted by scanning live client
+// slots at acquire time, never a separate counter that could drift out of
+// sync with release/pending_release. Safe to reject at acquire time (unlike
+// the module-wide send_fn seam bb_data_http_set_send_fn() installs, which
+// several host tests in this suite deliberately install AFTER acquire --
+// see the flush loop's own B1-1452 doc, bb_data_http_common.c): this field
+// is resolved synchronously right here from `cfg`, never installed later via
+// a deferred setter, so there is no legitimate delayed-install ordering a
+// hard reject at acquire time could break.
 typedef struct {
     const char                     *topic_filter;
     bb_data_http_send_fn            send_fn;
@@ -358,6 +390,7 @@ typedef struct {
     void                            *abort_ctx;
     uint32_t                        subscribe_mask;
     bb_data_http_client_lifetime_t  lifetime;
+    bool                             non_blocking;
 } bb_data_http_client_cfg_t;
 
 // ---------------------------------------------------------------------------
@@ -511,8 +544,11 @@ void bb_data_http_describe_foreach(bb_data_http_describe_cb_t cb, void *ctx);
 // `cfg->subscribe_mask` requires a STATE or EVENT bookkeeping block (see
 // bb_data_http_cfg_t's max_poll_clients/max_push_clients doc above) and that
 // kind's pool is exhausted -- a smaller-than-max_clients pool can run out
-// even while an fd-table client slot is still free. This never returns a
-// client with an unexpectedly-NULL poll/push pointer: acquisition fails
+// even while an fd-table client slot is still free -- OR (B1-1482) if
+// `cfg->non_blocking` is false (a blocking client, the zero-default) and
+// CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS blocking clients are already
+// active (see bb_data_http_client_cfg_t's `non_blocking` doc above). This
+// never returns a client with an unexpectedly-NULL poll/push pointer: acquisition fails
 // cleanly instead, and `*out` is left untouched (the caller's prior value,
 // typically NULL, is never overwritten on any failure path).
 bb_err_t bb_data_http_client_acquire(const bb_data_http_client_cfg_t *cfg,

@@ -47,17 +47,21 @@
 // call, never cached (bb_mqtt_client.h's CALLER CONTRACT): it legitimately
 // returns NULL while MQTT is disabled or suspended.
 //
-// This PR deliberately does NOT bump CONFIG_BB_DATA_HTTP_MAX_CLIENTS (2):
-// doing so (3) trips bb_data_http_espidf.c's own compile-time guard --
-// MAX_CLIENTS*BB_DATA_HTTP_SEND_TIMEOUT_MS must stay under BB_DATA_HTTP_
-// SWEEP_INTERVAL_MS, and 3*20=60 >= the 50ms default sweep interval --
-// confirmed by an actual failed build, not just arithmetic. Raising
-// MAX_CLIENTS without first widening that headroom (a SWEEP_INTERVAL_MS
-// bump, a SEND_TIMEOUT_MS cut, or both) is therefore a SEPARATE, deliberate
-// follow-up, not silently folded in here. Until it lands, floor has only 2
-// bb_data_http client slots for SSE+WS+this durable MQTT consumer combined
-// -- this PR's own gate (floor_mqtt_egress_should_acquire()) at least keeps
-// a board with MQTT disabled from wasting one of those 2 slots on a client
+// B1-1482 (later PR): CONFIG_BB_DATA_HTTP_MAX_CLIENTS's default is now 3 and
+// the compile-time guard (bb_data_http_espidf.c) is blocking-aware --
+// CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS*BB_DATA_HTTP_SEND_TIMEOUT_MS must
+// stay under BB_DATA_HTTP_SWEEP_INTERVAL_MS, not MAX_CLIENTS*SEND_TIMEOUT_MS
+// -- and floor's sdkconfig.defaults pins CONFIG_BB_DATA_HTTP_MAX_BLOCKING_
+// CLIENTS=2 (SSE+WS, both genuinely blocking), leaving the 3rd MAX_CLIENTS
+// slot free for exactly this consumer, PROVIDED whoever composes it sets
+// `.non_blocking = true` on its bb_data_http_client_cfg_t (this client's
+// send_fn, floor_mqtt_egress_send_fn(), wraps bb_mqtt_client_enqueue(),
+// which never blocks -- see this file's own doc above for why publish()
+// is never used instead). Omitting `.non_blocking` would count this client
+// against the 2-client blocking budget instead and, on a board where SSE+WS
+// are both already connected, fail bb_data_http_client_acquire()
+// (BB_ERR_NO_SPACE) for this one. floor_mqtt_egress_should_acquire() still
+// gates a board with MQTT disabled from wasting the 3rd slot on a client
 // that could never deliver anything.
 //
 // PR2 (separate, hardware-gated, B1-1126) validates this against the real

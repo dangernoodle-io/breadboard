@@ -2,12 +2,37 @@ menu "breadboard: bb_data_http"
 
 config BB_DATA_HTTP_MAX_CLIENTS
     int "Max concurrent SSE/WS clients"
-    default 2
+    default 3
     range 1 16
     help
         Maximum number of simultaneous bb_data_http subscribers (SSE or WS).
         Sizes the compile-time client-slot pool; bb_data_http_init()'s cfg
         may only shrink this at runtime, never grow it.
+
+config BB_DATA_HTTP_MAX_BLOCKING_CLIENTS
+    int "Max concurrent BLOCKING clients"
+    default BB_DATA_HTTP_MAX_CLIENTS
+    range 0 BB_DATA_HTTP_MAX_CLIENTS
+    help
+        B1-1482: compile-time budget of client slots that may be occupied by
+        a BLOCKING send_fn (one whose call can genuinely stall the shared
+        broadcaster task for up to BB_DATA_HTTP_SEND_TIMEOUT_MS, e.g. the
+        ESP-IDF SSE/WS backend's socket-timeout-bounded writes) -- see
+        bb_data_http_client_cfg_t's `non_blocking` field (bb_data_http.h).
+        This, not BB_DATA_HTTP_MAX_CLIENTS, is what the compile-time
+        SEND_TIMEOUT_MS*this-value < SWEEP_INTERVAL_MS check (platform/
+        espidf/bb_data_http/bb_data_http_espidf.c) actually multiplies: a
+        genuinely non-blocking consumer (e.g. an MQTT egress client wired to
+        bb_mqtt_client_enqueue(), which never blocks) never pays that
+        per-sweep budget, so it must not be counted against it. Defaults to
+        BB_DATA_HTTP_MAX_CLIENTS so every existing board's effective guard
+        stays byte-for-byte what it was before this option existed (every
+        client was implicitly blocking) -- tune it down only once at least
+        one acquired client is known to set non_blocking=true, to free up
+        BB_DATA_HTTP_MAX_CLIENTS headroom for it without re-tripping the
+        guard. bb_data_http_client_acquire() rejects (BB_ERR_NO_SPACE) a
+        blocking acquire once this many blocking clients are already active,
+        counted by scanning live client slots -- never a separate counter.
 
 config BB_DATA_HTTP_MAX_POLL_CLIENTS
     int "Max concurrent STATE (poll) subscriber slots"
@@ -126,9 +151,11 @@ config BB_DATA_HTTP_SEND_TIMEOUT_MS
     help
         SO_SNDTIMEO set on a client's socket at connect, and restored to
         after its first frame (see BB_DATA_HTTP_FIRST_FRAME_TIMEOUT_MS
-        below). Deliberately short: BB_DATA_HTTP_MAX_CLIENTS * this value
-        must stay under BB_DATA_HTTP_SWEEP_INTERVAL_MS (enforced at compile
-        time; default 2*20ms=40ms < 50ms) -- but that check bounds only the
+        below). Deliberately short: BB_DATA_HTTP_MAX_BLOCKING_CLIENTS (B1-1482
+        -- NOT BB_DATA_HTTP_MAX_CLIENTS; a non-blocking consumer never pays
+        this budget, see that option's own doc) * this value must stay under
+        BB_DATA_HTTP_SWEEP_INTERVAL_MS (enforced at compile time; default
+        2*20ms=40ms < 50ms) -- but that check bounds only the
         RETRIABLE-failure sub-case of the broadcaster's per-sweep flush
         cost, not a general worst case: a client whose socket stays
         congested but keeps completing writes just under this timeout can

@@ -100,33 +100,73 @@ typedef struct {
 // (and likewise for abort_fn) on every call. Written once by the acquiring
 // task at acquire time, then read-only for the rest of this client's
 // lifetime by the single task that owns bb_data_http_sweep_step() -- same
-// discipline as every other field below except pending_release.
+// discipline as every other field below except `in_use`/`pending_release`
+// (see the TASK OWNERSHIP doc immediately below for those two).
 //
-// TASK OWNERSHIP (B1-1424 HIGH fix, deferred reap): every field below is
-// created by whichever task calls bb_data_http_client_acquire()
-// (fully populated, then PUBLISHED via `in_use = true` as the last store --
-// see bb_data_http_client_acquire(), bb_data_http_common.c), then
-// EXCLUSIVELY owned and mutated by the single task that calls
-// bb_data_http_sweep_step() (the espidf backend's broadcaster task; the
-// test-runner thread on host) for the rest of the client's lifetime,
-// INCLUDING the eventual bb_data_http_client_release() call itself --
-// bb_data_http_client_release() is NOT cross-task-safe and must only ever
-// be called from that one owning task (see its doc, bb_data_http.h). The
-// ONE exception is `pending_release`: any task may SET it (via
-// bb_data_http_client_request_release()) to ask the owning task to release
-// this client on its next bb_data_http_sweep_step() call, but only the
-// owning task ever READS or CLEARS it (bb_data_http_client_release() resets
-// it back to false as part of a normal release, and
-// bb_data_http_client_acquire() resets it again on reuse). This is why
-// pending_release is atomic_bool and every other field is a plain type --
-// it is the ONLY field a foreign task ever touches, which is what lets the
-// rest of this struct stay lock-free and single-task-owned without the
-// core growing a platform mutex of its own. A real hazard this closes: the
-// espidf backend's WS disconnect callback fires on bb_ws_server's own
-// worker task, not the broadcaster -- calling
-// bb_data_http_client_release() directly from there (destroying `outbound`,
-// clearing `in_use`) could race the broadcaster's own in-flight read/write
-// of this SAME client inside bb_data_http_sweep_step() on another core.
+// TASK OWNERSHIP (B1-1424 HIGH fix, deferred reap; rewritten B1-1482 review
+// MEDIUM+LOW fix to also cover `in_use`'s own cross-task read/write map,
+// which the earlier version of this doc did not -- it asserted an
+// ownership model that a since-added lock, and `in_use`'s own conversion to
+// atomic_bool, straddle; the tiers below are the corrected, complete
+// picture, not a re-assertion of the old one). Three tiers, by field:
+//
+//   1. SINGLE-TASK-OWNED (every field below except `in_use` and
+//      `pending_release`): created by whichever task calls
+//      bb_data_http_client_acquire() (fully populated BEFORE `in_use`
+//      publishes, below), then EXCLUSIVELY owned and mutated by the single
+//      task that calls bb_data_http_sweep_step() (the espidf backend's
+//      broadcaster task; the test-runner thread on host) for the rest of
+//      the client's lifetime, INCLUDING the eventual
+//      bb_data_http_client_release() call itself -- that function is NOT
+//      cross-task-safe and must only ever be called from that one owning
+//      task (see its doc, bb_data_http.h). Plain (non-atomic) types, no
+//      lock -- a foreign task never touches these directly.
+//
+//   2. ATOMIC (`in_use`, `pending_release`): each independently safe for
+//      concurrent cross-task access via C11 atomics, WITHOUT s_clients_lock
+//      (bb_data_http_common.c) -- neither needs it, and reads/writes of
+//      either never take it:
+//        - `pending_release`: any task may SET it (via
+//          bb_data_http_client_request_release()) to ask the owning task to
+//          release this client on its next bb_data_http_sweep_step() call,
+//          but only the owning task ever READS or CLEARS it
+//          (bb_data_http_client_release() resets it as part of a normal
+//          release; bb_data_http_client_acquire() resets it again on
+//          reuse). A real hazard this closes: the espidf backend's WS
+//          disconnect callback fires on bb_ws_server's own worker task, not
+//          the broadcaster -- calling bb_data_http_client_release() directly
+//          from there (destroying `outbound`, clearing `in_use`) could race
+//          the broadcaster's own in-flight read/write of this SAME client
+//          inside bb_data_http_sweep_step() on another core.
+//        - `in_use` (B1-1482 review fix, see below): read by
+//          bb_data_http_client_acquire() (the acquiring task, under
+//          s_clients_lock -- the LOCK here protects a DIFFERENT invariant,
+//          the blocking-budget/free-slot scan-then-claim atomicity, not
+//          `in_use`'s own read safety, which the atomic type already
+//          provides) and by every reader inside bb_data_http_sweep_step()/
+//          bb_data_http_active_client_count() (the owning task, always
+//          unlocked); written true by bb_data_http_client_acquire() (the
+//          acquiring task, under s_clients_lock, paired with the
+//          reservation clear -- see s_clients_lock's own doc,
+//          bb_data_http_common.c) and false by
+//          bb_data_http_client_release() (the owning task, deliberately
+//          UNLOCKED -- see that function's own doc for why it must never
+//          take s_clients_lock).
+//
+// s_clients_lock (bb_data_http_common.c) therefore has a narrow, specific
+// job: it makes bb_data_http_client_acquire()'s OWN scan-then-claim
+// sequence atomic against a SECOND CONCURRENT acquire() call (the B1-1482
+// review TOCTOU fix) -- it is never taken by bb_data_http_client_release(),
+// bb_data_http_sweep_step(), or bb_data_http_active_client_count(), and it
+// does NOT extend this struct's single-task-ownership model for tier 1
+// fields, nor does it substitute for `in_use`/`pending_release`'s own
+// atomicity in tier 2 -- those two properties (the lock's acquire-side
+// mutual exclusion, and `in_use`'s atomic cross-task read/write safety)
+// are independent and both required: the lock alone would not make
+// release()'s unlocked write of `in_use` safe against acquire()'s locked
+// reads of it (that needs the atomic type); the atomic type alone would
+// not make two concurrent acquire() calls' scan-then-claim sequences
+// mutually exclusive (that needs the lock).
 //
 // SHARED EVENT RING -- a SEPARATE, real exception (B1-1450, epic B1-1123),
 // not part of the per-client single-task-ownership model above: the
@@ -153,10 +193,27 @@ typedef struct {
 // ring's own module-level statics gained the claim/commit/revoke lock, not
 // the per-client drain/flush path.
 struct bb_data_http_client {
-    bool                            in_use;
+    // B1-1482 review MEDIUM+LOW fix: atomic_bool, not a plain bool -- see the
+    // TASK OWNERSHIP doc above for the full cross-task read/write map. This
+    // is now the SECOND field in this struct requiring atomic access
+    // (mirrors `pending_release` below): bb_data_http_client_acquire() reads
+    // it under s_clients_lock (bb_data_http_common.c) from the acquiring
+    // task, while bb_data_http_client_release() writes it UNLOCKED from the
+    // sweep-owning task -- a plain bool would be a genuine cross-task data
+    // race on those two sides (the lock only ever covers acquire()'s OWN
+    // reads/writes, never release()'s, by design -- see the TASK OWNERSHIP
+    // doc's own reasoning for why release() deliberately stays lock-free).
+    // atomic_bool closes that without extending s_clients_lock's reach into
+    // the sweep task's territory. Same size/alignment as plain `bool` on
+    // every ABI this struct is compiled under (bool is natively
+    // lock-free-atomic on both the LP64 host toolchain and the ILP32
+    // xtensa-esp32-elf-gcc cross toolchain) -- verified by the pinned
+    // sizeof() assert below, unchanged.
+    atomic_bool                     in_use;
     // B1-1452: placed here, immediately after `in_use`, rather than
     // appended after the pointer-heavy tail below -- both are single-byte
-    // bools, so grouping them lands warned_no_send_fn in alignment padding
+    // (in_use is atomic_bool as of B1-1482, still 1 byte -- see its own doc
+    // above), so grouping them lands warned_no_send_fn in alignment padding
     // that already existed ahead of topic_filter on BOTH ABIs this struct
     // is compiled under (ILP32 and LP64), instead of costing a whole extra
     // 4-byte-aligned word on ILP32 (which a tail append would have -- see
@@ -172,6 +229,16 @@ struct bb_data_http_client {
     // every bb_data_http_client_acquire() (fresh slot reuse must not
     // inherit a prior occupant's warned state).
     bool                            warned_no_send_fn;
+    // B1-1482: resolved copy of cfg->non_blocking at acquire time (see
+    // bb_data_http_client_cfg_t's own doc, bb_data_http.h, for the
+    // zero-default polarity rationale) -- what bb_data_http_client_acquire()'s
+    // blocking-budget scan actually counts. Grouped with the other
+    // single-byte bools ahead of `topic_filter` for the same reason
+    // `warned_no_send_fn` is (see the pinned-sizeof assert below): it lands
+    // in alignment padding that already existed ahead of `topic_filter` on
+    // both ABIs this struct is compiled under, so the footprint is
+    // unaffected -- verified by the same sizeof() probe.
+    bool                            non_blocking;
     char                            topic_filter[BB_DATA_HTTP_TOPIC_MAX];  // "" == all attached keys
     uint32_t                        subscribe_mask;  // resolved kind bitmask; see bb_data_http_client_cfg_t's doc (bb_data_http.h)
     bb_data_http_poll_state_t      *poll;  // NULL unless subscribe_mask includes STATE -- see its own doc above
@@ -218,8 +285,19 @@ struct bb_data_http_client {
 // does have as a family, though bb_data_http itself is realistically
 // ESP32/host-only) -- such a build would spuriously trip this assert and
 // need a third arm added, not silently pass under either existing one.
+//
+// B1-1482 review MEDIUM+LOW fix: `in_use` converted from `bool` to
+// `atomic_bool` (see the struct's own field doc above) -- re-verified
+// zero-cost on both ABIs the same way as every field re-pin above: `bool`
+// is natively lock-free-atomic on both the LP64 host toolchain and the
+// ILP32 xtensa-esp32-elf-gcc cross toolchain, so `_Atomic(bool)` carries
+// the identical 1-byte size/alignment as plain `bool` on both -- exactly
+// the same property `pending_release` (already `atomic_bool`, further down
+// this struct) has always relied on. This is NOT assumed by analogy alone:
+// re-verified directly, both arms, same two builds as above (`make test`
+// LP64, `make smoke-esp32` ILP32) -- both still hit exactly 120/84.
 _Static_assert(sizeof(struct bb_data_http_client) == (sizeof(void *) == 8 ? 120 : 84),
-               "bb_data_http_client_t size changed -- update this pin (B1-1452 warned_no_send_fn field, moved next to in_use to stay in existing ILP32 padding)");
+               "bb_data_http_client_t size changed -- update this pin (B1-1452 warned_no_send_fn field, moved next to in_use to stay in existing ILP32 padding; B1-1482 non_blocking field, grouped the same way, verified to cost zero additional bytes on both ABIs; B1-1482 review fix -- in_use converted bool -> atomic_bool, verified to also cost zero additional bytes on both ABIs, same as pending_release's own pre-existing atomic_bool -- bool is natively lock-free-atomic on every ABI this struct compiles under, both re-verified by direct sizeof() probe: LP64 via `make test`, ILP32 via a real `make smoke-esp32` xtensa-esp32-elf-gcc build, this assert compile-time-enforced in both)");
 
 #ifdef BB_DATA_HTTP_TESTING
 // Test accessors -- expose fd-table/attach-table internals without widening

@@ -29,3 +29,11 @@ CONFIG_BB_SMOKE_CORE_CLAIM=y
 # Claim core 1 (default) -- httpd (no explicit CONFIG_BB_HTTP_TASK_CORE_ID
 # pin, also default here) should steer to core 0.
 CONFIG_BB_SMOKE_CORE_CLAIM_CORE=1
+
+# B1-1482: same pin as sdkconfig.defaults.esp32 -- this board also only ever
+# composes 2 genuinely-blocking clients (SSE+WS, examples/smoke/main/
+# bb_wire.h), so pin the blocking-client budget to that real usage rather
+# than letting it silently track the new CONFIG_BB_DATA_HTTP_MAX_CLIENTS
+# default of 3 (which would trip bb_data_http_espidf.c's compile-time
+# guard: 3*20=60ms >= the 50ms default sweep interval).
+CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS=2
