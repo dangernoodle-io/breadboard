@@ -357,7 +357,7 @@ void test_floor_mqtt_egress_sweep_outbox_full_retries_then_delivers(void)
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){
         .topic_filter = "log", .send_fn = floor_mqtt_egress_send_fn,
-        .lifetime = BB_DATA_HTTP_LIFETIME_DURABLE }, &c));
+        .lifetime = BB_DATA_HTTP_LIFETIME_DURABLE, .non_blocking = true }, &c));
     fake_gen_bump("log");  // dirties "log" for this sweep
 
     bb_data_http_sweep_step();
@@ -396,7 +396,7 @@ void test_floor_mqtt_egress_sweep_null_handle_retries_no_teardown(void)
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){
         .topic_filter = "log", .send_fn = floor_mqtt_egress_send_fn,
-        .lifetime = BB_DATA_HTTP_LIFETIME_DURABLE }, &c));
+        .lifetime = BB_DATA_HTTP_LIFETIME_DURABLE, .non_blocking = true }, &c));
     fake_gen_bump("log");
 
     bb_data_http_sweep_step();
@@ -435,7 +435,7 @@ void test_floor_mqtt_egress_sweep_validation_reject_survives_and_stops_flush(voi
     bb_data_http_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){
         .topic_filter = NULL, .send_fn = counting_send_fn,
-        .lifetime = BB_DATA_HTTP_LIFETIME_DURABLE }, &c));
+        .lifetime = BB_DATA_HTTP_LIFETIME_DURABLE, .non_blocking = true }, &c));
     fake_gen_bump("log");
     fake_gen_bump("other");
 

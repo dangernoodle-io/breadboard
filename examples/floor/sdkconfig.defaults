@@ -50,3 +50,13 @@ CONFIG_BB_STORAGE_HTTP_FACTORY_RESET=y
 # TLS, the mbedTLS cert bundle, and WPA3-Personal/SAE
 # (CONFIG_ESP_WIFI_ENABLE_WPA3_SAE) are untouched.
 CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
+
+# B1-1482: CONFIG_BB_DATA_HTTP_MAX_CLIENTS now defaults to 3 (SSE+WS+a
+# non-blocking egress consumer), but only 2 of those slots -- SSE and WS,
+# both genuinely blocking sends -- are ever composed on floor today. Pin the
+# blocking-client budget to that real usage (2*20ms=40ms < the 50ms default
+# sweep interval) rather than letting it silently track MAX_CLIENTS up to 3
+# (3*20=60ms >= 50ms, which trips bb_data_http_espidf.c's compile-time
+# guard). See examples/floor/main/floor_mqtt_egress.h for the 3rd slot's
+# intended (uncomposed) non-blocking consumer.
+CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS=2

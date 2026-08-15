@@ -126,13 +126,35 @@
 #define BB_DATA_HTTP_ESPIDF_MAX_CLIENTS 2
 #endif
 
+// B1-1482: the compile-time budget the guard below actually multiplies --
+// see CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS's own Kconfig doc. A
+// genuinely non-blocking consumer (bb_data_http_client_cfg_t's
+// `non_blocking` field, bb_data_http.h -- e.g. an MQTT egress client wired
+// to bb_mqtt_client_enqueue(), which never blocks) is never counted against
+// this budget, unlike BB_DATA_HTTP_ESPIDF_MAX_CLIENTS above, which sizes the
+// fd-table side tables (s_slots/s_ws_slots) for EVERY client regardless of
+// blocking-ness.
+#ifdef CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS
+#define BB_DATA_HTTP_ESPIDF_MAX_BLOCKING_CLIENTS CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS
+#endif
+#ifndef BB_DATA_HTTP_ESPIDF_MAX_BLOCKING_CLIENTS
+#define BB_DATA_HTTP_ESPIDF_MAX_BLOCKING_CLIENTS BB_DATA_HTTP_ESPIDF_MAX_CLIENTS
+#endif
+
 // Sweep-budget invariant (B1-1424 review fix -- corrected claim, was
-// overstated): MAX_CLIENTS*SEND_TIMEOUT_MS < SWEEP_INTERVAL_MS (checked
-// below) bounds ONLY the RETRIABLE-failure sub-case of the flush loop's
-// per-client `while` (bb_data_http_common.c) -- a send_fn call that fails
-// fast (a timed-out/would-block socket write) costs at most
-// SEND_TIMEOUT_MS once per client before that client's flush stops for the
-// sweep (bb_data_http_sweep_step()'s flush-contract doc, bb_data_http.h).
+// overstated; B1-1482 -- made blocking-aware): MAX_BLOCKING_CLIENTS*
+// SEND_TIMEOUT_MS < SWEEP_INTERVAL_MS (checked below) bounds ONLY the
+// RETRIABLE-failure sub-case of the flush loop's per-client `while`
+// (bb_data_http_common.c) -- a send_fn call that fails fast (a timed-out/
+// would-block socket write) costs at most SEND_TIMEOUT_MS once per BLOCKING
+// client before that client's flush stops for the sweep
+// (bb_data_http_sweep_step()'s flush-contract doc, bb_data_http.h). A
+// client acquired with non_blocking=true (bb_data_http_client_cfg_t) is, by
+// contract, never able to pay this cost at all, so it is deliberately
+// excluded from the count this check multiplies -- see
+// CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS's own Kconfig doc for why raising
+// BB_DATA_HTTP_ESPIDF_MAX_CLIENTS (the fd-table cap) alone must not re-trip
+// this guard.
 //
 // It is NOT a general per-sweep worst-case bound: the SAME `while` loop
 // keeps calling send_fn for as long as each call SUCCEEDS, so a client
@@ -140,19 +162,19 @@
 // just under SEND_TIMEOUT_MS -- can pay close to SEND_TIMEOUT_MS per frame,
 // up to CONFIG_BB_DATA_HTTP_OUTBOUND_CAPACITY frames, in ONE sweep_step()
 // call: OUTBOUND_CAPACITY * SEND_TIMEOUT_MS per client (default
-// 8*20=160ms), and up to MAX_CLIENTS * OUTBOUND_CAPACITY *
-// SEND_TIMEOUT_MS in the worst case across every active client in the same
-// call (default 2*8*20=320ms) -- 6.4x the 50ms default sweep interval.
-// This is deliberately left unbounded rather than capped: a slow-but-
-// succeeding socket completing every write is the PATHOLOGICAL case (a
-// congested link, not a stalled one), not the steady state -- an ordinary
-// successful send_fn call completes in microseconds, so this bound is a
-// theoretical ceiling, not an expected cost. The compile-time check below
-// still catches a genuinely bad MAX_CLIENTS/SEND_TIMEOUT_MS/
+// 8*20=160ms), and up to MAX_BLOCKING_CLIENTS * OUTBOUND_CAPACITY *
+// SEND_TIMEOUT_MS in the worst case across every active BLOCKING client in
+// the same call (default 2*8*20=320ms) -- 6.4x the 50ms default sweep
+// interval. This is deliberately left unbounded rather than capped: a
+// slow-but-succeeding socket completing every write is the PATHOLOGICAL
+// case (a congested link, not a stalled one), not the steady state -- an
+// ordinary successful send_fn call completes in microseconds, so this bound
+// is a theoretical ceiling, not an expected cost. The compile-time check
+// below still catches a genuinely bad MAX_BLOCKING_CLIENTS/SEND_TIMEOUT_MS/
 // SWEEP_INTERVAL_MS combination for the case it DOES bound (default
 // config: 2*20=40ms < 50ms sweep, passes).
-#if (BB_DATA_HTTP_ESPIDF_MAX_CLIENTS * BB_DATA_HTTP_SEND_TIMEOUT_MS) >= BB_DATA_HTTP_SWEEP_INTERVAL_MS
-#error "bb_data_http: MAX_CLIENTS*SEND_TIMEOUT_MS must stay under SWEEP_INTERVAL_MS -- the broadcaster's per-sweep RETRIABLE-failure worst-case block time cannot reach or exceed the sweep cadence (see this check's full doc above for what it does NOT bound)"
+#if (BB_DATA_HTTP_ESPIDF_MAX_BLOCKING_CLIENTS * BB_DATA_HTTP_SEND_TIMEOUT_MS) >= BB_DATA_HTTP_SWEEP_INTERVAL_MS
+#error "bb_data_http: MAX_BLOCKING_CLIENTS*SEND_TIMEOUT_MS must stay under SWEEP_INTERVAL_MS -- the broadcaster's per-sweep RETRIABLE-failure worst-case block time cannot reach or exceed the sweep cadence (see this check's full doc above for what it does NOT bound, and CONFIG_BB_DATA_HTTP_MAX_BLOCKING_CLIENTS's own doc for how a non-blocking consumer escapes this budget)"
 #endif
 
 // First-frame cold-start budget (B1-1424 review item 4): deliberately NOT
