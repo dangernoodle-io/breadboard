@@ -1391,7 +1391,14 @@ void bb_data_http_sweep_step(void)
                     // immediately on stale state.
                     c->poll->dirty_mask &= ~bit;
                     if (slot->min_interval_ms > 0) {
-                        c->poll->next_due_ms[k]        = now_ms() + slot->min_interval_ms;
+                        // B1-1124 PR-2: hash-derived phase spreads keys that
+                        // share a min_interval_ms across the sweep tick
+                        // instead of letting them all become due on the same
+                        // sweep -- see the render-success path's identical
+                        // phase comment below for the full rationale and the
+                        // cap-margin analysis this relies on.
+                        uint32_t phase = bb_str_hash32(slot->key) % slot->min_interval_ms;
+                        c->poll->next_due_ms[k]        = now_ms() + slot->min_interval_ms + phase;
                         c->poll->never_rendered_mask  &= ~bit;
                     }
                     continue;
@@ -1477,8 +1484,25 @@ void bb_data_http_sweep_step(void)
                 // above starts consulting next_due_ms[k] for it from here
                 // on (B1-1124 PR-1 review fix, see never_rendered_mask's
                 // own doc).
+                //
+                // B1-1124 PR-2: phase-spread the reschedule via a
+                // deterministic hash of the key (bb_str_hash32), NOT an RNG
+                // -- the spread must be reproducible in host tests AND must
+                // spread from the very first tick (an RNG-seeded or
+                // convergent scheme would still burst on the first due
+                // sweep every key shares). phase is in [0, min_interval_ms),
+                // so the worst-case scheduled distance is now
+                // 2*min_interval_ms - 1, not min_interval_ms -- still far
+                // under the INT32_MAX (~2147483647 ms, ~24.855 days)
+                // wraparound-safety bound the signed-difference due-check
+                // above relies on: 2*CONFIG_BB_DATA_HTTP_MIN_INTERVAL_MAX_MS
+                // = 2*86400000 = 172800000 ms (~2 days), leaving a ~12x
+                // margin under INT32_MAX. The attach-time cap
+                // (bb_data_http_attach(), CONFIG_BB_DATA_HTTP_MIN_INTERVAL_
+                // MAX_MS) does NOT need tightening for this.
                 if (slot->min_interval_ms > 0) {
-                    c->poll->next_due_ms[k]        = now_ms() + slot->min_interval_ms;
+                    uint32_t phase = bb_str_hash32(slot->key) % slot->min_interval_ms;
+                    c->poll->next_due_ms[k]        = now_ms() + slot->min_interval_ms + phase;
                     c->poll->never_rendered_mask  &= ~bit;
                 }
 

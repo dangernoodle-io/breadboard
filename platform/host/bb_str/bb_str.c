@@ -209,3 +209,18 @@ bool bb_str_envelope_split(const char *payload, int len,
     *data_len   = (size_t)(p - data_v);
     return true;
 }
+
+#define BB_STR_FNV1A_OFFSET_BASIS 2166136261u
+#define BB_STR_FNV1A_PRIME        16777619u
+
+uint32_t bb_str_hash32(const char *s)
+{
+    if (!s) return 0;
+
+    uint32_t h = BB_STR_FNV1A_OFFSET_BASIS;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        h ^= (uint32_t)*p;
+        h *= BB_STR_FNV1A_PRIME;
+    }
+    return h;
+}

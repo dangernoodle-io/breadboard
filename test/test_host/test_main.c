@@ -475,6 +475,10 @@ void test_bb_data_http_cadence_no_render_fn_advances_next_due_ms(void);
 void test_bb_data_http_cadence_gate_uses_real_clock_when_mock_disabled(void);
 void test_bb_data_http_cadence_reset_for_test_clears_mock_clock(void);
 void test_bb_data_http_cadence_armed_next_due_wraparound_safe(void);
+void test_bb_data_http_cadence_spread_two_keys_same_interval_get_distinct_hash_derived_phases(void);
+void test_bb_data_http_cadence_spread_real_key_names_land_on_distinct_phases(void);
+void test_bb_data_http_cadence_spread_zero_min_interval_leaves_next_due_ms_untouched(void);
+void test_bb_data_http_cadence_spread_phase_stable_across_repeated_reschedules(void);
 void test_bb_data_http_sweep_step_generation_fn_failure_skips_key(void);
 void test_bb_data_http_sweep_step_detect_phase_skips_unsubscribed_client(void);
 void test_bb_data_http_subscribe_mask_event_only_client_excludes_state_key(void);
@@ -3545,6 +3549,12 @@ void test_bb_str_envelope_split_ts_ms_value_at_buffer_end_returns_false(void);
 void test_bb_str_envelope_split_data_value_at_buffer_end_returns_false(void);
 void test_bb_str_envelope_split_nested_data_object_is_balanced(void);
 void test_bb_str_envelope_split_null_args_return_false(void);
+void test_bb_str_hash32_empty_string_is_the_offset_basis(void);
+void test_bb_str_hash32_single_char_known_answer(void);
+void test_bb_str_hash32_multi_char_known_answer(void);
+void test_bb_str_hash32_null_returns_zero(void);
+void test_bb_str_hash32_is_deterministic_across_calls(void);
+void test_bb_str_hash32_different_strings_differ(void);
 
 // Forward declarations from test_bb_scalar.c
 void test_bb_scalar_parse_bool_table_driven(void);
@@ -8300,6 +8310,12 @@ int main(void) {
     RUN_TEST(test_bb_str_envelope_split_data_value_at_buffer_end_returns_false);
     RUN_TEST(test_bb_str_envelope_split_nested_data_object_is_balanced);
     RUN_TEST(test_bb_str_envelope_split_null_args_return_false);
+    RUN_TEST(test_bb_str_hash32_empty_string_is_the_offset_basis);
+    RUN_TEST(test_bb_str_hash32_single_char_known_answer);
+    RUN_TEST(test_bb_str_hash32_multi_char_known_answer);
+    RUN_TEST(test_bb_str_hash32_null_returns_zero);
+    RUN_TEST(test_bb_str_hash32_is_deterministic_across_calls);
+    RUN_TEST(test_bb_str_hash32_different_strings_differ);
 
     // bb_scalar tests
     RUN_TEST(test_bb_scalar_parse_bool_table_driven);
@@ -12450,6 +12466,10 @@ int main(void) {
     RUN_TEST(test_bb_data_http_cadence_gate_uses_real_clock_when_mock_disabled);
     RUN_TEST(test_bb_data_http_cadence_reset_for_test_clears_mock_clock);
     RUN_TEST(test_bb_data_http_cadence_armed_next_due_wraparound_safe);
+    RUN_TEST(test_bb_data_http_cadence_spread_two_keys_same_interval_get_distinct_hash_derived_phases);
+    RUN_TEST(test_bb_data_http_cadence_spread_real_key_names_land_on_distinct_phases);
+    RUN_TEST(test_bb_data_http_cadence_spread_zero_min_interval_leaves_next_due_ms_untouched);
+    RUN_TEST(test_bb_data_http_cadence_spread_phase_stable_across_repeated_reschedules);
     RUN_TEST(test_bb_data_http_sweep_step_generation_fn_failure_skips_key);
     RUN_TEST(test_bb_data_http_sweep_step_detect_phase_skips_unsubscribed_client);
     RUN_TEST(test_bb_data_http_subscribe_mask_event_only_client_excludes_state_key);
