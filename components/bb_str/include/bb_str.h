@@ -135,6 +135,18 @@ bool bb_str_envelope_split(const char *payload, int len,
                             const char **ts_start, size_t *ts_len,
                             const char **data_start, size_t *data_len);
 
+// bb_str_hash32 — FNV-1a 32-bit hash over the NUL-terminated bytes of `s`
+// (offset basis 2166136261, prime 16777619). Deterministic and stable
+// across calls/processes/builds -- NOT a cryptographic hash, NOT an RNG.
+// Intended for cheap, reproducible key-derived spreading (e.g. phase
+// offsets), not for collision-resistance guarantees.
+//
+// s == NULL is defensive: returns 0 rather than crashing (mirrors this
+// file's other defensive NULL-input contracts, e.g. bb_str_hex_to_bytes).
+// 0 is not reserved for NULL specifically -- a real string can also hash to
+// 0 -- so callers must not treat a 0 result as a NULL detector.
+uint32_t bb_str_hash32(const char *s);
+
 #ifdef __cplusplus
 }
 #endif

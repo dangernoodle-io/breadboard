@@ -11,6 +11,7 @@
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_queue.h"
+#include "bb_str.h"
 
 #include "../../components/bb_data_http/src/bb_data_http_internal.h"
 #include "../../platform/host/bb_data_http/bb_data_http_host.h"
@@ -2579,8 +2580,17 @@ void test_bb_data_http_cadence_zero_min_interval_renders_every_sweep(void)
     }
 }
 
-// min_interval_ms=5000: advance 1s x4 -> NO render (still throttled); advance
-// to 5s total -> EXACTLY ONE render (the deferred one, not a burst).
+// min_interval_ms=5000: advance to just short of due -> NO render (still
+// throttled); advance the last ms -> EXACTLY ONE render (the deferred one,
+// not a burst).
+//
+// B1-1124 PR-2: the true due time is now min_interval_ms PLUS a
+// hash-derived phase (bb_str_hash32(key) % min_interval_ms) -- so unlike
+// PR-1's original fixed "5 x 1000ms = 5000ms total" walk, the exact due
+// offset for key "k1" is computed here via the real hash function (never
+// hardcoded) and asserted explicitly against the 5000+phase formula, so a
+// mutation that drops the phase (or applies it wrong) fails this assertion
+// even before the timing walk below runs.
 void test_bb_data_http_cadence_gate_blocks_until_due_then_renders_once(void)
 {
     reset_all();
@@ -2594,22 +2604,21 @@ void test_bb_data_http_cadence_gate_blocks_until_due_then_renders_once(void)
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
-    bb_data_http_sweep_step();  // fresh-render-on-connect: due (next_due_ms==0), renders, next_due_ms -> 5000
+    bb_data_http_sweep_step();  // fresh-render-on-connect: due (never_rendered_mask), renders, next_due_ms -> 5000+phase
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
-    TEST_ASSERT_EQUAL_UINT32(5000u, bb_data_http_client_next_due_ms_for_test(c, 0));
+    uint32_t due = bb_data_http_client_next_due_ms_for_test(c, 0);
+    TEST_ASSERT_EQUAL_UINT32(5000u + (bb_str_hash32("k1") % 5000u), due);
     bb_data_http_host_reset();
     s_render_call_count = 0;
 
-    fake_gen_bump("k1");  // dirty again, but not due for another 5000ms
+    fake_gen_bump("k1");  // dirty again, but not due until `due`
 
-    for (int i = 0; i < 4; i++) {
-        bb_data_http_clock_advance_for_test(1000);
-        bb_data_http_sweep_step();
-        TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
-        TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_dirty_mask_for_test(c));  // still dirty, not dropped
-    }
+    bb_data_http_clock_advance_for_test(due - 1);  // 1ms before due
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_dirty_mask_for_test(c));  // still dirty, not dropped
 
-    bb_data_http_clock_advance_for_test(1000);  // now at 5000 total -- due
+    bb_data_http_clock_advance_for_test(1);  // now at `due` -- fires
     bb_data_http_sweep_step();
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));
@@ -2739,7 +2748,10 @@ void test_bb_data_http_cadence_render_failure_while_due_leaves_next_due_ms_uncha
     bb_data_http_sweep_step();
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));
-    TEST_ASSERT_EQUAL_UINT32(5010u, bb_data_http_client_next_due_ms_for_test(c, 0));  // now(10) + interval(5000)
+    // B1-1124 PR-2: now(10) + interval(5000) + hash-derived phase for "k1"
+    // at interval 5000 (was a bare 5010u under PR-1).
+    TEST_ASSERT_EQUAL_UINT32(10u + 5000u + (bb_str_hash32("k1") % 5000u),
+                              bb_data_http_client_next_due_ms_for_test(c, 0));
 }
 
 // Loud attach-time guard, mirroring the existing snap_size guard pattern:
@@ -2785,7 +2797,12 @@ void test_bb_data_http_cadence_no_render_fn_advances_next_due_ms(void)
     bb_data_http_sweep_step();
 
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));  // cleared unconditionally
-    TEST_ASSERT_EQUAL_UINT32(5000u, bb_data_http_client_next_due_ms_for_test(c, 0));  // still advanced
+    // B1-1124 PR-2: still advanced, now + interval(5000) + hash-derived
+    // phase for "k1" at interval 5000 (was a bare 5000u under PR-1); this
+    // branch must apply the phase identically to the render-success path
+    // (symmetric reschedule sites).
+    TEST_ASSERT_EQUAL_UINT32(5000u + (bb_str_hash32("k1") % 5000u),
+                              bb_data_http_client_next_due_ms_for_test(c, 0));
     // B1-1124 PR-1 review fix: the no-render_fn branch must ALSO clear the
     // never-rendered bit, symmetric with how it already advances
     // next_due_ms -- an asymmetry here recreates the same class of bug this
@@ -2864,7 +2881,11 @@ void test_bb_data_http_cadence_reset_for_test_clears_mock_clock(void)
     bb_data_http_sweep_step();
 
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
-    TEST_ASSERT_EQUAL_UINT32(1500u, bb_data_http_client_next_due_ms_for_test(c, 0));  // 500 + 1000, NOT 4000001500
+    // B1-1124 PR-2: 500 + 1000 + hash-derived phase for "k1" at interval
+    // 1000 (was a bare 1500u under PR-1) -- and definitely NOT 4000001500
+    // (the whole point of this test: no leaked mock-clock offset).
+    TEST_ASSERT_EQUAL_UINT32(500u + 1000u + (bb_str_hash32("k1") % 1000u),
+                              bb_data_http_client_next_due_ms_for_test(c, 0));
 }
 
 // Wraparound for an ALREADY-ARMED (nonzero, previously-rendered)
@@ -2877,6 +2898,11 @@ void test_bb_data_http_cadence_reset_for_test_clears_mock_clock(void)
 // for that; next_due_ms here is armed to 1000 by an initial successful
 // render before the wrap is exercised, so never_rendered_mask's bit is
 // already clear for the whole rest of this test.
+// B1-1124 PR-2: due is now min_interval_ms(1000) PLUS a hash-derived phase
+// for "k1" at interval 1000, computed here via the real hash function
+// (never hardcoded) rather than PR-1's bare 1000u -- the wrap-target advance
+// below is derived from that same `due`, replacing PR-1's fixed 1300ms/1099
+// literals, since those no longer land past the (now larger) due time.
 void test_bb_data_http_cadence_armed_next_due_wraparound_safe(void)
 {
     reset_all();
@@ -2890,9 +2916,10 @@ void test_bb_data_http_cadence_armed_next_due_wraparound_safe(void)
 
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
-    bb_data_http_sweep_step();  // fresh-render-on-connect at t=0 -- next_due_ms -> 1000
+    bb_data_http_sweep_step();  // fresh-render-on-connect at t=0 -- next_due_ms -> 1000+phase
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
-    TEST_ASSERT_EQUAL_UINT32(1000u, bb_data_http_client_next_due_ms_for_test(c, 0));
+    uint32_t due = bb_data_http_client_next_due_ms_for_test(c, 0);
+    TEST_ASSERT_EQUAL_UINT32(1000u + (bb_str_hash32("k1") % 1000u), due);
     bb_data_http_host_reset();
     s_render_call_count = 0;
 
@@ -2900,13 +2927,163 @@ void test_bb_data_http_cadence_armed_next_due_wraparound_safe(void)
 
     bb_data_http_clock_set_for_test(UINT32_MAX - 200);  // 200ms before the uint32 wrap
     bb_data_http_sweep_step();
-    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());  // not due -- ~1200ms of true time still remain
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());  // not due -- due is tiny, `now` is huge pre-wrap
 
-    bb_data_http_clock_advance_for_test(1300);  // wraps: (UINT32_MAX - 200) + 1300 -> 1099
+    // (UINT32_MAX - 200) + advance wraps to (advance - 201) for advance >=
+    // 201 -- choose advance so the wrapped `now` lands exactly 1ms past
+    // `due` (was a fixed 1300ms -> 1099 under PR-1, back when due was a flat
+    // 1000).
+    bb_data_http_clock_advance_for_test(due + 202u);
     bb_data_http_sweep_step();
     TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());  // now due -- the wrap did not break the gate
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));
-    TEST_ASSERT_EQUAL_UINT32(1099u + 1000u, bb_data_http_client_next_due_ms_for_test(c, 0));
+    uint32_t wrapped_now = due + 1u;
+    TEST_ASSERT_EQUAL_UINT32(wrapped_now + due, bb_data_http_client_next_due_ms_for_test(c, 0));
+}
+
+// ---------------------------------------------------------------------------
+// Hash-derived phase spreading (B1-1124 PR-2, epic B1-1124): the shared
+// sweep tick is deliberately fast (50ms for SSE) while most cadence-gated
+// keys are slow -- without spreading, every key sharing an interval that
+// becomes due on the same sweep fires together (a periodic burst instead of
+// a smooth trickle). The reschedule sites add a hash-derived phase in
+// [0, min_interval_ms) -- a stable hash of the key, deliberately NOT an RNG,
+// so the spread is reproducible in host tests and spreads from the very
+// first tick rather than letting keys converge.
+// ---------------------------------------------------------------------------
+
+// THE key test: two keys attached under the SAME min_interval_ms, both
+// forced due on the same sweep (fresh-render-on-connect), reschedule to
+// DIFFERENT next_due_ms -- and to the EXACT values the phase formula
+// predicts, not merely "not equal" (a phase computed from something else
+// entirely, e.g. slot index, would also produce two different-looking
+// values and pass a weaker assertion).
+void test_bb_data_http_cadence_spread_two_keys_same_interval_get_distinct_hash_derived_phases(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_clock_set_for_test(0);
+
+    const uint32_t interval = 60000;
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "key_a", .topic = "topic.a", .min_interval_ms = interval});
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "key_b", .topic = "topic.b", .min_interval_ms = interval});
+    fake_gen_set("key_a", 1);
+    fake_gen_set("key_b", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // default mask/filter: subscribes to both
+    bb_data_http_sweep_step();  // fresh-render-on-connect renders both keys on this one sweep
+
+    uint32_t due_a = bb_data_http_client_next_due_ms_for_test(c, 0);  // key_a: attach index 0
+    uint32_t due_b = bb_data_http_client_next_due_ms_for_test(c, 1);  // key_b: attach index 1
+
+    uint32_t expected_a = interval + (bb_str_hash32("key_a") % interval);
+    uint32_t expected_b = interval + (bb_str_hash32("key_b") % interval);
+
+    TEST_ASSERT_EQUAL_UINT32(expected_a, due_a);
+    TEST_ASSERT_EQUAL_UINT32(expected_b, due_b);
+    TEST_ASSERT_NOT_EQUAL(due_a, due_b);
+}
+
+// The ticket's real example keys: a hash that distributes fine on random
+// input can degenerate on short lowercase-ASCII names with shared prefixes,
+// exactly this repo's naming convention -- all four must land on distinct
+// phases for a realistic interval.
+void test_bb_data_http_cadence_spread_real_key_names_land_on_distinct_phases(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_clock_set_for_test(0);
+
+    const uint32_t   interval = 60000;
+    const char *const keys[] = { "hashrate", "heap", "board_info", "firmware_version" };
+    const size_t      n_keys = sizeof(keys) / sizeof(keys[0]);
+
+    for (size_t i = 0; i < n_keys; i++) {
+        char topic[32];
+        snprintf(topic, sizeof(topic), "topic.%zu", i);
+        bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = keys[i], .topic = topic, .min_interval_ms = interval});
+        fake_gen_set(keys[i], 1);
+    }
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
+    bb_data_http_sweep_step();  // fresh-render-on-connect renders all four keys on this one sweep
+
+    uint32_t due[4];
+    for (size_t i = 0; i < n_keys; i++) {
+        due[i] = bb_data_http_client_next_due_ms_for_test(c, i);
+        uint32_t expected = interval + (bb_str_hash32(keys[i]) % interval);
+        TEST_ASSERT_EQUAL_UINT32(expected, due[i]);
+    }
+
+    for (size_t i = 0; i < n_keys; i++) {
+        for (size_t j = i + 1; j < n_keys; j++) {
+            TEST_ASSERT_NOT_EQUAL_MESSAGE(due[i], due[j], "two real key names collided on the same phase");
+        }
+    }
+}
+
+// min_interval_ms == 0 means "render every sweep this key is dirty" -- the
+// drain phase's due-check and both reschedule sites gate the whole
+// phase-adding branch on `slot->min_interval_ms > 0`, so next_due_ms[k]
+// must stay untouched at its poll_alloc()-zeroed initial value: existing
+// zero-interval consumers must see byte-for-byte the same behavior as
+// before this PR.
+void test_bb_data_http_cadence_spread_zero_min_interval_leaves_next_due_ms_untouched(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_clock_set_for_test(0);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "k1", .topic = "topic.a", .min_interval_ms = 0});
+    fake_gen_set("k1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_next_due_ms_for_test(c, 0));
+}
+
+// The phase must be STABLE (deterministic, not drifting) across repeated
+// reschedules of the same key -- every successive due time is the prior due
+// time plus min_interval_ms plus the SAME phase, never a phase that changes
+// sweep-to-sweep (which an RNG-seeded scheme could produce, and which the
+// ticket explicitly rules out).
+void test_bb_data_http_cadence_spread_phase_stable_across_repeated_reschedules(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_clock_set_for_test(0);
+    const uint32_t interval = 5000;
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "k1", .topic = "topic.a", .min_interval_ms = interval});
+    fake_gen_set("k1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
+
+    uint32_t phase = bb_str_hash32("k1") % interval;
+    uint32_t now   = 0;
+    for (int i = 0; i < 3; i++) {
+        fake_gen_bump("k1");
+        bb_data_http_sweep_step();  // i==0: fresh-render-on-connect; i>0: due at `now` from the prior iteration
+        uint32_t due = bb_data_http_client_next_due_ms_for_test(c, 0);
+        TEST_ASSERT_EQUAL_UINT32(now + interval + phase, due);
+        bb_data_http_clock_advance_for_test(due - now);
+        now = due;
+    }
 }
 
 // ---------------------------------------------------------------------------

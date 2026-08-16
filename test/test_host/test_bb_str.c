@@ -807,3 +807,56 @@ void test_bb_str_envelope_split_null_args_return_false(void)
     TEST_ASSERT_FALSE(bb_str_envelope_split("{}", 2, &ts_start, &ts_len, NULL, &data_len));
     TEST_ASSERT_FALSE(bb_str_envelope_split("{}", 2, &ts_start, &ts_len, &data_start, NULL));
 }
+
+// ---------------------------------------------------------------------------
+// bb_str_hash32 -- FNV-1a 32-bit (offset basis 2166136261, prime 16777619).
+// Known-answer vectors below are computed independently from the FNV-1a
+// spec (not merely recorded from this implementation's own output) --
+// "a" -> 0xe40c292c is a published FNV-1a 32-bit test vector, which also
+// cross-checks the offset-basis/prime constants themselves, not just this
+// function's arithmetic.
+// ---------------------------------------------------------------------------
+
+void test_bb_str_hash32_empty_string_is_the_offset_basis(void)
+{
+    // FNV-1a's defining property: hashing zero bytes leaves the hash at its
+    // starting offset basis, unmodified by the multiply/xor loop.
+    TEST_ASSERT_EQUAL_UINT32(2166136261u, bb_str_hash32(""));
+}
+
+void test_bb_str_hash32_single_char_known_answer(void)
+{
+    // Published FNV-1a 32-bit test vector for "a".
+    TEST_ASSERT_EQUAL_UINT32(0xe40c292cu, bb_str_hash32("a"));
+}
+
+void test_bb_str_hash32_multi_char_known_answer(void)
+{
+    // Independently computed from the FNV-1a spec:
+    //   h = 2166136261
+    //   for each byte b of "hashrate": h = (h ^ b) * 16777619 (mod 2^32)
+    TEST_ASSERT_EQUAL_UINT32(1064489699u, bb_str_hash32("hashrate"));
+}
+
+void test_bb_str_hash32_null_returns_zero(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_str_hash32(NULL));
+}
+
+void test_bb_str_hash32_is_deterministic_across_calls(void)
+{
+    uint32_t h1 = bb_str_hash32("board_info");
+    uint32_t h2 = bb_str_hash32("board_info");
+    uint32_t h3 = bb_str_hash32("board_info");
+
+    TEST_ASSERT_EQUAL_UINT32(h1, h2);
+    TEST_ASSERT_EQUAL_UINT32(h1, h3);
+}
+
+void test_bb_str_hash32_different_strings_differ(void)
+{
+    // Not a collision-resistance proof (FNV-1a makes none) -- just confirms
+    // two distinct short lowercase-ASCII keys sharing a prefix, this repo's
+    // own naming convention, don't trivially hash identically.
+    TEST_ASSERT_NOT_EQUAL(bb_str_hash32("heap"), bb_str_hash32("hashrate"));
+}
