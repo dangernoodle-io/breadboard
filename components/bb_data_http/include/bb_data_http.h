@@ -446,11 +446,32 @@ bb_err_t bb_data_http_init(const bb_data_http_cfg_t *cfg);
 // silently render-failing on every sweep (bb_data_render() returns
 // BB_ERR_NO_SPACE whenever the caller's scratch is smaller than the
 // binding's desc->snap_size -- see bb_data.h).
+// min_interval_ms (B1-1124 PR-1): zero-default is safe -- 0 means "render
+// every sweep this key is dirty", today's exact behavior, unchanged for
+// every existing attach() call site (none of which set this field). A
+// non-zero value throttles the DRAIN phase ONLY (see
+// bb_data_http_sweep_step()'s own doc below): the detect phase stays
+// byte-for-byte unchanged -- every attached STATE key's generation is still
+// compared against every subscribed client's seen_gen EVERY sweep, and the
+// dirty bit is still set unconditionally on a mismatch -- so the
+// lost-wakeup invariant (bb_data_http.h's file header doc) is untouched.
+// A key that is dirty but not yet due simply stays dirty (retried at full
+// tick rate) instead of being rendered; once due, it renders at most once
+// every min_interval_ms. Rejected at attach time (BB_ERR_NO_SPACE, see
+// bb_data_http_attach()'s own doc below) if it exceeds
+// CONFIG_BB_DATA_HTTP_MIN_INTERVAL_MAX_MS.
+// CONFIG_BB_DATA_HTTP_ATTACH_DEFAULT_MIN_INTERVAL_MS is a SEPARATE literal,
+// never auto-substituted for an omitted min_interval_ms here -- it exists
+// only for a composition-root call site to reference explicitly. 0 must
+// stay unambiguously "every sweep" inside this struct; it cannot also mean
+// "unset, substitute the Kconfig default" (see that Kconfig option's own
+// help text -- KB 619's implicit-substitution trap).
 typedef struct {
     const char                 *key;
     const char                 *topic;
     bb_data_http_replay_kind_t  kind;
     size_t                       snap_size;
+    uint32_t                     min_interval_ms;
 } bb_data_http_attach_cfg_t;
 
 // Attach `cfg->key` (a bb_data binding key) under `cfg->topic`, with replay
@@ -468,8 +489,17 @@ typedef struct {
 // Returns BB_ERR_INVALID_ARG if `cfg` is NULL, or `cfg->key`/`cfg->topic` is
 // NULL/empty, or either exceeds its buffer bound (BB_DATA_HTTP_KEY_MAX /
 // BB_DATA_HTTP_TOPIC_MAX).
+// The same loud guard applies to `cfg->min_interval_ms` (B1-1124 PR-1):
+// rejects the attach (BB_ERR_NO_SPACE, ESP_LOGE-level log) if it exceeds
+// CONFIG_BB_DATA_HTTP_MIN_INTERVAL_MAX_MS, keeping the true distance the
+// drain phase's signed-difference wraparound-safe comparison relies on
+// (bb_data_http_sweep_step()) well under INT32_MAX. Checked in the same
+// attach-time pass as the snap_size guard above, before key/topic
+// validation.
+//
 // Returns BB_ERR_NO_SPACE if `cfg->snap_size` exceeds the render scratch
-// bound (the key is NOT attached in this case), or if the attach table is
+// bound, or `cfg->min_interval_ms` exceeds CONFIG_BB_DATA_HTTP_MIN_INTERVAL_MAX_MS
+// (the key is NOT attached in either case), or if the attach table is
 // full (BB_DATA_HTTP_MAX_ATTACH distinct keys already attached) and `key` is
 // not already attached.
 bb_err_t bb_data_http_attach(const bb_data_http_attach_cfg_t *cfg);
@@ -614,16 +644,40 @@ size_t bb_data_http_active_client_count(void);
 //      the cross-task-safe deferred-release request -- see its doc) and
 //      skipping the rest of this loop body for it, before touching any of
 //      its other state -- then, for each dirty bit (in ascending attach-index
-//      order): call render_fn, and clear the bit ONLY if render_fn succeeds,
-//      THEN push the rendered bytes into that client's outbound bb_queue. A
-//      missing render_fn (see the setter above) clears the bit unconditionally
-//      -- there is nothing to retry. A render_fn that returns an error leaves
-//      the bit set so the key is retried on the next sweep_step() call rather
-//      than silently dropped; each such failure increments the counter read
-//      by bb_data_http_render_fail_count() and is logged at a rate-limited
-//      cadence. Once every dirty key has been drained into the queue, the
-//      queue is flushed via send_fn -- see the flush contract below
-//      (B1-1424/B1-1429).
+//      order): if the key's attach-time cfg->min_interval_ms (B1-1124 PR-1,
+//      see bb_data_http_attach_cfg_t's own doc) is nonzero and this
+//      (client, key) pair is not yet due (poll->next_due_ms[k], compared via
+//      the same signed-difference wraparound-safe idiom used elsewhere in
+//      this file), the key is skipped for THIS sweep -- the dirty bit STAYS
+//      SET and is re-checked (and, if still not due, skipped again) on every
+//      subsequent sweep_step() call at the full tick rate, until it becomes
+//      due. Once due (or when min_interval_ms is 0, the default -- "every
+//      sweep this key is dirty", today's exact behavior): call render_fn,
+//      and clear the bit ONLY if render_fn succeeds, THEN push the rendered
+//      bytes into that client's outbound bb_queue; on success, also advance
+//      poll->next_due_ms[k] to now + min_interval_ms (RESET-based, always
+//      computed from the current time, never drift-accumulating from the
+//      previous due time -- a drift-accumulating advance would fire a burst
+//      of catch-up renders after a long stretch of render failures, exactly
+//      what this cadence gate exists to prevent). A missing render_fn (see
+//      the setter above) clears the bit unconditionally -- there is nothing
+//      to retry -- and ALSO advances next_due_ms the same way, so the two
+//      "bit cleared" paths stay symmetric. A render_fn that returns an error
+//      leaves the bit set (retried on the next sweep_step() call rather than
+//      silently dropped) AND leaves next_due_ms untouched -- symmetric with
+//      the clear-only-on-success rule: advancing next_due_ms on a failed
+//      render would throttle a persistently-failing key into slower error
+//      recovery, a real bug this ordering avoids; each such failure
+//      increments the counter read by bb_data_http_render_fail_count() and
+//      is logged at a rate-limited cadence. The DETECT phase above is
+//      completely unaffected by any of this -- every attached STATE key's
+//      generation is still compared against every subscribed client's
+//      seen_gen every sweep, and the dirty bit is still set unconditionally
+//      on a mismatch, which is what preserves the lost-wakeup invariant;
+//      cadence gating only ever delays WHEN a dirty key is drained, never
+//      whether a generation change is detected. Once every dirty key has
+//      been drained into the queue, the queue is flushed via send_fn -- see
+//      the flush contract below (B1-1424/B1-1429).
 //
 // EVENT-kind attached keys follow a separate, append-only path within the
 // same sweep_step() call:
@@ -853,8 +907,11 @@ uint32_t bb_data_http_client_dropped_count(const bb_data_http_client_t *c);
 
 #ifdef BB_DATA_HTTP_TESTING
 // Test-only: releases every client, clears the attach table, clears the
-// describe table, clears the installed seams, and resets init state to
-// uninitialized.
+// describe table, clears the installed seams, resets init state to
+// uninitialized, and (B1-1124 PR-1) disables and zeroes the mock clock
+// installed via bb_data_http_clock_set_for_test()/
+// bb_data_http_clock_advance_for_test() -- a leaked mock clock across tests
+// could otherwise make a broken cadence gate look correct by coincidence.
 void bb_data_http_reset_for_test(void);
 #endif
 

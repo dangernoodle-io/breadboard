@@ -20,9 +20,48 @@ extern "C" {
 // ATTACH-TABLE index (0..BB_DATA_HTTP_MAX_ATTACH-1), NOT by bb_data binding
 // index -- this component never sees bb_data binding indices, only
 // attach-table slots it owns itself.
+// next_due_ms (B1-1124 PR-1, per-(consumer,key) cadence gating): the next
+// bb_clock_now_ms() value at or after which attach index k's dirty bit is
+// allowed to actually render for THIS client -- see
+// bb_data_http_sweep_step()'s drain-phase doc (bb_data_http.h) for the full
+// gate/advance contract. Indexed identically to seen_gen above (attach-table
+// index, not bb_data binding index). Only ever consulted/advanced for a key
+// whose attach-time min_interval_ms is nonzero -- see
+// bb_data_http_attach_cfg_t's own doc (bb_data_http.h); a min_interval_ms==0
+// key never reads or writes its own slot here.
+//
+// never_rendered_mask (B1-1124 PR-1 review fix): bit k set means attach
+// index k has NEVER been successfully rendered for this client -- a sibling
+// bitmask to dirty_mask above, NOT a numeric sentinel value stashed inside
+// next_due_ms itself. poll_alloc() (bb_data_http_common.c) sets this to
+// all-1s (~0u) on allocation; the drain phase's due-check treats bit k set
+// as unconditionally due regardless of next_due_ms[k]'s value, and clears
+// it the same place next_due_ms[k] is first advanced (both the render-
+// success path and the no-render_fn degrade-gracefully path -- symmetric,
+// same discipline as dirty_mask's own clear-only-on-success rule).
+//
+// WHY NOT next_due_ms[k]==0 AS THE SENTINEL (rejected, review-caught real
+// bug in an earlier revision of this PR): next_due_ms is compared against
+// `now` via the signed-difference idiom (int32_t)(next_due_ms[k] - now).
+// Reading 0 as "always due" is only true for `now` values in the LOWER half
+// of the uint32 range (now <= 2^31, i.e. the first ~24.855 days of a
+// 49.7-day bb_clock_now_ms() cycle) -- for `now` in the UPPER half
+// (uptime > ~24.855 days), (int32_t)(0 - now) is POSITIVE, so the gate
+// reads a genuinely-fresh, never-rendered client as "not due" for up to
+// ~24.85 days. This is not a narrow edge case: it is exactly HALF of every
+// clock cycle, and it silently breaks the fresh-render-on-connect guarantee
+// (bb_data_http_attach_cfg_t's own doc, bb_data_http.h) documented for
+// bb_data_http_client_acquire() -- an entirely realistic scenario for a
+// long-uptime board. This field exists specifically so no numeric value of
+// next_due_ms is ever overloaded as a "no due time has ever been set"
+// sentinel against a wrapping clock -- the mask is immune to the clock's
+// value entirely, mirroring dirty_mask's own bitmask idiom already used in
+// this same struct.
 typedef struct {
     uint32_t dirty_mask;
     uint32_t seen_gen[BB_DATA_HTTP_MAX_ATTACH];
+    uint32_t next_due_ms[BB_DATA_HTTP_MAX_ATTACH];
+    uint32_t never_rendered_mask;
 } bb_data_http_poll_state_t;
 
 // EVENT (push) bookkeeping, split out of bb_data_http_client_t (B1-1447,
@@ -310,6 +349,32 @@ uint32_t bb_data_http_client_dirty_mask_for_test(const bb_data_http_client_t *c)
 // Returns client `c`'s recorded state_seen_gen for attach index `idx`.
 // Returns 0 if `c` is NULL or idx is out of range.
 uint32_t bb_data_http_client_seen_gen_for_test(const bb_data_http_client_t *c, size_t idx);
+
+// B1-1124 PR-1: returns client `c`'s recorded poll->next_due_ms for attach
+// index `idx`. Returns 0 if `c`, `c->poll`, or idx is out of range.
+uint32_t bb_data_http_client_next_due_ms_for_test(const bb_data_http_client_t *c, size_t idx);
+
+// B1-1124 PR-1 review fix: returns client `c`'s poll->never_rendered_mask
+// (see that field's own doc, this header) -- lets a test assert the
+// never-rendered bit for a given attach index directly, independent of the
+// wrapping-clock-dependent next_due_ms value. Returns 0 if `c` or `c->poll`
+// is NULL.
+uint32_t bb_data_http_client_never_rendered_mask_for_test(const bb_data_http_client_t *c);
+
+// B1-1124 PR-1: installs a mock clock for bb_data_http_common.c's cadence
+// gate to read instead of bb_clock_now_ms() -- see bb_clock.h's documented
+// per-component-mock convention. Overwrites the mock time and marks it
+// enabled (once enabled, the mock stays authoritative until
+// bb_data_http_reset_for_test() clears it -- there is no way back to the
+// real clock mid-test, mirroring bb_fan_pid_set_clock()'s own install-once
+// test convention).
+void bb_data_http_clock_set_for_test(uint32_t ms);
+
+// B1-1124 PR-1: advances the mock clock installed by
+// bb_data_http_clock_set_for_test() (or enables it at 0 + delta if not yet
+// enabled) by `delta_ms`. Wrapping-safe: uint32_t addition wraps exactly
+// like the real clock would, so this can be used to drive a wraparound test.
+void bb_data_http_clock_advance_for_test(uint32_t delta_ms);
 
 // Returns the number of entries currently queued in client `c`'s outbound
 // bb_queue. Returns 0 if `c` is NULL.

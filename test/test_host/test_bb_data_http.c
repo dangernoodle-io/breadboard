@@ -2542,6 +2542,374 @@ void test_bb_data_http_sweep_step_render_failure_retries_on_next_sweep(void)
 }
 
 // ---------------------------------------------------------------------------
+// Per-(consumer,key) cadence gating (B1-1124 PR-1): min_interval_ms throttles
+// the DRAIN phase only -- detect stays byte-for-byte unchanged (every
+// subscribed client's seen_gen still advances every sweep this key's
+// generation changes; the dirty bit is still set unconditionally on a
+// mismatch). Every delta below is comfortably larger than one
+// min_interval_ms (never t=0) so a flipped signed-diff comparison direction
+// would NOT look identical to the correct one.
+// ---------------------------------------------------------------------------
+
+// min_interval_ms==0 (the default) must render every sweep the key is
+// dirty, byte-for-byte the same as every existing consumer that never sets
+// this field -- proves the cadence gate is genuinely opt-in.
+void test_bb_data_http_cadence_zero_min_interval_renders_every_sweep(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_clock_set_for_test(0);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "k1", .topic = "topic.a", .min_interval_ms = 0});
+    fake_gen_set("k1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
+    bb_data_http_sweep_step();  // fresh-render-on-connect
+    bb_data_http_host_reset();
+    s_render_call_count = 0;
+
+    for (int i = 0; i < 3; i++) {
+        fake_gen_bump("k1");
+        bb_data_http_clock_advance_for_test(1);  // barely any time passes
+        bb_data_http_sweep_step();
+        TEST_ASSERT_EQUAL_INT(i + 1, s_render_call_count);
+    }
+}
+
+// min_interval_ms=5000: advance 1s x4 -> NO render (still throttled); advance
+// to 5s total -> EXACTLY ONE render (the deferred one, not a burst).
+void test_bb_data_http_cadence_gate_blocks_until_due_then_renders_once(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_clock_set_for_test(0);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "k1", .topic = "topic.a", .min_interval_ms = 5000});
+    fake_gen_set("k1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
+    bb_data_http_sweep_step();  // fresh-render-on-connect: due (next_due_ms==0), renders, next_due_ms -> 5000
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(5000u, bb_data_http_client_next_due_ms_for_test(c, 0));
+    bb_data_http_host_reset();
+    s_render_call_count = 0;
+
+    fake_gen_bump("k1");  // dirty again, but not due for another 5000ms
+
+    for (int i = 0; i < 4; i++) {
+        bb_data_http_clock_advance_for_test(1000);
+        bb_data_http_sweep_step();
+        TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
+        TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_dirty_mask_for_test(c));  // still dirty, not dropped
+    }
+
+    bb_data_http_clock_advance_for_test(1000);  // now at 5000 total -- due
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));
+}
+
+// A fresh client's poll->never_rendered_mask bit is set (poll_alloc(),
+// see that field's own doc -- bb_data_http_internal.h), which
+// unconditionally short-circuits the due-check regardless of
+// next_due_ms[k]'s numeric value -- so fresh-render-on-connect is
+// unaffected by a nonzero min_interval_ms even before any sweep_step() has
+// ever run for this key. LOW-clock half of the cycle (`now` well under
+// 2^31, i.e. uptime well under ~24.855 days) -- see the HIGH-clock sibling
+// below for the other half, which a next_due_ms==0-only sentinel (the
+// review-caught bug in an earlier revision of this PR) got wrong.
+void test_bb_data_http_cadence_fresh_client_renders_immediately_on_connect_low_clock(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_clock_set_for_test(1000);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "k1", .topic = "topic.a", .min_interval_ms = 60000});
+    fake_gen_set("k1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_never_rendered_mask_for_test(c) & 1u);
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_never_rendered_mask_for_test(c) & 1u);  // cleared on first render
+}
+
+// HIGH-clock half of the cycle (`now` > 2^31, i.e. uptime > ~24.855 days --
+// half of every ~49.7-day bb_clock_now_ms() cycle, NOT a narrow edge case).
+// A next_due_ms[k]==0-only sentinel (rejected design, review-caught real
+// bug: (int32_t)(0 - now) is POSITIVE for any `now` in this half, so a
+// genuinely-fresh client would be read as "not due" for up to ~24.85 days)
+// would FAIL this test; never_rendered_mask does not, because it never
+// consults next_due_ms[k]'s value at all for a key that has not yet
+// rendered.
+void test_bb_data_http_cadence_fresh_client_renders_immediately_on_connect_high_clock(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_clock_set_for_test(3000000000u);  // comfortably > 2^31 (2147483648)
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "k1", .topic = "topic.a", .min_interval_ms = 60000});
+    fake_gen_set("k1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_never_rendered_mask_for_test(c) & 1u);
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_never_rendered_mask_for_test(c) & 1u);  // cleared on first render
+}
+
+// Real (unmocked) bb_clock_now_ms() -- deterministic against the
+// never_rendered_mask fix because that fix makes the due-check for a
+// never-rendered key independent of the clock's value entirely, unlike the
+// rejected next_due_ms==0-sentinel design this replaces (which was
+// genuinely flaky here: whether the host's actual CLOCK_MONOTONIC offset
+// landed in the upper or lower half of the uint32 range determined pass/
+// fail). This is the equivalent of the flaky test dropped during
+// development -- restored because the fix makes it safe to keep.
+void test_bb_data_http_cadence_fresh_client_renders_immediately_on_connect_real_clock(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    // No mock clock installed -- now_ms() falls through to the real
+    // bb_clock_now_ms(), whatever value the host's CLOCK_MONOTONIC happens
+    // to report right now.
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "k1", .topic = "topic.a", .min_interval_ms = 60000});
+    fake_gen_set("k1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));
+}
+
+// A render failure while due must leave next_due_ms UNCHANGED (never
+// advanced) so the key retries on the very next sweep at the full tick
+// rate, rather than being cadence-throttled into slower error recovery.
+void test_bb_data_http_cadence_render_failure_while_due_leaves_next_due_ms_unchanged_and_retries(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_clock_set_for_test(0);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "k1", .topic = "topic.a", .min_interval_ms = 5000});
+    fake_gen_set("k1", 1);
+
+    bb_data_http_set_render_fn(failing_render_fn, NULL);
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect: due, but render_fn fails
+
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_dirty_mask_for_test(c));  // still dirty
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_next_due_ms_for_test(c, 0));  // UNCHANGED
+
+    bb_data_http_clock_advance_for_test(10);  // barely any time -- still well under min_interval_ms
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_next_due_ms_for_test(c, 0));  // still UNCHANGED
+
+    // Retried on this very next sweep -- NOT throttled -- once render_fn
+    // succeeds.
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));
+    TEST_ASSERT_EQUAL_UINT32(5010u, bb_data_http_client_next_due_ms_for_test(c, 0));  // now(10) + interval(5000)
+}
+
+// Loud attach-time guard, mirroring the existing snap_size guard pattern:
+// an over-cap min_interval_ms is rejected (key NOT attached) rather than
+// silently accepted -- see CONFIG_BB_DATA_HTTP_MIN_INTERVAL_MAX_MS's own
+// Kconfig help text.
+void test_bb_data_http_cadence_attach_over_cap_min_interval_rejected(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
+                       bb_data_http_attach(&(bb_data_http_attach_cfg_t){
+                           .key = "k1", .topic = "topic.a", .min_interval_ms = 86400001u}));
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_attach_count());
+}
+
+// Mirrors test_bb_data_http_attach_sized_oversized_snap_size_null_key_does_not_crash's
+// NULL-key defensive-log coverage for the sibling min_interval_ms guard.
+void test_bb_data_http_cadence_attach_over_cap_min_interval_null_key_does_not_crash(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
+                       bb_data_http_attach(&(bb_data_http_attach_cfg_t){
+                           .key = NULL, .topic = "t", .min_interval_ms = 86400001u}));
+}
+
+// The "no render seam installed" degrade-gracefully branch must ALSO
+// advance next_due_ms when min_interval_ms is nonzero, symmetric with the
+// render-success path -- see bb_data_http_poll_state_t's own doc.
+void test_bb_data_http_cadence_no_render_fn_advances_next_due_ms(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    // no render_fn installed
+    bb_data_http_clock_set_for_test(0);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "k1", .topic = "topic.a", .min_interval_ms = 5000});
+    fake_gen_set("k1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);  // fresh-render-on-connect: due
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_never_rendered_mask_for_test(c) & 1u);
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));  // cleared unconditionally
+    TEST_ASSERT_EQUAL_UINT32(5000u, bb_data_http_client_next_due_ms_for_test(c, 0));  // still advanced
+    // B1-1124 PR-1 review fix: the no-render_fn branch must ALSO clear the
+    // never-rendered bit, symmetric with how it already advances
+    // next_due_ms -- an asymmetry here recreates the same class of bug this
+    // review fix closes (a mutation that drops just this clear survives
+    // every OTHER assertion in this suite; this line is what catches it).
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_never_rendered_mask_for_test(c) & 1u);
+
+    // Proves the bit (not just next_due_ms) is what a LATER render_fn
+    // install actually gates on: with no render_fn installed, dirty_mask
+    // clears unconditionally every sweep regardless of due status (nothing
+    // to retry, by design -- see the branch's own comment above), so this
+    // step installs a render_fn, re-dirties well before the 5000ms due
+    // time, and confirms the gate now genuinely throttles. A leaked
+    // never_rendered bit would render this key immediately here instead
+    // (the exact bug this review fix closes).
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_clock_advance_for_test(10);
+    fake_gen_bump("k1");
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());  // gated -- not due yet
+    TEST_ASSERT_EQUAL_UINT32(1u, bb_data_http_client_dirty_mask_for_test(c));  // still dirty, retried next sweep
+}
+
+// Drives now_ms()'s real bb_clock_now_ms() fallback (B1-1124 PR-1) at least
+// once -- every other cadence test above installs the mock clock; this one
+// deliberately does not, proving the mock-disabled path is reachable and
+// does not crash. Not asserting due/not-due here (that depends on the
+// host's actual monotonic clock offset, unbounded -- see
+// bb_data_http_poll_state_t's own doc for the narrow near-wrap exception
+// this avoids relying on).
+void test_bb_data_http_cadence_gate_uses_real_clock_when_mock_disabled(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "k1", .topic = "topic.a", .min_interval_ms = 1});
+    fake_gen_set("k1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
+
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_active_client_count());
+}
+
+// A leaked mock clock across tests could make a broken cadence gate look
+// correct by coincidence -- bb_data_http_reset_for_test() must clear both
+// the mock-enabled flag AND the stored mock value, not just one of the two.
+void test_bb_data_http_cadence_reset_for_test_clears_mock_clock(void)
+{
+    reset_all();
+    bb_data_http_clock_set_for_test(4000000000u);  // a large, easily-distinguished stale value
+
+    reset_all();  // bb_data_http_reset_for_test() runs inside here -- the function under test
+
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "k1", .topic = "topic.a", .min_interval_ms = 1000});
+    fake_gen_set("k1", 1);
+
+    // If the mock clock had leaked, now_ms() would still return
+    // 4000000000 here; instead, re-enable it fresh at a known small value
+    // to prove the module's own copy was actually zeroed by reset (an
+    // un-zeroed s_mock_clock_ms would add this delta on TOP of the stale
+    // 4000000000 value instead of starting from 0).
+    bb_data_http_clock_advance_for_test(500);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
+    bb_data_http_sweep_step();
+
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(1500u, bb_data_http_client_next_due_ms_for_test(c, 0));  // 500 + 1000, NOT 4000001500
+}
+
+// Wraparound for an ALREADY-ARMED (nonzero, previously-rendered)
+// next_due_ms[k]: the drain phase's due-check must keep working correctly
+// across a genuine uint32_t clock wrap, exactly like every other
+// signed-difference comparison in this file (e.g. drain_client_events()'s
+// EVENT-cursor comparison). This does NOT cover the never-rendered
+// sentinel ambiguity -- see
+// test_bb_data_http_cadence_fresh_client_renders_immediately_on_connect_high_clock
+// for that; next_due_ms here is armed to 1000 by an initial successful
+// render before the wrap is exercised, so never_rendered_mask's bit is
+// already clear for the whole rest of this test.
+void test_bb_data_http_cadence_armed_next_due_wraparound_safe(void)
+{
+    reset_all();
+    bb_data_http_init(NULL);
+    bb_data_http_set_generation_fn(fake_generation_fn, NULL);
+    bb_data_http_set_render_fn(fake_render_fn, NULL);
+    bb_data_http_host_install_send();
+    bb_data_http_clock_set_for_test(0);
+    bb_data_http_attach(&(bb_data_http_attach_cfg_t){.key = "k1", .topic = "topic.a", .min_interval_ms = 1000});
+    fake_gen_set("k1", 1);
+
+    bb_data_http_client_t *c = NULL;
+    bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
+    bb_data_http_sweep_step();  // fresh-render-on-connect at t=0 -- next_due_ms -> 1000
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());
+    TEST_ASSERT_EQUAL_UINT32(1000u, bb_data_http_client_next_due_ms_for_test(c, 0));
+    bb_data_http_host_reset();
+    s_render_call_count = 0;
+
+    fake_gen_bump("k1");  // dirty again
+
+    bb_data_http_clock_set_for_test(UINT32_MAX - 200);  // 200ms before the uint32 wrap
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT(0, bb_data_http_host_frame_count());  // not due -- ~1200ms of true time still remain
+
+    bb_data_http_clock_advance_for_test(1300);  // wraps: (UINT32_MAX - 200) + 1300 -> 1099
+    bb_data_http_sweep_step();
+    TEST_ASSERT_EQUAL_UINT(1, bb_data_http_host_frame_count());  // now due -- the wrap did not break the gate
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_dirty_mask_for_test(c));
+    TEST_ASSERT_EQUAL_UINT32(1099u + 1000u, bb_data_http_client_next_due_ms_for_test(c, 0));
+}
+
+// ---------------------------------------------------------------------------
 // Detect-phase generation_fn failure (bb_data_http_sweep_step()'s detect
 // loop): a failing generation_fn must be skipped entirely for that key --
 // no dirty bit, no poll->seen_gen update, no render call -- rather than
@@ -2755,8 +3123,10 @@ void test_bb_data_http_subscribe_mask_event_only_client_state_seen_gen_stays_gat
     fake_gen_bump("sk3");
     bb_data_http_sweep_step();
 
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_never_rendered_mask_for_test(push_only));  // B1-1124 PR-1 review fix: c->poll == NULL
     for (size_t k = 0; k < 3; k++) {
         TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_seen_gen_for_test(push_only, k));
+        TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_next_due_ms_for_test(push_only, k));  // B1-1124 PR-1: c->poll == NULL
     }
     // the ALL client isn't over-skipped -- its seen_gen tracks the bumped
     // generations (2, matching each fake_gen_bump() above).
@@ -3058,6 +3428,8 @@ void test_bb_data_http_for_test_helpers_defend_against_null_and_out_of_range(voi
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_event_cursor_for_test(NULL));
     TEST_ASSERT_FALSE(bb_data_http_client_pending_release_for_test(NULL));
     TEST_ASSERT_FALSE(bb_data_http_client_warned_no_send_fn_for_test(NULL));  // B1-1452
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_next_due_ms_for_test(NULL, 0));  // B1-1124 PR-1
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_never_rendered_mask_for_test(NULL));  // B1-1124 PR-1 review fix
     bb_data_http_client_request_release(NULL);  // no-op, must not crash
     // B1-1449: before init() (or after reset_for_test(), as here) the shared
     // EVENT ring does not exist yet -- the ring-not-created branch.
@@ -3067,6 +3439,7 @@ void test_bb_data_http_for_test_helpers_defend_against_null_and_out_of_range(voi
     bb_data_http_client_t *c = NULL;
     bb_data_http_client_acquire(&(bb_data_http_client_cfg_t){0}, &c);
     TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_seen_gen_for_test(c, BB_DATA_HTTP_MAX_ATTACH));
+    TEST_ASSERT_EQUAL_UINT32(0u, bb_data_http_client_next_due_ms_for_test(c, BB_DATA_HTTP_MAX_ATTACH));  // B1-1124 PR-1
 }
 
 // ---------------------------------------------------------------------------
