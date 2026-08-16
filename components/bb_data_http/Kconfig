@@ -247,4 +247,34 @@ config BB_DATA_HTTP_RENDER_SCRATCH_BYTES
         BB_ERR_NO_SPACE, not a silent forever-failing render) if a future
         binding's bb_data_http_attach_cfg_t.snap_size field exceeds this.
 
+config BB_DATA_HTTP_ATTACH_DEFAULT_MIN_INTERVAL_MS
+    int "Suggested default min_interval_ms for bb_data_http_attach() call sites"
+    default 0
+    range 0 86400000
+    help
+        B1-1124 PR-1: deliberately NOT consumed inside
+        bb_data_http_attach() itself -- this option exists only as a
+        literal for a composition-root call site to reference explicitly
+        when populating bb_data_http_attach_cfg_t's own min_interval_ms
+        field, never an implicit substitute for an omitted one. 0 must
+        stay unambiguously "render every sweep this key is dirty" inside
+        that cfg field (see its own doc, bb_data_http.h) -- it cannot also
+        mean "unset, substitute this Kconfig default" without reintroducing
+        the exact zero-default-ambiguity trap KB 619 warns about. Do not
+        wire this into bb_data_http_attach() as an implicit fallback.
+
+config BB_DATA_HTTP_MIN_INTERVAL_MAX_MS
+    int "Max allowed bb_data_http_attach() min_interval_ms (ms)"
+    default 86400000
+    range 60000 86400000
+    help
+        B1-1124 PR-1: bb_data_http_attach() rejects (BB_ERR_NO_SPACE,
+        ESP_LOGE-level "attach-time fail loud" log, key NOT attached) a
+        cfg->min_interval_ms exceeding this cap -- mirrors the existing
+        BB_DATA_HTTP_RENDER_SCRATCH_BYTES loud-guard pattern. Keeps the
+        true distance between `now` and a cadence-gated key's next_due_ms
+        under INT32_MAX (~24.85 days) so the drain phase's signed-
+        difference wraparound-safe due-check
+        (bb_data_http_sweep_step()) stays valid.
+
 endmenu

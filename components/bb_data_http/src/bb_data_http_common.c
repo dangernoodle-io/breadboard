@@ -17,6 +17,7 @@
 #include "bb_data_http.h"
 #include "bb_data_http_internal.h"
 
+#include "bb_clock.h"
 #include "bb_lock.h"
 #include "bb_lock_once.h"
 #include "bb_log.h"
@@ -28,6 +29,25 @@
 #include <string.h>
 
 static const char *TAG = "bb_data_http";
+
+// ---------------------------------------------------------------------------
+// Clock (B1-1124 PR-1). Production path is bb_clock_now_ms() (bb_core,
+// already a REQUIRES); the per-component mock guard below follows bb_clock.h's
+// documented convention (see its own doc comment) and bb_fan_pid_set_clock()'s
+// precedent -- a settable mock so cadence-gate host tests are deterministic.
+// ---------------------------------------------------------------------------
+#ifdef BB_DATA_HTTP_TESTING
+static bool     s_mock_clock_enabled;
+static uint32_t s_mock_clock_ms;
+#endif
+
+static uint32_t now_ms(void)
+{
+#ifdef BB_DATA_HTTP_TESTING
+    if (s_mock_clock_enabled) return s_mock_clock_ms;
+#endif
+    return bb_clock_now_ms();
+}
 
 // ---------------------------------------------------------------------------
 // Kconfig -> C-default bridges. Every symbol here is a plain int Kconfig
@@ -84,6 +104,15 @@ static const char *TAG = "bb_data_http";
 #ifndef CONFIG_BB_DATA_HTTP_SEND_FAIL_MAX
 #define CONFIG_BB_DATA_HTTP_SEND_FAIL_MAX 3
 #endif
+// B1-1124 PR-1: caps a single attach()'s cfg->min_interval_ms -- see the
+// loud attach-time guard below and bb_data_http_attach_cfg_t's own doc
+// (bb_data_http.h). CONFIG_BB_DATA_HTTP_ATTACH_DEFAULT_MIN_INTERVAL_MS is
+// deliberately NOT bridged/consumed here at all -- see its own Kconfig help
+// text for why it must stay a literal composition-root call sites reference
+// explicitly, never an implicit substitute for an omitted cfg field.
+#ifndef CONFIG_BB_DATA_HTTP_MIN_INTERVAL_MAX_MS
+#define CONFIG_BB_DATA_HTTP_MIN_INTERVAL_MAX_MS 86400000
+#endif
 // B1-1447: both default to CONFIG_BB_DATA_HTTP_MAX_CLIENTS (never a bare
 // literal) so worst-case memory stays byte-identical to before this pool
 // split -- see the Kconfig help text's identical rationale.
@@ -109,11 +138,17 @@ static const char *TAG = "bb_data_http";
 // (mirrors bb_data.c's own binding-table shape at the same ~8-entry scale).
 // ---------------------------------------------------------------------------
 
+// No pinned sizeof assert on this struct (unlike struct bb_data_http_client,
+// bb_data_http_internal.h) -- it is not a per-client hot-path allocation, and
+// no prior PR has needed the shrink-proof discipline here.
 typedef struct {
     bool                        in_use;
     char                        key[BB_DATA_HTTP_KEY_MAX];
     char                        topic[BB_DATA_HTTP_TOPIC_MAX];
     bb_data_http_replay_kind_t  kind;
+    // B1-1124 PR-1: 0 -- "render every sweep this key is dirty" -- see
+    // bb_data_http_attach_cfg_t's own doc (bb_data_http.h).
+    uint32_t                    min_interval_ms;
 } attach_slot_t;
 
 static attach_slot_t s_attach[BB_DATA_HTTP_MAX_ATTACH];
@@ -163,6 +198,18 @@ bb_err_t bb_data_http_attach(const bb_data_http_attach_cfg_t *cfg)
         return BB_ERR_NO_SPACE;
     }
 
+    // B1-1124 PR-1: mirrors the snap_size guard above -- keeps the true
+    // distance the drain phase's signed-difference wraparound-safe due-check
+    // relies on (bb_data_http_sweep_step()) well under INT32_MAX (~24.85
+    // days). See bb_data_http_attach_cfg_t's own min_interval_ms doc
+    // (bb_data_http.h).
+    if (cfg->min_interval_ms > (uint32_t)CONFIG_BB_DATA_HTTP_MIN_INTERVAL_MAX_MS) {
+        bb_log_e(TAG, "attach('%s'): min_interval_ms=%" PRIu32 " exceeds cap=%u -- not attaching",
+                cfg->key ? cfg->key : "(null)", cfg->min_interval_ms,
+                (unsigned)CONFIG_BB_DATA_HTTP_MIN_INTERVAL_MAX_MS);
+        return BB_ERR_NO_SPACE;
+    }
+
     const char *key = cfg->key;
     const char *topic = cfg->topic;
     if (!key || !key[0] || !topic || !topic[0]) return BB_ERR_INVALID_ARG;
@@ -182,7 +229,8 @@ bb_err_t bb_data_http_attach(const bb_data_http_attach_cfg_t *cfg)
     }
 
     bb_strlcpy(slot->topic, topic, sizeof(slot->topic));
-    slot->kind = cfg->kind;
+    slot->kind             = cfg->kind;
+    slot->min_interval_ms  = cfg->min_interval_ms;
     return BB_OK;
 }
 
@@ -503,6 +551,11 @@ static bb_data_http_poll_state_t *poll_alloc(void)
         if (!s_poll_in_use[i]) {
             s_poll_in_use[i] = true;
             memset(&s_poll_states[i], 0, sizeof(s_poll_states[i]));
+            // B1-1124 PR-1 review fix: every attach index starts
+            // "never rendered" -- see never_rendered_mask's own doc
+            // (bb_data_http_internal.h) for why this is a dedicated bitmask
+            // rather than an overloaded next_due_ms==0 sentinel.
+            s_poll_states[i].never_rendered_mask = ~0u;
             return &s_poll_states[i];
         }
     }
@@ -1312,24 +1365,87 @@ void bb_data_http_sweep_step(void)
                 uint32_t bit = (1u << k);
                 if ((c->poll->dirty_mask & bit) == 0) continue;
 
-                if (!s_render_fn) {
-                    // No render seam installed -- nothing to retry, so
-                    // degrade gracefully by clearing (see
-                    // bb_data_http_set_render_fn()).
-                    c->poll->dirty_mask &= ~bit;
-                    continue;
-                }
-
+                // Slot lookup moved ahead of the no-render_fn branch below
+                // (B1-1124 PR-1): both branches now need slot->min_interval_ms
+                // -- the no-render_fn branch to advance next_due_ms
+                // symmetrically, this one to gate on it. Behaviorally inert
+                // for the registry-lookup-failure case itself (still just a
+                // `continue`, dirty bit left untouched either way) -- see the
+                // LCOV_EXCL_BR_LINE comment below, unchanged from before this
+                // reordering.
                 bb_registry_entry_t e;
                 if (bb_registry_get_by_index(&s_attach_registry, k, &e) != BB_OK) continue;  // LCOV_EXCL_BR_LINE -- k < attach_count by construction
                 attach_slot_t *slot = (attach_slot_t *)e.value;
+
+                if (!s_render_fn) {
+                    // No render seam installed -- nothing to retry, so
+                    // degrade gracefully by clearing (see
+                    // bb_data_http_set_render_fn()). Also advance
+                    // next_due_ms AND clear the never_rendered bit exactly
+                    // as the render-success path below would, so the two
+                    // "bit cleared" paths stay symmetric (see
+                    // bb_data_http_poll_state_t's next_due_ms/
+                    // never_rendered_mask doc, bb_data_http_internal.h) --
+                    // a later render_fn install then still gates correctly
+                    // against this advanced due time rather than firing
+                    // immediately on stale state.
+                    c->poll->dirty_mask &= ~bit;
+                    if (slot->min_interval_ms > 0) {
+                        c->poll->next_due_ms[k]        = now_ms() + slot->min_interval_ms;
+                        c->poll->never_rendered_mask  &= ~bit;
+                    }
+                    continue;
+                }
+
+                // Cadence gate (B1-1124 PR-1), immediately before the
+                // render_fn call -- see bb_data_http_sweep_step()'s own doc
+                // (bb_data_http.h) for the full contract. Detect (above) is
+                // completely unaffected: the dirty bit was already set
+                // unconditionally, so a not-yet-due key simply stays dirty
+                // and is re-checked (still at the full tick rate) on every
+                // subsequent sweep until it becomes due -- the lost-wakeup
+                // invariant never depends on WHEN a dirty key drains, only
+                // on the dirty bit having been set at all.
+                //
+                // never_rendered_mask short-circuits the whole due-check
+                // (B1-1124 PR-1 review fix): a key this client has NEVER
+                // successfully rendered is unconditionally due, regardless
+                // of next_due_ms[k]'s numeric value -- see that field's own
+                // doc (bb_data_http_internal.h) for why next_due_ms==0 alone
+                // cannot safely mean "due" against a wrapping clock (it only
+                // holds for the lower half of every ~49.7-day cycle; for the
+                // upper half, a genuinely-fresh client would otherwise be
+                // read as "not due" for up to ~24.85 days, silently breaking
+                // fresh-render-on-connect).
+                if (slot->min_interval_ms > 0 && (c->poll->never_rendered_mask & bit) == 0) {
+                    // Wraparound-safe signed-difference idiom (matches
+                    // drain_client_events()'s identical EVENT-cursor
+                    // comparison above): correct across a uint32_t
+                    // bb_clock_now_ms() wrap as long as the true distance
+                    // between next_due_ms[k] and now never exceeds
+                    // INT32_MAX -- guaranteed by CONFIG_BB_DATA_HTTP_
+                    // MIN_INTERVAL_MAX_MS's own cap, enforced loudly at
+                    // attach time (bb_data_http_attach()). Only reached once
+                    // this key has rendered at least once for this client
+                    // (never_rendered_mask's bit cleared) -- see above.
+                    if ((int32_t)(c->poll->next_due_ms[k] - now_ms()) > 0) {
+                        // Not due yet -- dirty bit STAYS SET, retried next
+                        // sweep at the full tick rate.
+                        continue;
+                    }
+                }
 
                 char     buf[CONFIG_BB_DATA_HTTP_OUTBOUND_ENTRY_MAX];
                 size_t   out_len   = 0;
                 bb_err_t render_rc = s_render_fn(slot->key, buf, sizeof(buf), &out_len, s_render_ctx);
                 if (render_rc != BB_OK) {
                     // Leave the bit set: this key is retried on the next
-                    // sweep_step() call rather than silently dropped. Rate-limit
+                    // sweep_step() call rather than silently dropped.
+                    // next_due_ms is LEFT UNTOUCHED (B1-1124 PR-1) -- same
+                    // clear-only-on-success discipline as the dirty bit
+                    // itself: advancing it here would throttle a
+                    // persistently-failing render into slower error
+                    // recovery, which is exactly backwards. Rate-limit
                     // the log so a persistently-failing render_fn doesn't spam
                     // it every sweep, while still making the condition
                     // observable via bb_data_http_render_fail_count().
@@ -1344,6 +1460,27 @@ void bb_data_http_sweep_step(void)
 
                 // Clear ONLY on render success -- see the doc comment above.
                 c->poll->dirty_mask &= ~bit;
+
+                // B1-1124 PR-1: advance next_due_ms ONLY on render success,
+                // symmetric with the dirty-bit clear immediately above --
+                // one discipline, not two. RESET-based (now + interval),
+                // NEVER drift-accumulating (prev_due + interval): a
+                // drift-accumulating advance would fire a burst of N
+                // catch-up renders immediately after a long stretch of
+                // render failures once success finally resumes -- the exact
+                // burst behavior this cadence gate exists to prevent.
+                // Someone will eventually "optimize" this back to
+                // prev_due + interval thinking it's more "accurate" --
+                // it is not; it reintroduces the burst. Also clears
+                // never_rendered_mask's bit -- this key has now genuinely
+                // rendered at least once for this client, so the due-check
+                // above starts consulting next_due_ms[k] for it from here
+                // on (B1-1124 PR-1 review fix, see never_rendered_mask's
+                // own doc).
+                if (slot->min_interval_ms > 0) {
+                    c->poll->next_due_ms[k]        = now_ms() + slot->min_interval_ms;
+                    c->poll->never_rendered_mask  &= ~bit;
+                }
 
                 // render_fn's own `cap` argument (sizeof(buf)) always equals the
                 // outbound queue's configured max_entry_bytes, so out_len can
@@ -1585,6 +1722,13 @@ void bb_data_http_reset_for_test(void)
     s_event_total_pushed = 0;
     s_stale_discard_count = 0;
     memset(s_event_last_gen, 0, sizeof(s_event_last_gen));
+
+    // B1-1124 PR-1: a leaked mock clock across tests could otherwise make a
+    // broken cadence gate look correct by coincidence -- see this
+    // component's clock section (top of file) and
+    // bb_data_http_clock_set_for_test()'s own doc.
+    s_mock_clock_enabled = false;
+    s_mock_clock_ms      = 0;
 }
 
 uint32_t bb_data_http_client_dirty_mask_for_test(const bb_data_http_client_t *c)
@@ -1596,6 +1740,29 @@ uint32_t bb_data_http_client_seen_gen_for_test(const bb_data_http_client_t *c, s
 {
     if (!c || !c->poll || idx >= BB_DATA_HTTP_MAX_ATTACH) return 0;
     return c->poll->seen_gen[idx];
+}
+
+uint32_t bb_data_http_client_next_due_ms_for_test(const bb_data_http_client_t *c, size_t idx)
+{
+    if (!c || !c->poll || idx >= BB_DATA_HTTP_MAX_ATTACH) return 0;
+    return c->poll->next_due_ms[idx];
+}
+
+uint32_t bb_data_http_client_never_rendered_mask_for_test(const bb_data_http_client_t *c)
+{
+    return (c && c->poll) ? c->poll->never_rendered_mask : 0;
+}
+
+void bb_data_http_clock_set_for_test(uint32_t ms)
+{
+    s_mock_clock_enabled = true;
+    s_mock_clock_ms      = ms;
+}
+
+void bb_data_http_clock_advance_for_test(uint32_t delta_ms)
+{
+    s_mock_clock_enabled = true;
+    s_mock_clock_ms += delta_ms;  // wraps exactly like the real clock would
 }
 
 size_t bb_data_http_client_outbound_count_for_test(const bb_data_http_client_t *c)
